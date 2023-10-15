@@ -17,29 +17,28 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.util.InternalQueryResult;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import org.apache.commons.lang3.StringUtils;
+import com.google.common.collect.Lists;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.StringJoiner;
+import java.util.stream.Collectors;
 
 public class HMSAnalysisTask extends BaseAnalysisTask {
     private static final Logger LOG = LogManager.getLogger(HMSAnalysisTask.class);
@@ -49,7 +48,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
     public static final String NUM_FILES = "numFiles";
     public static final String TIMESTAMP = "transient_lastDdlTime";
 
-    private static final String ANALYZE_SQL_TABLE_TEMPLATE = "INSERT INTO "
+    private static final String ANALYZE_TABLE_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
             + " SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
@@ -59,19 +58,17 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "${idxId} AS idx_id, "
             + "'${colId}' AS col_id, "
             + "NULL AS part_id, "
-            + "COUNT(1) AS row_count, "
+            + "${countExpr} AS row_count, "
             + "NDV(`${colName}`) AS ndv, "
-            + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) AS null_count, "
+            + "${nullCountExpr} AS null_count, "
             + "MIN(`${colName}`) AS min, "
             + "MAX(`${colName}`) AS max, "
             + "${dataSizeFunction} AS data_size, "
             + "NOW() "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
+            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleExpr}";
 
-    private static final String ANALYZE_SQL_PARTITION_TEMPLATE = "INSERT INTO "
-            + "${internalDB}.${columnStatTbl}"
-            + " SELECT "
-            + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
+    private static final String ANALYZE_PARTITION_TEMPLATE = " SELECT "
+            + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}', '-', ${partId}) AS id, "
             + "${catalogId} AS catalog_id, "
             + "${dbId} AS db_id, "
             + "${tblId} AS tbl_id, "
@@ -84,22 +81,22 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "MIN(`${colName}`) AS min, "
             + "MAX(`${colName}`) AS max, "
             + "${dataSizeFunction} AS data_size, "
-            + "NOW() "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
+            + "NOW() FROM `${catalogName}`.`${dbName}`.`${tblName}` where ";
 
-    private static final String ANALYZE_TABLE_COUNT_TEMPLATE = "SELECT COUNT(1) as rowCount "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
+    private static final String ANALYZE_TABLE_COUNT_TEMPLATE = "SELECT ${countExpr} as rowCount "
+            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleExpr}";
+
+    // cache stats for each partition, it would be inserted into column_statistics in a batch.
+    private final List<List<ColStatsData>> buf = new ArrayList<>();
 
     private final boolean isTableLevelTask;
-    private final boolean isSamplingPartition;
     private final boolean isPartitionOnly;
-    private final Set<String> partitionNames;
+    private Set<String> partitionNames;
     private HMSExternalTable table;
 
     public HMSAnalysisTask(AnalysisInfo info) {
         super(info);
         isTableLevelTask = info.externalTableLevelTask;
-        isSamplingPartition = info.samplingPartition;
         isPartitionOnly = info.partitionOnly;
         partitionNames = info.partitionNames;
         table = (HMSExternalTable) tbl;
@@ -114,42 +111,17 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
     }
 
     /**
-     * Get table row count and insert the result to __internal_schema.table_statistics
+     * Get table row count
      */
     private void getTableStats() throws Exception {
-        // Get table level information. An example sql for table stats:
-        // INSERT INTO __internal_schema.table_statistics VALUES
-        //   ('13055', 13002, 13038, 13055, -1, 'NULL', 5, 1686111064658, NOW())
-        Map<String, String> parameters = table.getRemoteTable().getParameters();
-        if (isPartitionOnly) {
-            for (String partId : partitionNames) {
-                StringBuilder sb = new StringBuilder();
-                sb.append(ANALYZE_SQL_PARTITION_TEMPLATE);
-                sb.append(" where ");
-                String[] splits = partId.split("/");
-                for (int i = 0; i < splits.length; i++) {
-                    String value = splits[i].split("=")[1];
-                    splits[i] = splits[i].replace(value, "\'" + value + "\'");
-                }
-                sb.append(StringUtils.join(splits, " and "));
-                Map<String, String> params = buildTableStatsParams(partId);
-                setParameterData(parameters, params);
-                List<InternalQueryResult.ResultRow> columnResult =
-                        StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                        .replace(sb.toString()));
-                String rowCount = columnResult.get(0).getColumnValue("rowCount");
-                params.put("rowCount", rowCount);
-                StatisticsRepository.persistTableStats(params);
-            }
-        } else {
-            Map<String, String> params = buildTableStatsParams(null);
-            List<InternalQueryResult.ResultRow> columnResult =
-                    StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                    .replace(ANALYZE_TABLE_COUNT_TEMPLATE));
-            String rowCount = columnResult.get(0).getColumnValue("rowCount");
-            params.put("rowCount", rowCount);
-            StatisticsRepository.persistTableStats(params);
-        }
+        Map<String, String> params = buildTableStatsParams(null);
+        List<ResultRow> columnResult =
+                StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
+                        .replace(ANALYZE_TABLE_COUNT_TEMPLATE));
+        String rowCount = columnResult.get(0).get(0);
+        Env.getCurrentEnv().getAnalysisManager()
+                .updateTableStatsStatus(
+                        new TableStatsMeta(table.getId(), Long.parseLong(rowCount), info));
     }
 
     /**
@@ -173,65 +145,100 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         //   0 AS data_size,
         //   NOW() FROM `hive`.`tpch100`.`region`
         if (isPartitionOnly) {
-            for (String partId : partitionNames) {
-                StringBuilder sb = new StringBuilder();
-                sb.append(ANALYZE_SQL_TABLE_TEMPLATE);
-                sb.append(" where ");
-                String[] splits = partId.split("/");
-                for (int i = 0; i < splits.length; i++) {
-                    String value = splits[i].split("=")[1];
-                    splits[i] = splits[i].replace(value, "\'" + value + "\'");
-                }
-                sb.append(StringUtils.join(splits, " and "));
-                Map<String, String> params = buildTableStatsParams(partId);
-                params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-                params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
-                params.put("colName", col.getName());
-                params.put("colId", info.colName);
-                params.put("dataSizeFunction", getDataSizeFunction(col));
-                StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-                String sql = stringSubstitutor.replace(sb.toString());
-                executeInsertSql(sql);
+            getPartitionNames();
+            List<String> partitionAnalysisSQLs = new ArrayList<>();
+            for (String partId : this.partitionNames) {
+                partitionAnalysisSQLs.add(generateSqlForPartition(partId));
             }
+            execSQLs(partitionAnalysisSQLs);
         } else {
             StringBuilder sb = new StringBuilder();
-            sb.append(ANALYZE_SQL_TABLE_TEMPLATE);
-            if (isSamplingPartition) {
-                sb.append(" where 1=1 ");
-                String[] splitExample = partitionNames.stream().findFirst().get().split("/");
-                int parts = splitExample.length;
-                List<String> partNames = new ArrayList<>();
-                for (String split : splitExample) {
-                    partNames.add(split.split("=")[0]);
-                }
-                List<List<String>> valueLists = new ArrayList<>();
-                for (int i = 0; i < parts; i++) {
-                    valueLists.add(new ArrayList<>());
-                }
-                for (String partId : partitionNames) {
-                    String[] partIds = partId.split("/");
-                    for (int i = 0; i < partIds.length; i++) {
-                        valueLists.get(i).add("\'" + partIds[i].split("=")[1] + "\'");
-                    }
-                }
-                for (int i = 0; i < parts; i++) {
-                    sb.append(" and ");
-                    sb.append(partNames.get(i));
-                    sb.append(" in (");
-                    sb.append(StringUtils.join(valueLists.get(i), ","));
-                    sb.append(") ");
-                }
-            }
+            sb.append(ANALYZE_TABLE_TEMPLATE);
             Map<String, String> params = buildTableStatsParams("NULL");
             params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
             params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
             params.put("colName", col.getName());
             params.put("colId", info.colName);
             params.put("dataSizeFunction", getDataSizeFunction(col));
+            params.put("nullCountExpr", getNullCountExpression());
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             String sql = stringSubstitutor.replace(sb.toString());
             executeInsertSql(sql);
         }
+    }
+
+    private void getPartitionNames() {
+        if (partitionNames == null) {
+            if (info.isAllPartition) {
+                partitionNames = table.getPartitionNames();
+            } else if (info.partitionCount > 0) {
+                partitionNames = table.getPartitionNames().stream()
+                    .limit(info.partitionCount).collect(Collectors.toSet());
+            }
+            if (partitionNames == null || partitionNames.isEmpty()) {
+                throw new RuntimeException("Not a partition table or no partition specified.");
+            }
+        }
+    }
+
+    private String generateSqlForPartition(String partId) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(ANALYZE_PARTITION_TEMPLATE);
+        String[] splits = partId.split("/");
+        for (int i = 0; i < splits.length; i++) {
+            String[] kv = splits[i].split("=");
+            sb.append(kv[0]);
+            sb.append("='");
+            sb.append(kv[1]);
+            sb.append("'");
+            if (i < splits.length - 1) {
+                sb.append(" and ");
+            }
+        }
+        Map<String, String> params = buildTableStatsParams(partId);
+        params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
+        params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+        params.put("colName", col.getName());
+        params.put("colId", info.colName);
+        params.put("dataSizeFunction", getDataSizeFunction(col));
+        return new StringSubstitutor(params).replace(sb.toString());
+    }
+
+    public void execSQLs(List<String> partitionAnalysisSQLs) throws Exception {
+        long startTime = System.currentTimeMillis();
+        LOG.debug("analyze task {} start at {}", info.toString(), new Date());
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            List<List<String>> sqlGroups = Lists.partition(partitionAnalysisSQLs, StatisticConstants.UNION_ALL_LIMIT);
+            for (List<String> group : sqlGroups) {
+                if (killed) {
+                    return;
+                }
+                StringJoiner partitionCollectSQL = new StringJoiner("UNION ALL");
+                group.forEach(partitionCollectSQL::add);
+                stmtExecutor = new StmtExecutor(r.connectContext, partitionCollectSQL.toString());
+                buf.add(stmtExecutor.executeInternalQuery()
+                        .stream().map(ColStatsData::new).collect(Collectors.toList()));
+                QueryState queryState = r.connectContext.getState();
+                if (queryState.getStateType().equals(QueryState.MysqlStateType.ERR)) {
+                    throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
+                        info.catalogName, info.dbName, info.colName, partitionCollectSQL,
+                        queryState.getErrorMessage()));
+                }
+            }
+            for (List<ColStatsData> colStatsDataList : buf) {
+                StringBuilder batchInsertSQL =
+                        new StringBuilder("INSERT INTO " + StatisticConstants.FULL_QUALIFIED_STATS_TBL_NAME
+                        + " VALUES ");
+                StringJoiner sj = new StringJoiner(",");
+                colStatsDataList.forEach(c -> sj.add(c.toSQL(true)));
+                batchInsertSQL.append(sj);
+                stmtExecutor = new StmtExecutor(r.connectContext, batchInsertSQL.toString());
+                executeWithExceptionOnFail(stmtExecutor);
+            }
+        } finally {
+            LOG.debug("analyze task {} end. cost {}ms", info, System.currentTimeMillis() - startTime);
+        }
+
     }
 
     private void executeInsertSql(String sql) throws Exception {
@@ -270,6 +277,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         commonParams.put("catalogName", catalog.getName());
         commonParams.put("dbName", db.getFullName());
         commonParams.put("tblName", tbl.getName());
+        commonParams.put("countExpr", getCountExpression());
         if (col != null) {
             commonParams.put("type", col.getType().toString());
         }
@@ -277,28 +285,39 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         return commonParams;
     }
 
-    private void setParameterData(Map<String, String> parameters, Map<String, String> params) {
-        String numRows = "";
-        String timestamp = "";
-        if (parameters.containsKey(NUM_ROWS)) {
-            numRows = parameters.get(NUM_ROWS);
+    protected String getCountExpression() {
+        if (info.samplePercent > 0) {
+            return String.format("ROUND(COUNT(1) * 100 / %d)", info.samplePercent);
+        } else {
+            return "COUNT(1)";
         }
-        if (parameters.containsKey(TIMESTAMP)) {
-            timestamp = parameters.get(TIMESTAMP);
+    }
+
+    protected String getNullCountExpression() {
+        if (info.samplePercent > 0) {
+            return String.format("ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * 100 / %d)",
+                info.samplePercent);
+        } else {
+            return "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END)";
         }
-        params.put("numRows", numRows);
-        params.put("rowCount", numRows);
-        params.put("update_time", TimeUtils.DATETIME_FORMAT.format(
-                LocalDateTime.ofInstant(Instant.ofEpochMilli(Long.parseLong(timestamp) * 1000),
-                        ZoneId.systemDefault())));
+    }
+
+    protected String getDataSizeFunction(Column column) {
+        String originFunction = super.getDataSizeFunction(column);
+        if (info.samplePercent > 0 && !isPartitionOnly) {
+            return String.format("ROUND((%s) * 100 / %d)", originFunction, info.samplePercent);
+        } else {
+            return originFunction;
+        }
     }
 
     @Override
     protected void afterExecution() {
-        if (isTableLevelTask) {
-            Env.getCurrentEnv().getStatisticsCache().refreshTableStatsSync(catalog.getId(), db.getId(), tbl.getId());
-        } else {
-            Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
+        // Table level task doesn't need to sync any value to sync stats, it stores the value in metadata.
+        // Partition only task doesn't need to refresh cached.
+        if (isTableLevelTask || isPartitionOnly) {
+            return;
         }
+        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
     }
 }

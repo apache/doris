@@ -142,8 +142,8 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -2490,7 +2490,8 @@ public class StmtExecutor {
                         planner = new NereidsPlanner(statementContext);
                         planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                     } catch (Exception e) {
-                        LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
+                        LOG.warn("Arrow Flight SQL fall back to legacy planner, because: {}",
+                                e.getMessage(), e);
                         parsedStmt = null;
                         planner = null;
                         context.getState().setNereids(false);
@@ -2502,10 +2503,9 @@ public class StmtExecutor {
                     analyze(context.getSessionVariable().toThrift());
                 }
             } catch (Exception e) {
-                throw new RuntimeException("Failed to execute internal SQL. "
-                        + Util.getRootCauseMessage(e) + " " + originStmt.toString(), e);
+                LOG.warn("Failed to run internal SQL: {}", originStmt, e);
+                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
-            planner.getFragments();
             RowBatch batch;
             coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());
@@ -2513,8 +2513,7 @@ public class StmtExecutor {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                         new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
             } catch (UserException e) {
-                throw new RuntimeException("Failed to execute internal SQL. "
-                        + " " + Util.getRootCauseMessage(e) + originStmt.toString(), e);
+                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
 
             Span queryScheduleSpan = context.getTracer()
@@ -2523,8 +2522,7 @@ public class StmtExecutor {
                 coord.exec();
             } catch (Exception e) {
                 queryScheduleSpan.recordException(e);
-                throw new RuntimeException("Failed to execute internal SQL. "
-                        + Util.getRootCauseMessage(e) + " " + originStmt.toString(), e);
+                throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
             } finally {
                 queryScheduleSpan.end();
             }
@@ -2541,21 +2539,19 @@ public class StmtExecutor {
                 }
             } catch (Exception e) {
                 fetchResultSpan.recordException(e);
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e) + " "
-                        + originStmt.toString(), e);
+                throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
             } finally {
                 fetchResultSpan.end();
             }
         } finally {
+            AuditLogHelper.logAuditLog(context, originStmt.toString(), parsedStmt, getQueryStatisticsForAuditLog(),
+                    true);
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
         }
     }
 
     private List<ResultRow> convertResultBatchToResultRows(TResultBatch batch) {
         List<String> columns = parsedStmt.getColLabels();
-        List<PrimitiveType> types = parsedStmt.getResultExprs().stream()
-                .map(e -> e.getType().getPrimitiveType())
-                .collect(Collectors.toList());
         List<ResultRow> resultRows = new ArrayList<>();
         List<ByteBuffer> rows = batch.getRows();
         for (ByteBuffer buffer : rows) {
@@ -2566,8 +2562,7 @@ public class StmtExecutor {
                 String value = queryBuffer.readStringWithLength();
                 values.add(value);
             }
-
-            ResultRow resultRow = new ResultRow(columns, types, values);
+            ResultRow resultRow = new ResultRow(values);
             resultRows.add(resultRow);
         }
         return resultRows;
@@ -2588,6 +2583,14 @@ public class StmtExecutor {
 
     public void setProxyResultSet(ShowResultSet proxyResultSet) {
         this.proxyResultSet = proxyResultSet;
+    }
+
+    public ConnectContext getContext() {
+        return context;
+    }
+
+    public OriginStatement getOriginStmt() {
+        return originStmt;
     }
 
     public String getOriginStmtInString() {
