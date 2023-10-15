@@ -103,6 +103,18 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
+    int child_count = p.get_child_count();
+    std::shared_ptr<DataQueue> data_queue;
+    if (child_count != 0) {
+        auto data_queue = create_data_queue();
+        auto& deps = info.dependencys;
+        _shared_state->data_queue = data_queue;
+        for (int i = 1; i < deps.size(); i++) {
+            auto& dep = deps[i];
+            auto* _other_shared_state = (typename UnionDependency::SharedState*)dep->shared_state();
+            _other_shared_state->data_queue = data_queue;
+        }
+    }
     // Const exprs materialized by this node. These exprs don't refer to any children.
     // Only materialized by the first fragment instance to avoid duplication.
     if (state->per_fragment_instance_idx() == 0) {

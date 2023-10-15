@@ -19,6 +19,7 @@
 
 #include <memory>
 
+#include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "vec/exec/vset_operation_node.h"
 
@@ -47,6 +48,20 @@ template class SetSourceOperatorBuilder<true>;
 template class SetSourceOperatorBuilder<false>;
 template class SetSourceOperator<true>;
 template class SetSourceOperator<false>;
+
+template <bool is_intersect>
+Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    std::shared_ptr<typename SetDependency::SharedState> ss = nullptr;
+    ss.reset(new typename SetDependency::SharedState());
+    auto& deps = info.dependencys;
+    _dependency->set_shared_state(ss);
+    for (int i = 1; i < deps.size(); i++) {
+        auto& dep = deps[i];
+        ((SetDependency*)dep)->set_shared_state(ss);
+    }
+    return Status::OK();
+}
 
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {

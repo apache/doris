@@ -671,7 +671,7 @@ struct SetSharedState {
 
     //// shared static states (shared, decided in prepare/open...)
 
-    /// init in setup_local_states
+    /// init in setup_local_state
     std::unique_ptr<vectorized::HashTableVariants> hash_table_variants; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
     std::vector<size_t> probe_key_sz;
@@ -692,7 +692,7 @@ struct SetSharedState {
     std::atomic<bool> ready_for_read = false;
 
 public:
-    /// called in setup_local_states
+    /// called in setup_local_state
     void hash_table_init() {
         if (child_exprs_lists[0].size() == 1 && (!build_not_ignore_null[0])) {
             // Single column optimization
