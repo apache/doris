@@ -615,6 +615,7 @@ terminal String
     KW_TO,
     KW_TRANSACTION,
     KW_TRASH,
+    KW_TREE,
     KW_TRIGGERS,
     KW_TRIM,
     KW_TRUE,
@@ -4478,15 +4479,19 @@ opt_builtin ::=
 
 opt_explain_options ::=
     {:
-        RESULT = new ExplainOptions(false, false);
+        RESULT = new ExplainOptions(false, false, false);
     :}
     | KW_VERBOSE
     {:
-        RESULT = new ExplainOptions(true, false);
+        RESULT = new ExplainOptions(true, false, false);
+    :}
+    | KW_TREE
+    {:
+        RESULT = new ExplainOptions(false, true, false);
     :}
     | KW_GRAPH
     {:
-        RESULT = new ExplainOptions(false, true);
+        RESULT = new ExplainOptions(false, false, true);
     :}
     ;
 
@@ -7802,6 +7807,8 @@ keyword ::=
     | KW_TIMESTAMP:id
     {: RESULT = id; :}
     | KW_TRANSACTION:id
+    {: RESULT = id; :}
+    | KW_TREE:id
     {: RESULT = id; :}
     | KW_TEXT:id
     {: RESULT = id; :}
