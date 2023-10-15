@@ -266,33 +266,12 @@ Status DataSinkOperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) 
 
 template <typename LocalStateType>
 Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
-                                                             LocalSinkStateInfo& info) {
+                                                            LocalSinkStateInfo& info) {
     auto local_state = LocalStateType::create_shared(this, state);
     state->emplace_sink_local_state(id(), local_state);
     RETURN_IF_ERROR(local_state->init(state, info));
     return Status::OK();
 }
-
-// template <>
-// Status DataSinkOperatorX<MultiCastDataStreamSinkLocalState>::setup_local_state(
-//         RuntimeState* state, LocalSinkStateInfo& infos) {
-//     auto multi_cast_data_streamer =
-//             static_cast<MultiCastDataStreamSinkOperatorX*>(this)->create_multi_cast_data_streamer();
-//     for (int i = 0; i < infos.size(); i++) {
-//         auto& info = infos[i];
-//         if (i == 0) {
-//             auto local_state = MultiCastDataStreamSinkLocalState::create_shared(this, state);
-//             state->emplace_sink_local_state(id(), local_state);
-//             RETURN_IF_ERROR(local_state->init(state, info));
-//             local_state->_shared_state->multi_cast_data_streamer = multi_cast_data_streamer;
-//         } else {
-//             auto* _shared_state =
-//                     (typename MultiCastDependency::SharedState*)info.dependency->shared_state();
-//             _shared_state->multi_cast_data_streamer = multi_cast_data_streamer;
-//         }
-//     }
-//     return Status::OK();
-// }
 
 template <typename LocalStateType>
 void DataSinkOperatorX<LocalStateType>::get_dependency(vector<DependencySPtr>& dependency) {
