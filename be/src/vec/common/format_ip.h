@@ -130,7 +130,7 @@ inline bool parseIPv4(T*& src, EOFfunction eof, unsigned char* dst, int32_t firs
     for (; true; offset -= 8, ++src) {
         if (eof()) return false;
 
-        int64_t value = 0;
+        uint32_t value = 0;
         size_t len = 0;
         while (is_numeric_ascii(*src) && len <= 3) {
             value = value * 10 + (*src - '0');
