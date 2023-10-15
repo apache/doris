@@ -139,6 +139,7 @@ public class FeNameFormat {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);
         }
     }
+
     public static void checkSuccessFileName(String type, String name) throws AnalysisException {
         if (Strings.isNullOrEmpty(name) || !name.matches(getSuccessFileNameRegex())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);
