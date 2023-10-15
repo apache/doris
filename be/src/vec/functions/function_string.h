@@ -1158,7 +1158,7 @@ public:
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
                 int repeat = 0;
                 repeat = std::min<int>(col2_const->get_int(0), context->state()->repeat_max_num());
-                
+
                 if (repeat <= 0) {
                     null_map->get_data().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
