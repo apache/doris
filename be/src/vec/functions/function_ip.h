@@ -119,11 +119,13 @@ public:
     }
 };
 
+enum class IPStringToNumExceptionMode : uint8_t { Throw, Default, Null };
+
 static inline bool tryParseIPv4(const char* pos, Int64& result_value) {
     return parseIPv4whole(pos, reinterpret_cast<unsigned char*>(&result_value));
 }
 
-template <typename ToColumn>
+template <IPStringToNumExceptionMode exception_mode, typename ToColumn>
 ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
     const ColumnString* column_string = check_and_get_column<ColumnString>(column.get());
 
@@ -138,8 +140,10 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
     ColumnUInt8::MutablePtr col_null_map_to;
     ColumnUInt8::Container* vec_null_map_to = nullptr;
 
-    col_null_map_to = ColumnUInt8::create(column_size, false);
-    vec_null_map_to = &col_null_map_to->get_data();
+    if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+        col_null_map_to = ColumnUInt8::create(column_size, false);
+        vec_null_map_to = &col_null_map_to->get_data();
+    }
 
     auto col_res = ToColumn::create();
 
@@ -154,7 +158,8 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
         if (null_map && (*null_map)[i]) {
             vec_res[i] = 0;
             prev_offset = offsets_src[i];
-            (*vec_null_map_to)[i] = true;
+            if constexpr (exception_mode == IPStringToNumExceptionMode::Null)
+                (*vec_null_map_to)[i] = true;
             continue;
         }
 
@@ -162,29 +167,55 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
                 tryParseIPv4(reinterpret_cast<const char*>(&vec_src[prev_offset]), vec_res[i]);
 
         if (!parse_result) {
-            (*vec_null_map_to)[i] = true;
-            vec_res[i] = 0;
+            if constexpr (exception_mode == IPStringToNumExceptionMode::Throw) {
+                throw Exception(ErrorCodes::CANNOT_PARSE_IPV4, "Invalid IPv4 value");
+            } else if constexpr (exception_mode == IPStringToNumExceptionMode::Default) {
+                vec_res[i] = 0;
+            } else if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+                (*vec_null_map_to)[i] = true;
+                vec_res[i] = 0;
+            }
         }
 
         prev_offset = offsets_src[i];
     }
 
-    return ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
+    if constexpr (exception_mode == IPStringToNumExceptionMode::Null)
+        return ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
+
+    return col_res;
 }
 
-template <typename Name>
+template <IPStringToNumExceptionMode exception_mode>
 class FunctionIPv4StringToNum : public IFunction {
 public:
-    static constexpr auto name = "ipv4stringtonum";
+    static constexpr auto name = exception_mode == IPStringToNumExceptionMode::Throw
+                                         ? "ipv4stringtonum"
+                                         : (exception_mode == IPStringToNumExceptionMode::Default
+                                                    ? "ipv4stringtonumordefault"
+                                                    : "ipv4stringtonumornull");
 
-    static FunctionPtr create() { return std::make_shared<FunctionIPv4StringToNum<Name>>(); }
+    static FunctionPtr create() {
+        return std::make_shared<FunctionIPv4StringToNum<exception_mode, Name>>();
+    }
 
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeInt64>());
+        if (!is_string(remove_nullable(arguments[0]))) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal type {} of argument of function {}", arguments[0]->get_name(),
+                            get_name());
+        }
+        auto result_type = std::make_shared<DataTypeInt64>();
+
+        if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+            return make_nullable(result_type);
+        }
+
+        return arguments[0]->is_nullable() ? make_nullable(result_type) : result_type;
     }
 
     bool use_default_implementation_for_nulls() const override { return true; }
@@ -201,7 +232,7 @@ public:
             null_map = &column_nullable->get_null_map_data();
         }
 
-        auto col_res = convertToIPv4<ColumnInt64>(column, null_map);
+        auto col_res = convertToIPv4<exception_mode, ColumnInt64>(column, null_map);
 
         if (null_map && !col_res->is_nullable())
             block.replace_by_position(result,
