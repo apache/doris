@@ -260,7 +260,8 @@ if (COMPILER_GCC)
     add_compile_options(-fdiagnostics-color=always
                         -Wno-nonnull
                         -Wno-stringop-overread
-                        -Wno-stringop-overflow)
+                        -Wno-stringop-overflow
+                        -Wno-array-bounds)
 endif ()
 
 if (COMPILER_CLANG)

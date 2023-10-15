@@ -1335,6 +1335,7 @@ public:
                 return is_v1 ? BitmapTypeCode::type::BITMAP64 : BitmapTypeCode::type::BITMAP64_V2;
             }
         }
+        __builtin_unreachable();
     }
 
     template <typename T>
