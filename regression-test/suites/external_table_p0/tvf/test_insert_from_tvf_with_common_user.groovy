@@ -97,11 +97,12 @@ suite("test_insert_from_tvf_with_common_user", "p0") {
                     "ACCESS_KEY"= "${ak}",
                     "SECRET_KEY" = "${sk}",
                     "format" = "csv",
+                    "column_separator" = "\t",
                     "region" = "${region}"
                 );
             """
 
-        order_qt_select_base """ SELECT * FROM ${export_table_name} t ORDER BY id; """
+        order_qt_select_base """ SELECT * FROM ${load_table_name} t ORDER BY id; """
     }
 
     sql """drop user ${common_user}"""
