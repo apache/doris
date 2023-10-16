@@ -147,6 +147,18 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::OLAP_TABLE_SINK: {
         Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
+        OlapTableSchemaParam schema;
+        schema.init(thrift_sink.olap_table_sink.schema);
+        bool has_inverted_index = false;
+        for (const auto& index_schema : schema.indexes()) {
+            for (const auto& index : index_schema->indexes) {
+                if (index->index_type() == INVERTED) {
+                    has_inverted_index = true;
+                    goto nested_loop_exit;
+                }
+            }
+        }
+    nested_loop_exit:
         if (state->query_options().enable_memtable_on_sink_node) {
             sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
         } else {
@@ -294,6 +306,18 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::OLAP_TABLE_SINK: {
         Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
+        OlapTableSchemaParam schema;
+        schema.init(thrift_sink.olap_table_sink.schema);
+        bool has_inverted_index = false;
+        for (const auto& index_schema : schema.indexes()) {
+            for (const auto& index : index_schema->indexes) {
+                if (index->index_type() == INVERTED) {
+                    has_inverted_index = true;
+                    goto nested_loop_exit;
+                }
+            }
+        }
+    nested_loop_exit:
         if (state->query_options().enable_memtable_on_sink_node) {
             sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
         } else {
