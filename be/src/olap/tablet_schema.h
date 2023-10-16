@@ -396,35 +396,4 @@ bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
 using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
-struct PartialUpdateInfo {
-    void init(const TabletSchema& tablet_schema, bool is_partial_update,
-              const std::set<string>& partial_update_input_columns, bool is_strict_mode) {
-        this->is_partial_update = is_partial_update;
-        this->partial_update_input_columns = partial_update_input_columns;
-        missing_cids.clear();
-        update_cids.clear();
-        for (auto i = 0; i < tablet_schema.num_columns(); ++i) {
-            auto tablet_column = tablet_schema.column(i);
-            if (partial_update_input_columns.count(tablet_column.name()) == 0) {
-                missing_cids.emplace_back(i);
-                if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
-                    can_insert_new_rows_in_partial_update = false;
-                }
-            } else {
-                update_cids.emplace_back(i);
-            }
-        }
-        this->is_strict_mode = is_strict_mode;
-    }
-
-    bool is_partial_update {false};
-    std::set<std::string> partial_update_input_columns;
-    std::vector<uint32_t> missing_cids;
-    std::vector<uint32_t> update_cids;
-    // if key not exist in old rowset, use default value or null value for the unmentioned cols
-    // to generate a new row, only available in non-strict mode
-    bool can_insert_new_rows_in_partial_update {true};
-    bool is_strict_mode {false};
-};
-
 } // namespace doris

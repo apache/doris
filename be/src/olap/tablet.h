@@ -44,6 +44,7 @@
 #include "olap/binlog_config.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"

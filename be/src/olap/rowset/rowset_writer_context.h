@@ -21,6 +21,7 @@
 
 #include "io/fs/file_system.h"
 #include "olap/olap_define.h"
+#include "olap/partial_update_info.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 
