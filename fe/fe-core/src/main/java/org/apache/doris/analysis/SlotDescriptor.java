@@ -46,6 +46,7 @@ public class SlotDescriptor {
     private String label;
     // for variant column's sub column lables
     private List<String> subColLabels;
+    private String materializedColumnnName;
 
     // Expr(s) materialized into this slot; multiple exprs for unions. Should be empty if
     // path_ is set.
@@ -211,6 +212,10 @@ public class SlotDescriptor {
         this.stats = stats;
     }
 
+    void setMaterializedColumnName(String name) {
+        this.materializedColumnnName = name;
+    }
+
     public ColumnStats getStats() {
         if (stats == null) {
             if (column != null) {
@@ -294,8 +299,10 @@ public class SlotDescriptor {
 
     public TSlotDescriptor toThrift() {
         // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+        String colName = materializedColumnnName != null ? materializedColumnnName :
+                                     ((column != null) ? column.getName() : "");
         TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
-                byteOffset, 0, getIsNullable() ? 0 : -1, ((column != null) ? column.getName() : ""), slotIdx,
+                byteOffset, 0, getIsNullable() ? 0 : -1, colName, slotIdx,
                 isMaterialized);
         tSlotDescriptor.setNeedMaterialize(needMaterialize);
         tSlotDescriptor.setIsAutoIncrement(isAutoInc);

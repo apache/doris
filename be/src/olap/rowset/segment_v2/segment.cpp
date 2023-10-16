@@ -50,6 +50,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
@@ -121,14 +122,15 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         if (_tablet_schema->num_columns() <= column_id) {
             continue;
         }
+        // TODO handle var path
         int32_t uid = read_options.tablet_schema->column(column_id).unique_id();
         if (_column_readers.count(uid) < 1 || !_column_readers.at(uid)->has_zone_map()) {
             continue;
         }
         if (read_options.col_id_to_predicates.count(column_id) > 0 &&
-            is_same_file_col_type_with_expected(
-                    column_id, *schema,
-                    read_options.io_ctx.reader_type != ReaderType::READER_QUERY) &&
+            can_apply_predicate_safely(column_id,
+                                       read_options.col_id_to_predicates.at(column_id).get(),
+                                       *schema, read_options.io_ctx.reader_type) &&
             !_column_readers.at(uid)->match_condition(entry.second.get())) {
             // any condition not satisfied, return.
             iter->reset(new EmptySegmentIterator(*schema));
@@ -141,14 +143,14 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         auto query_ctx = read_options.runtime_state->get_query_ctx();
         auto runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
         if (runtime_predicate) {
+            // TODO handle var path
             int32_t uid =
                     read_options.tablet_schema->column(runtime_predicate->column_id()).unique_id();
             AndBlockColumnPredicate and_predicate;
             auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
             and_predicate.add_column_predicate(single_predicate);
-            if (is_same_file_col_type_with_expected(
-                        runtime_predicate->column_id(), *schema,
-                        read_options.io_ctx.reader_type != ReaderType::READER_QUERY) &&
+            if (can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
+                                           *schema, read_options.io_ctx.reader_type) &&
                 !_column_readers.at(uid)->match_condition(&and_predicate)) {
                 // any condition not satisfied, return.
                 iter->reset(new EmptySegmentIterator(*schema));

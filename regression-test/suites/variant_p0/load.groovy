@@ -277,11 +277,11 @@ suite("regression_test_variant", "variant_type"){
         create_table table_name
         sql """insert into  sparse_columns select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
             union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
-        qt_sql_30 """ select v from sparse_columns where v is not null and json_extract(v, "\$") != "{}" order by cast(v as string) limit 10"""
+        qt_sql_30 """ select v from sparse_columns where json_extract(v, "\$") != "{}" order by cast(v as string) limit 10"""
         sql "truncate table sparse_columns"
         sql """insert into  sparse_columns select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
             union  all select 0, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
-        qt_sql_31 """ select v from sparse_columns where v is not null and json_extract(v, "\$") != "{}" order by cast(v as string) limit 10"""
+        qt_sql_31 """ select v from sparse_columns where json_extract(v, "\$") != "{}" order by cast(v as string) limit 10"""
         sql "truncate table sparse_columns"
 
         // 12. streamload remote file

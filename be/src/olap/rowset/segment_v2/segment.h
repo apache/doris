@@ -42,6 +42,7 @@
 #include "util/once.h"
 #include "util/slice.h"
 #include "vec/columns/subcolumn_tree.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 namespace vectorized {
@@ -143,9 +144,28 @@ public:
     std::shared_ptr<const vectorized::IDataType> get_data_type_of(const Field& filed,
                                                                   bool ignore_children) const;
 
-    // If column in segment is the same type in schema
+    // Check is schema read type equals storage column type
     bool is_same_file_col_type_with_expected(int32_t cid, const Schema& schema,
                                              bool ignore_children) const;
+
+    // If column in segment is the same type in schema, then it is safe to apply predicate
+    template <typename Predicate>
+    bool can_apply_predicate_safely(int cid, Predicate* pred, const Schema& schema,
+                                    ReaderType read_type) const {
+        const Field* col = schema.column(cid);
+        vectorized::DataTypePtr storage_column_type =
+                get_data_type_of(*col, read_type != ReaderType::READER_QUERY);
+        if (storage_column_type == nullptr) {
+            // Default column iterator
+            return true;
+        }
+        if (vectorized::WhichDataType(storage_column_type).is_variant_type()) {
+            // Predicate should nerver apply on variant type
+            return false;
+        }
+        return pred->can_do_apply_safely(storage_column_type->get_type_as_primitive_type(),
+                                         storage_column_type->is_nullable());
+    }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);

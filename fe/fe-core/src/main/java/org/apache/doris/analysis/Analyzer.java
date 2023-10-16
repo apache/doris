@@ -1036,6 +1036,9 @@ public class Analyzer {
             LOG.debug("register slot descriptor {}", result);
             result.setSubColLables(subColNames);
             result.setColumn(col);
+            if (!subColNames.isEmpty()) {
+                result.setMaterializedColumnName(col.getName() + "." + String.join(".", subColNames));
+            }
             result.setIsMaterialized(true);
             result.setIsNullable(col.isAllowNull());
             subColumnSlotRefMap.get(key).put(subColNames, result);

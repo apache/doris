@@ -46,6 +46,81 @@
 
 namespace doris {
 
+FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
+    switch (primitiveType) {
+    case PrimitiveType::INVALID_TYPE:
+        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
+    case PrimitiveType::TYPE_NULL:
+        return FieldType::OLAP_FIELD_TYPE_NONE;
+    case PrimitiveType::TYPE_BOOLEAN:
+        return FieldType::OLAP_FIELD_TYPE_BOOL;
+    case PrimitiveType::TYPE_TINYINT:
+        return FieldType::OLAP_FIELD_TYPE_TINYINT;
+    case PrimitiveType::TYPE_SMALLINT:
+        return FieldType::OLAP_FIELD_TYPE_SMALLINT;
+    case PrimitiveType::TYPE_INT:
+        return FieldType::OLAP_FIELD_TYPE_INT;
+    case PrimitiveType::TYPE_BIGINT:
+        return FieldType::OLAP_FIELD_TYPE_BIGINT;
+    case PrimitiveType::TYPE_LARGEINT:
+        return FieldType::OLAP_FIELD_TYPE_LARGEINT;
+    case PrimitiveType::TYPE_FLOAT:
+        return FieldType::OLAP_FIELD_TYPE_FLOAT;
+    case PrimitiveType::TYPE_DOUBLE:
+        return FieldType::OLAP_FIELD_TYPE_DOUBLE;
+    case PrimitiveType::TYPE_VARCHAR:
+        return FieldType::OLAP_FIELD_TYPE_VARCHAR;
+    case PrimitiveType::TYPE_DATE:
+        return FieldType::OLAP_FIELD_TYPE_DATE;
+    case PrimitiveType::TYPE_DATETIME:
+        return FieldType::OLAP_FIELD_TYPE_DATETIME;
+    case PrimitiveType::TYPE_BINARY:
+        return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
+    case PrimitiveType::TYPE_CHAR:
+        return FieldType::OLAP_FIELD_TYPE_CHAR;
+    case PrimitiveType::TYPE_STRUCT:
+        return FieldType::OLAP_FIELD_TYPE_STRUCT;
+    case PrimitiveType::TYPE_ARRAY:
+        return FieldType::OLAP_FIELD_TYPE_ARRAY;
+    case PrimitiveType::TYPE_MAP:
+        return FieldType::OLAP_FIELD_TYPE_MAP;
+    case PrimitiveType::TYPE_HLL:
+        return FieldType::OLAP_FIELD_TYPE_HLL;
+    case PrimitiveType::TYPE_DECIMALV2:
+        return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
+    case PrimitiveType::TYPE_TIME:
+        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
+    case PrimitiveType::TYPE_OBJECT:
+        return FieldType::OLAP_FIELD_TYPE_OBJECT;
+    case PrimitiveType::TYPE_STRING:
+        return FieldType::OLAP_FIELD_TYPE_STRING;
+    case PrimitiveType::TYPE_QUANTILE_STATE:
+        return FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE;
+    case PrimitiveType::TYPE_DATEV2:
+        return FieldType::OLAP_FIELD_TYPE_DATEV2;
+    case PrimitiveType::TYPE_DATETIMEV2:
+        return FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
+    case PrimitiveType::TYPE_TIMEV2:
+        return FieldType::OLAP_FIELD_TYPE_TIMEV2;
+    case PrimitiveType::TYPE_DECIMAL32:
+        return FieldType::OLAP_FIELD_TYPE_DECIMAL32;
+    case PrimitiveType::TYPE_DECIMAL64:
+        return FieldType::OLAP_FIELD_TYPE_DECIMAL64;
+    case PrimitiveType::TYPE_DECIMAL128I:
+        return FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
+    case PrimitiveType::TYPE_JSONB:
+        return FieldType::OLAP_FIELD_TYPE_JSONB;
+    case PrimitiveType::TYPE_VARIANT:
+        return FieldType::OLAP_FIELD_TYPE_VARIANT;
+    case PrimitiveType::TYPE_LAMBDA_FUNCTION:
+        return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
+    case PrimitiveType::TYPE_AGG_STATE:
+        return FieldType::OLAP_FIELD_TYPE_AGG_STATE;
+    default:
+        return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
+    }
+}
+
 FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
     std::string upper_type_str = type_str;
     std::transform(type_str.begin(), type_str.end(), upper_type_str.begin(),
@@ -653,6 +728,7 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
             vectorized::PathInData path(col_name);
             column.set_path_info(path);
         }
+        _field_path_to_index[column.path_info()] = _num_columns;
     }
     if (UNLIKELY(column.name() == DELETE_SIGN)) {
         _delete_sign_idx = _num_columns;
@@ -666,6 +742,7 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
     if (col_type == ColumnType::NORMAL) {
         _field_name_to_index[column.name()] = _num_columns;
     } else if (col_type == ColumnType::VARIANT) {
+        _field_name_to_index[column.name()] = _num_columns;
         _field_path_to_index[column.path_info()] = _num_columns;
     }
     _field_id_to_index[column.unique_id()] = _num_columns;

@@ -324,7 +324,8 @@ Status NewOlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.output_columns =
             _parent ? ((NewOlapScanNode*)_parent)->_maybe_read_column_ids
                     : ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
-
+    _tablet_reader_params.suspended_eliminate_cast_slots =
+            _parent->_suspended_eliminate_cast_column;
     // Condition
     for (auto& filter : filters) {
         _tablet_reader_params.conditions.push_back(filter);
@@ -487,11 +488,11 @@ Status NewOlapScanner::_init_variant_columns() {
             // add them into tablet_schema for later column indexing.
             TabletColumn subcol;
             subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-            subcol.set_name(slot->col_name());
             subcol.set_is_nullable(true);
             subcol.set_unique_id(slot->col_unique_id());
             PathInData path = _build_path(slot);
             subcol.set_path_info(path);
+            subcol.set_name(path.get_path());
             if (_tablet_schema->field_index(path) < 0) {
                 _tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }

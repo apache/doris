@@ -47,6 +47,10 @@ public:
         *to = cloned;
     }
 
+    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
+        return input_type == Type;
+    }
+
     bool need_to_clone() const override { return true; }
 
     PredicateType type() const override { return PT; }

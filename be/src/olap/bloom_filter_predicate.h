@@ -52,6 +52,10 @@ public:
         return Status::OK();
     }
 
+    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
+        return input_type == T;
+    }
+
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
                       uint16_t size) const override;
 

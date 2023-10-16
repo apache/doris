@@ -48,6 +48,7 @@
 #include "vec/columns/column.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
@@ -224,6 +225,11 @@ private:
                                                  uint16_t* sel_rowid_idx, size_t select_size,
                                                  vectorized::MutableColumns* mutable_columns);
 
+    Status copy_column_data_by_selector(vectorized::IColumn* input_col_ptr,
+                                        vectorized::MutableColumnPtr& output_col,
+                                        uint16_t* sel_rowid_idx, uint16_t select_size,
+                                        size_t batch_size);
+
     template <class Container>
     [[nodiscard]] Status _output_column_by_sel_idx(vectorized::Block* block,
                                                    const Container& column_ids,
@@ -231,9 +237,34 @@ private:
         SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
         for (auto cid : column_ids) {
             int block_cid = _schema_block_id_map[cid];
-            RETURN_IF_ERROR(block->copy_column_data_to_block(_current_return_columns[cid].get(),
-                                                             sel_rowid_idx, select_size, block_cid,
+            // Only the additional deleted filter condition need to materialize column be at the end of the block
+            // We should not to materialize the column of query engine do not need. So here just return OK.
+            // Eg:
+            //      `delete from table where a = 10;`
+            //      `select b from table;`
+            // a column only effective in segment iterator, the block from query engine only contain the b column.
+            // so the `block_cid >= data.size()` is true
+            if (block_cid >= block->columns()) {
+                continue;
+            }
+            vectorized::DataTypePtr storage_type =
+                    _segment->get_data_type_of(*_schema->column(cid), false);
+            if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
+                // Do additional cast
+                vectorized::MutableColumnPtr tmp = storage_type->create_column();
+                RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
+                                                             tmp, sel_rowid_idx, select_size,
                                                              _opts.block_row_max));
+                RETURN_IF_ERROR(vectorized::schema_util::cast_column(
+                        {tmp->get_ptr(), storage_type, ""}, block->get_by_position(block_cid).type,
+                        &block->get_by_position(block_cid).column));
+            } else {
+                vectorized::MutableColumnPtr output_column =
+                        block->get_by_position(block_cid).column->assume_mutable();
+                RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
+                                                             output_column, sel_rowid_idx,
+                                                             select_size, _opts.block_row_max));
+            }
         }
         return Status::OK();
     }
