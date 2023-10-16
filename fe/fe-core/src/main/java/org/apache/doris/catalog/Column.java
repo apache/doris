@@ -767,7 +767,7 @@ public class Column implements Writable, GsonPostProcessable {
             }
         }
         if (StringUtils.isNotBlank(comment)) {
-            sb.append(" COMMENT '").append(getComment(true)).append("'");
+            sb.append(" COMMENT ").append(addQuotesIfNeeded(getComment(true)));
         }
         return sb.toString();
     }
@@ -967,5 +967,28 @@ public class Column implements Writable, GsonPostProcessable {
     public boolean isMaterializedViewColumn() {
         return getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
                 || getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+    }
+
+    /**
+     * Adds single quote characters at the beginning and end of a string if necessary.
+     *
+     * @param str The original string.
+     * @return The modified string with single quotes added if needed.
+     */
+    public static String addQuotesIfNeeded(String str) {
+        if (str.isEmpty()) {
+            // If the original string is empty, return two single quote characters
+            return "''";
+        }
+        StringBuilder sb = new StringBuilder(str);
+        // Check if the beginning needs to add a single quote
+        if (str.charAt(0) != '\'') {
+            sb.insert(0, '\'');
+        }
+        // Check if the end needs to add a single quote
+        if (str.charAt(str.length() - 1) != '\'') {
+            sb.append('\'');
+        }
+        return sb.toString();
     }
 }
