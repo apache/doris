@@ -59,7 +59,7 @@ struct LocalSinkStateInfo {
 };
 
 #define CREATE_RELEASE_AFTER_CLOSE                                  \
-    std::function<void()> _release_after_close_func;                \
+    std::function<void()> _release_after_close_func = nullptr;      \
                                                                     \
 public:                                                             \
     void release(const Status& st) {                                \
