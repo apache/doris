@@ -173,7 +173,7 @@ public class OlapTableSink extends DataSink {
     public void complete(Analyzer analyzer) throws UserException {
         for (Long partitionId : partitionIds) {
             Partition partition = dstTable.getPartition(partitionId);
-            if (dstTable.getIndexIdToMeta().size() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
+            if (dstTable.getIndexNumber() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
                 throw new UserException(
                         "table's index number not equal with partition's index number. table's index number="
                                 + dstTable.getIndexIdToMeta().size() + ", partition's index number="

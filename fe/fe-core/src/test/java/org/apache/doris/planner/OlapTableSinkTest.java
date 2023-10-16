@@ -37,6 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TUniqueId;
 
+import java.util.Map;
 import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
@@ -92,6 +93,8 @@ public class OlapTableSinkTest {
 
         new Expectations() {
             {
+                dstTable.getIndexNumber();
+                result = 1;
                 dstTable.getId();
                 result = 1;
                 dstTable.getPartitionInfo();
@@ -128,6 +131,8 @@ public class OlapTableSinkTest {
 
         new Expectations() {
             {
+                dstTable.getIndexNumber();
+                result = 1;
                 dstTable.getId();
                 result = 1;
                 dstTable.getPartitionInfo();
@@ -190,6 +195,8 @@ public class OlapTableSinkTest {
 
         new Expectations() {
             {
+                dstTable.getIndexNumber();
+                result = 1;
                 dstTable.getId();
                 result = 1;
                 dstTable.getPartitionInfo();
