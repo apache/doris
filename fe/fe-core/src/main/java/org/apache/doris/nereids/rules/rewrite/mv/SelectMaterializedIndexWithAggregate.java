@@ -124,7 +124,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             .replace(agg.withChildren(mvPlan), mvPlan);
                     } else {
                         return new LogicalProject<>(
-                            generateProjectsAlias(agg.getOutput(), slotContext),
+                            generateProjectsAlias(agg.getOutputs(), slotContext),
                                 new ReplaceExpressions(slotContext).replace(
                                     new LogicalAggregate<>(
                                         agg.getGroupByExpressions(),
@@ -168,12 +168,12 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                             if (result.exprRewriteMap.isEmpty()) {
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                         agg.withChildren(filter.withChildren(mvPlan)), mvPlan));
                             } else {
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                             new LogicalAggregate<>(
                                                 agg.getGroupByExpressions(),
@@ -226,7 +226,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         generateNewOutputsWithMvOutputs(mvPlan, newProjectList),
                                         scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId));
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                             new LogicalAggregate<>(
                                                 agg.getGroupByExpressions(),
@@ -271,7 +271,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                             if (result.exprRewriteMap.isEmpty()) {
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                         agg.withChildren(
                                             project.withProjectsAndChild(
@@ -285,7 +285,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         filter.withChildren(mvPlan));
 
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                             new LogicalAggregate<>(
                                                 agg.getGroupByExpressions(),
@@ -328,7 +328,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                             if (result.exprRewriteMap.isEmpty()) {
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                         agg.withChildren(
                                             filter.withChildren(
@@ -342,7 +342,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         generateNewOutputsWithMvOutputs(mvPlan, newProjectList), mvPlan);
 
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                             new LogicalAggregate<>(
                                                 agg.getGroupByExpressions(),
@@ -374,7 +374,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                     if (result.exprRewriteMap.isEmpty()) {
                         return new LogicalProject<>(
-                            generateProjectsAlias(agg.getOutput(), slotContext),
+                            generateProjectsAlias(agg.getOutputs(), slotContext),
                                 new ReplaceExpressions(slotContext).replace(
                                 agg.withChildren(
                                     repeat.withAggOutputAndChild(
@@ -382,7 +382,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                 ), mvPlan));
                     } else {
                         return new LogicalProject<>(
-                            generateProjectsAlias(agg.getOutput(), slotContext),
+                            generateProjectsAlias(agg.getOutputs(), slotContext),
                                 new ReplaceExpressions(slotContext).replace(
                                     new LogicalAggregate<>(
                                         agg.getGroupByExpressions(),
@@ -428,7 +428,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                             if (result.exprRewriteMap.isEmpty()) {
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                         agg.withChildren(
                                             repeat.withAggOutputAndChild(
@@ -437,7 +437,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                             )), mvPlan));
                             } else {
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                             new LogicalAggregate<>(
                                                 agg.getGroupByExpressions(),
@@ -480,7 +480,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                             if (result.exprRewriteMap.isEmpty()) {
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                         agg.withChildren(
                                             repeat.withAggOutputAndChild(
@@ -496,7 +496,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         generateNewOutputsWithMvOutputs(mvPlan, newProjectList),
                                         mvPlan);
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                             new LogicalAggregate<>(
                                                 agg.getGroupByExpressions(),
@@ -545,7 +545,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                             if (result.exprRewriteMap.isEmpty()) {
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                         agg.withChildren(
                                             repeat.withAggOutputAndChild(
@@ -564,7 +564,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         filter.withChildren(mvPlan));
 
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                             new LogicalAggregate<>(
                                                 agg.getGroupByExpressions(),
@@ -611,7 +611,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                             if (result.exprRewriteMap.isEmpty()) {
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                         agg.withChildren(
                                             repeat.withAggOutputAndChild(
@@ -630,7 +630,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                         scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId));
 
                                 return new LogicalProject<>(
-                                    generateProjectsAlias(agg.getOutput(), slotContext),
+                                    generateProjectsAlias(agg.getOutputs(), slotContext),
                                         new ReplaceExpressions(slotContext).replace(
                                             new LogicalAggregate<>(
                                                 agg.getGroupByExpressions(),
