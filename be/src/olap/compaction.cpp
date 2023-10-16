@@ -556,7 +556,8 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                             auto index_meta =
                                     rowset->tablet_schema()->get_inverted_index(unique_id);
                             if (index_meta == nullptr) {
-                                LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] index_unique_id[" << unique_id
+                                LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                             << "] index_unique_id[" << unique_id
                                              << "] index meta is null, will skip index compaction";
                                 return false;
                             }
@@ -572,8 +573,9 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                     return false;
                                 }
                                 if (!exists) {
-                                    LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] index_unique_id["
-                                                 << unique_id << "]," << inverted_index_src_file_path
+                                    LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                                 << "] index_unique_id[" << unique_id << "],"
+                                                 << inverted_index_src_file_path
                                                  << " is not exists, will skip index compaction";
                                     return false;
                                 }
@@ -582,13 +584,14 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                 int64_t file_size = 0;
                                 if (fs->file_size(inverted_index_src_file_path, &file_size) !=
                                     Status::OK()) {
-                                    LOG(ERROR)
-                                            << inverted_index_src_file_path << " fs->file_size error";
+                                    LOG(ERROR) << inverted_index_src_file_path
+                                               << " fs->file_size error";
                                     return false;
                                 }
                                 if (file_size == 0) {
-                                    LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] index_unique_id["
-                                                 << unique_id << "]," << inverted_index_src_file_path
+                                    LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                                 << "] index_unique_id[" << unique_id << "],"
+                                                 << inverted_index_src_file_path
                                                  << " is empty file, will skip index compaction";
                                     return false;
                                 }
@@ -606,8 +609,9 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                 // why is 3?
                                 // bkd index will write at least 3 files
                                 if (files.size() < 3) {
-                                    LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] index_unique_id["
-                                                 << unique_id << "]," << inverted_index_src_file_path
+                                    LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                                 << "] index_unique_id[" << unique_id << "],"
+                                                 << inverted_index_src_file_path
                                                  << " is corrupted, will skip index compaction";
                                     return false;
                                 }
