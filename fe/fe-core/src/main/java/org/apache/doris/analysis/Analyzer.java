@@ -41,6 +41,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.AggregationNode;
+import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
@@ -2469,12 +2470,12 @@ public class Analyzer {
      * Wrapper around getUnassignedConjuncts(List<TupleId> tupleIds).
      */
     public List<Expr> getUnassignedConjuncts(PlanNode node) {
-        // constant conjuncts should be push down to all leaf node except agg node.
+        // constant conjuncts should be push down to all leaf node except agg and analytic node.
         // (see getPredicatesBoundedByGroupbysSourceExpr method)
         // so we need remove constant conjuncts when expr is not a leaf node.
-        List<Expr> unassigned = getUnassignedConjuncts(
-                node instanceof AggregationNode ? node.getTupleIds() : node.getTblRefIds());
-        if (!node.getChildren().isEmpty() && !(node instanceof AggregationNode)) {
+        List<Expr> unassigned = getUnassignedConjuncts(node.getTblRefIds());
+        if (!node.getChildren().isEmpty()
+                && !(node instanceof AggregationNode || node instanceof AnalyticEvalNode)) {
             unassigned = unassigned.stream()
                     .filter(e -> !e.isConstant()).collect(Collectors.toList());
         }

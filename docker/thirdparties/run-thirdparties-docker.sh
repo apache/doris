@@ -254,14 +254,30 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
     start_kafka_producers() {
         local container_id="$1"
         local ip_host="$2"
+        local backup_dir=/home/work/pipline/backup_center
 
-        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone")
+        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "multi_table_csv")
 
         for topic in "${topics[@]}"; do
             while IFS= read -r line; do
+                touch ${backup_dir}/kafka_info.log
+                echo $(date) >> ${backup_dir}/kafka_info.log
+                echo "docker exec "${container_id}" bash -c echo '$line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${topic}'" >> ${backup_dir}/kafka_info.log
                 docker exec "${container_id}" bash -c "echo '$line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${topic}'"
             done < "${ROOT}/docker-compose/kafka/scripts/${topic}.csv"
         done
+
+        declare -a json_topics=("basic_data_json" "basic_array_data_json" "basic_array_data_json_by_line" "basic_data_json_by_line" "multi_table_json")
+        
+        for json_topic in "${json_topics[@]}"; do
+            echo ${json_topics}
+            while IFS= read -r json_line; do
+                docker exec "${container_id}" bash -c "echo '$json_line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${json_topic}'"
+                echo "echo '$json_line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${json_topic}'"
+            done < "${ROOT}/docker-compose/kafka/scripts/${json_topic}.json"
+        done
+        # copy kafka log to backup path
+        docker cp "${container_id}":/opt/kafka/logs ${backup_dir}/kafka_logs
     }
 
     if [[ "${STOP}" -ne 1 ]]; then

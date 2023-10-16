@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.AlterCatalogCommentStmt;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
@@ -333,6 +334,24 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     /**
+     * Modify the catalog comment to a new one and write the meta log.
+     */
+    public void alterCatalogComment(AlterCatalogCommentStmt stmt) throws UserException {
+        writeLock();
+        try {
+            CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            if (catalog == null) {
+                throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+            }
+            CatalogLog log = CatalogFactory.createCatalogLog(catalog.getId(), stmt);
+            replayAlterCatalogComment(log);
+            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_COMMENT, log);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
      * Modify the catalog property and write the meta log.
      */
     public void alterCatalogProps(AlterCatalogPropertyStmt stmt) throws UserException {
@@ -553,6 +572,21 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             CatalogIf catalog = removeCatalog(log.getCatalogId());
             catalog.modifyCatalogName(log.getNewCatalogName());
             addCatalog(catalog);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
+     * Reply for alter catalog comment event.
+     */
+    public void replayAlterCatalogComment(CatalogLog log) {
+        writeLock();
+        try {
+            CatalogIf catalog = idToCatalog.get(log.getCatalogId());
+            if (catalog != null) {
+                catalog.setComment(log.getComment());
+            }
         } finally {
             writeUnlock();
         }
