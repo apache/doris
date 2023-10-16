@@ -63,7 +63,7 @@ Status ColdDataCompaction::execute_compact_impl() {
     int64_t permits = get_compaction_permits();
     std::shared_lock cooldown_conf_rlock(_tablet->get_cooldown_conf_lock());
     if (_tablet->cooldown_conf_unlocked().first != _tablet->replica_id()) {
-        return Status::Aborted("this replica is not cooldown replica");
+        return Status::Aborted<false>("this replica is not cooldown replica");
     }
     RETURN_IF_ERROR(do_compaction(permits));
     _state = CompactionState::SUCCESS;
