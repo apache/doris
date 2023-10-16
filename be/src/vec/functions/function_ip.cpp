@@ -22,12 +22,27 @@ struct NameFunctionIPv4NumToString {
     static constexpr auto name = "ipv4numtostring";
 };
 
+struct NameFunctionIPv4StringToNum {
+    static constexpr auto name = "ipv4stringtonum";
+};
+
+struct NameFunctionIPv4StringToNumOrDefault {
+    static constexpr auto name = "ipv4stringtonumordefault";
+};
+
+struct NameFunctionIPv4StringToNumOrNull {
+    static constexpr auto name = "ipv4stringtonumornull";
+};
+
 void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIPv4NumToString<0, NameFunctionIPv4NumToString>>();
     factory.register_alias(NameFunctionIPv4NumToString::name, "inet_ntoa");
-    factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Throw>>();
-    factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Default>>();
-    factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Null>>();
-    factory.register_alias(FunctionIPv4StringToNum<IPStringToNumExceptionMode::Throw>::name, "inet_aton");
+    factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Throw,
+                                                      NameFunctionIPv4StringToNum>>();
+    factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Default,
+                                                      NameFunctionIPv4StringToNumOrDefault>>();
+    factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Null,
+                                                      NameFunctionIPv4StringToNumOrNull>>();
+    factory.register_alias(NameFunctionIPv4StringToNum::name, "inet_aton");
 }
 } // namespace doris::vectorized
