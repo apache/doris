@@ -176,6 +176,8 @@ struct TOlapTablePartition {
     9: optional bool is_mutable = true
     // only used in List Partition
     10: optional bool is_default_partition;
+    // only used in load_to_single_tablet
+    11: optional i64 load_tablet_idx
 }
 
 struct TOlapTablePartitionParam {
