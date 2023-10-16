@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,kafka,hudi,trino
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino"
+    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,kafka,hudi,trino"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino"
+            COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,kafka,hudi,trino"
         fi
     fi
 fi
@@ -128,6 +128,7 @@ RUN_CLICKHOUSE=0
 RUN_HIVE=0
 RUN_ES=0
 RUN_ICEBERG=0
+RUN_KAFKA=0
 RUN_HUDI=0
 RUN_TRINO=0
 
@@ -146,6 +147,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_ES=1
     elif [[ "${element}"x == "hive"x ]]; then
         RUN_HIVE=1
+    elif [[ "${element}"x == "kafka"x ]]; then
+        RUN_KAFKA=1
     elif [[ "${element}"x == "iceberg"x ]]; then
         RUN_ICEBERG=1
     elif [[ "${element}"x == "hudi"x ]]; then
