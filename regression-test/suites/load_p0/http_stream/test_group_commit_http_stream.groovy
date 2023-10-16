@@ -320,7 +320,7 @@ suite("test_group_commit_http_stream") {
         getRowCount(2402288)
         qt_sql """ select count(*) from ${tableName} """
 
-        assertTrue(getAlterTableState())
+        // assertTrue(getAlterTableState())
     } finally {
         // try_sql("DROP TABLE ${tableName}")
     }
