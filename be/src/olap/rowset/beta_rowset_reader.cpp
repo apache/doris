@@ -216,6 +216,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.io_ctx.file_cache_stats = &_stats->file_cache_stats;
     _read_options.runtime_state = read_context->runtime_state;
     _read_options.output_columns = read_context->output_columns;
+    _read_options.suspended_eliminate_cast_slots = _read_context->suspended_eliminate_cast_slots;
 
     // load segments
     bool should_use_cache = use_cache || read_context->reader_type == ReaderType::READER_QUERY;

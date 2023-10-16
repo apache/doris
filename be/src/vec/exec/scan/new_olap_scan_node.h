@@ -100,6 +100,14 @@ protected:
 
     void add_filter_info(int id, const PredicateFilterInfo& info);
 
+    // For some conjunct there is chance to elimate cast operator
+    // Eg. Variant's sub column could eliminate cast in storage layer if
+    // cast dst column type equals storage column type
+    void _caculate_suspended_eliminate_cast_column() override;
+    void _filter_and_collect_suspended_eliminate_cast_column(
+            const VExpr* expr,
+            phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types);
+
 private:
     Status _build_key_ranges_and_filters();
 

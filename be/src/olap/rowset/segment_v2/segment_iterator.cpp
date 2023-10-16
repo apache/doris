@@ -55,6 +55,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
@@ -75,6 +76,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
@@ -215,7 +217,12 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     _file_reader = _segment->_file_reader;
     _opts = opts;
     _col_predicates.clear();
+
     for (auto& predicate : opts.column_predicates) {
+        if (!_segment->can_apply_predicate_safely(predicate->column_id(), predicate, *_schema,
+                                                  _opts.io_ctx.reader_type)) {
+            continue;
+        }
         if (predicate->need_to_clone()) {
             ColumnPredicate* cloned;
             predicate->clone(&cloned);
@@ -228,8 +235,15 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     _tablet_id = opts.tablet_id;
     // Read options will not change, so that just resize here
     _block_rowids.resize(_opts.block_row_max);
-    if (!opts.column_predicates_except_leafnode_of_andnode.empty()) {
-        _col_preds_except_leafnode_of_andnode = opts.column_predicates_except_leafnode_of_andnode;
+
+    // compound predicates
+    _col_preds_except_leafnode_of_andnode.clear();
+    for (auto& predicate : opts.column_predicates_except_leafnode_of_andnode) {
+        if (!_segment->can_apply_predicate_safely(predicate->column_id(), predicate, *_schema,
+                                                  _opts.io_ctx.reader_type)) {
+            continue;
+        }
+        _col_preds_except_leafnode_of_andnode.push_back(predicate);
     }
 
     _remaining_conjunct_roots = opts.remaining_conjunct_roots;
@@ -369,7 +383,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
         // int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
-        if (_column_iterators.count(cid) < 1) {
+        if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
                                                           &_column_iterators[cid], &_opts));
             ColumnIteratorOptions iter_opts;
@@ -437,8 +451,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     // bloom filter index only use CondColumn
     RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
     for (auto& cid : cids) {
-        if (!_segment->is_same_file_col_type_with_expected(
-                    cid, *_schema, _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
+        DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+        if (!_segment->can_apply_predicate_safely(cid, _opts.col_id_to_predicates.at(cid).get(),
+                                                  *_schema, _opts.io_ctx.reader_type)) {
             continue;
         }
         // get row ranges by bf index of this column,
@@ -457,13 +472,13 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
     // second filter data by zone map
     for (auto& cid : cids) {
-        if (!_segment->is_same_file_col_type_with_expected(
-                    cid, *_schema, _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
+        DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+        if (!_segment->can_apply_predicate_safely(cid, _opts.col_id_to_predicates.at(cid).get(),
+                                                  *_schema, _opts.io_ctx.reader_type)) {
             continue;
         }
         // get row ranges by zone map of this column,
         RowRanges column_row_ranges = RowRanges::create_single(num_rows());
-        DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
         RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(
                 _opts.col_id_to_predicates.at(cid).get(),
                 _opts.del_predicates_for_zone_map.count(cid) > 0
@@ -479,9 +494,10 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     if (_opts.use_topn_opt) {
         auto query_ctx = _opts.runtime_state->get_query_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
-        if (runtime_predicate && _segment->is_same_file_col_type_with_expected(
-                                         runtime_predicate->column_id(), *_schema,
-                                         _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
+        if (runtime_predicate && _segment->can_apply_predicate_safely(
+                                         runtime_predicate->column_id(), runtime_predicate.get(),
+                                         *_schema, _opts.io_ctx.reader_type)) {
+            // int32_t cid = _opts.tablet_schema->column(runtime_predicate->column_id()).unique_id();
             AndBlockColumnPredicate and_predicate;
             auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
             and_predicate.add_column_predicate(single_predicate);
@@ -540,26 +556,25 @@ Status SegmentIterator::_apply_bitmap_index() {
         return false;
     };
     for (auto pred : _col_predicates) {
-        int32_t unique_id = _schema->unique_id(pred->column_id());
-        if (_bitmap_index_iterators.count(unique_id) < 1 ||
-            _bitmap_index_iterators[unique_id] == nullptr || pred->type() == PredicateType::BF ||
+        auto cid = pred->column_id();
+        if (_bitmap_index_iterators[cid] == nullptr || pred->type() == PredicateType::BF ||
             is_like_predicate(pred)) {
             // no bitmap index for this column
             remaining_predicates.push_back(pred);
         } else {
-            RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[unique_id].get(),
-                                           _segment->num_rows(), &_row_bitmap));
+            RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[cid].get(), _segment->num_rows(),
+                                           &_row_bitmap));
 
             auto column_name = _schema->column(pred->column_id())->name();
             if (_check_column_pred_all_push_down(column_name) &&
                 !pred->predicate_params()->marked_by_runtime_filter) {
-                _need_read_data_indices[unique_id] = false;
+                _need_read_data_indices[cid] = false;
             }
 
             if (_row_bitmap.isEmpty()) {
                 break; // all rows have been pruned, no need to process further predicates
             }
-        }
+        } 
     }
     _col_predicates = std::move(remaining_predicates);
     _opts.stats->rows_bitmap_index_filtered += (input_rows - _row_bitmap.cardinality());
@@ -684,22 +699,18 @@ bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
 }
 
 bool SegmentIterator::_check_apply_by_bitmap_index(ColumnPredicate* pred) {
-    int32_t unique_id = _schema->unique_id(pred->column_id());
-    if (_bitmap_index_iterators.count(unique_id) < 1 ||
-        _bitmap_index_iterators[unique_id] == nullptr) {
+    if (_bitmap_index_iterators[pred->column_id()] == nullptr) {
         // no bitmap index for this column
         return false;
     }
-    return true;
+    return true; 
 }
 
 bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound) {
-    int32_t unique_id = _schema->unique_id(pred->column_id());
-    if (_inverted_index_iterators.count(unique_id) < 1 ||
-        _inverted_index_iterators[unique_id] == nullptr) {
+    if (_inverted_index_iterators[pred->column_id()] == nullptr) {
         //this column without inverted index
         return false;
-    }
+    } 
 
     if (_inverted_index_not_support_pred_type(pred->type())) {
         return false;
@@ -717,7 +728,7 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
         return false;
     }
 
-    bool handle_by_fulltext = _column_has_fulltext_index(unique_id);
+    bool handle_by_fulltext = _column_has_fulltext_index(pred->column_id());
     if (handle_by_fulltext) {
         // when predicate in compound condition which except leafNode of andNode,
         // only can apply match query for fulltext index,
@@ -733,9 +744,8 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
 
 Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(
         ColumnPredicate* pred, roaring::Roaring* output_result) {
-    int32_t unique_id = _schema->unique_id(pred->column_id());
-    RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[unique_id].get(), _segment->num_rows(),
-                                   output_result));
+    RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[pred->column_id()].get(),
+                                   _segment->num_rows(), output_result));
     return Status::OK();
 }
 
@@ -744,9 +754,9 @@ Status SegmentIterator::_apply_inverted_index_except_leafnode_of_andnode(
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
         return Status::OK();
     }
-    int32_t unique_id = _schema->unique_id(pred->column_id());
-    RETURN_IF_ERROR(pred->evaluate(*_schema, _inverted_index_iterators[unique_id].get(), num_rows(),
-                                   output_result));
+    // TODO handle variant
+    RETURN_IF_ERROR(pred->evaluate(*_schema, _inverted_index_iterators[pred->column_id()].get(),
+                                   num_rows(), output_result));
     return Status::OK();
 }
 
@@ -884,7 +894,8 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         bool need_remaining_after_evaluate = _column_has_fulltext_index(unique_id) &&
                                              PredicateTypeTraits::is_equal_or_list(pred->type());
         roaring::Roaring bitmap = _row_bitmap;
-        Status res = pred->evaluate(*_schema, _inverted_index_iterators[unique_id].get(),
+        // TODO handle variant
+        Status res = pred->evaluate(*_schema, _inverted_index_iterators[pred->column_id()].get(),
                                     num_rows(), &bitmap);
         if (!res.ok()) {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
@@ -929,8 +940,7 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
         ColumnId column_id, MutilColumnBlockPredicate* pred,
         std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
         bool* continue_apply) {
-    auto unique_id = _schema->unique_id(column_id);
-    bool handle_by_fulltext = _column_has_fulltext_index(unique_id);
+    bool handle_by_fulltext = _column_has_fulltext_index(column_id);
     std::set<const ColumnPredicate*> predicate_set {};
 
     pred->get_all_column_predicate(predicate_set);
@@ -940,20 +950,19 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
     //2. There are multiple predicates for this column.
     //3. All the predicates are range predicate.
     //4. if it's under fulltext parser type, we need to skip inverted index evaluate.
-    if (_inverted_index_iterators.count(unique_id) > 0 &&
-        _inverted_index_iterators[unique_id] != nullptr && predicate_set.size() > 1 &&
-        all_predicates_are_range_predicate(predicate_set) && !handle_by_fulltext) {
+    if (_inverted_index_iterators[column_id] != nullptr && predicate_set.size() > 1 &&
+            all_predicates_are_range_predicate(predicate_set) && !handle_by_fulltext) {
         roaring::Roaring output_result = _row_bitmap;
 
         std::string column_name = _schema->column(column_id)->name();
 
-        auto res = pred->evaluate(column_name, _inverted_index_iterators[unique_id].get(),
+        auto res = pred->evaluate(column_name, _inverted_index_iterators[column_id].get(),
                                   num_rows(), &output_result);
 
         if (res.ok()) {
             if (_check_column_pred_all_push_down(column_name) &&
                 !all_predicates_are_marked_by_runtime_filter(predicate_set)) {
-                _need_read_data_indices[unique_id] = false;
+                _need_read_data_indices[column_id] = false;
             }
             no_need_to_pass_column_predicate_set.insert(predicate_set.begin(), predicate_set.end());
             _row_bitmap &= output_result;
@@ -1070,7 +1079,7 @@ Status SegmentIterator::_init_return_column_iterators() {
         }
 
         // int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
-        if (_column_iterators.count(cid) < 1) {
+        if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
                                                           &_column_iterators[cid], &_opts));
             ColumnIteratorOptions iter_opts;
@@ -1092,13 +1101,12 @@ Status SegmentIterator::_init_bitmap_index_iterators() {
         return Status::OK();
     }
     for (auto cid : _schema->column_ids()) {
-        int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
-        if (_bitmap_index_iterators.count(unique_id) < 1) {
-            RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(
-                    _opts.tablet_schema->column(cid), &_bitmap_index_iterators[unique_id]));
+        if (_bitmap_index_iterators[cid] == nullptr) {
+            RETURN_IF_ERROR(_segment->new_bitmap_index_iterator(_opts.tablet_schema->column(cid),
+                                                                &_bitmap_index_iterators[cid]));
         }
     }
-    return Status::OK();
+    return Status::OK(); 
 }
 
 Status SegmentIterator::_init_inverted_index_iterators() {
@@ -1106,11 +1114,11 @@ Status SegmentIterator::_init_inverted_index_iterators() {
         return Status::OK();
     }
     for (auto cid : _schema->column_ids()) {
-        int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
-        if (_inverted_index_iterators.count(unique_id) < 1) {
+        if (_inverted_index_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
-                    _opts.tablet_schema->column(cid), _opts.tablet_schema->get_inverted_index(cid),
-                    _opts, &_inverted_index_iterators[unique_id]));
+                    _opts.tablet_schema->column(cid),
+                    _opts.tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid)),
+                    _opts, &_inverted_index_iterators[cid]));
         }
     }
     return Status::OK();
@@ -1492,6 +1500,12 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
 bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
     auto cid = predicate->column_id();
     FieldType field_type = _schema->column(cid)->type();
+    if (field_type == FieldType::OLAP_FIELD_TYPE_VARIANT) {
+        // TODO handle variant
+        // Use suspended cast type
+        field_type = TabletColumn::get_field_type_by_type(
+                _opts.suspended_eliminate_cast_slots[_schema->column(cid)->name()]);
+    }
     switch (predicate->type()) {
     case PredicateType::EQ:
     case PredicateType::NE:
@@ -1516,6 +1530,7 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
 }
 
 void SegmentIterator::_vec_init_char_column_id() {
+    // TODO handle variant
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         auto column_desc = _schema->column(cid);
@@ -1579,7 +1594,8 @@ void SegmentIterator::_init_current_block(
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         auto column_desc = _schema->column(cid);
-        if (!_segment->is_same_file_col_type_with_expected(
+        if (!_is_pred_column[cid] &&
+            !_segment->is_same_file_col_type_with_expected(
                     cid, *_schema, _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
             // Will be converted to PredicateColumnType<T> if it's a predicate column
             auto file_column_type = _segment->get_data_type_of(
@@ -1807,7 +1823,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
 Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& col_ids) {
     for (ColumnId i : col_ids) {
-        if (_current_return_columns[i] == nullptr || _converted_column_ids[i]) {
+        if (_current_return_columns[i] == nullptr || _converted_column_ids[i] ||
+            _is_pred_column[i]) {
             continue;
         }
         if (!_segment->is_same_file_col_type_with_expected(
@@ -1819,22 +1836,9 @@ Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& c
             vectorized::ColumnPtr expected;
             vectorized::ColumnPtr original =
                     _current_return_columns[i]->assume_mutable()->get_ptr();
-            if (original->is_variant()) {
-                // Already converted
-                continue;
-            }
             RETURN_IF_ERROR(vectorized::schema_util::cast_column({original, file_column_type, ""},
                                                                  expected_type, &expected));
-            // wrap predicate column
-            if (_is_pred_column[i]) {
-                vectorized::MutableColumnPtr new_pred_column =
-                        Schema::get_predicate_column_ptr(*field_type, _opts.io_ctx.reader_type);
-                new_pred_column->insert_range_from(*expected, 0, expected->size());
-                _current_return_columns[i] = std::move(new_pred_column);
-                // TODO set datetime type
-            } else {
-                _current_return_columns[i] = expected->assume_mutable();
-            }
+            _current_return_columns[i] = expected->assume_mutable();
             _converted_column_ids[i] = 1;
             VLOG_DEBUG << fmt::format("Convert {} fom file column type {} to {}, num_rows {}",
                                       field_type->path().get_path(), file_column_type->get_name(),
@@ -1843,6 +1847,22 @@ Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& c
         }
     }
     return Status::OK();
+}
+
+Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_col_ptr,
+                                                     vectorized::MutableColumnPtr& output_col,
+                                                     uint16_t* sel_rowid_idx, uint16_t select_size,
+                                                     size_t batch_size) {
+    output_col->reserve(batch_size);
+
+    // adapt for outer join change column to nullable
+    if (output_col->is_nullable() && !input_col_ptr->is_nullable()) {
+        auto col_ptr_nullable = reinterpret_cast<vectorized::ColumnNullable*>(output_col.get());
+        col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
+        output_col = col_ptr_nullable->get_nested_column_ptr();
+    }
+
+    return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col);
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
@@ -1862,8 +1882,12 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             auto cid = _schema->column_id(i);
             auto column_desc = _schema->column(cid);
             if (_is_pred_column[cid]) {
-                _current_return_columns[cid] =
-                        Schema::get_predicate_column_ptr(*column_desc, _opts.io_ctx.reader_type);
+                auto storage_column_type = _segment->get_data_type_of(
+                        *column_desc, _opts.io_ctx.reader_type != ReaderType::READER_QUERY);
+                _current_return_columns[cid] = Schema::get_predicate_column_ptr(
+                        TabletColumn::get_field_type_by_type(
+                                storage_column_type->get_type_as_primitive_type()),
+                        storage_column_type->is_nullable(), _opts.io_ctx.reader_type);
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
@@ -1921,9 +1945,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         return Status::EndOfFile("no more data in segment");
     }
 
-    RETURN_IF_ERROR(_convert_to_expected_type(_first_read_column_ids));
-
     if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
+        RETURN_IF_ERROR(_convert_to_expected_type(_first_read_column_ids));
         RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
         _output_non_pred_columns(block);
         _output_index_result_column(nullptr, 0, block);
@@ -2002,6 +2025,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
         } else if (_is_need_expr_eval) {
             DCHECK(!_first_read_column_ids.empty());
+            RETURN_IF_ERROR(_convert_to_expected_type(_first_read_column_ids));
             // first read all rows are insert block, initialize sel_rowid_idx to all rows.
             for (auto cid : _first_read_column_ids) {
                 auto loc = _schema_block_id_map[cid];

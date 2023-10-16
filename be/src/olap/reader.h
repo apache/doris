@@ -125,6 +125,8 @@ public:
         std::vector<TCondition> conditions_except_leafnode_of_andnode;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
+        // slots that cast may be eliminated in storage layer
+        phmap::flat_hash_map<std::string, PrimitiveType> suspended_eliminate_cast_slots;
 
         // For unique key table with merge-on-write
         DeleteBitmap* delete_bitmap {nullptr};
@@ -244,6 +246,14 @@ protected:
     Status _init_delete_condition(const ReaderParams& read_params);
 
     Status _init_return_columns(const ReaderParams& read_params);
+
+    // If original column is a variant type column, and it's predicate is normalized
+    // so in order to get the real type of column predicate, we need to reset type
+    // according to the related type in `suspended_eliminate_cast_slots`.Since variant is not
+    // an predicate applicable type.Otherwise return the original tablet column.
+    // Eg. `where cast(v:a as bigint) > 1` will elimate cast, and materialize this variant column
+    // to type bigint
+    TabletColumn materialize_column(const TabletColumn& orig);
 
     TabletSharedPtr tablet() { return _tablet; }
     const TabletSchema& tablet_schema() { return *_tablet_schema; }

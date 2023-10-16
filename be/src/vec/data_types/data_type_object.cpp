@@ -47,10 +47,7 @@ namespace doris::vectorized {
 DataTypeObject::DataTypeObject(const String& schema_format_, bool is_nullable_)
         : schema_format(to_lower(schema_format_)), is_nullable(is_nullable_) {}
 bool DataTypeObject::equals(const IDataType& rhs) const {
-    if (const auto* object = typeid_cast<const DataTypeObject*>(&rhs)) {
-        return schema_format == object->schema_format && is_nullable == object->is_nullable;
-    }
-    return false;
+    return typeid_cast<const DataTypeObject*>(&rhs) != nullptr;
 }
 
 int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,

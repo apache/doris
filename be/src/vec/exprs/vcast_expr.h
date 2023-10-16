@@ -20,6 +20,7 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type.h"
@@ -53,6 +54,7 @@ public:
     virtual VExprSPtr clone() const override { return VCastExpr::create_shared(*this); }
     virtual const std::string& expr_name() const override;
     virtual std::string debug_string() const override;
+    const DataTypePtr& get_target_type() const;
 
 private:
     FunctionBasePtr _function;

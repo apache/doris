@@ -48,6 +48,7 @@
 #include "olap/schema.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
@@ -250,6 +251,16 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     return Status::OK();
 }
 
+TabletColumn TabletReader::materialize_column(const TabletColumn& orig) {
+    if (!orig.is_variant_type()) {
+        return orig;
+    }
+    TabletColumn column_with_cast_type = orig;
+    auto cast_type = _reader_context.suspended_eliminate_cast_slots.at(orig.name());
+    column_with_cast_type.set_type(TabletColumn::get_field_type_by_type(cast_type));
+    return column_with_cast_type;
+}
+
 Status TabletReader::_init_params(const ReaderParams& read_params) {
     read_params.check_validation();
 
@@ -259,6 +270,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;
     _reader_context.runtime_state = read_params.runtime_state;
+    _reader_context.suspended_eliminate_cast_slots = read_params.suspended_eliminate_cast_slots;
 
     RETURN_IF_ERROR(_init_conditions_param(read_params));
     _init_conditions_param_except_leafnode_of_andnode(read_params);
@@ -462,7 +474,7 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         RETURN_IF_ERROR(_tablet_schema->have_column(tmp_cond.column_name));
         // The "column" parameter might represent a column resulting from the decomposition of a variant column.
         // Instead of using a "unique_id" for identification, we are utilizing a "path" to denote this column.
-        const auto& column = _tablet_schema->column(tmp_cond.column_name);
+        const auto& column = materialize_column(_tablet_schema->column(tmp_cond.column_name));
         uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
         ColumnPredicate* predicate =
                 parse_to_predicate(column, index, tmp_cond, _predicate_arena.get());
@@ -538,7 +550,7 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
         const ReaderParams& read_params) {
     for (const auto& condition : read_params.conditions_except_leafnode_of_andnode) {
         TCondition tmp_cond = condition;
-        const auto& column = _tablet_schema->column(tmp_cond.column_name);
+        const auto& column = materialize_column(_tablet_schema->column(tmp_cond.column_name));
         uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
         ColumnPredicate* predicate =
                 parse_to_predicate(column, index, tmp_cond, _predicate_arena.get());
@@ -563,7 +575,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
     if (index < 0) {
         return nullptr;
     }
-    const TabletColumn& column = _tablet_schema->column(index);
+    const TabletColumn& column = materialize_column(_tablet_schema->column(index));
     return create_column_predicate(index, bloom_filter.second, column.type(),
                                    _reader_context.runtime_state->be_exec_version(), &column);
 }
@@ -574,7 +586,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
     if (index < 0) {
         return nullptr;
     }
-    const TabletColumn& column = _tablet_schema->column(index);
+    const TabletColumn& column = materialize_column(_tablet_schema->column(index));
     return create_column_predicate(index, in_filter.second, column.type(),
                                    _reader_context.runtime_state->be_exec_version(), &column);
 }
@@ -585,7 +597,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
     if (index < 0) {
         return nullptr;
     }
-    const TabletColumn& column = _tablet_schema->column(index);
+    const TabletColumn& column = materialize_column(_tablet_schema->column(index));
     return create_column_predicate(index, bitmap_filter.second, column.type(),
                                    _reader_context.runtime_state->be_exec_version(), &column);
 }
@@ -595,7 +607,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     if (index < 0) {
         return nullptr;
     }
-    const TabletColumn& column = _tablet_schema->column(index);
+    const TabletColumn& column = materialize_column(_tablet_schema->column(index));
     return create_column_predicate(index, std::make_shared<FunctionFilter>(function_filter),
                                    column.type(), _reader_context.runtime_state->be_exec_version(),
                                    &column);

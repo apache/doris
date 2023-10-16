@@ -96,6 +96,10 @@ public:
 
     bool can_do_bloom_filter(bool ngram) const override { return _is_null && !ngram; }
 
+    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
+        return is_null == _is_null;
+    }
+
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
 
 private:

@@ -24,6 +24,7 @@
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/schema.h"
 #include "olap/selection_vector.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 
 using namespace doris::segment_v2;
@@ -184,6 +185,11 @@ public:
     }
 
     virtual bool can_do_bloom_filter(bool ngram) const { return false; }
+
+    // Check input type could apply safely.
+    // Note: Currenly ColumnPredicate is not include complex type, so use PrimitiveType
+    // is simple and intuitive
+    virtual bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const = 0;
 
     // used to evaluate pre read column in lazy materialization
     // now only support integer/float

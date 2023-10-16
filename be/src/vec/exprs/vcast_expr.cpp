@@ -79,6 +79,10 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
     return Status::OK();
 }
 
+const DataTypePtr& VCastExpr::get_target_type() const {
+    return _target_data_type;
+}
+
 doris::Status VCastExpr::open(doris::RuntimeState* state, VExprContext* context,
                               FunctionContext::FunctionStateScope scope) {
     RETURN_IF_ERROR(VExpr::open(state, context, scope));

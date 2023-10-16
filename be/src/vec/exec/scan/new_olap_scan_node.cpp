@@ -23,6 +23,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <opentelemetry/trace/tracer.h>
+#include <parallel_hashmap/phmap.h>
 #include <stdio.h>
 
 #include <algorithm>
@@ -32,6 +33,7 @@
 #include <unordered_map>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -44,6 +46,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
@@ -54,9 +57,11 @@
 #include "vec/columns/column_const.h"
 #include "vec/common/string_ref.h"
 #include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class DescriptorTbl;
@@ -407,6 +412,47 @@ void NewOlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
 
 std::string NewOlapScanNode::get_name() {
     return fmt::format("VNewOlapScanNode({0})", _olap_scan_node.table_name);
+}
+
+void NewOlapScanNode::_filter_and_collect_suspended_eliminate_cast_column(
+        const VExpr* expr,
+        phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types) {
+    auto* cast_expr = dynamic_cast<const VCastExpr*>(expr);
+    if (cast_expr != nullptr) {
+        auto* src_slot = cast_expr->get_child(0)->node_type() == TExprNodeType::SLOT_REF
+                                 ? dynamic_cast<const VSlotRef*>(cast_expr->get_child(0).get())
+                                 : nullptr;
+        if (src_slot == nullptr) {
+            return;
+        }
+        std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();
+        SlotDescriptor* src_slot_desc = slots[_slot_id_to_slot_idx[src_slot->slot_id()]];
+        PrimitiveType cast_dst_type = cast_expr->get_target_type()->get_type_as_primitive_type();
+        if (src_slot_desc->type().is_variant_type()) {
+            colname_to_cast_types[src_slot_desc->col_name()].push_back(cast_dst_type);
+        }
+    }
+    for (const auto& child : expr->children()) {
+        _filter_and_collect_suspended_eliminate_cast_column(child.get(), colname_to_cast_types);
+    }
+}
+
+void NewOlapScanNode::_caculate_suspended_eliminate_cast_column() {
+    phmap::flat_hash_map<std::string, std::vector<PrimitiveType>> colname_to_cast_types;
+    for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
+        auto& conjunct = *it;
+        if (conjunct->root()) {
+            _filter_and_collect_suspended_eliminate_cast_column(conjunct->root().get(),
+                                                                colname_to_cast_types);
+        }
+        ++it;
+    }
+    // cast to one certain type could be suspended eliminating
+    for (const auto& [slotid, types] : colname_to_cast_types) {
+        if (types.size() == 1) {
+            _suspended_eliminate_cast_column[slotid] = types[0];
+        }
+    }
 }
 
 Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {

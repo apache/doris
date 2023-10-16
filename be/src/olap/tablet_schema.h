@@ -35,6 +35,7 @@
 #include "common/status.h"
 #include "gutil/stringprintf.h"
 #include "olap/olap_common.h"
+#include "runtime/define_primitive_type.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/json/path_in_data.h"
@@ -127,6 +128,7 @@ public:
     static std::string get_string_by_field_type(FieldType type);
     static std::string get_string_by_aggregation_type(FieldAggregationMethod aggregation_type);
     static FieldType get_field_type_by_string(const std::string& str);
+    static FieldType get_field_type_by_type(PrimitiveType type);
     static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
     static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
     bool is_row_store_column() const;
