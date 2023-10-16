@@ -20,6 +20,7 @@
 
 #include "io/cache/block/block_file_cache.h"
 
+#include <fmt/core.h>
 #include <glog/logging.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <sys/resource.h>
@@ -85,8 +86,7 @@ CacheType IFileCache::string_to_cache_type(const std::string& str) {
 
 std::string IFileCache::get_path_in_local_cache(const Key& key, size_t offset,
                                                 CacheType type) const {
-    return get_path_in_local_cache(key) + "/" +
-           (std::to_string(offset) + cache_type_to_string(type));
+    return fmt::format("{}/{}{}", get_path_in_local_cache(key), offset, cache_type_to_string(type));
 }
 
 std::string IFileCache::get_path_in_local_cache(const Key& key) const {
