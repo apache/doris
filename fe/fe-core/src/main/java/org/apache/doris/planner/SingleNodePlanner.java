@@ -51,7 +51,6 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.analysis.TupleIsNullPredicate;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -78,7 +77,6 @@ import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.thrift.TNullSide;
 import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.base.Preconditions;
@@ -1658,18 +1656,6 @@ public class SingleNodePlanner {
                 //set outputSmap to substitute literal in outputExpr
                 unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
                 unionNode.setOutputSmap(inlineViewRef.getSmap(), analyzer);
-                if (analyzer.isOuterJoined(inlineViewRef.getId())) {
-                    List<Expr> nullableRhs;
-                    if (analyzer.isOuterJoinedLeftSide(inlineViewRef.getId())) {
-                        nullableRhs = TupleIsNullPredicate.wrapExprs(inlineViewRef.getSmap().getRhs(),
-                            unionNode.getTupleIds(), TNullSide.LEFT, analyzer);
-                    } else {
-                        nullableRhs = TupleIsNullPredicate.wrapExprs(inlineViewRef.getSmap().getRhs(),
-                            unionNode.getTupleIds(), TNullSide.RIGHT, analyzer);
-                    }
-                    unionNode.setOutputSmap(
-                            new ExprSubstitutionMap(inlineViewRef.getSmap().getLhs(), nullableRhs), analyzer);
-                }
                 return unionNode;
             }
         }
