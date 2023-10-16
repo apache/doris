@@ -59,12 +59,12 @@ namespace ZeroTraits {
 
 template <typename T>
 bool check(const T x) {
-    return x == 0;
+    return x == T {};
 }
 
 template <typename T>
 void set(T& x) {
-    x = 0;
+    x = T {};
 }
 
 } // namespace ZeroTraits
