@@ -110,11 +110,10 @@ void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const 
                 if (default_values[i].empty()) {
                     col->insert_default();
                 } else {
-                    // col->insert_default();
-                    ReadBuffer value(
-                            reinterpret_cast<const unsigned char*>(default_values[i].data()),
-                            default_values[i].size());
-                    static_cast<void>(column_type_name.type->from_string(value, col.get()));
+                    Slice value(default_values[i].data(), default_values[i].size());
+                    DataTypeSerDe::FormatOptions opt;
+                    opt.converted_from_string = true;
+                    static_cast<void>(serdes[i]->deserialize_one_cell_from_json(*col, value, opt));
                 }
             }
             DCHECK(col->size() == num_rows + 1);
