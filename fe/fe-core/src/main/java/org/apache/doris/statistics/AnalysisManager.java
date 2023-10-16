@@ -39,6 +39,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -64,6 +65,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.reflect.TypeToken;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.util.CronExpression;
@@ -109,9 +111,11 @@ public class AnalysisManager extends Daemon implements Writable {
     private AnalysisTaskExecutor taskExecutor;
 
     // Store task information in metadata.
+    @SerializedName("analysisTaskInfoMap")
     private final Map<Long, AnalysisInfo> analysisTaskInfoMap = Collections.synchronizedMap(new TreeMap<>());
 
     // Store job information in metadata
+    @SerializedName("analysisJobInfoMap")
     private final Map<Long, AnalysisInfo> analysisJobInfoMap = Collections.synchronizedMap(new TreeMap<>());
 
     // Tracking system submitted job, keep in mem only
@@ -120,8 +124,10 @@ public class AnalysisManager extends Daemon implements Writable {
     // Tracking and control sync analyze tasks, keep in mem only
     private final ConcurrentMap<ConnectContext, SyncTaskCollection> ctxToSyncTask = new ConcurrentHashMap<>();
 
+    @SerializedName("idToTblStats")
     private final Map<Long, TableStatsMeta> idToTblStats = new ConcurrentHashMap<>();
 
+    @SerializedName("autoJobs")
     protected SimpleQueue<AnalysisInfo> autoJobs = createSimpleQueue(null, this);
 
     private final Function<TaskStatusWrapper, Void> userJobStatusUpdater = w -> {
@@ -922,12 +928,18 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     public static AnalysisManager readFields(DataInput in) throws IOException {
-        AnalysisManager analysisManager = new AnalysisManager();
-        readAnalysisInfo(in, analysisManager.analysisJobInfoMap, true);
-        readAnalysisInfo(in, analysisManager.analysisTaskInfoMap, false);
-        readIdToTblStats(in, analysisManager.idToTblStats);
-        readAutoJobs(in, analysisManager);
-        return analysisManager;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_126) {
+            AnalysisManager analysisManager = new AnalysisManager();
+            readAnalysisInfo(in, analysisManager.analysisJobInfoMap, true);
+            readAnalysisInfo(in, analysisManager.analysisTaskInfoMap, false);
+            readIdToTblStats(in, analysisManager.idToTblStats);
+            readAutoJobs(in, analysisManager);
+            return analysisManager;
+        } else {
+            AnalysisManager analysisManager = GsonUtils.GSON.fromJson(Text.readString(in), AnalysisManager.class);
+            analysisManager.autoJobs = analysisManager.createSimpleQueue(analysisManager.autoJobs, analysisManager);
+            return analysisManager;
+        }
     }
 
     private static void readAnalysisInfo(DataInput in, Map<Long, AnalysisInfo> map, boolean job) throws IOException {
@@ -972,30 +984,7 @@ public class AnalysisManager extends Daemon implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        writeJobInfo(out, analysisJobInfoMap);
-        writeJobInfo(out, analysisTaskInfoMap);
-        writeTableStats(out);
-        writeAutoJobsStatus(out);
-    }
-
-    private void writeJobInfo(DataOutput out, Map<Long, AnalysisInfo> infoMap) throws IOException {
-        out.writeInt(infoMap.size());
-        for (Entry<Long, AnalysisInfo> entry : infoMap.entrySet()) {
-            entry.getValue().write(out);
-        }
-    }
-
-    private void writeTableStats(DataOutput out) throws IOException {
-        out.writeInt(idToTblStats.size());
-        for (Entry<Long, TableStatsMeta> entry : idToTblStats.entrySet()) {
-            entry.getValue().write(out);
-        }
-    }
-
-    private void writeAutoJobsStatus(DataOutput output) throws IOException {
-        Type type = new TypeToken<LinkedList<AnalysisInfo>>() {}.getType();
-        String autoJobs = GsonUtils.GSON.toJson(this.autoJobs, type);
-        Text.writeString(output, autoJobs);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     // For unit test use only.
