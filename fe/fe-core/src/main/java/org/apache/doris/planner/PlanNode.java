@@ -1116,24 +1116,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
         List<String> filtersStr = new ArrayList<>();
         for (RuntimeFilter filter : runtimeFilters) {
-            StringBuilder filterStr = new StringBuilder();
-            filterStr.append(filter.getFilterId());
-            if (!isBrief) {
-                filterStr.append("[");
-                filterStr.append(filter.getType().toString().toLowerCase());
-                filterStr.append("]");
-                if (isBuildNode) {
-                    filterStr.append(" <- ");
-                    filterStr.append(filter.getSrcExpr().toSql());
-                    filterStr.append("(").append(filter.getEstimateNdv()).append("/")
-                            .append(filter.getExpectFilterSizeBytes()).append("/")
-                            .append(filter.getFilterSizeBytes()).append(")");
-                } else {
-                    filterStr.append(" -> ");
-                    filterStr.append(filter.getTargetExpr(getId()).toSql());
-                }
-            }
-            filtersStr.add(filterStr.toString());
+            filtersStr.add(filter.getExplainString(isBuildNode, isBrief, getId()));
         }
         return Joiner.on(", ").join(filtersStr) + "\n";
     }
