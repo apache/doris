@@ -89,9 +89,10 @@ S3FileWriter::S3FileWriter(std::string key, std::shared_ptr<S3FileSystem> fs,
           _bucket(fs->s3_conf().bucket),
           _key(std::move(key)),
           _client(fs->get_client()),
+          _cache(nullptr),
           _expiration_time(opts ? opts->file_cache_expiration : 0),
           _is_cold_data(opts ? opts->is_cold_data : true),
-          _write_file_cache(!opts ? false : !opts->write_file_cache) {
+          _write_file_cache(opts ? opts->write_file_cache : false) {
     s3_file_writer_total << 1;
     s3_file_being_written << 1;
 
@@ -255,7 +256,7 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                             return ret;
                         })
                         .set_is_cancelled([this]() { return _failed.load(); });
-                if (!_write_file_cache) {
+                if (_write_file_cache) {
                     // We would load the data into file cache asynchronously which indicates
                     // that this instance of S3FileWriter might have been destructed when we
                     // try to do writing into file cache, so we make the lambda capture the variable

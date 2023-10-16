@@ -82,13 +82,13 @@ private:
     bthread::CountdownEvent _countdown_event {0};
 
     std::atomic_bool _failed = false;
-    Status _st = Status::OK();
+    Status _st;
     size_t _bytes_written = 0;
 
-    std::shared_ptr<FileBuffer> _pending_buf = nullptr;
+    std::shared_ptr<FileBuffer> _pending_buf;
     int64_t _expiration_time;
     bool _is_cold_data;
-    bool _write_file_cache = false;
+    bool _write_file_cache;
 };
 
 } // namespace io

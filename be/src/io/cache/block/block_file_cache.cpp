@@ -57,7 +57,7 @@ IFileCache::Key IFileCache::hash(const std::string& path) {
     return Key(key);
 }
 
-std::string IFileCache::cache_type_to_string(CacheType type) {
+std::string_view IFileCache::cache_type_to_string(CacheType type) {
     switch (type) {
     case CacheType::INDEX:
         return "_idx";

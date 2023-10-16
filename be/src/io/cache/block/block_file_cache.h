@@ -149,7 +149,7 @@ public:
     virtual void change_cache_type(const Key& key, size_t offset, CacheType new_type,
                                    std::lock_guard<doris::Mutex>& cache_lock) = 0;
 
-    static std::string cache_type_to_string(CacheType type);
+    static std::string_view cache_type_to_string(CacheType type);
     static CacheType string_to_cache_type(const std::string& str);
 
     IFileCache& operator=(const IFileCache&) = delete;
