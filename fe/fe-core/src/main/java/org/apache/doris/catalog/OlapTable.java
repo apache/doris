@@ -639,6 +639,10 @@ public class OlapTable extends Table {
         return Status.OK;
     }
 
+    public int getIndexNumber() {
+        return indexIdToMeta.size();
+    }
+
     public Map<Long, MaterializedIndexMeta> getIndexIdToMeta() {
         return indexIdToMeta;
     }
