@@ -21,7 +21,6 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
