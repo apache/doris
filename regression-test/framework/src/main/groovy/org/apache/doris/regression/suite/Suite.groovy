@@ -669,6 +669,14 @@ class Suite implements GroovyInterceptable {
 
     void quickTest(String tag, String sql, boolean isOrder = false) {
         logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
+        if (tag.contains("hive_docker")) {
+            String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
+            sql = cleanedSqlStr
+        }
+        if (tag.contains("hive_remote")) {
+            String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
+            sql = cleanedSqlStr
+        }
         quickRunTest(tag, sql, isOrder) 
     }
 
