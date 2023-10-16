@@ -17,6 +17,7 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -160,6 +161,7 @@ public class DiskRebalancer extends Rebalancer {
             return alternativeTablets;
         }
 
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
         Set<Long> alternativeTabletIds = Sets.newHashSet();
         Set<Long> unbalancedBEs = Sets.newHashSet();
         // choose tablets from backends randomly.
@@ -220,6 +222,10 @@ public class DiskRebalancer extends Rebalancer {
                 if (remainingPaths.containsKey(replicaPathHash)) {
                     TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
                     if (tabletMeta == null) {
+                        continue;
+                    }
+                    if (recycleBin.isRecyclePartition(tabletMeta.getDbId(), tabletMeta.getTableId(),
+                            tabletMeta.getPartitionId())) {
                         continue;
                     }
 

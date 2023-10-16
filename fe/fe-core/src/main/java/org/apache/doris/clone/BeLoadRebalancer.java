@@ -17,6 +17,7 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
@@ -117,6 +118,7 @@ public class BeLoadRebalancer extends Rebalancer {
 
         int clusterAvailableBEnum = infoService.getAllBackendIds(true).size();
         ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,
         // so we need to traverse it from last to first
@@ -175,6 +177,11 @@ public class BeLoadRebalancer extends Rebalancer {
                     }
 
                     if (colocateTableIndex.isColocateTable(tabletMeta.getTableId())) {
+                        continue;
+                    }
+
+                    if (recycleBin.isRecyclePartition(tabletMeta.getDbId(), tabletMeta.getTableId(),
+                            tabletMeta.getPartitionId())) {
                         continue;
                     }
 
