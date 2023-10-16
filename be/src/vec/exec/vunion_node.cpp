@@ -68,10 +68,49 @@ Status VUnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _const_expr_lists.push_back(ctxs);
     }
     // Create result_expr_ctx_lists_ from thrift exprs.
-    auto& result_texpr_lists = tnode.union_node.result_expr_lists;
-    for (auto& texprs : result_texpr_lists) {
+    const auto& result_texpr_lists = tnode.union_node.result_expr_lists;
+    for (size_t i = 0; i != result_texpr_lists.size(); ++i) {
+        const auto& texprs = result_texpr_lists[i];
         VExprContextSPtrs ctxs;
         RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
+
+#if DCHECK_IS_ON()
+        auto index = 0;
+        for (auto* tuple : _row_descriptor.tuple_descriptors()) {
+            for (auto* slot : tuple->slots()) {
+                if (!slot->need_materialize()) {
+                    continue;
+                }
+
+                auto& ctx = ctxs[index++];
+                auto slot_type = slot->get_data_type_ptr();
+                auto& expr_type = ctx->root()->data_type();
+                if (slot->is_nullable()) {
+                    auto slot_type_without_null = remove_nullable(slot_type);
+                    if (!expr_type->is_nullable()) {
+                        DCHECK(slot_type_without_null->equals(*expr_type)) << fmt::format(
+                                "result_expr_lists[{}][{}].type: {} != slot(#{}).type: {} ", i,
+                                index - 1, static_cast<int>(expr_type->get_type_id()), slot->id(),
+                                slot_type_without_null->get_type_id());
+                    } else {
+                        auto expr_type_without_null = remove_nullable(expr_type);
+                        DCHECK(slot_type_without_null->equals(*expr_type_without_null))
+                                << fmt::format(
+                                           "result_expr_lists[{}][{}].type: {} != slot(#{}).type: "
+                                           "{} ",
+                                           i, index - 1,
+                                           static_cast<int>(expr_type_without_null->get_type_id()),
+                                           slot->id(), slot_type_without_null->get_type_id());
+                    }
+                } else {
+                    DCHECK(expr_type->get_type_id() == slot_type->get_type_id()) << fmt::format(
+                            "result_expr_lists[{}][{}].type: {} != slot(#{}).type: {} ", i,
+                            index - 1, static_cast<int>(expr_type->get_type_id()), slot->id(),
+                            slot_type->get_type_id());
+                }
+            }
+        }
+#endif
         _child_expr_lists.push_back(ctxs);
     }
     return Status::OK();
