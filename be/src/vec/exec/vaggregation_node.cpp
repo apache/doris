@@ -40,7 +40,9 @@
 #include "util/telemetry/telemetry.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/hash_table/hash.h"
+#include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/hash_table/hash_table_utils.h"
+#include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/hash_table/string_hash_table.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/block.h"
@@ -238,47 +240,8 @@ void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
 
         _agg_data->init(get_hash_key_type_with_phase(t, !_is_first_phase), is_nullable);
     } else {
-        bool use_fixed_key = true;
-        bool has_null = false;
-        size_t key_byte_size = 0;
-        size_t bitmap_size = get_bitmap_size(_probe_expr_ctxs.size());
-
-        _probe_key_sz.resize(_probe_expr_ctxs.size());
-        for (int i = 0; i < _probe_expr_ctxs.size(); ++i) {
-            const auto& expr = _probe_expr_ctxs[i]->root();
-            const auto& data_type = expr->data_type();
-
-            if (!data_type->have_maximum_size_of_value()) {
-                use_fixed_key = false;
-                break;
-            }
-
-            auto is_null = data_type->is_nullable();
-            has_null |= is_null;
-            _probe_key_sz[i] = data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
-            key_byte_size += _probe_key_sz[i];
-        }
-
-        if (!has_null) {
-            bitmap_size = 0;
-        }
-
-        if (bitmap_size + key_byte_size > sizeof(UInt256)) {
-            use_fixed_key = false;
-        }
-
-        if (use_fixed_key) {
-            if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
-                t = Type::int64_keys;
-            } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
-                t = Type::int128_keys;
-            } else if (bitmap_size + key_byte_size <= sizeof(UInt136)) {
-                t = Type::int136_keys;
-            } else {
-                t = Type::int256_keys;
-            }
-            _agg_data->init(get_hash_key_type_with_phase(t, !_is_first_phase), has_null);
-        } else {
+        if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32, AggregateDataPtr>(
+                    _agg_data->method_variant, probe_exprs)) {
             _agg_data->init(Type::serialized);
         }
     }
@@ -883,8 +846,8 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 SCOPED_TIMER(_hash_table_compute_timer);
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
-                AggState state(key_columns, _probe_key_sz);
-                agg_method.init_serialized_keys(key_columns, _probe_key_sz, num_rows);
+                AggState state(key_columns);
+                agg_method.init_serialized_keys(key_columns, num_rows);
 
                 auto creator = [this](const auto& ctor, auto& key, auto& origin) {
                     HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
@@ -920,8 +883,8 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
             [&](auto&& agg_method) -> void {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
-                AggState state(key_columns, _probe_key_sz);
-                agg_method.init_serialized_keys(key_columns, _probe_key_sz, num_rows);
+                AggState state(key_columns);
+                agg_method.init_serialized_keys(key_columns, num_rows);
 
                 /// For all rows.
                 for (size_t i = 0; i < num_rows; ++i) {
@@ -1091,7 +1054,7 @@ Status AggregationNode::_serialize_hash_table_to_block(HashTableCtxType& context
         }
     }
 
-    { context.insert_keys_into_columns(keys, key_columns, num_rows, _probe_key_sz); }
+    { context.insert_keys_into_columns(keys, key_columns, num_rows); }
 
     if (hash_table.has_null_key_data()) {
         // only one key of group by support wrap null key
@@ -1343,7 +1306,7 @@ Status AggregationNode::_get_result_with_serialized_key_non_spill(RuntimeState* 
 
                 {
                     SCOPED_TIMER(_insert_keys_to_column_timer);
-                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows, _probe_key_sz);
+                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
                 }
 
                 for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -1470,7 +1433,7 @@ Status AggregationNode::_serialize_with_serialized_key_result_non_spill(RuntimeS
 
                 {
                     SCOPED_TIMER(_insert_keys_to_column_timer);
-                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows, _probe_key_sz);
+                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
                 }
 
                 if (iter == _aggregate_data_container->end()) {

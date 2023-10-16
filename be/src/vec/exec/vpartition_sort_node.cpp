@@ -30,7 +30,9 @@
 #include "common/object_pool.h"
 #include "runtime/runtime_state.h"
 #include "vec/common/hash_table/hash.h"
+#include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/hash_table/hash_set.h"
+#include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -107,9 +109,9 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
 
-                AggState state(key_columns, _partition_key_sz);
+                AggState state(key_columns);
                 size_t num_rows = input_block->rows();
-                agg_method.init_serialized_keys(key_columns, _partition_key_sz, num_rows);
+                agg_method.init_serialized_keys(key_columns, num_rows);
 
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                     HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
@@ -378,54 +380,8 @@ void VPartitionSortNode::_init_hash_method() {
             _partitioned_data->init(PartitionedHashMapVariants::Type::serialized);
         }
     } else {
-        bool use_fixed_key = true;
-        bool has_null = false;
-        size_t key_byte_size = 0;
-        size_t bitmap_size = get_bitmap_size(_partition_exprs_num);
-
-        _partition_key_sz.resize(_partition_exprs_num);
-        for (int i = 0; i < _partition_exprs_num; ++i) {
-            const auto& data_type = _partition_expr_ctxs[i]->root()->data_type();
-
-            if (!data_type->have_maximum_size_of_value()) {
-                use_fixed_key = false;
-                break;
-            }
-
-            auto is_null = data_type->is_nullable();
-            has_null |= is_null;
-            _partition_key_sz[i] =
-                    data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
-            key_byte_size += _partition_key_sz[i];
-        }
-
-        if (bitmap_size + key_byte_size > sizeof(UInt256)) {
-            use_fixed_key = false;
-        }
-
-        if (use_fixed_key) {
-            if (has_null) {
-                if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
-                    _partitioned_data->init(PartitionedHashMapVariants::Type::int64_keys, has_null);
-                } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
-                    _partitioned_data->init(PartitionedHashMapVariants::Type::int128_keys,
-                                            has_null);
-                } else {
-                    _partitioned_data->init(PartitionedHashMapVariants::Type::int256_keys,
-                                            has_null);
-                }
-            } else {
-                if (key_byte_size <= sizeof(UInt64)) {
-                    _partitioned_data->init(PartitionedHashMapVariants::Type::int64_keys, has_null);
-                } else if (key_byte_size <= sizeof(UInt128)) {
-                    _partitioned_data->init(PartitionedHashMapVariants::Type::int128_keys,
-                                            has_null);
-                } else {
-                    _partitioned_data->init(PartitionedHashMapVariants::Type::int256_keys,
-                                            has_null);
-                }
-            }
-        } else {
+        if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32, PartitionDataPtr>(
+                    _partitioned_data->method_variant, _partition_expr_ctxs)) {
             _partitioned_data->init(PartitionedHashMapVariants::Type::serialized);
         }
     }

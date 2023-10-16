@@ -39,6 +39,7 @@
 #include "vec/common/arena.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/hash_map_context.h"
+#include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -146,7 +147,7 @@ struct ProcessHashTableBuild {
             _parent->add_hash_buckets_filled_info(hash_table_buckets_info);
         }};
 
-        KeyGetter key_getter(_build_raw_ptrs, _parent->build_key_sz());
+        KeyGetter key_getter(_build_raw_ptrs);
 
         SCOPED_TIMER(_parent->_build_table_insert_timer);
         hash_table_ctx.hash_table->reset_resize_timer();
@@ -168,7 +169,7 @@ struct ProcessHashTableBuild {
             inserted_rows.reserve(_batch_size);
         }
 
-        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _parent->build_key_sz(), _rows,
+        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr);
 
         auto& arena = *_parent->arena();
@@ -244,7 +245,6 @@ private:
     ProfileCounter* _build_side_compute_hash_timer;
 };
 
-// TODO: use FixedHashTable instead of HashTable
 template <typename RowRefListType>
 using I8HashTableContext = PrimaryTypeHashTableContext<UInt8, RowRefListType>;
 template <typename RowRefListType>
@@ -266,6 +266,9 @@ using I128FixedKeyHashTableContext = FixedKeyHashTableContext<UInt128, has_null,
 
 template <bool has_null, typename RowRefListType>
 using I256FixedKeyHashTableContext = FixedKeyHashTableContext<UInt256, has_null, RowRefListType>;
+
+template <bool has_null, typename RowRefListType>
+using I136FixedKeyHashTableContext = FixedKeyHashTableContext<UInt136, has_null, RowRefListType>;
 
 using HashTableVariants = std::variant<
         std::monostate, SerializedHashTableContext<RowRefList>, I8HashTableContext<RowRefList>,
@@ -296,7 +299,13 @@ using HashTableVariants = std::variant<
         I128FixedKeyHashTableContext<true, RowRefListWithFlags>,
         I128FixedKeyHashTableContext<false, RowRefListWithFlags>,
         I256FixedKeyHashTableContext<true, RowRefListWithFlags>,
-        I256FixedKeyHashTableContext<false, RowRefListWithFlags>>;
+        I256FixedKeyHashTableContext<false, RowRefListWithFlags>,
+        I136FixedKeyHashTableContext<true, RowRefListWithFlags>,
+        I136FixedKeyHashTableContext<false, RowRefListWithFlags>,
+        I136FixedKeyHashTableContext<true, RowRefListWithFlag>,
+        I136FixedKeyHashTableContext<false, RowRefListWithFlag>,
+        I136FixedKeyHashTableContext<true, RowRefList>,
+        I136FixedKeyHashTableContext<false, RowRefList>>;
 
 class VExprContext;
 
@@ -361,13 +370,11 @@ public:
     bool is_right_semi_anti() const { return _is_right_semi_anti; }
     bool is_outer_join() const { return _is_outer_join; }
     std::shared_ptr<std::vector<Block>> build_blocks() const { return _build_blocks; }
-    Sizes probe_key_sz() const { return _probe_key_sz; }
     std::vector<bool>* left_output_slot_flags() { return &_left_output_slot_flags; }
     std::vector<bool>* right_output_slot_flags() { return &_right_output_slot_flags; }
     bool* has_null_in_build_side() { return &_has_null_in_build_side; }
     DataTypes right_table_data_types() { return _right_table_data_types; }
     DataTypes left_table_data_types() { return _left_table_data_types; }
-    vectorized::Sizes& build_key_sz() { return _build_key_sz; }
     bool build_unique() const { return _build_unique; }
     std::vector<TRuntimeFilterDesc>& runtime_filter_descs() { return _runtime_filter_descs; }
     std::shared_ptr<vectorized::Arena> arena() { return _arena; }
@@ -473,9 +480,6 @@ private:
     bool _probe_eos = false;
 
     bool _build_side_ignore_null = false;
-
-    Sizes _probe_key_sz;
-    Sizes _build_key_sz;
 
     bool _is_broadcast_join = false;
     bool _should_build_hash_table = true;
