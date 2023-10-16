@@ -83,7 +83,13 @@ public:
         char* dict_item_address = reinterpret_cast<char*>(_dict.get());
         _dict_items.resize(num_values);
         for (size_t i = 0; i < num_values; ++i) {
-            _dict_items[i] = *(DataType*)dict_item_address;
+            if (PhysicalType == tparquet::Type::INT96) {
+                ParquetInt96 value = *(ParquetInt96*)dict_item_address;
+                _dict_items[i] = value.to_int128();
+
+            } else {
+                _dict_items[i] = *(DataType*)dict_item_address;
+            }
             dict_item_address += _type_length;
         }
         return Status::OK();

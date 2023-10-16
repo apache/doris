@@ -43,7 +43,6 @@
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/parquet/decoder.h"
 #include "vec/exec/format/parquet/parquet_common.h"
-
 namespace doris::vectorized {
 
 namespace ParquetConvert {
@@ -287,7 +286,6 @@ public:
             int64_t micros = to_timestamp_micros(hi, lo);
             value.from_unixtime(micros / 1000000, *_convert_params->ctz);
             value.set_microsecond(micros % 1000000);
-            std::cout << "value = " << value << "\n";
         }
         return Status::OK();
     }
@@ -313,7 +311,6 @@ public:
             value.from_unixtime(x / _convert_params->second_mask, *_convert_params->ctz);
             value.set_microsecond((x % _convert_params->second_mask) *
                                   _convert_params->scale_to_nano_factor / 1000);
-            std::cout << "value = " << value << "\n";
         }
         return Status::OK();
     }
@@ -338,9 +335,7 @@ public:
                     data[_convert_params->start_idx + i]);
             int64_t date_value = (int64_t)src_data[i] + _convert_params->offset_days;
             value = date_dict[date_value];
-            std::cout << "src_data[i] = " << src_data[i] << "datav2  value =" << value << "\n";
         }
-        std::cout << rows << "\n";
 
         return Status::OK();
     }
@@ -364,7 +359,7 @@ public:
             int len = offset[i] - offset[i - 1];
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
             // the unscaled number must be encoded as two's complement using big-endian byte order.
-            typename DecimalType::NativeType value = 0;
+            Int128 value = 0;
             memcpy(reinterpret_cast<char*>(&value), buf + offset[i - 1], len);
             value = BitUtil::big_endian_to_host(value);
             value = value >> ((sizeof(value) - len) * 8);
@@ -435,10 +430,8 @@ public:
             memcpy(reinterpret_cast<char*>(&value), buf + offset[i - 1], len);
             value = BitUtil::big_endian_to_host(value);
             value = value >> ((sizeof(value) - len) * 8);
-            std::cout << "ans =" << value << "\n";
             std::string ans = reinterpret_cast<Decimal64&>(value).to_string(
                     _convert_params->field_schema->parquet_schema.scale);
-            std::cout << "ans = " << ans << "\n";
             data->insert_data(ans.data(), ans.size());
         }
         return Status::OK();
@@ -470,8 +463,6 @@ public:
             buf.resize(20);
             char* end = value.to_string(buf.data());
             data->insert_data(buf.data(), end - buf.data());
-
-            std::cout << "value = " << value << "\n";
         }
 
         return Status::OK();
@@ -486,7 +477,6 @@ inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
                                  ConvertParams* convert_params) {
     auto src_type = src_data_type->get_type_id();
     auto dst_type = dst_data_type->get_type_id();
-    std::cout << getTypeName(src_type) << " -> " << getTypeName(dst_type) << "\n";
     switch (dst_type) {
 #define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE)                                    \
     case NUMERIC_TYPE:                                                                             \
@@ -556,8 +546,6 @@ inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
             *converter = std::make_unique<int128totimestamp<is_nullable>>();
         } else if (src_type == TypeIndex::Int64) {
             *converter = std::make_unique<int64totimestamp<is_nullable>>();
-        } else {
-            std::cout << "src_type = " << getTypeName(src_type) << "\n";
         }
         break;
 #define DISPATCH2(TypeIndex_DECIMAL_TYPE, DECIMAL_TYPE, PRIMARY_TYPE)                             \

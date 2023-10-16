@@ -487,7 +487,6 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
 
     RETURN_IF_ERROR(ParquetConvert::convert_data_type_from_parquet(
             physical_type, _field_schema->type.type, src_type, type, &need_convert));
-    std::cout << "need_convert = " << need_convert << "\n";
     //this->_field_schema->type.type
     ColumnPtr src_column = doris_column;
     if (need_convert) {

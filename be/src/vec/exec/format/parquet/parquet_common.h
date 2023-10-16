@@ -56,9 +56,6 @@ struct ParquetInt96 {
     }
     inline __int128 to_int128() const {
         __int128 ans = 0;
-        std::cout << "before "
-                     "hi = "
-                  << hi << " lo = " << lo << "\n";
         ans = (((__int128)hi) << 64) + lo;
         return ans;
     }

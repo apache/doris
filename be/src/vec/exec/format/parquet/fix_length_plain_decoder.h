@@ -24,7 +24,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/decoder.h"
 #include "vec/exec/format/parquet/parquet_column_convert.h"
-
+#include "vec/exec/format/parquet/parquet_common.h"
 namespace doris {
 namespace vectorized {
 class ColumnSelectVector;
@@ -150,7 +150,12 @@ Status FixLengthPlainDecoder<PhysicalType>::_decode_numeric(MutableColumnPtr& do
             case ColumnSelectVector::CONTENT: {
                 for (size_t i = 0; i < run_length; ++i) {
                     char* buf_start = _data->data + _offset;
-                    column_data[data_index++] = *(DataType*)buf_start;
+                    if constexpr (PhysicalType != tparquet::Type::INT96) {
+                        column_data[data_index++] = *(DataType*)buf_start;
+                    } else {
+                        ParquetInt96 value = *(ParquetInt96*)buf_start;
+                        column_data[data_index++] = value.to_int128();
+                    }
                     _offset += _type_length;
                 }
                 break;
@@ -172,5 +177,4 @@ Status FixLengthPlainDecoder<PhysicalType>::_decode_numeric(MutableColumnPtr& do
         return Status::OK();
     }
 }
-
 } // namespace doris::vectorized

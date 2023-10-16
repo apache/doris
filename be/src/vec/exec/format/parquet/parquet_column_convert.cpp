@@ -26,7 +26,6 @@ const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
 Status convert_data_type_from_parquet(tparquet::Type::type parquet_type, PrimitiveType show_type,
                                       vectorized::DataTypePtr& ans_data_type, DataTypePtr& src_type,
                                       bool* need_convert) {
-    std::cout << getTypeName(src_type->get_type_id()) << "\n";
     if (is_complex_type(src_type)) {
         *need_convert = false;
         return Status::OK();
@@ -58,9 +57,15 @@ Status convert_data_type_from_parquet(tparquet::Type::type parquet_type, Primiti
         return Status::IOError("Can't read parquet type : {}", parquet_type);
     }
     if (ans_data_type->get_type_id() == src_type->get_type_id()) {
+        if (ans_data_type->get_type_id() == TypeIndex::String &&
+            show_type == PrimitiveType::TYPE_DECIMAL64) {
+            *need_convert = true;
+            return Status::OK();
+        }
         *need_convert = false;
         return Status::OK();
     }
+
     if (src_type->is_nullable()) {
         auto& nested_src_type =
                 static_cast<const DataTypeNullable*>(src_type.get())->get_nested_type();
