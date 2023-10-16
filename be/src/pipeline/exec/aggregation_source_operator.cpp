@@ -201,8 +201,7 @@ Status AggLocalState::_serialize_with_serialized_key_result_non_spill(RuntimeSta
 
                 {
                     SCOPED_TIMER(_insert_keys_to_column_timer);
-                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows,
-                                                        _shared_state->probe_key_sz);
+                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
                 }
 
                 if (iter == _shared_state->aggregate_data_container->end()) {
@@ -358,8 +357,7 @@ Status AggLocalState::_get_result_with_serialized_key_non_spill(RuntimeState* st
 
                 {
                     SCOPED_TIMER(_insert_keys_to_column_timer);
-                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows,
-                                                        _shared_state->probe_key_sz);
+                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
                 }
 
                 for (size_t i = 0; i < _shared_state->aggregate_evaluators.size(); ++i) {

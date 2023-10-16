@@ -121,7 +121,6 @@ struct ProcessHashTableProbe {
 
     bool _have_other_join_conjunct;
     bool _is_right_semi_anti;
-    Sizes _probe_key_sz;
     std::vector<bool>* _left_output_slot_flags;
     std::vector<bool>* _right_output_slot_flags;
     bool* _has_null_in_build_side;
