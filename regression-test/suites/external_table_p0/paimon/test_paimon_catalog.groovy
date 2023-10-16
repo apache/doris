@@ -73,6 +73,9 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             def c16 = """select * from all_table where c16=true;"""
             def c18 = """select * from all_table where c18='2023-08-13 09:32:38.53';"""
             def c19 = """select * from auto_bucket;"""
+            def c20 = """select * from auto_bucket where dt="b";"""
+            def c21 = """select * from auto_bucket where dt="b" and hh="c";"""
+            def c22 = """select * from auto_bucket where dt="d";"""
 
             String hdfs_port = context.config.otherConfigs.get("hdfs_port")
             String catalog_name = "paimon1"
@@ -105,5 +108,8 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c16 c16
             qt_c18 c18
             qt_c19 c19
+            qt_c20 c20
+            qt_c21 c21
+            qt_c22 c22
         }
 }
