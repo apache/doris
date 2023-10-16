@@ -57,14 +57,25 @@ extern bvar::Adder<uint64_t> s3_copy_object_total;
 
 class S3URI;
 
-const static std::string S3_AK = "s3.access_key";
-const static std::string S3_SK = "s3.secret_key";
-const static std::string S3_ENDPOINT = "s3.endpoint";
-const static std::string S3_REGION = "s3.region";
-const static std::string S3_TOKEN = "s3.session_token";
-const static std::string S3_MAX_CONN_SIZE = "s3.connection.maximum";
-const static std::string S3_REQUEST_TIMEOUT_MS = "s3.connection.request.timeout";
-const static std::string S3_CONN_TIMEOUT_MS = "s3.connection.timeout";
+const static std::string S3_AK_V2 = "s3.access_key";
+const static std::string S3_SK_V2 = "s3.secret_key";
+const static std::string S3_ENDPOINT_V2 = "s3.endpoint";
+const static std::string S3_REGION_V2 = "s3.region";
+const static std::string S3_TOKEN_V2 = "s3.session_token";
+const static std::string S3_MAX_CONN_SIZE_V2 = "s3.connection.maximum";
+const static std::string S3_REQUEST_TIMEOUT_MS_V2 = "s3.connection.request.timeout";
+const static std::string S3_CONN_TIMEOUT_MS_V2 = "s3.connection.timeout";
+
+// For compatible usage bacause the old version of S3 properties passed from FE might
+// use these names
+const static std::string S3_AK = "AWS_ACCESS_KEY";
+const static std::string S3_SK = "AWS_SECRET_KEY";
+const static std::string S3_ENDPOINT = "AWS_ENDPOINT";
+const static std::string S3_REGION = "AWS_REGION";
+const static std::string S3_TOKEN = "AWS_TOKEN";
+const static std::string S3_MAX_CONN_SIZE = "AWS_MAX_CONN_SIZE";
+const static std::string S3_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
+const static std::string S3_CONN_TIMEOUT_MS = "AWS_CONN_TIMEOUT_MS";
 
 struct S3Conf {
     std::string ak;

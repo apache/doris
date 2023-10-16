@@ -122,12 +122,13 @@ S3ClientFactory& S3ClientFactory::instance() {
 
 bool S3ClientFactory::is_s3_conf_valid(const std::map<std::string, std::string>& prop) {
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
-    if (properties.find(S3_AK) == properties.end() || properties.find(S3_SK) == properties.end() ||
-        properties.find(S3_ENDPOINT) == properties.end() ||
-        properties.find(S3_REGION) == properties.end()) {
+    if (properties.find(S3_AK_V2) == properties.end() ||
+        properties.find(S3_SK_V2) == properties.end() ||
+        properties.find(S3_ENDPOINT_V2) == properties.end() ||
+        properties.find(S3_REGION_V2) == properties.end()) {
         LOG_ERROR("incorrect properties with S3_AK {}, S3_SK {}, ENDPOINT {}, REGION {}",
-                  properties[S3_AK], properties[S3_SK], properties[S3_ENDPOINT],
-                  properties[S3_REGION]);
+                  properties[S3_AK_V2], properties[S3_SK_V2], properties[S3_ENDPOINT_V2],
+                  properties[S3_REGION_V2]);
         DCHECK(false) << "aws properties is incorrect.";
         return false;
     }
@@ -183,8 +184,33 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
     return new_client;
 }
 
+std::map<std::string, std::string> convert_s3_properties_for_compatibility(
+        const std::map<std::string, std::string>& prop) {
+    const static std::map<std::string, std::string> properties_name_map = {
+            {S3_AK, S3_AK_V2},
+            {S3_SK, S3_SK_V2},
+            {S3_ENDPOINT, S3_ENDPOINT_V2},
+            {S3_REGION, S3_REGION_V2},
+            {S3_TOKEN, S3_TOKEN_V2},
+            {S3_MAX_CONN_SIZE, S3_MAX_CONN_SIZE_V2},
+            {S3_REQUEST_TIMEOUT_MS, S3_REQUEST_TIMEOUT_MS_V2},
+            {S3_CONN_TIMEOUT_MS, S3_CONN_TIMEOUT_MS_V2}};
+    std::map<std::string, std::string> converted;
+    for (const auto& entry : properties_name_map) {
+        if (prop.contains(entry.first)) {
+            converted.insert({entry.second, prop.at(entry.first)});
+        }
+        if (prop.contains(entry.second)) {
+            converted.insert({entry.second, prop.at(entry.second)});
+        }
+    }
+    return converted;
+}
+
 Status S3ClientFactory::convert_properties_to_s3_conf(
-        const std::map<std::string, std::string>& prop, const S3URI& s3_uri, S3Conf* s3_conf) {
+        const std::map<std::string, std::string>& origin_prop, const S3URI& s3_uri,
+        S3Conf* s3_conf) {
+    auto prop = convert_s3_properties_for_compatibility(origin_prop);
     if (!is_s3_conf_valid(prop)) {
         return Status::InvalidArgument("S3 properties are incorrect, please check properties.");
     }
