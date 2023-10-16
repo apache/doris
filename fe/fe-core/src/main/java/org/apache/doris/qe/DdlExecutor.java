@@ -77,7 +77,6 @@ import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.CreateWorkloadGroupStmt;
 import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.DropDbStmt;
@@ -199,8 +198,6 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof ResumeJobStmt) {
             ResumeJobStmt stmt = (ResumeJobStmt) ddlStmt;
             env.getJobRegister().resumeJob(stmt.getDbFullName(), stmt.getName(), JobCategory.SQL);
-        } else if (ddlStmt instanceof DeleteStmt) {
-            env.getDeleteHandler().process((DeleteStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;
             env.getAuth().createUser(stmt);
