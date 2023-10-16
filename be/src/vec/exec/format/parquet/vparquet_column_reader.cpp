@@ -487,7 +487,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
 
     RETURN_IF_ERROR(ParquetConvert::convert_data_type_from_parquet(
             physical_type, _field_schema->type.type, src_type, type, &need_convert));
-    //this->_field_schema->type.type
+
     ColumnPtr src_column = doris_column;
     if (need_convert) {
         src_column = src_type->create_column();
@@ -550,6 +550,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
                     std::unique_ptr<ParquetConvert::ColumnConvert> converter;
                     ParquetConvert::ConvertParams convert_params;
                     convert_params.init(_field_schema, _ctz);
+                    convert_params.start_idx = doris_column->size();
                     RETURN_IF_ERROR(ParquetConvert::get_converter(
                             src_type, _field_schema->type.type, type, &converter, &convert_params));
                     RETURN_IF_ERROR(converter->convert(src_column,

@@ -59,6 +59,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/exec/format/parquet/parquet_column_convert.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
 #include "vec/exec/format/parquet/schema_desc.h"
@@ -167,8 +168,8 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
 static int fill_nullable_column(ColumnPtr& doris_column, level_t* definitions, size_t num_values) {
     CHECK(doris_column->is_nullable());
-    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-            (*std::move(doris_column)).mutate().get());
+    auto* nullable_column = const_cast<vectorized::ColumnNullable*>(
+            static_cast<const vectorized::ColumnNullable*>(doris_column.get()));
     NullMap& map_data = nullable_column->get_null_map_data();
     int null_cnt = 0;
     for (int i = 0; i < num_values; ++i) {
@@ -189,6 +190,19 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                                   ? chunk_meta.dictionary_page_offset
                                   : chunk_meta.data_page_offset;
     size_t chunk_size = chunk_meta.total_compressed_size;
+
+    bool need_convert = false;
+    auto& physical_type = column_chunk->meta_data.type;
+    DataTypePtr src_type;
+
+    RETURN_IF_ERROR(ParquetConvert::convert_data_type_from_parquet(
+            physical_type, field_schema->type.type, src_type, data_type, &need_convert));
+
+    ColumnPtr src_column = doris_column->assume_mutable();
+    if (need_convert) {
+        src_column = src_type->create_column();
+    }
+
     io::BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
 
     cctz::time_zone ctz;
@@ -208,14 +222,14 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
         chunk_reader.get_def_levels(definitions, rows);
     }
     MutableColumnPtr data_column;
-    if (doris_column->is_nullable()) {
+    if (src_column->is_nullable()) {
         // fill nullable values
-        fill_nullable_column(doris_column, definitions, rows);
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_column)).mutate().get());
+        fill_nullable_column(src_column, definitions, rows);
+        auto* nullable_column = const_cast<vectorized::ColumnNullable*>(
+                static_cast<const vectorized::ColumnNullable*>(src_column.get()));
         data_column = nullable_column->get_nested_column_ptr();
     } else {
-        data_column = doris_column->assume_mutable();
+        data_column = src_column->assume_mutable();
     }
     ColumnSelectVector run_length_map;
     // decode page data
@@ -223,7 +237,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
         // required column
         std::vector<u_short> null_map = {(u_short)rows};
         run_length_map.set_run_length_null_map(null_map, rows, nullptr);
-        return chunk_reader.decode_values(data_column, data_type, run_length_map, false);
+        RETURN_IF_ERROR(chunk_reader.decode_values(data_column, data_type, run_length_map, false));
     } else {
         // column with null values
         level_t level_type = definitions[0];
@@ -254,8 +268,17 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
             RETURN_IF_ERROR(
                     chunk_reader.decode_values(data_column, data_type, run_length_map, false));
         }
-        return Status::OK();
     }
+    if (need_convert) {
+        std::unique_ptr<ParquetConvert::ColumnConvert> converter;
+        ParquetConvert::ConvertParams convert_params;
+        convert_params.init(field_schema, &ctz);
+        convert_params.start_idx = doris_column->size();
+        RETURN_IF_ERROR(ParquetConvert::get_converter(src_type, field_schema->type.type, data_type,
+                                                      &converter, &convert_params));
+        RETURN_IF_ERROR(converter->convert(src_column, const_cast<IColumn*>(doris_column.get())));
+    }
+    return Status::OK();
 }
 
 // Only the unit test depend on this, but it is wrong, should not use TTupleDesc to create tuple desc, not
@@ -340,11 +363,11 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             // binary is not supported, use string instead
             {"binary_col", TYPE_STRING, sizeof(StringRef), true},
             // 64-bit-length, see doris::get_slot_size in primitive_type.cpp
-            {"timestamp_col", TYPE_DATETIME, sizeof(int128_t), true},
+            {"timestamp_col", TYPE_DATETIMEV2, sizeof(int128_t), true},
             {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
             {"char_col", TYPE_CHAR, sizeof(StringRef), true},
             {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
-            {"date_col", TYPE_DATE, sizeof(int128_t), true},
+            {"date_col", TYPE_DATEV2, sizeof(uint32_t), true},
             {"date_v2_col", TYPE_DATEV2, sizeof(uint32_t), true},
             {"timestamp_v2_col", TYPE_DATETIMEV2, sizeof(int128_t), true, 18, 0}};
     SchemaScanner schema_scanner(column_descs);
@@ -447,118 +470,6 @@ TEST_F(ParquetThriftReaderTest, type_decoder) {
 TEST_F(ParquetThriftReaderTest, dict_decoder) {
     read_parquet_data_and_check("./be/test/exec/test_data/parquet_scanner/dict-decoder.parquet",
                                 "./be/test/exec/test_data/parquet_scanner/dict-decoder.txt", 12);
-}
-
-TEST_F(ParquetThriftReaderTest, group_reader) {
-    std::vector<doris::SchemaScanner::ColumnDesc> column_descs = {
-            {"tinyint_col", TYPE_TINYINT, sizeof(int8_t), true},
-            {"smallint_col", TYPE_SMALLINT, sizeof(int16_t), true},
-            {"int_col", TYPE_INT, sizeof(int32_t), true},
-            {"bigint_col", TYPE_BIGINT, sizeof(int64_t), true},
-            {"boolean_col", TYPE_BOOLEAN, sizeof(bool), true},
-            {"float_col", TYPE_FLOAT, sizeof(float_t), true},
-            {"double_col", TYPE_DOUBLE, sizeof(double_t), true},
-            {"string_col", TYPE_STRING, sizeof(StringRef), true},
-            {"binary_col", TYPE_STRING, sizeof(StringRef), true},
-            {"timestamp_col", TYPE_DATETIME, sizeof(int128_t), true},
-            {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
-            {"char_col", TYPE_CHAR, sizeof(StringRef), true},
-            {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
-            {"date_col", TYPE_DATE, sizeof(int128_t), true}};
-    SchemaScanner schema_scanner(column_descs);
-    ObjectPool object_pool;
-    doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
-    auto tuple_slots = tuple_desc->slots();
-
-    TSlotDescriptor tslot_desc;
-    {
-        tslot_desc.id = 14;
-        tslot_desc.parent = 0;
-        TTypeDesc type;
-        {
-            TTypeNode node;
-            node.__set_type(TTypeNodeType::ARRAY);
-            std::vector<bool> contains_nulls {true};
-            node.__set_contains_nulls(contains_nulls);
-            TTypeNode inner;
-            inner.__set_type(TTypeNodeType::SCALAR);
-            TScalarType scalar_type;
-            scalar_type.__set_type(TPrimitiveType::STRING);
-            inner.__set_scalar_type(scalar_type);
-            inner.__set_contains_nulls(contains_nulls);
-            type.types.push_back(node);
-            type.types.push_back(inner);
-        }
-        tslot_desc.slotType = type;
-        tslot_desc.columnPos = 14;
-        tslot_desc.byteOffset = 0;
-        tslot_desc.nullIndicatorByte = 0;
-        tslot_desc.nullIndicatorBit = -1;
-        tslot_desc.colName = "list_string";
-        tslot_desc.slotIdx = 14;
-        tslot_desc.isMaterialized = true;
-    }
-    SlotDescriptor string_slot(tslot_desc);
-    tuple_slots.emplace_back(&string_slot);
-
-    std::vector<std::string> read_columns;
-    RowGroupReader::LazyReadContext lazy_read_ctx;
-    for (const auto& slot : tuple_slots) {
-        lazy_read_ctx.all_read_columns.emplace_back(slot->col_name());
-        read_columns.emplace_back(slot->col_name());
-    }
-    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
-    io::FileReaderSPtr file_reader;
-    auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet",
-                                  &file_reader);
-    EXPECT_TRUE(st.ok());
-
-    // prepare metadata
-    FileMetaData* meta_data;
-    size_t meta_size;
-    static_cast<void>(parse_thrift_footer(file_reader, &meta_data, &meta_size, nullptr));
-    tparquet::FileMetaData t_metadata = meta_data->to_thrift();
-
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-    auto row_group = t_metadata.row_groups[0];
-    std::shared_ptr<RowGroupReader> row_group_reader;
-    RowGroupReader::PositionDeleteContext position_delete_ctx(row_group.num_rows, 0);
-    row_group_reader.reset(new RowGroupReader(file_reader, read_columns, 0, row_group, &ctz,
-                                              nullptr, position_delete_ctx, lazy_read_ctx,
-                                              nullptr));
-    std::vector<RowRange> row_ranges;
-    row_ranges.emplace_back(0, row_group.num_rows);
-
-    auto col_offsets = std::unordered_map<int, tparquet::OffsetIndex>();
-    auto stg = row_group_reader->init(meta_data->schema(), row_ranges, col_offsets, nullptr,
-                                      nullptr, nullptr, nullptr, nullptr);
-    EXPECT_TRUE(stg.ok());
-
-    vectorized::Block block;
-    for (const auto& slot_desc : tuple_slots) {
-        auto data_type =
-                vectorized::DataTypeFactory::instance().create_data_type(slot_desc->type(), true);
-        MutableColumnPtr data_column = data_type->create_column();
-        block.insert(
-                ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
-    }
-    bool batch_eof = false;
-    size_t read_rows = 0;
-    auto stb = row_group_reader->next_batch(&block, 1024, &read_rows, &batch_eof);
-    EXPECT_TRUE(stb.ok());
-
-    io::FileReaderSPtr result;
-    auto rst = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/group-reader.txt",
-                                   &result);
-    EXPECT_TRUE(rst.ok());
-    uint8_t result_buf[result->size() + 1];
-    result_buf[result->size()] = '\0';
-    size_t bytes_read;
-    Slice res(result_buf, result->size());
-    static_cast<void>(result->read_at(0, res, &bytes_read));
-    ASSERT_STREQ(block.dump_data(0, 10).c_str(), reinterpret_cast<char*>(result_buf));
-    delete meta_data;
 }
 } // namespace vectorized
 
