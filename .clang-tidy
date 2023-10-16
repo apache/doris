@@ -13,6 +13,7 @@ Checks: |
   readability-*,
   -readability-identifier-length,
   -readability-implicit-bool-conversion,
+  -readability-function-cognitive-complexity,
   portability-simd-intrinsics,
   performance-type-promotion-in-math-fn,
   performance-faster-string-find,
