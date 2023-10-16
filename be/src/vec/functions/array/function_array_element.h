@@ -280,7 +280,7 @@ private:
         }
         DataTypePtr indices_type(std::make_shared<MapIndiceDataType>());
         ColumnWithTypeAndName indices(matched_indices, indices_type, "indices");
-        ColumnWithTypeAndName data(val_arr, val_type, "value");
+        ColumnWithTypeAndName data(val_arr, std::make_shared<DataTypeArray>(val_type), "value");
         ColumnsWithTypeAndName args = {data, indices};
         return _execute_nullable(args, input_rows_count, src_null_map, dst_null_map);
     }
@@ -343,7 +343,8 @@ private:
 
         ColumnPtr res = nullptr;
         auto left_element_type = remove_nullable(
-                assert_cast<const DataTypeArray&>(*arguments[0].type).get_nested_type());
+                assert_cast<const DataTypeArray&>(*remove_nullable(arguments[0].type))
+                        .get_nested_type());
         WhichDataType which_type(left_element_type);
         // because we impl use_default_implementation_for_nulls
         // we should handle array index column by-self, and array index should not be nullable.
