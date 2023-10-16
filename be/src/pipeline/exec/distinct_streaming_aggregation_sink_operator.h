@@ -103,6 +103,7 @@ private:
     std::unique_ptr<vectorized::Block> _output_block = vectorized::Block::create_unique();
     std::shared_ptr<char> dummy_mapped_data = nullptr;
     vectorized::IColumn::Selector _distinct_row;
+    vectorized::Arena _arena;
     int64_t _output_distinct_rows = 0;
 };
 

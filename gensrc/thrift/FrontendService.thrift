@@ -569,6 +569,7 @@ struct TBeginTxnResult {
     2: optional i64 txn_id
     3: optional string job_status // if label already used, set status of existing job
     4: optional i64 db_id
+    5: optional Types.TNetworkAddress master_address
 }
 
 // StreamLoad request, used to load a streaming to engine
@@ -743,6 +744,7 @@ struct TCommitTxnRequest {
 
 struct TCommitTxnResult {
     1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
 }
 
 struct TLoadTxn2PCRequest {
@@ -779,6 +781,7 @@ struct TRollbackTxnRequest {
 
 struct TRollbackTxnResult {
     1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
 }
 
 struct TLoadTxnRollbackRequest {
@@ -884,6 +887,7 @@ struct TMetadataTableRequestParams {
   4: optional list<string> columns_name
   5: optional PlanNodes.TFrontendsMetadataParams frontends_metadata_params
   6: optional Types.TUserIdentity current_user_ident
+  7: optional PlanNodes.TQueriesMetadataParams queries_metadata_params
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1098,6 +1102,7 @@ struct TGetSnapshotResult {
     1: optional Status.TStatus status
     2: optional binary meta
     3: optional binary job_info
+    4: optional Types.TNetworkAddress master_address
 }
 
 struct TTableRef {
@@ -1122,6 +1127,7 @@ struct TRestoreSnapshotRequest {
 
 struct TRestoreSnapshotResult {
     1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
 }
 
 struct TGetMasterTokenRequest {
@@ -1133,6 +1139,7 @@ struct TGetMasterTokenRequest {
 struct TGetMasterTokenResult {
     1: optional Status.TStatus status
     2: optional string token
+    3: optional Types.TNetworkAddress master_address
 }
 
 typedef TGetBinlogRequest TGetBinlogLagRequest

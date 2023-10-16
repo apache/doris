@@ -167,9 +167,8 @@ public:
     }
 
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                     const uint8_t* null_map,
-                                     size_t max_row_byte_size) const override {
-        data->serialize_vec_with_null_map(keys, num_rows, null_map, max_row_byte_size);
+                                     const uint8_t* null_map) const override {
+        data->serialize_vec_with_null_map(keys, num_rows, null_map);
     }
 
     void update_hash_with_value(size_t, SipHash& hash) const override {
