@@ -2288,22 +2288,35 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         BinlogConfig binlogConfigForTask = new BinlogConfig(olapTable.getBinlogConfig());
 
-        // analyze data property and replication num here.
-        // use table name as this single partition name
-        long partitionId = partitionNameToId.get(tableName);
-        DataProperty dataProperty = null;
-        try {
-            dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
+        if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
+            // if this is an unpartitioned table, we should analyze data property and replication num here.
+            // if this is a partitioned table, there properties are already analyzed
+            // in RangePartitionDesc analyze phase.
+
+            // use table name as this single partition name
+            long partitionId = partitionNameToId.get(tableName);
+            DataProperty dataProperty = null;
+            try {
+                dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
+                    new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+            Preconditions.checkNotNull(dataProperty);
+            partitionInfo.setDataProperty(partitionId, dataProperty);
+            partitionInfo.setReplicaAllocation(partitionId, replicaAlloc);
+            partitionInfo.setIsInMemory(partitionId, isInMemory);
+            partitionInfo.setTabletType(partitionId, tabletType);
+            partitionInfo.setIsMutable(partitionId, isMutable);
+        } else if (partitionInfo.getType() == PartitionType.RANGE) {
+            try {
+                PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
+                    new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+
         }
-        Preconditions.checkNotNull(dataProperty);
-        partitionInfo.setDataProperty(partitionId, dataProperty);
-        partitionInfo.setReplicaAllocation(partitionId, replicaAlloc);
-        partitionInfo.setIsInMemory(partitionId, isInMemory);
-        partitionInfo.setTabletType(partitionId, tabletType);
-        partitionInfo.setIsMutable(partitionId, isMutable);
 
         // check colocation properties
         try {
