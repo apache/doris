@@ -142,24 +142,6 @@ class GraphSimplifierTest {
     }
 
     @Test
-    void testTime() {
-        int tableNum = 20;
-        int edgeNum = 40;
-        double totalTime = 0;
-        int times = 1;
-        for (int i = 0; i < times; i++) {
-            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
-            double now = System.currentTimeMillis();
-            GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-            while (graphSimplifier.applySimplificationStep()) {
-            }
-            totalTime += System.currentTimeMillis() - now;
-        }
-        System.out.printf("Simplify graph with %d nodes %d edges cost %f ms%n", tableNum, edgeNum,
-                totalTime / times);
-    }
-
-    @Test
     void testComplexQuery() {
         HyperGraph hyperGraph = new HyperGraphBuilder()
                 .init(6, 2, 1, 3, 5, 4)
@@ -217,14 +199,16 @@ class GraphSimplifierTest {
     @Test
     void benchGraphSimplifier() {
         int tableNum = 64;
-        int edgeNum = 64 * 63 / 2;
+        int edgeNum = 64 * 63 / 8;
         int limit = 1000;
 
-        int times = 1;
+        int times = 3;
+
         double totalTime = 0;
         for (int i = 0; i < times; i++) {
             totalTime += benchGraphSimplifier(tableNum, edgeNum, limit);
         }
+
         System.out.println(totalTime / times);
     }
 

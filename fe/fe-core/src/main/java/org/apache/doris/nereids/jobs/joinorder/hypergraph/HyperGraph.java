@@ -56,12 +56,40 @@ public class HyperGraph {
     //         |-- join(t1.a = t2.b)
     private final HashMap<Long, List<NamedExpression>> complexProject = new HashMap<>();
 
+    private Map<Long, BitSet> treeEdgesCache = new HashMap<>();
+
     public List<Edge> getEdges() {
         return edges;
     }
 
+    public BitSet getEdgesMap() {
+        BitSet bitSet = new BitSet();
+        bitSet.set(0, edges.size());
+        return bitSet;
+    }
+
     public List<Node> getNodes() {
         return nodes;
+    }
+
+    public BitSet getEdgesInOperator(long left, long right) {
+        BitSet opertorEdgesMap = getEdgesInTree(LongBitmap.or(left, right));
+        opertorEdgesMap.andNot(getEdgesInTree(left));
+        opertorEdgesMap.andNot(getEdgesInTree(left));
+        return opertorEdgesMap;
+    }
+
+    public BitSet getEdgesInTree(long treeNodesMap) {
+        if (!treeEdgesCache.containsKey(treeNodesMap)) {
+            BitSet edgesMap = new BitSet();
+            for (Edge edge : edges) {
+                if (LongBitmap.isSubset(edge.getReferenceNodes(), treeNodesMap)) {
+                    edgesMap.set(edge.getIndex());
+                }
+            }
+            treeEdgesCache.put(treeNodesMap, edgesMap);
+        }
+        return treeEdgesCache.get(treeNodesMap);
     }
 
     public long getNodesMap() {

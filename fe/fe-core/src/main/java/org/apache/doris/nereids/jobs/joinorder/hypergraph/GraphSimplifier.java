@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
@@ -25,7 +24,8 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.stats.JoinEstimation;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -34,14 +34,18 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.BitSet;
+import java.util.Collection;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.PriorityQueue;
-import java.util.Stack;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -70,8 +74,12 @@ public class GraphSimplifier {
     private final HashMap<Long, Statistics> cacheStats = new HashMap<>();
     private final HashMap<Long, Cost> cacheCost = new HashMap<>();
 
-    private final Stack<SimplificationStep> appliedSteps = new Stack<>();
-    private final Stack<SimplificationStep> unAppliedSteps = new Stack<>();
+    private final HashMap<Long, LogicalJoin<? extends Plan, ? extends Plan>> cacheJoin = new HashMap<>();
+
+    private final Deque<SimplificationStep> appliedSteps = new ArrayDeque<>();
+    private final Deque<SimplificationStep> unAppliedSteps = new ArrayDeque<>();
+
+    private final Set<Edge> validEdges;
 
     /**
      * Create a graph simplifier
@@ -91,6 +99,18 @@ public class GraphSimplifier {
         }
         circleDetector = new CircleDetector(edgeSize);
 
+        validEdges = graph.getEdges().stream()
+                    .filter(e -> {
+                        for (Slot slot : e.getJoin().getConditionSlot()) {
+                            for (int nodeIdx : LongBitmap.getIterator(e.getReferenceNodes())) {
+                                if (graph.getNode(nodeIdx).getOutput().contains(slot)) {
+                                    return true;
+                                }
+                            }
+                        }
+                        return false;
+                    })
+                    .collect(Collectors.toSet());
         // init first simplification step
         initFirstStep();
     }
@@ -100,6 +120,13 @@ public class GraphSimplifier {
         for (int i = 0; i < edgeSize; i += 1) {
             processNeighbors(i, i + 1, edgeSize);
         }
+    }
+
+    private boolean isOverlap(Edge edge1, Edge edge2) {
+        return (LongBitmap.isOverlap(edge1.getLeftExtendedNodes(), edge2.getLeftExtendedNodes())
+                && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getLeftExtendedNodes()))
+                || (LongBitmap.isOverlap(edge1.getLeftExtendedNodes(), edge2.getRightExtendedNodes())
+                && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getRightExtendedNodes()));
     }
 
     /**
@@ -117,8 +144,10 @@ public class GraphSimplifier {
                 tryGetSuperset(edge1.getLeftExtendedNodes(), edge2.getRightExtendedNodes(), superset);
                 tryGetSuperset(edge1.getRightExtendedNodes(), edge2.getLeftExtendedNodes(), superset);
                 tryGetSuperset(edge1.getRightExtendedNodes(), edge2.getRightExtendedNodes(), superset);
-                if (!circleDetector.checkCircleWithEdge(i, j) && !circleDetector.checkCircleWithEdge(j, i)
-                        && !edge2.isSub(edge1) && !edge1.isSub(edge2) && !superset.isEmpty()) {
+                if (edge2.isSub(edge1) || edge1.isSub(edge2) || superset.isEmpty() || isOverlap(edge1, edge2)) {
+                    continue;
+                }
+                if (!(circleDetector.checkCircleWithEdge(i, j) || circleDetector.checkCircleWithEdge(j, i))) {
                     return false;
                 }
             }
@@ -190,7 +219,7 @@ public class GraphSimplifier {
         appliedSteps.push(bestStep);
         Preconditions.checkArgument(
                 cacheStats.containsKey(bestStep.newLeft) && cacheStats.containsKey(bestStep.newRight),
-                String.format("%s - %s", bestStep.newLeft, bestStep.newRight));
+                "<%s - %s> must has been stats derived", bestStep.newLeft, bestStep.newRight);
         graph.modifyEdge(bestStep.afterIndex, bestStep.newLeft, bestStep.newRight);
         if (needProcessNeighbor) {
             processNeighbors(bestStep.afterIndex, 0, edgeSize);
@@ -199,7 +228,7 @@ public class GraphSimplifier {
     }
 
     private boolean unApplySimplificationStep() {
-        Preconditions.checkArgument(appliedSteps.size() > 0);
+        Preconditions.checkArgument(!appliedSteps.isEmpty());
         SimplificationStep bestStep = appliedSteps.pop();
         unAppliedSteps.push(bestStep);
         graph.modifyEdge(bestStep.afterIndex, bestStep.oldLeft, bestStep.oldRight);
@@ -308,8 +337,10 @@ public class GraphSimplifier {
     private Optional<SimplificationStep> makeSimplificationStep(int edgeIndex1, int edgeIndex2) {
         Edge edge1 = graph.getEdge(edgeIndex1);
         Edge edge2 = graph.getEdge(edgeIndex2);
-        if (edge1.isSub(edge2) || edge2.isSub(edge1) || circleDetector.checkCircleWithEdge(edgeIndex1, edgeIndex2)
-                || circleDetector.checkCircleWithEdge(edgeIndex2, edgeIndex1)) {
+        if (edge1.isSub(edge2) || edge2.isSub(edge1)
+                || circleDetector.checkCircleWithEdge(edgeIndex1, edgeIndex2)
+                || circleDetector.checkCircleWithEdge(edgeIndex2, edgeIndex1)
+                || !validEdges.contains(edge1) || !validEdges.contains(edge2)) {
             return Optional.empty();
         }
         long left1 = edge1.getLeftExtendedNodes();
@@ -320,8 +351,8 @@ public class GraphSimplifier {
                 || !cacheStats.containsKey(left2) || !cacheStats.containsKey(right2)) {
             return Optional.empty();
         }
-        Pair<Statistics, Edge> edge1Before2;
-        Pair<Statistics, Edge> edge2Before1;
+        Edge edge1Before2;
+        Edge edge2Before1;
         List<Long> superBitset = new ArrayList<>();
         if (tryGetSuperset(left1, left2, superBitset)) {
             // (common Join1 right1) Join2 right2
@@ -344,92 +375,168 @@ public class GraphSimplifier {
             // left1 Join1 (left2 Join2 common)
             edge2Before1 = threeRightJoin(left1, edge1, left2, edge2, superBitset.get(0));
         } else {
+            // edge1 is not the neighborhood of edge2
             return Optional.empty();
         }
-        // edge1 is not the neighborhood of edge2
+        if (edge1Before2 == null || edge2Before1 == null) {
+            return Optional.empty();
+        }
         SimplificationStep simplificationStep = orderJoin(edge1Before2, edge2Before1, edgeIndex1, edgeIndex2);
         return Optional.of(simplificationStep);
     }
 
-    Pair<Statistics, Edge> threeLeftJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
-        // (plan1 edge1 plan2) edge2 plan3
-        // The join may have redundant table, e.g., t1,t2 join t3 join t2,t4
-        // Therefore, the cost is not accurate
-        Preconditions.checkArgument(
-                cacheStats.containsKey(bitmap1) && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
-        Statistics leftStats = JoinEstimation.estimate(cacheStats.get(bitmap1), cacheStats.get(bitmap2),
-                edge1.getJoin());
-        Statistics joinStats = JoinEstimation.estimate(leftStats, cacheStats.get(bitmap3), edge2.getJoin());
-        Edge edge = new Edge(
-                edge2.getJoin(), -1, edge2.getLeftChildEdges(), edge2.getRightChildEdges(), edge2.getSubTreeNodes());
-        long newLeft = LongBitmap.newBitmapUnion(bitmap1, bitmap2);
-        // To avoid overlapping the left and the right, the newLeft is calculated, Note the
-        // newLeft is not totally include the bitset1 and bitset2, we use circle detector to trace the dependency
-        newLeft = LongBitmap.andNot(newLeft, bitmap3);
-        edge.addLeftNodes(newLeft);
-        edge.addRightNode(edge2.getRightExtendedNodes());
-        cacheStats.put(newLeft, leftStats);
-        cacheCost.put(newLeft, calCost(edge2, leftStats, cacheStats.get(bitmap1), cacheStats.get(bitmap2)));
-        return Pair.of(joinStats, edge);
+    private Edge constructEdge(long leftNodes, Edge edge, long rightNodes) {
+        if (graph.getEdges().size() >  64 * 63 / 8) {
+            // If there are too many edges, it is advisable to return the "edge" directly
+            // to avoid lengthy enumeration time.
+            return edge;
+        }
+        Long full = LongBitmap.newBitmapUnion(leftNodes, rightNodes);
+        if (!cacheJoin.containsKey(full)) {
+            BitSet validEdgesMap = graph.getEdgesInOperator(leftNodes, rightNodes);
+            List<Expression> hashConditions = validEdgesMap.stream()
+                    .mapToObj(i -> graph.getEdge(i).getJoin().getHashJoinConjuncts())
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toList());
+            List<Expression> otherConditions = validEdgesMap.stream()
+                    .mapToObj(i -> graph.getEdge(i).getJoin().getHashJoinConjuncts())
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toList());
+            LogicalJoin<? extends Plan, ? extends Plan> join =
+                    edge.getJoin().withJoinConjuncts(hashConditions, otherConditions);
+            cacheJoin.put(full, join);
+        }
+
+        Edge newEdge = new Edge(
+                cacheJoin.get(full),
+                -1, edge.getLeftChildEdges(), edge.getRightChildEdges(), edge.getSubTreeNodes());
+        newEdge.setLeftRequiredNodes(edge.getLeftRequiredNodes());
+        newEdge.setRightRequiredNodes(edge.getRightRequiredNodes());
+        newEdge.addLeftNode(leftNodes);
+        newEdge.addRightNode(rightNodes);
+        return newEdge;
     }
 
-    Pair<Statistics, Edge> threeRightJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
+    private void deriveStats(Edge edge, long leftBitmap, long rightBitmap) {
+        // The bitmap may differ from the edge's reference slots.
+        // Taking into account the order: edge1<{1} - {2}> edge2<{1,3} - {4}>.
+        // Actually, we are considering the sequence {1,3} - {2} - {4}
+        long bitmap = LongBitmap.newBitmapUnion(leftBitmap, rightBitmap);
+        if (cacheStats.containsKey(bitmap)) {
+            return;
+        }
+        // Note the edge in graphSimplifier contains all tree nodes
+        Statistics joinStats = JoinEstimation
+                .estimate(cacheStats.get(leftBitmap),
+                        cacheStats.get(rightBitmap), edge.getJoin());
+
+        // Only save the needed slots to avoid saving all stats
+        //        BitSet usedEdges = graph.getEdgesInTree(bitmap);
+        //        Set<Slot> requiredSlots = graph.getEdges().stream()
+        //                .filter(e -> !usedEdges.get(e.getIndex()))
+        //                .flatMap(e -> e.getJoin().getInputSlots().stream())
+        //                .collect(Collectors.toSet());
+        //        Map<Expression, ColumnStatistic> requireColumnStats = new HashMap<>();
+        //        joinStats.columnStatistics()
+        //                        .forEach((e, stats) -> {
+        //                            if (requiredSlots.contains(e)) {
+        //                                requireColumnStats.put(e, stats);
+        //                            }
+        //                        });
+        cacheStats.put(bitmap, joinStats);
+    }
+
+    private Cost calCost(Edge edge, long leftBitmap, long rightBitmap) {
+        long bitmap = LongBitmap.newBitmapUnion(leftBitmap, rightBitmap);
+        Preconditions.checkArgument(cacheStats.containsKey(leftBitmap) && cacheStats.containsKey(rightBitmap)
+                && cacheStats.containsKey(bitmap),
+                "graph simplifier meet an edge %s that have not been derived stats", edge);
+        LogicalJoin<? extends Plan, ? extends Plan> join = edge.getJoin();
+        Statistics leftStats = cacheStats.get(leftBitmap);
+        Statistics rightStats = cacheStats.get(rightBitmap);
+        Statistics stats = cacheStats.get(bitmap);
+        PlanContext planContext = new PlanContext(stats, ImmutableList.of(leftStats, rightStats));
+        Cost cost;
+        if (JoinUtils.shouldNestedLoopJoin(join)) {
+            PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin = new PhysicalNestedLoopJoin<>(
+                    join.getJoinType(),
+                    join.getHashJoinConjuncts(),
+                    join.getOtherJoinConjuncts(),
+                    join.getMarkJoinSlotReference(),
+                    join.getLogicalProperties(),
+                    join.left(),
+                    join.right());
+            cost = CostCalculator.calculateCost(nestedLoopJoin, planContext);
+            cost = CostCalculator.addChildCost(nestedLoopJoin, cost, cacheCost.get(leftBitmap), 0);
+            cost = CostCalculator.addChildCost(nestedLoopJoin, cost, cacheCost.get(rightBitmap), 1);
+        } else {
+            PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin = new PhysicalHashJoin<>(
+                    join.getJoinType(),
+                    join.getHashJoinConjuncts(),
+                    join.getOtherJoinConjuncts(),
+                    join.getHint(),
+                    join.getMarkJoinSlotReference(),
+                    join.getLogicalProperties(),
+                    join.left(),
+                    join.right());
+            cost = CostCalculator.calculateCost(hashJoin, planContext);
+            cost = CostCalculator.addChildCost(hashJoin, cost, cacheCost.get(leftBitmap), 0);
+            cost = CostCalculator.addChildCost(hashJoin, cost, cacheCost.get(rightBitmap), 1);
+        }
+        return cost;
+    }
+
+    private @Nullable Edge threeLeftJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
+        // (plan1 edge1 plan2) edge2 plan3
+        // if the left and right is overlapping, just return null.
+        Preconditions.checkArgument(
+                cacheStats.containsKey(bitmap1) && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
+
+        // construct new Edge
+        long newLeft = LongBitmap.newBitmapUnion(bitmap1, bitmap2);
+        if (LongBitmap.isOverlap(newLeft, bitmap3)) {
+            return null;
+        }
+        Edge newEdge = constructEdge(newLeft, edge2, bitmap3);
+
+        deriveStats(edge1, bitmap1, bitmap2);
+        deriveStats(newEdge, newLeft, bitmap3);
+
+        Cost cost = calCost(edge1, bitmap1, bitmap2);
+        long fullKey = LongBitmap.newBitmapUnion(bitmap1, bitmap2);
+        if (!cacheCost.containsKey(fullKey) || cacheCost.get(fullKey).getValue() > cost.getValue()) {
+            cacheCost.put(fullKey, cost);
+        }
+        return newEdge;
+    }
+
+    private Edge threeRightJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
         Preconditions.checkArgument(
                 cacheStats.containsKey(bitmap1) && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
         // plan1 edge1 (plan2 edge2 plan3)
-        Statistics rightStats = JoinEstimation.estimate(cacheStats.get(bitmap2), cacheStats.get(bitmap3),
-                edge2.getJoin());
-        Statistics joinStats = JoinEstimation.estimate(cacheStats.get(bitmap1), rightStats, edge1.getJoin());
-        Edge edge = new Edge(
-                edge1.getJoin(), -1, edge1.getLeftChildEdges(), edge1.getRightChildEdges(), edge1.getSubTreeNodes());
-
         long newRight = LongBitmap.newBitmapUnion(bitmap2, bitmap3);
-        newRight = LongBitmap.andNot(newRight, bitmap1);
-        edge.addLeftNode(edge1.getLeftExtendedNodes());
-        edge.addRightNode(newRight);
-        cacheStats.put(newRight, rightStats);
-        cacheCost.put(newRight, calCost(edge2, rightStats, cacheStats.get(bitmap2), cacheStats.get(bitmap3)));
-        return Pair.of(joinStats, edge);
-    }
-
-    private Edge processMissedEdges(int edgeIndex1, int edgeIndex2, Edge edge) {
-        List<Edge> edges = Lists.newArrayList(edge);
-        edges.addAll(graph.getEdges().stream()
-                .filter(e -> e.getIndex() != edgeIndex1 && e.getIndex() != edgeIndex2
-                        && LongBitmap.isSubset(e.getReferenceNodes(), edge.getReferenceNodes())
-                        && !LongBitmap.isSubset(e.getReferenceNodes(), edge.getLeftExtendedNodes())
-                        && !LongBitmap.isSubset(e.getReferenceNodes(), edge.getRightExtendedNodes()))
-                .collect(Collectors.toList()));
-        if (edges.size() > 1) {
-            List<Expression> hashConjuncts = new ArrayList<>();
-            List<Expression> otherConjuncts = new ArrayList<>();
-            JoinType joinType = Edge.extractJoinTypeAndConjuncts(edges, hashConjuncts, otherConjuncts);
-            LogicalJoin oldJoin = edge.getJoin();
-            LogicalJoin newJoin = new LogicalJoin<>(joinType, hashConjuncts,
-                    otherConjuncts, oldJoin.getHint(), oldJoin.left(), oldJoin.right());
-            Edge newEdge = Edge.createTempEdge(newJoin);
-            newEdge.setLeftExtendedNodes(edge.getLeftExtendedNodes());
-            newEdge.setRightExtendedNodes(edge.getRightExtendedNodes());
-            return newEdge;
-        } else {
-            return edge;
+        if (LongBitmap.isOverlap(bitmap1, newRight)) {
+            return null;
         }
+        Edge newEdge = constructEdge(bitmap1, edge1, newRight);
+
+        deriveStats(edge2, bitmap2, bitmap3);
+        deriveStats(newEdge, bitmap1, newRight);
+
+        Cost cost = calCost(edge1, bitmap2, bitmap3);
+        long fullKey = LongBitmap.newBitmapUnion(bitmap2, bitmap3);
+        if (!cacheCost.containsKey(fullKey) || cacheCost.get(fullKey).getValue() > cost.getValue()) {
+            cacheCost.put(fullKey, cost);
+        }
+        return newEdge;
     }
 
-    private SimplificationStep orderJoin(Pair<Statistics, Edge> edge1Before2,
-                                         Pair<Statistics, Edge> edge2Before1, int edgeIndex1, int edgeIndex2) {
-        // TODO: Consider miss edges when construct join.
-        // considering
-        //          a
-        //         /  \
-        //        b  - c
-        // when constructing edge_ab before edge_bc. edge_ac should be added on top join
-        Cost cost1Before2 = calCost(edge1Before2.second, edge1Before2.first,
-                cacheStats.get(edge1Before2.second.getLeftExtendedNodes()),
-                cacheStats.get(edge1Before2.second.getRightExtendedNodes()));
-        Cost cost2Before1 = calCost(edge2Before1.second, edge2Before1.first,
-                cacheStats.get(edge2Before1.second.getLeftExtendedNodes()),
-                cacheStats.get(edge2Before1.second.getRightExtendedNodes()));
+    private SimplificationStep orderJoin(Edge edge1Before2,
+                                         Edge edge2Before1, int edgeIndex1, int edgeIndex2) {
+        Cost cost1Before2 = calCost(edge1Before2,
+                edge1Before2.getLeftExtendedNodes(), edge1Before2.getRightExtendedNodes());
+        Cost cost2Before1 = calCost(edge2Before1,
+                edge2Before1.getLeftExtendedNodes(), edge2Before1.getRightExtendedNodes());
         double benefit = Double.MAX_VALUE;
         SimplificationStep step;
         // Choose the plan with smaller cost and make the simplification step to replace the old edge by it.
@@ -438,17 +545,21 @@ public class GraphSimplifier {
                 benefit = cost2Before1.getValue() / cost1Before2.getValue();
             }
             // choose edge1Before2
-            step = new SimplificationStep(benefit, edgeIndex1, edgeIndex2, edge1Before2.second.getLeftExtendedNodes(),
-                    edge1Before2.second.getRightExtendedNodes(), graph.getEdge(edgeIndex2).getLeftExtendedNodes(),
+            step = new SimplificationStep(benefit, edgeIndex1, edgeIndex2,
+                    edge1Before2.getLeftExtendedNodes(),
+                    edge1Before2.getRightExtendedNodes(),
+                    graph.getEdge(edgeIndex2).getLeftExtendedNodes(),
                     graph.getEdge(edgeIndex2).getRightExtendedNodes());
+            cacheCost.put(edge1Before2.getReferenceNodes(), cost1Before2);
         } else {
             if (cost2Before1.getValue() != 0) {
                 benefit = cost1Before2.getValue() / cost2Before1.getValue();
             }
             // choose edge2Before1
-            step = new SimplificationStep(benefit, edgeIndex2, edgeIndex1, edge2Before1.second.getLeftExtendedNodes(),
-                    edge2Before1.second.getRightExtendedNodes(), graph.getEdge(edgeIndex1).getLeftExtendedNodes(),
+            step = new SimplificationStep(benefit, edgeIndex2, edgeIndex1, edge2Before1.getLeftExtendedNodes(),
+                    edge2Before1.getRightExtendedNodes(), graph.getEdge(edgeIndex1).getLeftExtendedNodes(),
                     graph.getEdge(edgeIndex1).getRightExtendedNodes());
+            cacheCost.put(edge2Before1.getReferenceNodes(), cost2Before1);
         }
         return step;
     }
@@ -462,41 +573,6 @@ public class GraphSimplifier {
             return true;
         }
         return false;
-    }
-
-    private Cost calCost(Edge edge, Statistics stats,
-            Statistics leftStats, Statistics rightStats) {
-        LogicalJoin join = edge.getJoin();
-        PlanContext planContext = new PlanContext(stats, ImmutableList.of(leftStats, rightStats));
-        Cost cost;
-        if (JoinUtils.shouldNestedLoopJoin(join)) {
-            PhysicalNestedLoopJoin nestedLoopJoin = new PhysicalNestedLoopJoin<>(
-                    join.getJoinType(),
-                    join.getHashJoinConjuncts(),
-                    join.getOtherJoinConjuncts(),
-                    join.getMarkJoinSlotReference(),
-                    join.getLogicalProperties(),
-                    join.left(),
-                    join.right());
-            cost = CostCalculator.calculateCost(nestedLoopJoin, planContext);
-            cost = CostCalculator.addChildCost(nestedLoopJoin, cost, cacheCost.get(edge.getLeftExtendedNodes()), 0);
-            cost = CostCalculator.addChildCost(nestedLoopJoin, cost, cacheCost.get(edge.getRightExtendedNodes()), 1);
-        } else {
-            PhysicalHashJoin hashJoin = new PhysicalHashJoin<>(
-                    join.getJoinType(),
-                    join.getHashJoinConjuncts(),
-                    join.getOtherJoinConjuncts(),
-                    join.getHint(),
-                    join.getMarkJoinSlotReference(),
-                    join.getLogicalProperties(),
-                    join.left(),
-                    join.right());
-            cost = CostCalculator.calculateCost(hashJoin, planContext);
-            cost = CostCalculator.addChildCost(hashJoin, cost, cacheCost.get(edge.getLeftExtendedNodes()), 0);
-            cost = CostCalculator.addChildCost(hashJoin, cost, cacheCost.get(edge.getRightExtendedNodes()), 1);
-        }
-
-        return cost;
     }
 
     /**
