@@ -95,7 +95,8 @@ VOrcTransformer::VOrcTransformer(doris::io::FileWriter* file_writer,
           _file_writer(file_writer),
           _write_options(new orc::WriterOptions()),
           _schema_str(schema) {
-        _write_options->setTimezoneName("Asia/Shanghai");
+    _write_options->setTimezoneName("Asia/Shanghai");
+    _write_options->setUseTightNumericVector(true);
 }
 
 Status VOrcTransformer::open() {

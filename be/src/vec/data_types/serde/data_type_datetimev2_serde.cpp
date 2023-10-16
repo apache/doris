@@ -26,8 +26,8 @@
 
 namespace doris {
 namespace vectorized {
-    static const int64_t timestamp_threshold = -2177481943;
-    static const int64_t timestamp_diff = 343;
+static const int64_t timestamp_threshold = -2177481943;
+static const int64_t timestamp_diff = 343;
 
 Status DataTypeDateTimeV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                          int end_idx, BufferWritable& bw,

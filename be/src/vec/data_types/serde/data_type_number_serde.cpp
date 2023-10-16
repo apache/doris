@@ -274,6 +274,16 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
+#define WRITE_INTEGRAL_COLUMN_TO_ORC(ORC_TYPE)                                              \
+    ORC_TYPE* cur_batch = dynamic_cast<ORC_TYPE*>(orc_col_batch); \
+    for (size_t row_id = start; row_id < end; row_id++) {                                   \
+        if (cur_batch->notNull[row_id] == 1) {                                              \
+            cur_batch->data[row_id] = col_data[row_id];                                     \
+        }                                                                                   \
+    }                                                                                       \
+    cur_batch->numElements = end - start;
+
+
 template <typename T>
 Status DataTypeNumberSerDe<T>::write_column_to_orc(const IColumn& column, const NullMap* null_map,
                                                    orc::ColumnVectorBatch* orc_col_batch, int start,
@@ -281,7 +291,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const IColumn& column, const 
                                                    std::vector<StringRef>& buffer_list) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
 
-    if constexpr (std::is_same_v<T, Int128>) {
+    if constexpr (std::is_same_v<T, Int128>) { // largeint
         orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
         char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
@@ -317,25 +327,16 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const IColumn& column, const 
         }
         buffer_list.emplace_back(bufferRef);
         cur_batch->numElements = end - start;
-    } else if constexpr ((std::is_integral<T>::value && std::is_signed<T>::value) ||
-                         std::is_same_v<T, UInt8>) { // tinyint/smallint/..int and boolean type
-        orc::LongVectorBatch* cur_batch = dynamic_cast<orc::LongVectorBatch*>(orc_col_batch);
-
-        for (size_t row_id = start; row_id < end; row_id++) {
-            if (cur_batch->notNull[row_id] == 1) {
-                cur_batch->data[row_id] = col_data[row_id];
-            }
-        }
-        cur_batch->numElements = end - start;
-    } else if constexpr (IsFloatNumber<T>) {
-        orc::DoubleVectorBatch* cur_batch = dynamic_cast<orc::DoubleVectorBatch*>(orc_col_batch);
-
-        for (size_t row_id = start; row_id < end; row_id++) {
-            if (cur_batch->notNull[row_id] == 1) {
-                cur_batch->data[row_id] = col_data[row_id];
-            }
-        }
-        cur_batch->numElements = end - start;
+    } else if constexpr (std::is_same_v<T, Int8>) { // tinyint
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::ByteVectorBatch)
+    } else if constexpr (std::is_same_v<T, Int16>) { // smallint
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::ShortVectorBatch)
+    } else if constexpr (std::is_same_v<T, Int32>) { // int
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::IntVectorBatch)
+    } else if constexpr (std::is_same_v<T, Int64>) { // bigint
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::LongVectorBatch)
+    } else if constexpr (IsFloatNumber<T>) { // float/double
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::DoubleVectorBatch)
     }
     return Status::OK();
 }
