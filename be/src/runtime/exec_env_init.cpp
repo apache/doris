@@ -39,7 +39,7 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_factory.h"
 #include "io/fs/file_meta_cache.h"
-#include "io/fs/s3_file_write_bufferpool.h"
+#include "io/fs/s3_file_bufferpool.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -173,6 +173,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(64)
                               .build(&_buffered_reader_prefetch_thread_pool));
 
+    static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
+                              .set_min_threads(16)
+                              .set_max_threads(64)
+                              .build(&_s3_file_upload_thread_pool));
+
     // min num equal to fragment pool's min num
     // max num is useless because it will start as many as requested in the past
     // queue size is useless because the max thread num is very large
@@ -244,7 +249,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // S3 buffer pool
     _s3_buffer_pool = new io::S3FileBufferPool();
     _s3_buffer_pool->init(config::s3_write_buffer_whole_size, config::s3_write_buffer_size,
-                          this->buffered_reader_prefetch_thread_pool());
+                          this->s3_file_upload_thread_pool());
 
     // Storage engine
     doris::EngineOptions options;
@@ -530,7 +535,6 @@ void ExecEnv::destroy() {
     _s_ready = false;
 
     SAFE_STOP(_wal_manager);
-    _wal_manager.reset();
     SAFE_STOP(_tablet_schema_cache);
     SAFE_STOP(_load_channel_mgr);
     SAFE_STOP(_scanner_scheduler);
@@ -549,6 +553,7 @@ void ExecEnv::destroy() {
     _stream_load_executor.reset();
     SAFE_STOP(_storage_engine);
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
+    SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
     SAFE_SHUTDOWN(_send_report_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
@@ -557,6 +562,7 @@ void ExecEnv::destroy() {
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
+    _wal_manager.reset();
     SAFE_DELETE(_s3_buffer_pool);
     SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();
@@ -613,6 +619,7 @@ void ExecEnv::destroy() {
     _join_node_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);

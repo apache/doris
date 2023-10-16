@@ -164,6 +164,8 @@ add_thirdparty(krb5)
 add_thirdparty(com_err)
 add_thirdparty(k5crypto)
 add_thirdparty(gssapi_krb5)
+add_thirdparty(dragonbox_to_chars LIB64)
+target_include_directories(dragonbox_to_chars INTERFACE "${THIRDPARTY_DIR}/include/dragonbox-1.1.3")
 
 if (OS_MACOSX)
     add_thirdparty(bfd)

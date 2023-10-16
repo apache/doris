@@ -1005,6 +1005,23 @@ size_t LRUFileCache::get_file_segments_num_unlocked(CacheType cache_type,
     return get_queue(cache_type).get_elements_num(cache_lock);
 }
 
+void LRUFileCache::change_cache_type(const IFileCache::Key& key, size_t offset, CacheType new_type,
+                                     std::lock_guard<doris::Mutex>& cache_lock) {
+    if (auto iter = _files.find(key); iter != _files.end()) {
+        auto& file_blocks = iter->second;
+        if (auto cell_it = file_blocks.find(offset); cell_it != file_blocks.end()) {
+            FileBlockCell& cell = cell_it->second;
+            auto& cur_queue = get_queue(cell.cache_type);
+            cell.cache_type = new_type;
+            DCHECK(cell.queue_iterator.has_value());
+            cur_queue.remove(*cell.queue_iterator, cache_lock);
+            auto& new_queue = get_queue(new_type);
+            cell.queue_iterator =
+                    new_queue.add(key, offset, cell.file_block->range().size(), cache_lock);
+        }
+    }
+}
+
 LRUFileCache::FileBlockCell::FileBlockCell(FileBlockSPtr file_block, CacheType cache_type,
                                            std::lock_guard<std::mutex>& cache_lock)
         : file_block(file_block), cache_type(cache_type) {

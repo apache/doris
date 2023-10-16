@@ -639,6 +639,10 @@ public class OlapTable extends Table {
         return Status.OK;
     }
 
+    public int getIndexNumber() {
+        return indexIdToMeta.size();
+    }
+
     public Map<Long, MaterializedIndexMeta> getIndexIdToMeta() {
         return indexIdToMeta;
     }
@@ -1852,6 +1856,36 @@ public class OlapTable extends Table {
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE,
                 Boolean.valueOf(enableLightSchemaChange).toString());
         tableProperty.buildEnableLightSchemaChange();
+    }
+
+    public short getMinLoadReplicaNum() {
+        if (tableProperty != null) {
+            return tableProperty.getMinLoadReplicaNum();
+        }
+
+        return -1;
+    }
+
+    public void setMinLoadReplicaNum(short minLoadReplicaNum) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM,
+                Short.valueOf(minLoadReplicaNum).toString());
+        tableProperty.buildMinLoadReplicaNum();
+    }
+
+    public int getLoadRequiredReplicaNum(long partitionId) {
+        int totalReplicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
+        int minLoadReplicaNum = getMinLoadReplicaNum();
+        if (minLoadReplicaNum > 0) {
+            return Math.min(minLoadReplicaNum, totalReplicaNum);
+        }
+
+        int quorum = totalReplicaNum / 2 + 1;
+        if (Config.min_load_replica_num > 0) {
+            return Math.min(quorum, Config.min_load_replica_num);
+        }
+
+        return quorum;
     }
 
     public void setStoragePolicy(String storagePolicy) throws UserException {

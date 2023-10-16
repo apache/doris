@@ -338,8 +338,7 @@ public:
     }
 
     virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                             const uint8_t* null_map,
-                                             size_t max_row_byte_size) const {
+                                             const uint8_t* null_map) const {
         LOG(FATAL) << "serialize_vec_with_null_map not supported";
     }
 
@@ -545,10 +544,6 @@ public:
     /// This is greater or equals to byte_size due to memory reservation in containers.
     /// Zero, if could not be determined.
     virtual size_t allocated_bytes() const = 0;
-
-    /// Make memory region readonly with mprotect if it is large enough.
-    /// The operation is slow and performed only for debug builds.
-    virtual void protect() {}
 
     /// If the column contains subcolumns (such as Array, Nullable, etc), do callback on them.
     /// Shallow: doesn't do recursive calls; don't do call for itself.

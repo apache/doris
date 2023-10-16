@@ -60,34 +60,6 @@ using FunctionDateTimeV2YearWeek =
 using FunctionDateTimeV2WeekDay =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, WeekDayImpl<UInt64>>;
 
-/// @TEMPORARY: for be_exec_version=2
-using FunctionWeekOfYearOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekOfYearImpl<Int64>>;
-using FunctionWeekOfYearV2Old =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekOfYearImpl<UInt32>>;
-using FunctionDayOfYearOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfYearImpl<Int64>>;
-using FunctionDayOfYearV2Old =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfYearImpl<UInt32>>;
-using FunctionDayOfWeekOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfWeekImpl<Int64>>;
-using FunctionDayOfWeekV2Old =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfWeekImpl<UInt32>>;
-using FunctionDayOfMonthOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfMonthImpl<Int64>>;
-using FunctionDayOfMonthV2Old =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfMonthImpl<UInt32>>;
-using FunctionWeekDayOld = FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekDayImpl<Int64>>;
-using FunctionWeekDayV2Old = FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekDayImpl<UInt32>>;
-using FunctionDateTimeV2WeekOfYearOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekOfYearImpl<UInt64>>;
-using FunctionDateTimeV2DayOfYearOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfYearImpl<UInt64>>;
-using FunctionDateTimeV2DayOfWeekOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfWeekImpl<UInt64>>;
-using FunctionDateTimeV2DayOfMonthOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfMonthImpl<UInt64>>;
-using FunctionDateTimeV2WeekDayOld =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekDayImpl<UInt64>>;
-
 void register_function_time_of_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDayOfWeek>();
     factory.register_function<FunctionDayOfMonth>();
@@ -107,22 +79,5 @@ void register_function_time_of_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTimeV2DayOfMonth>();
     factory.register_function<FunctionDateTimeV2YearWeek>();
     factory.register_function<FunctionDateTimeV2WeekDay>();
-
-    /// @TEMPORARY: for be_exec_version=2
-    factory.register_alternative_function<FunctionWeekOfYearOld>();
-    factory.register_alternative_function<FunctionWeekOfYearV2Old>();
-    factory.register_alternative_function<FunctionDateTimeV2WeekOfYearOld>();
-    factory.register_alternative_function<FunctionDayOfYearOld>();
-    factory.register_alternative_function<FunctionDayOfYearV2Old>();
-    factory.register_alternative_function<FunctionDateTimeV2DayOfYearOld>();
-    factory.register_alternative_function<FunctionDayOfWeekOld>();
-    factory.register_alternative_function<FunctionDayOfWeekV2Old>();
-    factory.register_alternative_function<FunctionDateTimeV2DayOfWeekOld>();
-    factory.register_alternative_function<FunctionDayOfMonthOld>();
-    factory.register_alternative_function<FunctionDayOfMonthV2Old>();
-    factory.register_alternative_function<FunctionDateTimeV2DayOfMonthOld>();
-    factory.register_alternative_function<FunctionWeekDayOld>();
-    factory.register_alternative_function<FunctionWeekDayV2Old>();
-    factory.register_alternative_function<FunctionDateTimeV2WeekDayOld>();
 }
 } // namespace doris::vectorized

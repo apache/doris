@@ -33,9 +33,9 @@ public class AnalysisInfoBuilder {
     private long jobId;
     private long taskId;
     private List<Long> taskIds;
-    private String catalogName;
-    private String dbName;
-    private String tblName;
+    private long catalogId;
+    private long dbId;
+    private long tblId;
     private Map<String, Set<String>> colToPartitions;
     private Set<String> partitionNames;
     private String colName;
@@ -58,9 +58,7 @@ public class AnalysisInfoBuilder {
     private boolean samplingPartition;
     private boolean isAllPartition;
     private long partitionCount;
-
     private CronExpression cronExpression;
-
     private boolean forceFull;
 
     public AnalysisInfoBuilder() {
@@ -70,9 +68,9 @@ public class AnalysisInfoBuilder {
         jobId = info.jobId;
         taskId = info.taskId;
         taskIds = info.taskIds;
-        catalogName = info.catalogName;
-        dbName = info.dbName;
-        tblName = info.tblName;
+        catalogId = info.catalogId;
+        dbId = info.dbId;
+        tblId = info.tblId;
         colToPartitions = info.colToPartitions;
         partitionNames = info.partitionNames;
         colName = info.colName;
@@ -114,18 +112,18 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfoBuilder setCatalogName(String catalogName) {
-        this.catalogName = catalogName;
+    public AnalysisInfoBuilder setCatalogId(long catalogId) {
+        this.catalogId = catalogId;
         return this;
     }
 
-    public AnalysisInfoBuilder setDbName(String dbName) {
-        this.dbName = dbName;
+    public AnalysisInfoBuilder setDBId(long dbId) {
+        this.dbId = dbId;
         return this;
     }
 
-    public AnalysisInfoBuilder setTblName(String tblName) {
-        this.tblName = tblName;
+    public AnalysisInfoBuilder setTblId(long tblId) {
+        this.tblId = tblId;
         return this;
     }
 
@@ -248,7 +246,7 @@ public class AnalysisInfoBuilder {
     }
 
     public AnalysisInfo build() {
-        return new AnalysisInfo(jobId, taskId, taskIds, catalogName, dbName, tblName, colToPartitions, partitionNames,
+        return new AnalysisInfo(jobId, taskId, taskIds, catalogId, dbId, tblId, colToPartitions, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
                 externalTableLevelTask, partitionOnly, samplingPartition, isAllPartition, partitionCount,
@@ -260,9 +258,9 @@ public class AnalysisInfoBuilder {
                 .setJobId(jobId)
                 .setTaskId(taskId)
                 .setTaskIds(taskIds)
-                .setCatalogName(catalogName)
-                .setDbName(dbName)
-                .setTblName(tblName)
+                .setCatalogId(catalogId)
+                .setDBId(dbId)
+                .setTblId(tblId)
                 .setColToPartitions(colToPartitions)
                 .setColName(colName)
                 .setIndexId(indexId)
