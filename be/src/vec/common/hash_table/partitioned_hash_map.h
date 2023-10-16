@@ -58,6 +58,9 @@ using PartitionedHashMap =
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
 using PHPartitionedHashMap = PartitionedHashMapTable<PHHashMap<Key, Mapped, Hash, true>>;
 
+template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
+using PHNormalHashMap = PHHashMap<Key, Mapped, Hash, false>;
+
 template <typename Key, typename Mapped, typename Hash>
 struct HashTableTraits<PHPartitionedHashMap<Key, Mapped, Hash>> {
     static constexpr bool is_phmap = true;

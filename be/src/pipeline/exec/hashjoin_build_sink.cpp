@@ -51,7 +51,6 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _shared_hash_table_dependency = SharedHashTableDependency::create_shared(_parent->id());
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
-    _shared_state->probe_key_sz = p._build_key_sz;
     if (p._is_broadcast_join && state->enable_share_hash_table_for_broadcast_join()) {
         _shared_state->build_blocks = p._shared_hash_table_context->blocks;
     } else {
@@ -142,10 +141,6 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
         }
     }
     return Status::OK();
-}
-
-vectorized::Sizes& HashJoinBuildSinkLocalState::build_key_sz() {
-    return _parent->cast<HashJoinBuildSinkOperatorX>()._build_key_sz;
 }
 
 bool HashJoinBuildSinkLocalState::build_unique() const {
@@ -326,62 +321,8 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                     }
                     return;
                 }
-
-                bool use_fixed_key = true;
-                bool has_null = false;
-                size_t key_byte_size = 0;
-                size_t bitmap_size = vectorized::get_bitmap_size(_build_expr_ctxs.size());
-
-                for (int i = 0; i < _build_expr_ctxs.size(); ++i) {
-                    const auto vexpr = _build_expr_ctxs[i]->root();
-                    const auto& data_type = vexpr->data_type();
-
-                    if (!data_type->have_maximum_size_of_value()) {
-                        use_fixed_key = false;
-                        break;
-                    }
-
-                    auto is_null = data_type->is_nullable();
-                    has_null |= is_null;
-                    key_byte_size += p._build_key_sz[i];
-                }
-
-                if (bitmap_size + key_byte_size > sizeof(vectorized::UInt256)) {
-                    use_fixed_key = false;
-                }
-
-                if (use_fixed_key) {
-                    // TODO: may we should support uint256 in the future
-                    if (has_null) {
-                        if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt64)) {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I64FixedKeyHashTableContext<
-                                            true, RowRefListType>>();
-                        } else if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt128)) {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I128FixedKeyHashTableContext<
-                                            true, RowRefListType>>();
-                        } else {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I256FixedKeyHashTableContext<
-                                            true, RowRefListType>>();
-                        }
-                    } else {
-                        if (key_byte_size <= sizeof(vectorized::UInt64)) {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I64FixedKeyHashTableContext<
-                                            false, RowRefListType>>();
-                        } else if (key_byte_size <= sizeof(vectorized::UInt128)) {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I128FixedKeyHashTableContext<
-                                            false, RowRefListType>>();
-                        } else {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I256FixedKeyHashTableContext<
-                                            false, RowRefListType>>();
-                        }
-                    }
-                } else {
+                if (!try_get_hash_map_context_fixed<PartitionedHashMap, HashCRC32, RowRefListType>(
+                            *_shared_state->hash_table_variants, _build_expr_ctxs)) {
                     _shared_state->hash_table_variants
                             ->emplace<vectorized::SerializedHashTableContext<RowRefListType>>();
                 }
@@ -448,18 +389,6 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
                 null_aware ||
                 (_build_expr_ctxs.back()->root()->is_nullable() && build_stores_null));
     }
-
-    for (const auto& expr : _build_expr_ctxs) {
-        const auto& data_type = expr->root()->data_type();
-        if (!data_type->have_maximum_size_of_value()) {
-            break;
-        }
-
-        auto is_null = data_type->is_nullable();
-        _build_key_sz.push_back(data_type->get_maximum_size_of_value_in_memory() -
-                                (is_null ? 1 : 0));
-    }
-
     return Status::OK();
 }
 

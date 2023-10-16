@@ -23,6 +23,7 @@
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
 #include "runtime/primitive_type.h"
+#include "vec/common/hash_table/hash.h"
 
 namespace doris::pipeline {
 
@@ -109,8 +110,6 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
     Base::_shared_state->agg_profile_arena = std::make_unique<vectorized::Arena>();
 
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
-        _agg_data->init(vectorized::AggregatedDataVariants::Type::without_key);
-
         _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
                 Base::_shared_state->agg_profile_arena->alloc(p._total_size_of_aggregate_states));
 
@@ -500,9 +499,8 @@ void AggSinkLocalState<DependencyType, Derived>::_emplace_into_hash_table(
                 SCOPED_TIMER(_hash_table_compute_timer);
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
-                AggState state(key_columns, Base::_shared_state->probe_key_sz);
-                agg_method.init_serialized_keys(key_columns, Base::_shared_state->probe_key_sz,
-                                                num_rows);
+                AggState state(key_columns);
+                agg_method.init_serialized_keys(key_columns, num_rows);
 
                 auto creator = [this](const auto& ctor, auto& key, auto& origin) {
                     HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
@@ -545,9 +543,8 @@ void AggSinkLocalState<DependencyType, Derived>::_find_in_hash_table(
             [&](auto&& agg_method) -> void {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
-                AggState state(key_columns, Base::_shared_state->probe_key_sz);
-                agg_method.init_serialized_keys(key_columns, Base::_shared_state->probe_key_sz,
-                                                num_rows);
+                AggState state(key_columns);
+                agg_method.init_serialized_keys(key_columns, num_rows);
 
                 /// For all rows.
                 for (size_t i = 0; i < num_rows; ++i) {
@@ -625,52 +622,10 @@ void AggSinkLocalState<DependencyType, Derived>::_init_hash_method(
                         !Base::_parent->template cast<typename Derived::Parent>()._is_first_phase),
                 is_nullable);
     } else {
-        bool use_fixed_key = true;
-        bool has_null = false;
-        size_t key_byte_size = 0;
-        size_t bitmap_size =
-                vectorized::get_bitmap_size(Base::_shared_state->probe_expr_ctxs.size());
-
-        Base::_shared_state->probe_key_sz.resize(Base::_shared_state->probe_expr_ctxs.size());
-        for (int i = 0; i < Base::_shared_state->probe_expr_ctxs.size(); ++i) {
-            const auto& expr = Base::_shared_state->probe_expr_ctxs[i]->root();
-            const auto& data_type = expr->data_type();
-
-            if (!data_type->have_maximum_size_of_value()) {
-                use_fixed_key = false;
-                break;
-            }
-
-            auto is_null = data_type->is_nullable();
-            has_null |= is_null;
-            Base::_shared_state->probe_key_sz[i] =
-                    data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
-            key_byte_size += Base::_shared_state->probe_key_sz[i];
-        }
-
-        if (!has_null) {
-            bitmap_size = 0;
-        }
-
-        if (bitmap_size + key_byte_size > sizeof(vectorized::UInt256)) {
-            use_fixed_key = false;
-        }
-
-        if (use_fixed_key) {
-            if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt64)) {
-                t = Type::int64_keys;
-            } else if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt128)) {
-                t = Type::int128_keys;
-            } else if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt136)) {
-                t = Type::int136_keys;
-            } else {
-                t = Type::int256_keys;
-            }
-            _agg_data->init(get_hash_key_type_with_phase(
-                                    t, !Base::_parent->template cast<typename Derived::Parent>()
-                                                ._is_first_phase),
-                            has_null);
-        } else {
+        if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32,
+                                            vectorized::AggregateDataPtr,
+                                            vectorized::AggregatedMethodVariants>(
+                    _agg_data->method_variant, probe_exprs)) {
             _agg_data->init(Type::serialized);
         }
     }

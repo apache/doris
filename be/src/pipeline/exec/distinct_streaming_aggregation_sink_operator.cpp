@@ -156,9 +156,8 @@ void DistinctStreamingAggSinkLocalState::_emplace_into_hash_table_to_distinct(
                 SCOPED_TIMER(_hash_table_compute_timer);
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
-                AggState state(key_columns, _shared_state->probe_key_sz);
-                agg_method.init_serialized_keys(key_columns, Base::_shared_state->probe_key_sz,
-                                                num_rows);
+                AggState state(key_columns);
+                agg_method.init_serialized_keys(key_columns, num_rows);
                 size_t row = 0;
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                     HashMethodType::try_presis_key(key, origin, _arena);

@@ -32,9 +32,8 @@ struct HashTableProbe {
     Status mark_data_in_hashtable(HashTableContext& hash_table_ctx) {
         using KeyGetter = typename HashTableContext::State;
 
-        KeyGetter key_getter(_probe_raw_ptrs, _operation_node->_probe_key_sz);
-        hash_table_ctx.init_serialized_keys(_probe_raw_ptrs, _operation_node->_probe_key_sz,
-                                            _probe_rows);
+        KeyGetter key_getter(_probe_raw_ptrs);
+        hash_table_ctx.init_serialized_keys(_probe_raw_ptrs, _probe_rows);
 
         if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlags>) {
             for (int probe_index = 0; probe_index < _probe_rows; probe_index++) {
@@ -73,9 +72,8 @@ struct HashTableProbeX {
                                   HashTableContext& hash_table_ctx) {
         using KeyGetter = typename HashTableContext::State;
 
-        KeyGetter key_getter(_probe_raw_ptrs, local_state._shared_state->probe_key_sz);
-        hash_table_ctx.init_serialized_keys(_probe_raw_ptrs,
-                                            local_state._shared_state->probe_key_sz, _probe_rows);
+        KeyGetter key_getter(_probe_raw_ptrs);
+        hash_table_ctx.init_serialized_keys(_probe_raw_ptrs, _probe_rows);
 
         if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlags>) {
             for (int probe_index = 0; probe_index < _probe_rows; probe_index++) {

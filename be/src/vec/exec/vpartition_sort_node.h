@@ -26,7 +26,6 @@
 #include "exec/exec_node.h"
 #include "vec/columns/column.h"
 #include "vec/common/columns_hashing.h"
-#include "vec/common/hash_table/fixed_hash_map.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/ph_hash_map.h"
 #include "vec/common/hash_table/string_hash_map.h"
@@ -85,13 +84,13 @@ public:
 using PartitionDataPtr = PartitionBlocks*;
 using PartitionDataWithStringKey = PHHashMap<StringRef, PartitionDataPtr>;
 using PartitionDataWithShortStringKey = StringHashMap<PartitionDataPtr>;
-using PartitionDataWithUInt8Key =
-        FixedImplicitZeroHashMapWithCalculatedSize<UInt8, PartitionDataPtr>;
-using PartitionDataWithUInt16Key = FixedImplicitZeroHashMap<UInt16, PartitionDataPtr>;
+using PartitionDataWithUInt8Key = PHHashMap<UInt8, PartitionDataPtr>;
+using PartitionDataWithUInt16Key = PHHashMap<UInt16, PartitionDataPtr>;
 using PartitionDataWithUInt32Key = PHHashMap<UInt32, PartitionDataPtr, HashCRC32<UInt32>>;
 using PartitionDataWithUInt64Key = PHHashMap<UInt64, PartitionDataPtr, HashCRC32<UInt64>>;
 using PartitionDataWithUInt128Key = PHHashMap<UInt128, PartitionDataPtr, HashCRC32<UInt128>>;
 using PartitionDataWithUInt256Key = PHHashMap<UInt256, PartitionDataPtr, HashCRC32<UInt256>>;
+using PartitionDataWithUInt136Key = PHHashMap<UInt136, PartitionDataPtr, HashCRC32<UInt136>>;
 
 using PartitionedMethodVariants = std::variant<
         MethodSerialized<PartitionDataWithStringKey>,
@@ -116,6 +115,8 @@ using PartitionedMethodVariants = std::variant<
         MethodKeysFixed<PartitionDataWithUInt128Key, true>,
         MethodKeysFixed<PartitionDataWithUInt256Key, false>,
         MethodKeysFixed<PartitionDataWithUInt256Key, true>,
+        MethodKeysFixed<PartitionDataWithUInt136Key, false>,
+        MethodKeysFixed<PartitionDataWithUInt136Key, true>,
         MethodStringNoCache<PartitionDataWithShortStringKey>,
         MethodSingleNullableColumn<
                 MethodStringNoCache<DataWithNullKey<PartitionDataWithShortStringKey>>>>;
@@ -149,18 +150,6 @@ struct PartitionedHashMapVariants
         }
         case Type::int128_key: {
             emplace_single<UInt128, PartitionDataWithUInt128Key, nullable>();
-            break;
-        }
-        case Type::int64_keys: {
-            emplace_fixed<PartitionDataWithUInt64Key, nullable>();
-            break;
-        }
-        case Type::int128_keys: {
-            emplace_fixed<PartitionDataWithUInt128Key, nullable>();
-            break;
-        }
-        case Type::int256_keys: {
-            emplace_fixed<PartitionDataWithUInt256Key, nullable>();
             break;
         }
         case Type::string_key: {
@@ -220,7 +209,6 @@ private:
     int _partition_exprs_num = 0;
     VExprContextSPtrs _partition_expr_ctxs;
     std::vector<const IColumn*> _partition_columns;
-    std::vector<size_t> _partition_key_sz;
 
     std::vector<std::unique_ptr<PartitionSorter>> _partition_sorts;
     std::vector<PartitionDataPtr> _value_places;

@@ -127,10 +127,7 @@ protected:
             }
         }
 
-        {
-            context.insert_keys_into_columns(keys, key_columns, num_rows,
-                                             Base::_shared_state->probe_key_sz);
-        }
+        { context.insert_keys_into_columns(keys, key_columns, num_rows); }
 
         if (hash_table.has_null_key_data()) {
             // only one key of group by support wrap null key

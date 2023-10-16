@@ -47,8 +47,7 @@ struct HashMethodOneNumber
     using Self = HashMethodOneNumber<Value, Mapped, FieldType>;
     using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
 
-    /// If the keys of a fixed length then key_sizes contains their lengths, empty otherwise.
-    HashMethodOneNumber(const ColumnRawPtrs& key_columns, const Sizes& /*key_sizes*/) {}
+    HashMethodOneNumber(const ColumnRawPtrs& key_columns) {}
 
     using Base::find_key_with_hash;
 };
@@ -61,7 +60,7 @@ struct HashMethodString
     using Self = HashMethodString<Value, Mapped, place_string_to_arena>;
     using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
 
-    HashMethodString(const ColumnRawPtrs& key_columns, const Sizes& /*key_sizes*/) {}
+    HashMethodString(const ColumnRawPtrs& key_columns) {}
 
 protected:
     friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
@@ -79,7 +78,7 @@ struct HashMethodSerialized
     using Self = HashMethodSerialized<Value, Mapped>;
     using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
 
-    HashMethodSerialized(const ColumnRawPtrs& key_columns_, const Sizes& /*key_sizes*/) {}
+    HashMethodSerialized(const ColumnRawPtrs& key_columns) {}
 
 protected:
     friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
@@ -96,8 +95,7 @@ struct HashMethodKeysFixed
     using BaseHashed = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
     using Base = columns_hashing_impl::BaseStateKeysFixed<Key, has_nullable_keys>;
 
-    HashMethodKeysFixed(const ColumnRawPtrs& key_columns, const Sizes& key_sizes_)
-            : Base(key_columns) {}
+    HashMethodKeysFixed(const ColumnRawPtrs& key_columns) : Base(key_columns) {}
 };
 
 template <typename SingleColumnMethod, typename Mapped>
@@ -109,16 +107,15 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
 
     const ColumnNullable* key_column;
 
-    static const ColumnRawPtrs get_nested_column(const IColumn* col) {
-        auto* nullable = check_and_get_column<ColumnNullable>(*col);
+    static ColumnRawPtrs get_nested_column(const IColumn* col) {
+        const auto* nullable = check_and_get_column<ColumnNullable>(*col);
         DCHECK(nullable != nullptr);
-        const auto nested_col = nullable->get_nested_column_ptr().get();
+        const auto* const nested_col = nullable->get_nested_column_ptr().get();
         return {nested_col};
     }
 
-    HashMethodSingleLowNullableColumn(const ColumnRawPtrs& key_columns_nullable,
-                                      const Sizes& key_sizes)
-            : Base(get_nested_column(key_columns_nullable[0]), key_sizes),
+    HashMethodSingleLowNullableColumn(const ColumnRawPtrs& key_columns_nullable)
+            : Base(get_nested_column(key_columns_nullable[0])),
               key_column(assert_cast<const ColumnNullable*>(key_columns_nullable[0])) {}
 
     template <typename Data, typename Func, typename CreatorForNull, typename KeyHolder>

@@ -70,7 +70,6 @@ public:
     void init_short_circuit_for_probe();
     HashJoinBuildSinkOperatorX* join_build() { return (HashJoinBuildSinkOperatorX*)_parent; }
 
-    vectorized::Sizes& build_key_sz();
     bool build_unique() const;
     std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const;
     std::shared_ptr<vectorized::Arena> arena() { return _shared_state->arena; }
@@ -167,8 +166,6 @@ private:
 
     // mark the join column whether support null eq
     std::vector<bool> _is_null_safe_eq_join;
-
-    vectorized::Sizes _build_key_sz;
 
     bool _is_broadcast_join = false;
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller = nullptr;

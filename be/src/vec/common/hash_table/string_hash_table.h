@@ -669,8 +669,4 @@ public:
         return m1.add_elem_size_overflow(add_size) || m2.add_elem_size_overflow(add_size) ||
                m3.add_elem_size_overflow(add_size) || ms.add_elem_size_overflow(add_size);
     }
-
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
-    size_t get_collisions() const { return 0; }
-#endif
 };

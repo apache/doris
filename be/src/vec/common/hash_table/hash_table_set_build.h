@@ -42,8 +42,8 @@ struct HashTableBuild {
             _operation_node->_mem_used += bucket_bytes - old_bucket_bytes;
         }};
 
-        KeyGetter key_getter(_build_raw_ptrs, _operation_node->_build_key_sz);
-        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _operation_node->_build_key_sz, _rows);
+        KeyGetter key_getter(_build_raw_ptrs);
+        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows);
 
         size_t k = 0;
         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
@@ -85,9 +85,8 @@ struct HashTableBuildX {
             local_state._shared_state->mem_used += bucket_bytes - old_bucket_bytes;
         }};
 
-        KeyGetter key_getter(_build_raw_ptrs, local_state._shared_state->build_key_sz);
-        hash_table_ctx.init_serialized_keys(_build_raw_ptrs,
-                                            local_state._shared_state->build_key_sz, _rows);
+        KeyGetter key_getter(_build_raw_ptrs);
+        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows);
 
         size_t k = 0;
         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
