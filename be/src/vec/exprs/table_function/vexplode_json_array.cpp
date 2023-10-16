@@ -215,7 +215,7 @@ Status VExplodeJsonArrayTableFunction::process_close() {
 }
 
 void VExplodeJsonArrayTableFunction::get_value(MutableColumnPtr& column) {
-    if (current_empty()) {
+    if (current_empty() || _parsed_data.get_value(_type, _cur_offset, true) == nullptr) {
         column->insert_default();
     } else {
         column->insert_data((char*)_parsed_data.get_value(_type, _cur_offset, true),
