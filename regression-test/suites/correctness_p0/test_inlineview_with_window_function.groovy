@@ -110,10 +110,10 @@ suite("test_inlineview_with_window_function") {
             group by ordernum
             ORDER BY ordernum;"""
 
-    sql """insert into test_table_aaa select 'cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}' ;"""
-    sql """insert into test_table_aaa select 'cib2205045_1_1s','2023/6/10 3:56:33','{"DB1":168939,"DNT":"2023-06-10 03:56:33"}' ;"""
-    sql """insert into test_table_aaa select 'cib2205045_1_1s','2023/6/10 3:57:33','{"DB1":168939,"DNT":"2023-06-10 03:57:33"}' ;"""
-    sql """insert into test_table_aaa select 'cib2205045_1_1s','2023/6/10 3:58:33','{"DB1":168939,"DNT":"2023-06-10 03:58:33"}' ;"""
+    sql """insert into test_table_aaa values('cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}') ;"""
+    sql """insert into test_table_aaa values('cib2205045_1_1s','2023/6/10 3:56:33','{"DB1":168939,"DNT":"2023-06-10 03:56:33"}') ;"""
+    sql """insert into test_table_aaa values('cib2205045_1_1s','2023/6/10 3:57:33','{"DB1":168939,"DNT":"2023-06-10 03:57:33"}') ;"""
+    sql """insert into test_table_aaa values('cib2205045_1_1s','2023/6/10 3:58:33','{"DB1":168939,"DNT":"2023-06-10 03:58:33"}') ;"""
 
     qt_order """select
                 '2023-06-10',
@@ -151,4 +151,22 @@ suite("test_inlineview_with_window_function") {
                     group by ordernum
                 )tmp1
                 on tmp.ordernum=tmp1.ordernum;"""
+
+    sql """drop table if exists test_table_aaa2;"""
+    sql """CREATE TABLE `test_table_aaa2` (
+            `ordernum` varchar(65533) NOT NULL ,
+            `dnt` datetime NOT NULL ,
+            `data` json NULL 
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`ordernum`, `dnt`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`ordernum`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+    sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}' ;"""
+    sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:56:33','{"DB1":168939,"DNT":"2023-06-10 03:56:33"}' ;"""
+    sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:57:33','{"DB1":168939,"DNT":"2023-06-10 03:57:33"}' ;"""
+    sql """insert into test_table_aaa2 select 'cib2205045_1_1s','2023/6/10 3:58:33','{"DB1":168939,"DNT":"2023-06-10 03:58:33"}' ;"""
+
 }
