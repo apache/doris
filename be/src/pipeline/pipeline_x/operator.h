@@ -18,6 +18,7 @@
 #pragma once
 
 #include <functional>
+
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
