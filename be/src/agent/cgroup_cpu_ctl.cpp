@@ -17,6 +17,8 @@
 
 #include "agent/cgroup_cpu_ctl.h"
 
+#include <fmt/format.h>
+
 namespace doris {
 
 Status CgroupCpuCtl::init() {
@@ -60,9 +62,7 @@ Status CgroupCpuCtl::write_cg_sys_file(std::string file_path, int value, std::st
         return Status::InternalError("open path failed, path={}", file_path);
     }
 
-    std::stringstream ss;
-    ss << value << std::endl;
-    const std::string& str = ss.str();
+    auto str = fmt::format("{}\n", value);
     int ret = write(fd, str.c_str(), str.size());
     if (ret == -1) {
         LOG(ERROR) << msg << " write sys file failed";
