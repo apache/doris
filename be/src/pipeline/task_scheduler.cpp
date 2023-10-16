@@ -347,8 +347,8 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
     }
     task->set_state(state);
     task->set_close_pipeline_time();
-    task->fragment_context()->close_a_pipeline();
     task->release(status);
+    task->fragment_context()->close_a_pipeline();
 }
 
 void TaskScheduler::stop() {
