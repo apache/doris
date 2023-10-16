@@ -519,6 +519,7 @@ std::string ExecNode::get_name() {
 
 Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
     SCOPED_TIMER(_projection_timer);
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
     using namespace vectorized;
     MutableBlock mutable_block =
             VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
