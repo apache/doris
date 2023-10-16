@@ -78,12 +78,17 @@ public abstract class StatementBase implements ParseNode {
      * were missing from the catalog.
      * It is up to the analysis() implementation to ensure the maximum number of missing
      * tables/views get collected in the Analyzer before failing analyze().
+     * Should call the method firstly when override the method, the analyzer param should be
+     * the one which statement would use.
      */
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (isAnalyzed()) {
             return;
         }
         this.analyzer = analyzer;
+        if (analyzer.getRootStatementClazz() == null) {
+            analyzer.setRootStatementClazz(this.getClass());
+        }
         if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
         }
