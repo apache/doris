@@ -986,9 +986,8 @@ Status VFileScanner::_init_expr_ctxes() {
         auto slot_id = slot_info.slot_id;
         auto it = full_src_slot_map.find(slot_id);
         if (it == std::end(full_src_slot_map)) {
-            std::stringstream ss;
-            ss << "Unknown source slot descriptor, slot_id=" << slot_id;
-            return Status::InternalError(ss.str());
+            return Status::InternalError(
+                    fmt::format("Unknown source slot descriptor, slot_id={}", slot_id));
         }
         if (slot_info.is_file_slot) {
             _file_slot_descs.emplace_back(it->second);
