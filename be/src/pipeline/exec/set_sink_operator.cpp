@@ -60,8 +60,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
     auto& mem_used = local_state._shared_state->mem_used;
-    auto& build_blocks = local_state._shared_state->build_blocks;
-    auto& build_block_index = local_state._shared_state->build_block_index;
+    auto& build_block = local_state._shared_state->build_block;
     auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
 
     if (in_block->rows() != 0) {
@@ -71,11 +70,9 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
 
     if (source_state == SourceState::FINISHED ||
         local_state._mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
-        build_blocks.emplace_back(local_state._mutable_block.to_block());
-        RETURN_IF_ERROR(_process_build_block(local_state, build_blocks[build_block_index],
-                                             build_block_index, state));
+        build_block = local_state._mutable_block.to_block();
+        RETURN_IF_ERROR(_process_build_block(local_state, build_block, state));
         local_state._mutable_block.clear();
-        ++build_block_index;
 
         if (source_state == SourceState::FINISHED) {
             if constexpr (is_intersect) {
@@ -101,7 +98,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::_process_build_block(
-        SetSinkLocalState<is_intersect>& local_state, vectorized::Block& block, uint8_t offset,
+        SetSinkLocalState<is_intersect>& local_state, vectorized::Block& block,
         RuntimeState* state) {
     size_t rows = block.rows();
     if (rows == 0) {
@@ -117,7 +114,7 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     vectorized::HashTableBuild<HashTableCtxType, is_intersect>
-                            hash_table_build_process(&local_state, rows, raw_ptrs, offset, state);
+                            hash_table_build_process(&local_state, rows, raw_ptrs, state);
                     static_cast<void>(hash_table_build_process(arg, local_state._arena));
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";

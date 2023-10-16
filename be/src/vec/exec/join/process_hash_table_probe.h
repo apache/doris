@@ -75,7 +75,7 @@ struct ProcessHashTableProbe {
                                                UInt8* __restrict null_map_data,
                                                UInt8* __restrict filter_map, Block* output_block);
 
-    void _emplace_element(int8_t block_offset, int32_t block_row, int& current_offset);
+    void _emplace_element(int32_t block_row, int& current_offset);
 
     template <typename HashTableType>
     typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
@@ -94,14 +94,13 @@ struct ProcessHashTableProbe {
 
     Parent* _parent;
     const int _batch_size;
-    std::shared_ptr<std::vector<Block>> _build_blocks;
+    std::shared_ptr<Block> _build_block;
     std::unique_ptr<Arena> _arena;
     std::vector<StringRef> _probe_keys;
 
     std::vector<uint32_t> _probe_indexs;
-    PaddedPODArray<int8_t> _build_block_offsets;
-    PaddedPODArray<int32_t> _build_block_rows;
-    std::vector<std::pair<int8_t, int>> _build_blocks_locs;
+    std::vector<int> _build_block_rows;
+    std::vector<int> _build_blocks_locs;
     // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
     ColumnUInt8::Container* _tuple_is_null_left_flags;
     // only need set the tuple is null in LEFT_OUTER_JOIN and FULL_OUTER_JOIN
