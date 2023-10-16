@@ -44,6 +44,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.TableStatsDeletionLog;
@@ -56,6 +57,7 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
+import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.SimpleQueue;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -84,6 +86,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.TreeMap;
@@ -365,7 +368,7 @@ public class AnalysisManager extends Daemon implements Writable {
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
         if (!jobInfo.partitionOnly && stmt.isAllColumns()
-                && StatisticsUtil.isExternalTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName)) {
+                && StatisticsUtil.isExternalTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId)) {
             createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, isSync);
         }
         if (isSync) {
@@ -398,9 +401,16 @@ public class AnalysisManager extends Daemon implements Writable {
             }
             List<String> row = new ArrayList<>();
             row.add(String.valueOf(analysisInfo.jobId));
-            row.add(analysisInfo.catalogName);
-            row.add(analysisInfo.dbName);
-            row.add(analysisInfo.tblName);
+            CatalogIf<? extends DatabaseIf<? extends TableIf>> c = StatisticsUtil.findCatalog(analysisInfo.catalogId);
+            row.add(c.getName());
+            Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = c.getDb(analysisInfo.dbId);
+            row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
+            if (databaseIf.isPresent()) {
+                Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
+                row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
+            } else {
+                row.add("DB not exists anymore");
+            }
             row.add(analysisInfo.colName);
             resultRows.add(row);
         }
@@ -487,11 +497,6 @@ public class AnalysisManager extends Daemon implements Writable {
     public AnalysisInfo buildAnalysisJobInfo(AnalyzeTblStmt stmt) throws DdlException {
         AnalysisInfoBuilder infoBuilder = new AnalysisInfoBuilder();
         long jobId = Env.getCurrentEnv().getNextId();
-        String catalogName = stmt.getCatalogName();
-        String db = stmt.getDBName();
-        TableName tbl = stmt.getTblName();
-        StatisticsUtil.convertTableNameToObjects(tbl);
-        String tblName = tbl.getTbl();
         TableIf table = stmt.getTable();
         Set<String> columnNames = stmt.getColumnNames();
         Set<String> partitionNames = stmt.getPartitionNames();
@@ -508,9 +513,9 @@ public class AnalysisManager extends Daemon implements Writable {
         CronExpression cronExpression = stmt.getCron();
 
         infoBuilder.setJobId(jobId);
-        infoBuilder.setCatalogName(catalogName);
-        infoBuilder.setDbName(db);
-        infoBuilder.setTblName(tblName);
+        infoBuilder.setCatalogId(stmt.getCatalogId());
+        infoBuilder.setDBId(stmt.getDbId());
+        infoBuilder.setTblId(stmt.getTable().getId());
         // TODO: Refactor later, DON'T MODIFY IT RIGHT NOW
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (String colName : columnNames) {
@@ -638,8 +643,8 @@ public class AnalysisManager extends Daemon implements Writable {
 
     @VisibleForTesting
     public void updateTableStats(AnalysisInfo jobInfo) {
-        TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogName,
-                jobInfo.dbName, jobInfo.tblName);
+        TableIf tbl = StatisticsUtil.findTable(jobInfo.catalogId,
+                jobInfo.dbId, jobInfo.tblId);
         // External Table update table stats after table level task finished.
         if (tbl instanceof ExternalTable) {
             return;
@@ -666,11 +671,15 @@ public class AnalysisManager extends Daemon implements Writable {
     protected List<AnalysisInfo> findShowAnalyzeResult(Collection<AnalysisInfo> analysisInfos, ShowAnalyzeStmt stmt) {
         String state = stmt.getStateValue();
         TableName tblName = stmt.getDbTableName();
+        TableIf tbl = null;
+        if (tblName != null) {
+            tbl = StatisticsUtil.findTable(tblName.getCtl(), tblName.getDb(), tblName.getTbl());
+        }
+        long tblId = tbl == null ? -1 : tbl.getId();
         return analysisInfos.stream()
                 .filter(a -> stmt.getJobId() == 0 || a.jobId == stmt.getJobId())
                 .filter(a -> state == null || a.state.equals(AnalysisState.valueOf(state)))
-                .filter(a -> tblName == null || a.catalogName.equals(tblName.getCtl())
-                        && a.dbName.equals(tblName.getDb()) && a.tblName.equals(tblName.getTbl()))
+                .filter(a -> tblName == null || a.tblId == tblId)
                 .sorted(Comparator.comparingLong(a -> a.jobId))
                 .collect(Collectors.toList());
     }
@@ -777,8 +786,11 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     private void checkPriv(AnalysisInfo analysisInfo) {
+        DBObjects dbObjects = StatisticsUtil.convertIdToObjects(analysisInfo.catalogId,
+                analysisInfo.dbId, analysisInfo.tblId);
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), analysisInfo.dbName, analysisInfo.tblName, PrivPredicate.SELECT)) {
+                .checkTblPriv(ConnectContext.get(), dbObjects.catalog.getName(), dbObjects.db.getFullName(),
+                        dbObjects.table.getName(), PrivPredicate.SELECT)) {
             throw new RuntimeException("You need at least SELECT PRIV to corresponding table to kill this analyze"
                     + " job");
         }
@@ -793,8 +805,8 @@ public class AnalysisManager extends Daemon implements Writable {
 
     private BaseAnalysisTask createTask(AnalysisInfo analysisInfo) throws DdlException {
         try {
-            TableIf table = StatisticsUtil.findTable(analysisInfo.catalogName,
-                    analysisInfo.dbName, analysisInfo.tblName);
+            TableIf table = StatisticsUtil.findTable(analysisInfo.catalogId,
+                    analysisInfo.dbId, analysisInfo.tblId);
             return table.createAnalysisTask(analysisInfo);
         } catch (Throwable t) {
             LOG.warn("Failed to find table", t);
