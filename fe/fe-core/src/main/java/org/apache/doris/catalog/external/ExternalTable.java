@@ -78,6 +78,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     // this field will be refreshed after reloading schema
     protected volatile long schemaUpdateTime;
 
+    protected long dbId;
     protected boolean objectCreated;
     protected ExternalCatalog catalog;
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
@@ -119,6 +120,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         try {
             // getDbOrAnalysisException will call makeSureInitialized in ExternalCatalog.
             ExternalDatabase db = catalog.getDbOrAnalysisException(dbName);
+            dbId = db.getId();
             db.makeSureInitialized();
         } catch (AnalysisException e) {
             Util.logAndThrowRuntimeException(LOG, String.format("Exception to get db %s", dbName), e);
@@ -396,5 +398,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         // TODO: Find a way to collect external table partitions that need to be analyzed.
         partitions.add("Dummy Partition");
         return getBaseSchema().stream().collect(Collectors.toMap(Column::getName, k -> partitions));
+    }
+
+    @Override
+    public List<Long> getChunkSizes() {
+        throw new NotImplementedException("getChunkSized not implemented");
     }
 }

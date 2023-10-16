@@ -651,7 +651,6 @@ public class AnalysisManager extends Daemon implements Writable {
             tableStats.updateByJob(jobInfo);
             logCreateTableStats(tableStats);
         }
-
     }
 
     public List<AnalysisInfo> showAnalysisJob(ShowAnalyzeStmt stmt) {

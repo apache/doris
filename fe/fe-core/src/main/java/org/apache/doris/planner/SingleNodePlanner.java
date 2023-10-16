@@ -2024,6 +2024,7 @@ public class SingleNodePlanner {
                         break;
                     case HIVE:
                         scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                        ((HiveScanNode) scanNode).setTableSample(tblRef.getTableSample());
                         break;
                     default:
                         throw new UserException("Not supported table type" + table.getType());

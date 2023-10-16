@@ -203,7 +203,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
             return context.getRelationReplaceMap().get(fileScan.getRelationId());
         }
         LogicalFileScan newFileScan = new LogicalFileScan(StatementScopeIdGenerator.newRelationId(),
-                fileScan.getTable(), fileScan.getQualifier());
+                fileScan.getTable(), fileScan.getQualifier(), fileScan.getTableSample());
         updateReplaceMapWithOutput(fileScan, newFileScan, context.exprIdReplaceMap);
         context.putRelation(fileScan.getRelationId(), newFileScan);
         Set<Expression> conjuncts = fileScan.getConjuncts().stream()

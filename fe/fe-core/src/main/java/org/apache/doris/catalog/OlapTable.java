@@ -1105,6 +1105,26 @@ public class OlapTable extends Table {
         return new MVAnalysisTask(info);
     }
 
+    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
+        if (tblStats == null) {
+            return true;
+        }
+        long rowCount = getRowCount();
+        // TODO: Do we need to analyze an empty table?
+        if (rowCount == 0) {
+            return false;
+        }
+        if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
+                .stream()
+                .map(Column::getName)
+                .collect(Collectors.toSet()))) {
+            return true;
+        }
+        long updateRows = tblStats.updatedRows.get();
+        int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
+        return tblHealth < Config.table_stats_health_threshold;
+    }
+
     @Override
     public long getRowCount() {
         long rowCount = 0;
@@ -2281,25 +2301,5 @@ public class OlapTable extends Table {
             dataSize += partition.getDataSize(singleReplica);
         }
         return dataSize;
-    }
-
-    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
-        if (tblStats == null) {
-            return true;
-        }
-        long rowCount = getRowCount();
-        // TODO: Do we need to analyze an empty table?
-        if (rowCount == 0) {
-            return false;
-        }
-        if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
-                .stream()
-                .map(Column::getName)
-                .collect(Collectors.toSet()))) {
-            return true;
-        }
-        long updateRows = tblStats.updatedRows.get();
-        int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
-        return tblHealth < Config.table_stats_health_threshold;
     }
 }
