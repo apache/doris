@@ -81,6 +81,12 @@ public class BindSink implements AnalysisRuleFactory {
                     boolean isNeedSequenceCol = child.getOutput().stream()
                             .anyMatch(slot -> slot.getName().equals(Column.SEQUENCE_COL));
 
+                    if (sink.getColNames().isEmpty() && sink.isFromNativeInsertStmt()
+                            && sink.isPartialUpdate()) {
+                        throw new AnalysisException("You must explicitly specify the columns to be updated when "
+                                + "updating partial columns using the INSERT statement.");
+                    }
+
                     LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                             database,
                             table,
