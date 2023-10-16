@@ -12981,3 +12981,39 @@ true
 [1]
 [1]
 
+-- !array_apply1 --
+[]
+[]
+
+-- !array_apply2 --
+[2022-12-01 22:23:25.000, 2022-12-01 23:23:25.000]
+[2022-12-02 22:23:25.000, 2022-12-02 23:23:25.000]
+
+-- !array_apply3 --
+\N
+\N
+
+-- !array_apply4 --
+[22.679]
+[]
+
+-- !array_apply5 --
+[22.679, 33.679]
+[23.679, 34.679]
+
+-- !array_apply6 --
+\N
+\N
+
+-- !array_repeat1 --
+["hello", "hello"]
+
+-- !array_repeat1 --
+[123, 123]
+
+-- !array_repeat1 --
+[NULL, NULL]
+
+-- !array_repeat1 --
+[]
+

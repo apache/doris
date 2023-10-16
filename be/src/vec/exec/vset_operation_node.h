@@ -95,8 +95,6 @@ private:
 
     std::unique_ptr<HashTableVariants> _hash_table_variants;
 
-    std::vector<size_t> _probe_key_sz;
-    std::vector<size_t> _build_key_sz;
     std::vector<bool> _build_not_ignore_null;
 
     //record element size in hashtable
@@ -125,6 +123,7 @@ private:
     RuntimeProfile::Counter* _build_timer; // time to build hash table
     RuntimeProfile::Counter* _probe_timer; // time to probe
     RuntimeProfile::Counter* _pull_timer;  // time to pull data
+    Arena _arena;
 
     template <class HashTableContext, bool is_intersected>
     friend struct HashTableBuild;

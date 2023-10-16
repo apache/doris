@@ -71,7 +71,7 @@ public class StructField {
         return new StructField(name, dataType, nullable, comment);
     }
 
-    public StructField withDataTypeAndNulalble(DataType dataType, boolean nullable) {
+    public StructField withDataTypeAndNullable(DataType dataType, boolean nullable) {
         return new StructField(name, dataType, nullable, comment);
     }
 

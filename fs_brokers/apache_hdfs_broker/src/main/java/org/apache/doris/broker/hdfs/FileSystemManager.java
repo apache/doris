@@ -25,17 +25,19 @@ import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import com.google.common.base.Strings;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.log4j.Logger;
-import org.apache.hadoop.fs.CommonConfigurationKeys;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -1062,6 +1064,49 @@ public class FileSystemManager {
         }
     }
 
+    public List<TBrokerFileStatus> listLocatedFiles(String path, boolean onlyFiles,
+                                                    boolean recursive, Map<String, String> properties) {
+        List<TBrokerFileStatus> resultFileStatus = null;
+        BrokerFileSystem fileSystem = getFileSystem(path, properties);
+        Path locatedPath = new Path(path);
+        try {
+            FileSystem innerFileSystem = fileSystem.getDFSFileSystem();
+            RemoteIterator<LocatedFileStatus> locatedFiles = onlyFiles ? innerFileSystem.listFiles(locatedPath, recursive)
+                : innerFileSystem.listLocatedStatus(locatedPath);
+            return getFileLocations(locatedFiles);
+        } catch (FileNotFoundException e) {
+            logger.info("file not found: " + e.getMessage());
+            throw new BrokerException(TBrokerOperationStatusCode.FILE_NOT_FOUND,
+                e, "file not found");
+        } catch (Exception e) {
+            logger.error("errors while get file status ", e);
+            fileSystem.closeFileSystem();
+            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                e, "unknown error when listLocatedFiles");
+        }
+    }
+
+    private List<TBrokerFileStatus> getFileLocations(RemoteIterator<LocatedFileStatus> locatedFiles) throws IOException {
+        List<TBrokerFileStatus> locations = new ArrayList<>();
+        while (locatedFiles.hasNext()) {
+            LocatedFileStatus fileStatus = locatedFiles.next();
+            TBrokerFileStatus brokerFileStatus = new TBrokerFileStatus();
+            brokerFileStatus.setPath(fileStatus.getPath().toString());
+            brokerFileStatus.setIsDir(fileStatus.isDirectory());
+            if (fileStatus.isDirectory()) {
+                brokerFileStatus.setIsSplitable(false);
+                brokerFileStatus.setSize(-1);
+            } else {
+                brokerFileStatus.setSize(fileStatus.getLen());
+                brokerFileStatus.setIsSplitable(true);
+            }
+            brokerFileStatus.setModificationTime(fileStatus.getModificationTime());
+            brokerFileStatus.setBlockSize(fileStatus.getBlockSize());
+            locations.add(brokerFileStatus);
+        }
+        return locations;
+    }
+
     public List<TBrokerFileStatus> listPath(String path, boolean fileNameOnly, Map<String, String> properties) {
         List<TBrokerFileStatus> resultFileStatus = null;
         WildcardURI pathUri = new WildcardURI(path);
@@ -1283,13 +1328,7 @@ public class FileSystemManager {
         FSDataOutputStream fsDataOutputStream = clientContextManager.getFsDataOutputStream(fd);
         synchronized (fsDataOutputStream) {
             long currentStreamOffset;
-            try {
-                currentStreamOffset = fsDataOutputStream.getPos();
-            } catch (IOException e) {
-                logger.error("errors while get file pos from output stream", e);
-                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
-                        "errors while get file pos from output stream");
-            }
+            currentStreamOffset = fsDataOutputStream.getPos();
             if (currentStreamOffset != offset) {
                 // it's ok, it means that last pwrite succeed finally
                 if (currentStreamOffset == offset + data.length) {
