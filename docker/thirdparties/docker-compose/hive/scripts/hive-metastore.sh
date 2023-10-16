@@ -45,7 +45,7 @@ hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
 if [[ ! -d "/mnt/scripts/paimon1" ]]; then
     echo "/mnt/scripts/paimon1 does not exist"
     cd /mnt/scripts/
-    wget -P /mnt/scripts https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/paimon/paimon1.tar.gz
+    curl -s -O https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/paimon/paimon1.tar.gz
     tar -zxf paimon1.tar.gz
     rm -rf paimon1.tar.gz
     cd -
