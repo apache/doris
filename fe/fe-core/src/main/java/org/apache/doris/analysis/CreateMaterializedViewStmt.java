@@ -159,9 +159,18 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return selectStmt.getWhereClause();
     }
 
+    private void checkExprValidInMv(Expr expr, String functionName) throws AnalysisException {
+        if (!isReplay && expr.haveFunction(functionName)) {
+            throw new AnalysisException("The materialized view contain " + functionName + " is disallowed");
+        }
+    }
+
     private void checkExprValidInMv(Expr expr) throws AnalysisException {
-        if (!isReplay && expr.haveFunction("curdate")) {
-            throw new AnalysisException("The materialized view contain curdate is disallowed");
+        if (isReplay) {
+            return;
+        }
+        for (String function : ExpressionFunctions.unfixedFn) {
+            checkExprValidInMv(expr, function);
         }
     }
 

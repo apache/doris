@@ -51,14 +51,15 @@ public enum ExpressionFunctions {
 
     private static final Logger LOG = LogManager.getLogger(ExpressionFunctions.class);
     private ImmutableMultimap<String, FEFunctionInvoker> functions;
-    private static final Set<String> unfixedFn = ImmutableSet.of(
+    public static final Set<String> unfixedFn = ImmutableSet.of(
             "now",
             "current_time",
             "current_date",
             "utc_timestamp",
             "uuid",
             "random",
-            "unix_timestamp"
+            "unix_timestamp",
+            "curdate"
     );
 
     private ExpressionFunctions() {
