@@ -1159,7 +1159,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 #### `max_bytes_per_broker_scanner`
 
-默认值：500 * 1024 * 1024 * 1024L  （500G）
+默认值：`500 * 1024 * 1024 * 1024L`  （500G）
 
 是否可以动态配置：true
 
