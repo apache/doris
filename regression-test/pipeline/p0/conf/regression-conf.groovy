@@ -55,7 +55,7 @@ testDirectories = ""
 excludeGroups = ""
 // this suites will not be executed
 
-excludeSuites = "test_sql_block_rule,test_ddl,test_leading,test_stream_load_move_memtable,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_bitmap_filter,nereids_delete_mow_partial_update"
+excludeSuites = "test_sql_block_rule,test_ddl,test_stream_load_move_memtable,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_bitmap_filter,nereids_delete_mow_partial_update"
 
 // this directories will not be executed
 excludeDirectories = "workload_manager_p1"
