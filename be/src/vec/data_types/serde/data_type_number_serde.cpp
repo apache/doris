@@ -274,13 +274,9 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-#define WRITE_INTEGRAL_COLUMN_TO_ORC(ORC_TYPE)                                              \
-    ORC_TYPE* cur_batch = dynamic_cast<ORC_TYPE*>(orc_col_batch); \
-    for (size_t row_id = start; row_id < end; row_id++) {                                   \
-        if (cur_batch->notNull[row_id] == 1) {                                              \
-            cur_batch->data[row_id] = col_data[row_id];                                     \
-        }                                                                                   \
-    }                                                                                       \
+#define WRITE_INTEGRAL_COLUMN_TO_ORC(ORC_TYPE)                                  \
+    ORC_TYPE* cur_batch = dynamic_cast<ORC_TYPE*>(orc_col_batch);               \
+    memcpy(cur_batch->data.data(), col_data.data(), (end - start) * sizeof(T)); \
     cur_batch->numElements = end - start;
 
 
@@ -335,7 +331,9 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const IColumn& column, const 
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::IntVectorBatch)
     } else if constexpr (std::is_same_v<T, Int64>) { // bigint
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::LongVectorBatch)
-    } else if constexpr (IsFloatNumber<T>) { // float/double
+    } else if constexpr (std::is_same_v<T, Float32>) { // float
+        WRITE_INTEGRAL_COLUMN_TO_ORC(orc::FloatVectorBatch)
+    } else if constexpr (std::is_same_v<T, Float64>) { // double
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::DoubleVectorBatch)
     }
     return Status::OK();
