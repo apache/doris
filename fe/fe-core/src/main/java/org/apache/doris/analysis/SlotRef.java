@@ -225,6 +225,7 @@ public class SlotRef extends Expr {
         MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
         helper.add("slotDesc", desc != null ? desc.debugString() : "null");
         helper.add("col", col);
+        helper.add("type", type.toSql());
         helper.add("label", label);
         helper.add("tblName", tblName != null ? tblName.toSql() : "null");
         return helper.toString();
@@ -303,6 +304,11 @@ public class SlotRef extends Expr {
     public String toColumnLabel() {
         // return tblName == null ? col : tblName.getTbl() + "." + col;
         return col;
+    }
+
+    @Override
+    protected String getExprName() {
+        return toColumnLabel();
     }
 
     @Override

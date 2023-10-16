@@ -416,6 +416,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_FULL_AUTO_ANALYZE = "enable_full_auto_analyze";
 
+    public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1223,6 +1225,10 @@ public class SessionVariable implements Serializable, Writable {
             description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
             flag = VariableMgr.GLOBAL)
     public boolean enableFullAutoAnalyze = true;
+
+    @VariableMgr.VarAttr(name = FASTER_FLOAT_CONVERT,
+            description = {"是否启用更快的浮点数转换算法，注意会影响输出格式", "Set true to enable faster float pointer number convert"})
+    public boolean fasterFloatConvert = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -2345,6 +2351,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
 
+        tResult.setFasterFloatConvert(fasterFloatConvert);
+
         return tResult;
     }
 
@@ -2621,6 +2629,14 @@ public class SessionVariable implements Serializable, Writable {
         VariableMgr.setVar(this, new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
     }
 
+    public void disableNereidsJoinReorderOnce() throws DdlException {
+        if (!enableNereidsPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this, new SetVar(SessionVariable.DISABLE_JOIN_REORDER, new StringLiteral("false")));
+    }
+
     // return number of variables by given variable annotation
     public int getVariableNumByVariableAnnotation(VariableAnnotation type) {
         int num = 0;
@@ -2678,5 +2694,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getProfileLevel() {
         return this.profileLevel;
+    }
+
+    public boolean fasterFloatConvert() {
+        return this.fasterFloatConvert;
     }
 }

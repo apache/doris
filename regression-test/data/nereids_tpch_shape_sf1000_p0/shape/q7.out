@@ -19,7 +19,7 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey))otherCondition=()
 ----------------------------PhysicalProject
-------------------------------filter((lineitem.l_shipdate <= 1996-12-31) and (lineitem.l_shipdate >= 1995-01-01))
+------------------------------filter((lineitem.l_shipdate <= '1996-12-31') and (lineitem.l_shipdate >= '1995-01-01'))
 --------------------------------PhysicalOlapScan[lineitem]
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = n1.n_nationkey))otherCondition=()

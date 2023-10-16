@@ -260,7 +260,8 @@ if (COMPILER_GCC)
     add_compile_options(-fdiagnostics-color=always
                         -Wno-nonnull
                         -Wno-stringop-overread
-                        -Wno-stringop-overflow)
+                        -Wno-stringop-overflow
+                        -Wno-array-bounds)
 endif ()
 
 if (COMPILER_CLANG)
@@ -370,7 +371,7 @@ set(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-set(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
+set(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -mcmodel=large -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:

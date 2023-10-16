@@ -81,6 +81,12 @@ public class BindSink implements AnalysisRuleFactory {
                     boolean isNeedSequenceCol = child.getOutput().stream()
                             .anyMatch(slot -> slot.getName().equals(Column.SEQUENCE_COL));
 
+                    if (sink.getColNames().isEmpty() && sink.isFromNativeInsertStmt()
+                            && sink.isPartialUpdate()) {
+                        throw new AnalysisException("You must explicitly specify the columns to be updated when "
+                                + "updating partial columns using the INSERT statement.");
+                    }
+
                     LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                             database,
                             table,
@@ -268,7 +274,7 @@ public class BindSink implements AnalysisRuleFactory {
     private List<Column> bindTargetColumns(OlapTable table, List<String> colsName, boolean isNeedSequenceCol) {
         // if the table set sequence column in stream load phase, the sequence map column is null, we query it.
         return colsName.isEmpty()
-                ? table.getFullSchema().stream()
+                ? table.getBaseSchema(true).stream()
                 .filter(c -> validColumn(c, isNeedSequenceCol))
                 .collect(ImmutableList.toImmutableList())
                 : colsName.stream().map(cn -> {

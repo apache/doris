@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -82,7 +83,7 @@ public abstract class BaseAnalysisTask {
             + "         MIN(CAST(min AS ${type})) AS min, "
             + "         MAX(CAST(max AS ${type})) AS max, "
             + "         SUM(data_size_in_bytes) AS data_size, "
-            + "         NOW() AS update_time\n"
+            + "         NOW() AS update_time \n"
             + "     FROM ${internalDB}.${columnStatTbl}"
             + "     WHERE ${internalDB}.${columnStatTbl}.db_id = '${dbId}' AND "
             + "     ${internalDB}.${columnStatTbl}.tbl_id='${tblId}' AND "
@@ -104,6 +105,8 @@ public abstract class BaseAnalysisTask {
     protected StmtExecutor stmtExecutor;
 
     protected volatile boolean killed;
+
+    protected TableSample tableSample = null;
 
     @VisibleForTesting
     public BaseAnalysisTask() {
@@ -134,6 +137,7 @@ public abstract class BaseAnalysisTask {
                     info, AnalysisState.FAILED,
                     String.format("Table with name %s not exists", info.tblName), System.currentTimeMillis());
         }
+        tableSample = getTableSample();
         // External Table level task doesn't contain a column. Don't need to do the column related analyze.
         if (info.externalTableLevelTask) {
             return;
@@ -147,7 +151,6 @@ public abstract class BaseAnalysisTask {
             Preconditions.checkArgument(!StatisticsUtil.isUnsupportedType(col.getType()),
                     String.format("Column with type %s is not supported", col.getType().toString()));
         }
-
     }
 
     public void execute() {
@@ -222,23 +225,22 @@ public abstract class BaseAnalysisTask {
         return "COUNT(1) * " + column.getType().getSlotSize();
     }
 
-    protected String getSampleExpression() {
+    protected TableSample getTableSample() {
         if (info.forceFull) {
-            return "";
+            return null;
         }
-        int sampleRows = info.sampleRows;
-        if (info.analysisMethod == AnalysisMethod.FULL) {
-            if (Config.enable_auto_sample
-                    && tbl.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes) {
-                sampleRows = Config.huge_table_default_sample_rows;
-            } else {
-                return "";
-            }
-        }
+        // If user specified sample percent or sample rows, use it.
         if (info.samplePercent > 0) {
-            return String.format("TABLESAMPLE(%d PERCENT)", info.samplePercent);
+            return new TableSample(true, (long) info.samplePercent);
+        } else if (info.sampleRows > 0) {
+            return new TableSample(false, info.sampleRows);
+        } else if (info.analysisMethod == AnalysisMethod.FULL
+                && Config.enable_auto_sample
+                && tbl.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes) {
+            // If user doesn't specify sample percent/rows, use auto sample and update sample rows in analysis info.
+            return new TableSample(false, (long) Config.huge_table_default_sample_rows);
         } else {
-            return String.format("TABLESAMPLE(%d ROWS)", sampleRows);
+            return null;
         }
     }
 
