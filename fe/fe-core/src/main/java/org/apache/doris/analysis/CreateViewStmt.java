@@ -55,6 +55,7 @@ public class CreateViewStmt extends BaseViewStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        super.analyze(analyzer);
         tableName.analyze(analyzer);
         FeNameFormat.checkTableName(tableName.getTbl());
         viewDefStmt.setNeedToSql(true);

@@ -120,7 +120,6 @@ public class SelectListItem {
      * Return a column label for the select list item. Without generate column name
      * automatically.
      */
-    @Deprecated
     public String toColumnLabel() {
         Preconditions.checkState(!isStar());
         if (alias != null) {
