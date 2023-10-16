@@ -94,7 +94,9 @@ VOrcTransformer::VOrcTransformer(doris::io::FileWriter* file_writer,
         : VFileFormatTransformer(output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
           _write_options(new orc::WriterOptions()),
-          _schema_str(schema) {}
+          _schema_str(schema) {
+        _write_options->setTimezoneName("Asia/Shanghai");
+}
 
 Status VOrcTransformer::open() {
     try {
