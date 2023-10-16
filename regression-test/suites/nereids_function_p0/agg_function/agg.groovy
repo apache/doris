@@ -549,6 +549,8 @@ suite("nereids_agg_fn") {
 	qt_sql_count_agg_phase_4_notnull '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), count() from fn_test'''
 
+	qt_sql_count_array_gb '''
+        select count(kaint) from fn_test group by kbool order by kbool'''
 	qt_sql_count_AnyData_gb '''
 		select count(kint) from fn_test group by kbool order by kbool'''
 	qt_sql_count_AnyData '''

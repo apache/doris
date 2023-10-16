@@ -66,7 +66,7 @@ public class Count extends AggregateFunction
 
     public boolean isCountStar() {
         return isStar
-                || children.size() == 0
+                || children.isEmpty()
                 || (children.size() == 1 && child(0) instanceof Literal);
     }
 
@@ -82,8 +82,11 @@ public class Count extends AggregateFunction
     public void checkLegalityAfterRewrite() {
         // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
         for (Expression argument : getArguments()) {
-            if (argument.getDataType().isOnlyMetricType()) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            if (argument.getDataType().isObjectType()) {
+                throw new AnalysisException(Type.OnlyObjectTypeErrorMsg);
+            }
+            if (distinct && argument.getDataType().isComplexType()) {
+                throw new AnalysisException("COUNT DISTINCT could not process complex type " + this.toSql());
             }
         }
     }
