@@ -123,6 +123,7 @@ public abstract class DataType {
                 dataType = SmallIntType.INSTANCE;
                 break;
             case "int":
+            case "integer":
                 dataType = IntegerType.INSTANCE;
                 break;
             case "bigint":
