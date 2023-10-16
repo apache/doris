@@ -104,3 +104,17 @@
 -- !select_count2 --
 15
 
+-- !select_minmax1 --
+20200622	1	\N
+20200622	2	\N
+20200622	3	\N
+
+-- !select_minmax2 --
+20200622
+
+-- !select_minmax3 --
+287667876573
+
+-- !select_minmax4 --
+243
+
