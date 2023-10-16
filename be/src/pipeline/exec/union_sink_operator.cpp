@@ -21,6 +21,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
@@ -150,12 +151,12 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (local_state._output_block == nullptr) {
         local_state._output_block =
-                local_state._shared_state->data_queue->get_free_block(_cur_child_id);
+                local_state._shared_state->data_queue.get_free_block(_cur_child_id);
     }
     if (_cur_child_id < _get_first_materialized_child_idx()) { //pass_through
         if (in_block->rows() > 0) {
             local_state._output_block->swap(*in_block);
-            local_state._shared_state->data_queue->push_block(std::move(local_state._output_block),
+            local_state._shared_state->data_queue.push_block(std::move(local_state._output_block),
                                                               _cur_child_id);
         }
     } else if (_get_first_materialized_child_idx() != children_count() &&
@@ -173,16 +174,16 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
         //because maybe sink is eos and queue have none data, if not push block
         //the source can't can_read again and can't set source finished
         if (local_state._output_block) {
-            local_state._shared_state->data_queue->push_block(std::move(local_state._output_block),
+            local_state._shared_state->data_queue.push_block(std::move(local_state._output_block),
                                                               _cur_child_id);
         }
 
-        local_state._shared_state->data_queue->set_finish(_cur_child_id);
+        local_state._shared_state->data_queue.set_finish(_cur_child_id);
         return Status::OK();
     }
     // not eos and block rows is enough to output,so push block
     if (local_state._output_block && (local_state._output_block->rows() >= state->batch_size())) {
-        local_state._shared_state->data_queue->push_block(std::move(local_state._output_block),
+        local_state._shared_state->data_queue.push_block(std::move(local_state._output_block),
                                                           _cur_child_id);
     }
     return Status::OK();

@@ -318,7 +318,7 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
     info.parent_profile->add_child(_runtime_profile.get(), true, nullptr);
     if constexpr (!std::is_same_v<FakeDependency, Dependency>) {
         auto& deps = info.dependencys;
-        _dependency = (DependencyType*)deps.front();
+        _dependency = (DependencyType*)deps.front().get();
         if (_dependency) {
             _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state();
             _wait_for_dependency_timer = ADD_TIMER(
@@ -378,7 +378,7 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
     _profile->set_is_sink(true);
     if constexpr (!std::is_same_v<FakeDependency, Dependency>) {
         auto& deps = info.dependencys;
-        _dependency = (DependencyType*)deps.front();
+        _dependency = (DependencyType*)deps.front().get();
         if (_dependency) {
             _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state();
             _wait_for_dependency_timer =

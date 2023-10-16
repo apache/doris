@@ -20,6 +20,7 @@
 
 #include <memory>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
@@ -78,7 +79,7 @@ public:
     UnionSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    std::shared_ptr<DataQueue> create_data_queue();
+    std::shared_ptr<UnionSharedState> create_shared_state();
 
 private:
     friend class UnionSourceOperatorX;
@@ -144,7 +145,7 @@ private:
             return false;
         }
         auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
-        return local_state._shared_state->data_queue->remaining_has_data();
+        return local_state._shared_state->data_queue.remaining_has_data();
     }
     bool has_more_const(RuntimeState* state) const {
         auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();

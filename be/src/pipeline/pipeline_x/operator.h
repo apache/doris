@@ -45,14 +45,14 @@ namespace doris::pipeline {
 struct LocalStateInfo {
     RuntimeProfile* parent_profile;
     const std::vector<TScanRangeParams> scan_ranges;
-    std::vector<Dependency*> dependencys;
+    std::vector<DependencySPtr>& dependencys;
 };
 
 // This struct is used only for initializing local sink state.
 struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile;
     const int sender_id;
-    std::vector<Dependency*> dependencys;
+    std::vector<DependencySPtr>& dependencys;
     const TDataSink& tsink;
 };
 
