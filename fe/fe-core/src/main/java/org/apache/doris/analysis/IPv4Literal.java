@@ -45,9 +45,15 @@ public class IPv4Literal extends LiteralExpr {
     private IPv4Literal() {
     }
 
+    public IPv4Literal(long value) {
+        super();
+        this.value = value;
+        this.type = Type.IPV4;
+        analysisDone();
+    }
+
     public IPv4Literal(String value) throws AnalysisException {
         super();
-        checkValueValid(value);
         this.value = parseIPv4toLong(value);
         this.type = Type.IPV4;
         analysisDone();

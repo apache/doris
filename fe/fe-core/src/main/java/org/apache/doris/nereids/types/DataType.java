@@ -552,6 +552,14 @@ public abstract class DataType {
         return this instanceof DateTimeV2Type;
     }
 
+    public boolean isIPv4Type() {
+        return this instanceof IPv4Type;
+    }
+
+    public boolean isIPv6Type() {
+        return this instanceof IPv6Type;
+    }
+
     public boolean isBitmapType() {
         return this instanceof BitmapType;
     }

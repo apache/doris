@@ -206,7 +206,7 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
         ptr = doris::vectorized::PredicateColumnType<TYPE_IPV4>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_IPV6:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_IPv6>::create();
+        ptr = doris::vectorized::PredicateColumnType<TYPE_IPV6>::create();
         break;
     default:
         LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << int(field.type());

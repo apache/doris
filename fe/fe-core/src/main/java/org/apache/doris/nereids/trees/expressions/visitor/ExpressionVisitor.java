@@ -88,29 +88,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
-import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
-import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
-import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
-import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Interval;
-import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.*;
 
 /**
  * Use the visitor to visit expression and forward to unified method(visitExpression).
@@ -301,6 +279,14 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitDateTimeV2Literal(DateTimeV2Literal dateTimeV2Literal, C context) {
         return visitLiteral(dateTimeV2Literal, context);
+    }
+
+    public R visitIPv4Literal(IPv4Literal ipv4Literal, C context) {
+        return visitLiteral(ipv4Literal, context);
+    }
+
+    public R visitIPv6Literal(IPv6Literal ipv6Literal, C context) {
+        return visitLiteral(ipv6Literal, context);
     }
 
     public R visitArrayLiteral(ArrayLiteral arrayLiteral, C context) {

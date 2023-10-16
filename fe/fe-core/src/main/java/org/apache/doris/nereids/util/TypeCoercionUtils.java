@@ -70,31 +70,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.CharType;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.JsonType;
-import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.MapType;
-import org.apache.doris.nereids.types.NullType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.StructField;
-import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.types.TimeType;
-import org.apache.doris.nereids.types.TimeV2Type;
-import org.apache.doris.nereids.types.TinyIntType;
-import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.*;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
@@ -227,6 +203,8 @@ public class TypeCoercionUtils {
             } else if (expected instanceof NumericType) {
                 // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
                 returnType = expected.defaultConcreteType();
+            } else if (expected instanceof IPv4Type) {
+                returnType = IPv4Type.INSTANCE;
             }
         } else if (input instanceof CharacterType) {
             if (expected instanceof DecimalV2Type) {
@@ -239,6 +217,10 @@ public class TypeCoercionUtils {
                 returnType = DateTimeType.INSTANCE;
             } else if (expected instanceof JsonType) {
                 returnType = JsonType.INSTANCE;
+            } else if (expected instanceof IPv4Type) {
+                returnType = IPv4Type.INSTANCE;
+            } else if (expected instanceof IPv6Type) {
+                returnType = IPv6Type.INSTANCE;
             }
         } else if (input.isDateType()) {
             if (expected instanceof DateTimeType) {
