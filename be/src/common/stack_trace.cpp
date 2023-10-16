@@ -38,7 +38,7 @@
 #include "vec/common/demangle.h"
 #include "vec/common/hex.h"
 
-#if USE_UNWIND
+#if USE_UNWIND && defined(__x86_64__)
 #include <libunwind.h>
 #else
 #include <execinfo.h>
