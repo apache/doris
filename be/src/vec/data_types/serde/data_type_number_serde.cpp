@@ -274,11 +274,14 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-#define WRITE_INTEGRAL_COLUMN_TO_ORC(ORC_TYPE)                                  \
-    ORC_TYPE* cur_batch = dynamic_cast<ORC_TYPE*>(orc_col_batch);               \
-    memcpy(cur_batch->data.data(), col_data.data(), (end - start) * sizeof(T)); \
+#define WRITE_INTEGRAL_COLUMN_TO_ORC(ORC_TYPE)                    \
+    ORC_TYPE* cur_batch = dynamic_cast<ORC_TYPE*>(orc_col_batch); \
+    for (size_t row_id = start; row_id < end; row_id++) {         \
+        if (cur_batch->notNull[row_id] == 1) {                    \
+            cur_batch->data[row_id] = col_data[row_id];           \
+        }                                                         \
+    }                                                             \
     cur_batch->numElements = end - start;
-
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::write_column_to_orc(const IColumn& column, const NullMap* null_map,
@@ -323,7 +326,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const IColumn& column, const 
         }
         buffer_list.emplace_back(bufferRef);
         cur_batch->numElements = end - start;
-    } else if constexpr (std::is_same_v<T, Int8>) { // tinyint
+    } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) { // tinyint/boolean
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::ByteVectorBatch)
     } else if constexpr (std::is_same_v<T, Int16>) { // smallint
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::ShortVectorBatch)
