@@ -336,6 +336,7 @@ set(VEC_TEST_FILES
     vec/aggregate_functions/agg_replace_test.cpp
     vec/aggregate_functions/vec_window_funnel_test.cpp
     vec/aggregate_functions/vec_retention_test.cpp
+    vec/aggregate_functions/vec_count_by_enum_test.cpp
     vec/aggregate_functions/vec_sequence_match_test.cpp
     vec/aggregate_functions/agg_min_max_by_test.cpp
     vec/columns/column_decimal_test.cpp

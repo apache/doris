@@ -26,6 +26,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_avg.cpp
   aggregate_functions/aggregate_function_collect.cpp
   aggregate_functions/aggregate_function_count.cpp
+  aggregate_functions/aggregate_function_count_by_enum.cpp
   aggregate_functions/aggregate_function_distinct.cpp
   aggregate_functions/aggregate_function_sum.cpp
   aggregate_functions/aggregate_function_sort.cpp
@@ -256,6 +257,7 @@ set(VEC_FILES
   runtime/vsorted_run_merger.cpp
   runtime/shared_hash_table_controller.cpp
   utils/arrow_column_to_doris_column.cpp
+  utils/count_by_enum_helpers.hpp
   exec/format/parquet/vparquet_column_chunk_reader.cpp
   exec/format/parquet/vparquet_group_reader.cpp
   exec/format/parquet/vparquet_page_index.cpp

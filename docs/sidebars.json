@@ -522,7 +522,8 @@
                                 "sql-manual/sql-functions/aggregate-functions/sequence_match",
                                 "sql-manual/sql-functions/aggregate-functions/sequence_count",
                                 "sql-manual/sql-functions/aggregate-functions/grouping",
-                                "sql-manual/sql-functions/aggregate-functions/grouping_id"
+                                "sql-manual/sql-functions/aggregate-functions/grouping_id",
+                                "sql-manual/sql-functions/aggregate-functions/count_by_enum"
                             ]
                         },
                         {

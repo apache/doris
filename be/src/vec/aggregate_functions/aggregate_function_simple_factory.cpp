@@ -35,6 +35,7 @@ void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory)
 void register_aggregate_function_min_max_by(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_count(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_count_by_enum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_uniq(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory);
@@ -65,6 +66,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_min_max_by(instance);
         register_aggregate_function_avg(instance);
         register_aggregate_function_count(instance);
+        register_aggregate_function_count_by_enum(instance);
         register_aggregate_function_uniq(instance);
         register_aggregate_function_bit(instance);
         register_aggregate_function_bitmap(instance);

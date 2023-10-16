@@ -936,6 +936,7 @@ public class FunctionSet<T> {
     public static final String TO_QUANTILE_STATE = "to_quantile_state";
     public static final String COLLECT_LIST = "collect_list";
     public static final String COLLECT_SET = "collect_set";
+    public static final String COUNT_BY_ENUM = "count_by_enum";
 
     private static final Map<Type, String> ORTHOGONAL_BITMAP_INTERSECT_INIT_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -2964,6 +2965,21 @@ public class FunctionSet<T> {
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                         "lead", Lists.newArrayList(t, Type.BIGINT), t, t, true));
         }
+
+        // count_by_enum
+        addBuiltin(AggregateFunction.createBuiltin(COUNT_BY_ENUM,
+            Lists.newArrayList(Type.STRING),
+            Type.STRING,
+            Type.STRING,
+            true,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            false, true, false, true));
 
     }
 
