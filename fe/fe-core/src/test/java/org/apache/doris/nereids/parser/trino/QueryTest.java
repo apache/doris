@@ -15,26 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser;
+package org.apache.doris.nereids.parser.trino;
 
-import org.apache.doris.nereids.util.ExpressionParseChecker;
-import org.apache.doris.nereids.util.MemoPatternMatchSupported;
-import org.apache.doris.nereids.util.PlanParseChecker;
-import org.apache.doris.nereids.util.TrinoDialectPlanParseChecker;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.parser.ParserTestBase;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+
+import org.junit.jupiter.api.Test;
 
 /**
- * Base class to check SQL parsing result.
+ * Trino query tests.
  */
-public abstract class ParserTestBase implements MemoPatternMatchSupported {
-    public PlanParseChecker parsePlan(String sql) {
-        return new PlanParseChecker(sql);
-    }
+public class QueryTest extends ParserTestBase {
 
-    public ExpressionParseChecker parseExpression(String sql) {
-        return new ExpressionParseChecker(sql);
-    }
+    @Test
+    public void testParseCast1() {
+        String sql = "SELECT CAST(1 AS DECIMAL(20, 6)) FROM t";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        trinoDialectParsePlan(sql).assertEquals(logicalPlan);
 
-    public TrinoDialectPlanParseChecker trinoDialectParsePlan(String sql) {
-        return new TrinoDialectPlanParseChecker(sql);
+        sql = "SELECT CAST(a AS DECIMAL(20, 6)) FROM t";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        trinoDialectParsePlan(sql).assertEquals(logicalPlan);
     }
 }
