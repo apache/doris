@@ -159,7 +159,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             }
         }
     nested_loop_exit:
-        if (state->query_options().enable_memtable_on_sink_node) {
+        if (state->query_options().enable_memtable_on_sink_node && !has_inverted_index) {
             sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
         } else {
             sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, false));
@@ -318,7 +318,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             }
         }
     nested_loop_exit:
-        if (state->query_options().enable_memtable_on_sink_node) {
+        if (state->query_options().enable_memtable_on_sink_node && !has_inverted_index) {
             sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
         } else {
             sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, false));
