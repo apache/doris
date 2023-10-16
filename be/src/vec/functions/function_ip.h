@@ -186,7 +186,7 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
     return col_res;
 }
 
-template <IPStringToNumExceptionMode exception_mode, typename Name>
+template <IPStringToNumExceptionMode exception_mode>
 class FunctionIPv4StringToNum : public IFunction {
 public:
     static constexpr auto name = exception_mode == IPStringToNumExceptionMode::Throw
@@ -196,7 +196,7 @@ public:
                                                     : "ipv4stringtonumornull");
 
     static FunctionPtr create() {
-        return std::make_shared<FunctionIPv4StringToNum<exception_mode, Name>>();
+        return std::make_shared<FunctionIPv4StringToNum<exception_mode>>();
     }
 
     String get_name() const override { return name; }
