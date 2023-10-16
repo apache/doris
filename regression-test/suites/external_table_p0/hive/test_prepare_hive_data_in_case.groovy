@@ -39,6 +39,8 @@ suite("test_prepare_hive_data_in_case", "p0,external,hive,external_docker,extern
             log.info(values2.toString())
             assertEquals(values[0][0],values2[0][0])
 
+            qt_hive_docker_01 """select * from default.test_prepare_hive_data_in_case order by k1 desc """
+
         } finally {
         }
     }
