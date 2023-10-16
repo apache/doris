@@ -58,8 +58,7 @@ public enum ExpressionFunctions {
             "utc_timestamp",
             "uuid",
             "random",
-            "unix_timestamp",
-            "curdate"
+            "unix_timestamp"
     );
 
     private ExpressionFunctions() {

@@ -36,6 +36,7 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -79,6 +80,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         FN_NAME_TO_PATTERN.put(FunctionSet.BITMAP_UNION, new MVColumnBitmapUnionPattern());
         FN_NAME_TO_PATTERN.put(FunctionSet.HLL_UNION, new MVColumnHLLUnionPattern());
     }
+
+    public static final ImmutableSet<String> invalidFn = ImmutableSet.of("now", "current_time", "current_date",
+            "utc_timestamp", "uuid", "random", "unix_timestamp", "curdate");
 
     private String mvName;
     private SelectStmt selectStmt;
@@ -169,7 +173,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         if (isReplay) {
             return;
         }
-        for (String function : ExpressionFunctions.unfixedFn) {
+        for (String function : invalidFn) {
             checkExprValidInMv(expr, function);
         }
     }
