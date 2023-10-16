@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
@@ -31,7 +30,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
@@ -58,8 +56,6 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("TotalCapacity").add("UsedCapacity").add("AvailableCapacity").add("UsedPct")
             .build();
 
-    public static final int HOSTNAME_INDEX = 3;
-
     private SystemInfoService systemInfoService;
 
     public BackendsProcDir(SystemInfoService systemInfoService) {
@@ -80,17 +76,6 @@ public class BackendsProcDir implements ProcDirInterface {
             result.addRow(oneInfo);
         }
         return result;
-    }
-
-    public static List<List<String>> getBackendInfos(String type) {
-        List<List<String>> backendInfos = new LinkedList<>();
-
-        if (type == null) {
-            backendInfos = getBackendInfos();
-        } else if (type.equals("disks")) {
-            backendInfos = getBackendsDiskInfos();
-        }
-        return backendInfos;
     }
 
     /**
@@ -201,67 +186,6 @@ public class BackendsProcDir implements ProcDirInterface {
         }
 
         return backendInfos;
-    }
-
-    /**
-     * get backends disk info
-     *
-     * @return
-     */
-    public static List<List<String>> getBackendsDiskInfos() {
-        final SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        List<List<String>> backendsDiskInfos = new LinkedList<>();
-        List<Long> backendIds = systemInfoService.getAllBackendIds(false);
-        if (backendIds == null) {
-            return backendsDiskInfos;
-        }
-
-        List<List<Comparable>> comparableBackendsDiskInfos = new LinkedList<>();
-        for (long backendId : backendIds) {
-            Backend backend = systemInfoService.getBackend(backendId);
-            if (backend == null) {
-                continue;
-            }
-
-            ImmutableMap<String, DiskInfo> disksRef = backend.getAllDisks();
-            for (DiskInfo disk : disksRef.values()) {
-                List<Comparable> backendsDiskInfo = Lists.newArrayList();
-                backendsDiskInfo.add(String.valueOf(backendId));
-                backendsDiskInfo.add(backend.getHost());
-                // add disk info to backendsDiskInfo
-                backendsDiskInfo.add(disk.getRootPath());
-                backendsDiskInfo.add(disk.getDirType());
-                backendsDiskInfo.add(disk.getState());
-                long totalCapacityB = disk.getTotalCapacityB();
-                Pair<Double, String> totalCapacity = DebugUtil.getByteUint(totalCapacityB);
-                backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
-                        totalCapacity.first) + " " + totalCapacity.second);
-                long diskUsedCapacityB = disk.getDiskUsedCapacityB();
-                Pair<Double, String> diskUsedCapacity = DebugUtil.getByteUint(diskUsedCapacityB);
-                backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
-                        diskUsedCapacity.first) + " " + diskUsedCapacity.second);
-                long availableCapacityB = disk.getAvailableCapacityB();
-                Pair<Double, String> availableCapacity = DebugUtil.getByteUint(availableCapacityB);
-                backendsDiskInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
-                        availableCapacity.first) + " " + availableCapacity.second);
-                backendsDiskInfo.add(String.format("%.2f", disk.getUsedPct() * 100) + " %");
-                comparableBackendsDiskInfos.add(backendsDiskInfo);
-            }
-        }
-
-        // sort by host name
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(1);
-        comparableBackendsDiskInfos.sort(comparator);
-
-        for (List<Comparable> backendsDiskInfo : comparableBackendsDiskInfos) {
-            List<String> oneInfo = new ArrayList<String>(backendsDiskInfo.size());
-            for (Comparable element : backendsDiskInfo) {
-                oneInfo.add(element.toString());
-            }
-            backendsDiskInfos.add(oneInfo);
-        }
-
-        return backendsDiskInfos;
     }
 
     @Override

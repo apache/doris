@@ -431,6 +431,12 @@ DECLARE_mDouble(compaction_promotion_ratio);
 // rowset will be not given to base compaction. The unit is m byte.
 DECLARE_mInt64(compaction_promotion_min_size_mbytes);
 
+// When output rowset of cumulative compaction total version count (end_version - start_version)
+// exceed this config count, the rowset will be moved to base compaction
+// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
+// related cost on delete bitmap more effectively.
+DECLARE_mInt64(compaction_promotion_version_count);
+
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
 DECLARE_mInt64(compaction_min_size_mbytes);
@@ -1156,6 +1162,7 @@ DECLARE_Int32(group_commit_sync_wal_batch);
 
 // This config can be set to limit thread number in group commit insert thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
+DECLARE_mInt32(group_commit_interval_seconds);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
@@ -1171,6 +1178,9 @@ DECLARE_mBool(exit_on_exception);
 // cgroup
 DECLARE_String(doris_cgroup_cpu_path);
 DECLARE_Bool(enable_cpu_hard_limit);
+
+// Remove predicate that is always true for a segment.
+DECLARE_Bool(ignore_always_true_predicate_for_segment);
 
 #ifdef BE_TEST
 // test s3

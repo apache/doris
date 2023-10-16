@@ -71,6 +71,8 @@ suite("insert_group_commit_with_exception") {
         """
 
         sql """ set enable_insert_group_commit = true; """
+        // TODO
+        sql """ set enable_nereids_dml = false; """
 
         // insert into without column
         try {

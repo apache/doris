@@ -38,14 +38,14 @@ WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
 }
 
 WalManager::~WalManager() {
-    _stop_background_threads_latch.count_down();
-    if (_replay_thread) {
-        _replay_thread->join();
-    }
     LOG(INFO) << "WalManager is destoried";
 }
 void WalManager::stop() {
     _stop = true;
+    _stop_background_threads_latch.count_down();
+    if (_replay_thread) {
+        _replay_thread->join();
+    }
     LOG(INFO) << "WalManager is stopped";
 }
 
@@ -186,8 +186,7 @@ Status WalManager::replay() {
             break;
         }
         // port == 0 means not received heartbeat yet
-        while (_exec_env->master_info()->network_address.port == 0) {
-            sleep(1);
+        if (_exec_env->master_info()->network_address.port == 0) {
             continue;
         }
         std::vector<std::string> replay_tables;

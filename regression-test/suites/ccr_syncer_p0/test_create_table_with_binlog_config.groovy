@@ -26,7 +26,7 @@ suite("test_create_table_with_binlog_config") {
     sql """
         create database test_table_binlog
         """
-    result = sql "show create database test_table_binlog"
+    def result = sql "show create database test_table_binlog"
     logger.info("${result}")
 
     // Case 1: database disable binlog, create table with binlog disable

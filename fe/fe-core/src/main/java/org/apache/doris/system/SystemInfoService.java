@@ -868,14 +868,10 @@ public class SystemInfoService {
     public void updatePathInfo(List<DiskInfo> addedDisks, List<DiskInfo> removedDisks) {
         Map<Long, DiskInfo> copiedPathInfos = Maps.newHashMap(pathHashToDiskInfoRef);
         for (DiskInfo diskInfo : addedDisks) {
-            if (diskInfo.getDirType().equals("STORAGE")) {
-                copiedPathInfos.put(diskInfo.getPathHash(), diskInfo);
-            }
+            copiedPathInfos.put(diskInfo.getPathHash(), diskInfo);
         }
         for (DiskInfo diskInfo : removedDisks) {
-            if (diskInfo.getDirType().equals("STORAGE")) {
-                copiedPathInfos.remove(diskInfo.getPathHash());
-            }
+            copiedPathInfos.remove(diskInfo.getPathHash());
         }
         ImmutableMap<Long, DiskInfo> newPathInfos = ImmutableMap.copyOf(copiedPathInfos);
         pathHashToDiskInfoRef = newPathInfos;

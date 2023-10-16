@@ -530,7 +530,6 @@ void ExecEnv::destroy() {
     _s_ready = false;
 
     SAFE_STOP(_wal_manager);
-    _wal_manager.reset();
     SAFE_STOP(_tablet_schema_cache);
     SAFE_STOP(_load_channel_mgr);
     SAFE_STOP(_scanner_scheduler);
@@ -557,6 +556,7 @@ void ExecEnv::destroy() {
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
+    _wal_manager.reset();
     SAFE_DELETE(_s3_buffer_pool);
     SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();

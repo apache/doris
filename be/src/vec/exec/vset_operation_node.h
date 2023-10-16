@@ -95,8 +95,6 @@ private:
 
     std::unique_ptr<HashTableVariants> _hash_table_variants;
 
-    std::vector<size_t> _probe_key_sz;
-    std::vector<size_t> _build_key_sz;
     std::vector<bool> _build_not_ignore_null;
 
     //record element size in hashtable

@@ -434,11 +434,6 @@ size_t ColumnArray::allocated_bytes() const {
     return get_data().allocated_bytes() + get_offsets().allocated_bytes();
 }
 
-void ColumnArray::protect() {
-    get_data().protect();
-    get_offsets().protect();
-}
-
 ColumnPtr ColumnArray::convert_to_full_column_if_const() const {
     /// It is possible to have an array with constant data and non-constant offsets.
     /// Example is the result of expression: replicate('hello', [1])

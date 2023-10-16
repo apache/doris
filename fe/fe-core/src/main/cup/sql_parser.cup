@@ -4150,10 +4150,6 @@ show_param ::=
     {:
         RESULT = new ShowBackendsStmt();
     :}
-    | KW_BACKENDS ident:name
-    {:
-        RESULT = new ShowBackendsStmt(name);
-    :}
     | KW_TRASH KW_ON STRING_LITERAL:backend
     {:
         RESULT = new ShowTrashDiskStmt(backend);
