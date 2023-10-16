@@ -53,6 +53,8 @@ struct IOContext {
     bool is_disposable = false;
     bool is_index_data = false;
     bool read_file_cache = true;
+    // TODO(lightman): use following member variables to control file cache
+    bool is_persistent = false;
     int64_t expiration_time = 0;
     const TUniqueId* query_id = nullptr;             // Ref
     FileCacheStatistics* file_cache_stats = nullptr; // Ref
