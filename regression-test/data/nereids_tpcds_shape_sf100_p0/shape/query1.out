@@ -24,7 +24,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[customer]
 --------------PhysicalDistribute
-----------------hashJoin[INNER_JOIN] hashCondition=((ctr1.ctr_store_sk = ctr2.ctr_store_sk))otherCondition=((cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE)))
+----------------hashJoin[INNER_JOIN] hashCondition=((ctr1.ctr_store_sk = ctr2.ctr_store_sk))otherCondition=((cast(ctr1.ctr_total_return as DOUBLE) > cast((avg(cast(ctr2.ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE)))
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = ctr1.ctr_store_sk))otherCondition=()
 ----------------------PhysicalDistribute

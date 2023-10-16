@@ -36,7 +36,7 @@ PhysicalResultSink
 ------------------------------------------------PhysicalDistribute
 --------------------------------------------------hashAgg[LOCAL]
 ----------------------------------------------------PhysicalProject
-------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
+------------------------------------------------------filter((store_sales.ss_store_sk = 146) and default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.store_sales.ss_addr_sk IS NULL)
 --------------------------------------------------------PhysicalOlapScan[store_sales]
 ------------PhysicalDistribute
 --------------hashJoin[INNER_JOIN] hashCondition=((i2.i_item_sk = descending.item_sk))otherCondition=()
@@ -67,6 +67,6 @@ PhysicalResultSink
 ----------------------------------------------PhysicalDistribute
 ------------------------------------------------hashAgg[LOCAL]
 --------------------------------------------------PhysicalProject
-----------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
+----------------------------------------------------filter((store_sales.ss_store_sk = 146) and default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.store_sales.ss_addr_sk IS NULL)
 ------------------------------------------------------PhysicalOlapScan[store_sales]
 

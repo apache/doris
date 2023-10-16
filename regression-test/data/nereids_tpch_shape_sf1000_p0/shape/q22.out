@@ -13,15 +13,15 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[orders]
 ------------------PhysicalDistribute
---------------------NestedLoopJoin[INNER_JOIN](cast(c_acctbal as DECIMALV3(38, 4)) > avg(cast(c_acctbal as DECIMALV3(17, 4))))
+--------------------NestedLoopJoin[INNER_JOIN](cast(default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.customer.c_acctbal as DECIMALV3(38, 4)) > avg(cast(default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.customer.c_acctbal as DECIMALV3(17, 4))))
 ----------------------PhysicalProject
-------------------------filter(substring(c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
+------------------------filter(substring(default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.customer.c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
 --------------------------PhysicalOlapScan[customer]
 ----------------------PhysicalDistribute
 ------------------------hashAgg[GLOBAL]
 --------------------------PhysicalDistribute
 ----------------------------hashAgg[LOCAL]
 ------------------------------PhysicalProject
---------------------------------filter((customer.c_acctbal > 0.00) and substring(c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
+--------------------------------filter((customer.c_acctbal > 0.00) and substring(default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.customer.c_phone, 1, 2) IN ('13', '17', '18', '23', '29', '30', '31'))
 ----------------------------------PhysicalOlapScan[customer]
 

@@ -253,7 +253,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(1, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
-                Pair.of("expr_(c_custkey + 5)", "lo_custkey")));
+                Pair.of("expr_(b.c_custkey + 5)", "lo_custkey")), false);
     }
 
     @Test
@@ -304,10 +304,18 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     private void checkRuntimeFilterExprs(List<RuntimeFilter> filters, List<Pair<String, String>> colNames) {
+        checkRuntimeFilterExprs(filters, colNames, true);
+    }
+
+    private void checkRuntimeFilterExprs(List<RuntimeFilter> filters, List<Pair<String, String>> colNames, boolean onlyColumn) {
         Assertions.assertEquals(filters.size(), colNames.size());
         for (RuntimeFilter filter : filters) {
+            String columnToSql = filter.getSrcExpr().toSql();
+            if (onlyColumn && columnToSql.contains(".")) {
+                columnToSql = columnToSql.split("\\.")[columnToSql.split("\\.").length - 1];
+            }
             Assertions.assertTrue(colNames.contains(Pair.of(
-                    filter.getSrcExpr().toSql(),
+                    columnToSql,
                     filter.getTargetExprs().get(0).getName())));
         }
     }

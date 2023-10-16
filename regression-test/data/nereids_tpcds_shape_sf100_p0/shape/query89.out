@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalDistribute
 --------PhysicalTopN
 ----------PhysicalProject
-------------filter((if(( not (avg_monthly_sales = 0.0000)), (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)), NULL) > 0.1))
+------------filter((if(( not (avg_monthly_sales = 0.0000)), (abs((cast(tmp1.sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)), NULL) > 0.1))
 --------------PhysicalWindow
 ----------------PhysicalQuickSort
 ------------------PhysicalDistribute
@@ -24,7 +24,7 @@ PhysicalResultSink
 ------------------------------------------PhysicalOlapScan[store_sales]
 ----------------------------------------PhysicalDistribute
 ------------------------------------------PhysicalProject
---------------------------------------------filter(((i_category IN ('Electronics', 'Jewelry', 'Shoes') AND i_class IN ('athletic', 'portable', 'semi-precious')) OR (i_category IN ('Men', 'Music', 'Women') AND i_class IN ('accessories', 'maternity', 'rock'))))
+--------------------------------------------filter(((default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_category IN ('Electronics', 'Jewelry', 'Shoes') AND default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_class IN ('athletic', 'portable', 'semi-precious')) OR (default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_category IN ('Men', 'Music', 'Women') AND default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_class IN ('accessories', 'maternity', 'rock'))))
 ----------------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject

@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------PhysicalTopN
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((ss_items.item_id = cs_items.item_id))otherCondition=((cast(cs_item_rev as DOUBLE) <= cast((1.1 * ss_item_rev) as DOUBLE)) and (cast(cs_item_rev as DOUBLE) <= cast((1.1 * ws_item_rev) as DOUBLE)) and (cast(cs_item_rev as DOUBLE) >= cast((0.9 * ss_item_rev) as DOUBLE)) and (cast(cs_item_rev as DOUBLE) >= cast((0.9 * ws_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) <= cast((1.1 * cs_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) >= cast((0.9 * cs_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) <= cast((1.1 * cs_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) >= cast((0.9 * cs_item_rev) as DOUBLE)))
+----------hashJoin[INNER_JOIN] hashCondition=((ss_items.item_id = cs_items.item_id))otherCondition=((cast(cs_items.cs_item_rev as DOUBLE) <= cast((1.1 * ss_items.ss_item_rev) as DOUBLE)) and (cast(cs_items.cs_item_rev as DOUBLE) <= cast((1.1 * ws_items.ws_item_rev) as DOUBLE)) and (cast(cs_items.cs_item_rev as DOUBLE) >= cast((0.9 * ss_items.ss_item_rev) as DOUBLE)) and (cast(cs_items.cs_item_rev as DOUBLE) >= cast((0.9 * ws_items.ws_item_rev) as DOUBLE)) and (cast(ss_items.ss_item_rev as DOUBLE) <= cast((1.1 * cs_items.cs_item_rev) as DOUBLE)) and (cast(ss_items.ss_item_rev as DOUBLE) >= cast((0.9 * cs_items.cs_item_rev) as DOUBLE)) and (cast(ws_items.ws_item_rev as DOUBLE) <= cast((1.1 * cs_items.cs_item_rev) as DOUBLE)) and (cast(ws_items.ws_item_rev as DOUBLE) >= cast((0.9 * cs_items.cs_item_rev) as DOUBLE)))
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute
@@ -35,7 +35,7 @@ PhysicalResultSink
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[item]
-------------hashJoin[INNER_JOIN] hashCondition=((ss_items.item_id = ws_items.item_id))otherCondition=((cast(ss_item_rev as DOUBLE) <= cast((1.1 * ws_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) >= cast((0.9 * ws_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) <= cast((1.1 * ss_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) >= cast((0.9 * ss_item_rev) as DOUBLE)))
+------------hashJoin[INNER_JOIN] hashCondition=((ss_items.item_id = ws_items.item_id))otherCondition=((cast(ss_items.ss_item_rev as DOUBLE) <= cast((1.1 * ws_items.ws_item_rev) as DOUBLE)) and (cast(ss_items.ss_item_rev as DOUBLE) >= cast((0.9 * ws_items.ws_item_rev) as DOUBLE)) and (cast(ws_items.ws_item_rev as DOUBLE) <= cast((1.1 * ss_items.ss_item_rev) as DOUBLE)) and (cast(ws_items.ws_item_rev as DOUBLE) >= cast((0.9 * ss_items.ss_item_rev) as DOUBLE)))
 --------------PhysicalProject
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute

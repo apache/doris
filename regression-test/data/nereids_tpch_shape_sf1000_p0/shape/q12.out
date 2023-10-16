@@ -12,6 +12,6 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[orders]
 ------------------PhysicalProject
---------------------filter((lineitem.l_commitdate < lineitem.l_receiptdate) and (lineitem.l_receiptdate < '1995-01-01') and (lineitem.l_receiptdate >= '1994-01-01') and (lineitem.l_shipdate < lineitem.l_commitdate) and l_shipmode IN ('MAIL', 'SHIP'))
+--------------------filter((lineitem.l_commitdate < lineitem.l_receiptdate) and (lineitem.l_receiptdate < '1995-01-01') and (lineitem.l_receiptdate >= '1994-01-01') and (lineitem.l_shipdate < lineitem.l_commitdate) and default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.lineitem.l_shipmode IN ('MAIL', 'SHIP'))
 ----------------------PhysicalOlapScan[lineitem]
 

@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((ws1.ws_order_number = ws2.ws_order_number))otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk)))
+------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((ws1.ws_order_number = ws2.ws_order_number))otherCondition=(( not (ws1.ws_warehouse_sk = ws2.ws_warehouse_sk)))
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[web_sales]

@@ -19,13 +19,13 @@ PhysicalResultSink
 --------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_ship_mode_sk = ship_mode.sm_ship_mode_sk))otherCondition=()
 ----------------------------------PhysicalOlapScan[web_sales]
 ----------------------------------PhysicalDistribute
-------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
+------------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.ship_mode.sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 --------------------------------------PhysicalOlapScan[ship_mode]
 --------------------------------PhysicalDistribute
 ----------------------------------filter((date_dim.d_year = 1998))
 ------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
---------------------------------filter((cast(t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
+--------------------------------filter((cast(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.time_dim.t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
 ----------------------------------PhysicalOlapScan[time_dim]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalOlapScan[warehouse]
@@ -40,13 +40,13 @@ PhysicalResultSink
 --------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_ship_mode_sk = ship_mode.sm_ship_mode_sk))otherCondition=()
 ----------------------------------PhysicalOlapScan[catalog_sales]
 ----------------------------------PhysicalDistribute
-------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
+------------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.ship_mode.sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 --------------------------------------PhysicalOlapScan[ship_mode]
 --------------------------------PhysicalDistribute
 ----------------------------------filter((date_dim.d_year = 1998))
 ------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
---------------------------------filter((cast(t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
+--------------------------------filter((cast(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.time_dim.t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
 ----------------------------------PhysicalOlapScan[time_dim]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalOlapScan[warehouse]

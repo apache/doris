@@ -33,7 +33,7 @@ PhysicalResultSink
 --------------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter((hd_buy_potential like '1001-5000%'))
+----------------------------------------filter((default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.household_demographics.hd_buy_potential like '1001-5000%'))
 ------------------------------------------PhysicalOlapScan[household_demographics]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject

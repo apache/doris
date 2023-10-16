@@ -22,7 +22,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------PhysicalDistribute
 --------PhysicalQuickSort
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 53)))otherCondition=()
+------------hashJoin[INNER_JOIN] hashCondition=((expr_cast(y.d_week_seq1 as BIGINT) = expr_(z.d_week_seq2 - 53)))otherCondition=()
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = d_week_seq1))otherCondition=()

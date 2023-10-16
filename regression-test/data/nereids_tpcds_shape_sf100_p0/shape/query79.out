@@ -20,7 +20,7 @@ PhysicalResultSink
 ----------------------------------PhysicalOlapScan[store_sales]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_dow = 1) and d_year IN (1998, 1999, 2000))
+------------------------------------filter((date_dim.d_dow = 1) and default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_year IN (1998, 1999, 2000))
 --------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject

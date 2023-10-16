@@ -30,7 +30,6 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
-import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.SlotContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -855,7 +854,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         public PreAggStatus visitCount(Count count, CheckContext context) {
             if (count.isDistinct() && count.arity() == 1) {
                 Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(count.child(0));
-                if (slotOpt.isPresent() && context.keyNameToColumn.containsKey(normalizeName(slotOpt.get().toSql()))) {
+                if (slotOpt.isPresent() && context.keyNameToColumn.containsKey(
+                        normalizeName(slotOpt.get().toSqlWithoutQualifier()))) {
                     return PreAggStatus.on();
                 }
             }
@@ -870,7 +870,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 expr = expr.child(0);
             }
             Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(expr);
-            if (slotOpt.isPresent() && context.valueNameToColumn.containsKey(normalizeName(slotOpt.get().toSql()))) {
+            if (slotOpt.isPresent() && context.valueNameToColumn
+                    .containsKey(normalizeName(slotOpt.get().toSqlWithoutQualifier()))) {
                 return PreAggStatus.on();
             } else {
                 return PreAggStatus.off("invalid bitmap_union_count: " + bitmapUnionCount.toSql());
@@ -880,7 +881,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         @Override
         public PreAggStatus visitHllUnionAgg(HllUnionAgg hllUnionAgg, CheckContext context) {
             Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(hllUnionAgg.child());
-            if (slotOpt.isPresent() && context.valueNameToColumn.containsKey(normalizeName(slotOpt.get().toSql()))) {
+            if (slotOpt.isPresent() && context.valueNameToColumn.containsKey(
+                    normalizeName(slotOpt.get().toSqlWithoutQualifier()))) {
                 return PreAggStatus.on();
             } else {
                 return PreAggStatus.off("invalid hll_union_agg: " + hllUnionAgg.toSql());
@@ -893,9 +895,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 CheckContext ctx,
                 boolean canUseKeyColumn) {
             String childNameWithFuncName = ctx.isBaseIndex()
-                    ? normalizeName(aggFunc.child(0).toSql())
+                    ? normalizeName(aggFunc.child(0).toSqlWithoutQualifier())
                     : normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(
-                        matchingAggType, normalizeName(aggFunc.child(0).toSql())));
+                        matchingAggType, normalizeName(aggFunc.child(0).toSqlWithoutQualifier())));
 
             boolean contains = containsAllColumn(aggFunc.child(0), ctx.keyNameToColumn.keySet());
             if (contains || ctx.keyNameToColumn.containsKey(childNameWithFuncName)) {
@@ -995,9 +997,12 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
     private PreAggStatus checkPredicates(List<Expression> predicates, CheckContext checkContext) {
         Set<String> indexConjuncts = PlanNode
                 .splitAndCompoundPredicateToConjuncts(checkContext.getMeta().getWhereClause()).stream()
-                .map(e -> new NereidsParser().parseExpression(e.toSql()).toSql()).collect(Collectors.toSet());
+                .map(e -> new NereidsParser().parseExpression(e.toSql()).toSqlWithoutQualifier())
+                .collect(Collectors.toSet());
         return disablePreAggIfContainsAnyValueColumn(
-                predicates.stream().filter(e -> !indexConjuncts.contains(e.toSql())).collect(Collectors.toList()),
+                predicates.stream()
+                        .filter(e -> !indexConjuncts.contains(e.toSqlWithoutQualifier()))
+                        .collect(Collectors.toList()),
                 checkContext, "Predicate %s contains value column %s");
     }
 
@@ -1009,9 +1014,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         return exprs.stream()
                 .map(expr -> expr.getInputSlots()
                         .stream()
-                        .filter(slot -> ctx.valueNameToColumn.containsKey(normalizeName(slot.toSql())))
+                        .filter(slot -> ctx.valueNameToColumn.containsKey(normalizeName(slot.toSqlWithoutQualifier())))
                         .findAny()
-                        .map(slot -> Pair.of(expr, ctx.valueNameToColumn.get(normalizeName(slot.toSql()))))
+                        .map(slot -> Pair.of(expr, ctx.valueNameToColumn.get(
+                                normalizeName(slot.toSqlWithoutQualifier()))))
                 )
                 .filter(Optional::isPresent)
                 .findAny()
@@ -1045,9 +1051,12 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             Set<Slot> slotsToReplace = slotMap.keySet();
             Set<String> indexConjuncts = PlanNode
                     .splitAndCompoundPredicateToConjuncts(context.checkContext.getMeta().getWhereClause()).stream()
-                    .map(e -> new NereidsParser().parseExpression(e.toSql()).toSql()).collect(Collectors.toSet());
+                    .map(e -> new NereidsParser().parseExpression(e.toSql()).toSqlWithoutQualifier())
+                    .collect(Collectors.toSet());
             if (isInputSlotsContainsNone(
-                    predicates.stream().filter(e -> !indexConjuncts.contains(e.toSql())).collect(Collectors.toList()),
+                    predicates.stream()
+                            .filter(e -> !indexConjuncts.contains(e.toSqlWithoutQualifier()))
+                            .collect(Collectors.toList()),
                     slotsToReplace) && isInputSlotsContainsNone(groupingExprs, slotsToReplace)) {
                 ImmutableSet<Slot> newRequiredSlots = requiredScanOutput.stream()
                         .map(slot -> (Slot) ExpressionUtils.replace(slot, slotMap))
@@ -1105,7 +1114,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 return e;
             }
             buildStrMap();
-            return aggFuncStrMap.getOrDefault(e.toSql(), (AggregateFunction) e);
+            return aggFuncStrMap.getOrDefault(e.toSqlWithoutQualifier(), (AggregateFunction) e);
         }
     }
 
@@ -1172,9 +1181,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 Expression expr = new ToBitmapWithCheck(castIfNeed(count.child(0), BigIntType.INSTANCE));
                 // count distinct a value column.
                 if (slotOpt.isPresent() && !context.checkContext.keyNameToColumn.containsKey(
-                        normalizeName(expr.toSql()))) {
+                        normalizeName(expr.toSqlWithoutQualifier()))) {
                     String bitmapUnionColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(
-                            AggregateType.BITMAP_UNION, CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql())));
+                            AggregateType.BITMAP_UNION, CreateMaterializedViewStmt
+                                    .mvColumnBuilder(expr.toSqlWithoutQualifier())));
 
                     Column mvColumn = context.checkContext.getColumn(bitmapUnionColumn);
                     // has bitmap_union column
@@ -1199,10 +1209,11 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(count.child(0));
                 // count a value column.
                 if (slotOpt.isPresent() && !context.checkContext.keyNameToColumn.containsKey(
-                        normalizeName(slotOpt.get().toSql()))) {
+                        normalizeName(slotOpt.get().toSqlWithoutQualifier()))) {
                     String countColumn = normalizeName(CreateMaterializedViewStmt
                             .mvColumnBuilder(AggregateType.SUM,
-                                CreateMaterializedViewStmt.mvColumnBuilder(slotToCaseWhen(slotOpt.get()).toSql())));
+                                CreateMaterializedViewStmt.mvColumnBuilder(
+                                        slotToCaseWhen(slotOpt.get()).toSqlWithoutQualifier())));
 
                     Column mvColumn = context.checkContext.getColumn(countColumn);
                     // has bitmap_union_count column
@@ -1240,7 +1251,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 if (slotOpt.isPresent()) {
                     String bitmapUnionCountColumn = normalizeName(CreateMaterializedViewStmt
                             .mvColumnBuilder(AggregateType.BITMAP_UNION, CreateMaterializedViewStmt
-                                    .mvColumnBuilder(new ToBitmapWithCheck(toBitmap.child()).toSql())));
+                                    .mvColumnBuilder(new ToBitmapWithCheck(toBitmap.child()).toSqlWithoutQualifier())));
 
                     Column mvColumn = context.checkContext.getColumn(bitmapUnionCountColumn);
                     // has bitmap_union_count column
@@ -1267,7 +1278,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 if (slotOpt.isPresent()) {
                     String bitmapUnionCountColumn = normalizeName(
                             CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.BITMAP_UNION,
-                                    CreateMaterializedViewStmt.mvColumnBuilder(bitmapHash.toSql())));
+                                    CreateMaterializedViewStmt.mvColumnBuilder(bitmapHash.toSqlWithoutQualifier())));
 
                     Column mvColumn = context.checkContext.getColumn(bitmapUnionCountColumn);
                     // has bitmap_union_count column
@@ -1307,7 +1318,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(hllHash.child());
                 if (slotOpt.isPresent()) {
                     String hllUnionColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(
-                            AggregateType.HLL_UNION, CreateMaterializedViewStmt.mvColumnBuilder(hllHash.toSql())));
+                            AggregateType.HLL_UNION,
+                            CreateMaterializedViewStmt.mvColumnBuilder(hllHash.toSqlWithoutQualifier())));
 
                     Column mvColumn = context.checkContext.getColumn(hllUnionColumn);
                     // has hll_union column
@@ -1316,8 +1328,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                 .stream()
                                 .filter(s -> hllUnionColumn.equalsIgnoreCase(normalizeName(s.getName())))
                                 .findFirst()
-                                .orElseThrow(() -> new AnalysisException(
-                                        "cannot find hll union slot when select mv"));
+                                .orElseThrow(() -> new AnalysisException("cannot find hll union slot when select mv"));
 
                         context.exprRewriteMap.slotMap.put(slotOpt.get(), hllUnionSlot);
                         context.exprRewriteMap.projectExprMap.put(hllHash, hllUnionSlot);
@@ -1345,7 +1356,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(hllHash.child());
                 if (slotOpt.isPresent()) {
                     String hllUnionColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(
-                            AggregateType.HLL_UNION, CreateMaterializedViewStmt.mvColumnBuilder(hllHash.toSql())));
+                            AggregateType.HLL_UNION,
+                            CreateMaterializedViewStmt.mvColumnBuilder(hllHash.toSqlWithoutQualifier())));
 
                     Column mvColumn = context.checkContext.getColumn(hllUnionColumn);
                     // has hll_union column
@@ -1381,11 +1393,11 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(ndv.child(0));
             // ndv on a value column.
             if (slotOpt.isPresent() && !context.checkContext.keyNameToColumn.containsKey(
-                    normalizeName(slotOpt.get().toSql()))) {
+                    normalizeName(slotOpt.get().toSqlWithoutQualifier()))) {
                 Expression expr = castIfNeed(ndv.child(), VarcharType.SYSTEM_DEFAULT);
                 String hllUnionColumn = normalizeName(
                         CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.HLL_UNION,
-                                CreateMaterializedViewStmt.mvColumnBuilder(new HllHash(expr).toSql())));
+                                CreateMaterializedViewStmt.mvColumnBuilder(new HllHash(expr).toSqlWithoutQualifier())));
 
                 Column mvColumn = context.checkContext.getColumn(hllUnionColumn);
                 // has hll_union column
@@ -1394,8 +1406,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             .stream()
                             .filter(s -> hllUnionColumn.equalsIgnoreCase(normalizeName(s.getName())))
                             .findFirst()
-                            .orElseThrow(() -> new AnalysisException(
-                                    "cannot find hll union slot when select mv"));
+                            .orElseThrow(() -> new AnalysisException("cannot find hll union slot when select mv"));
 
                     context.exprRewriteMap.slotMap.put(slotOpt.get(), hllUnionSlot);
                     context.exprRewriteMap.projectExprMap.put(slotOpt.get(), hllUnionSlot);
@@ -1415,10 +1426,11 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             }
             Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(sum.child(0));
             if (!sum.isDistinct() && slotOpt.isPresent()
-                    && !context.checkContext.keyNameToColumn.containsKey(normalizeName(slotOpt.get().toSql()))) {
+                    && !context.checkContext.keyNameToColumn.containsKey(
+                            normalizeName(slotOpt.get().toSqlWithoutQualifier()))) {
                 Expression expr = castIfNeed(sum.child(), BigIntType.INSTANCE);
                 String sumColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.SUM,
-                        CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql())));
+                        CreateMaterializedViewStmt.mvColumnBuilder(expr.toSqlWithoutQualifier())));
                 Column mvColumn = context.checkContext.getColumn(sumColumn);
                 if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
                     Slot sumSlot = context.checkContext.scan.getOutputByIndex(context.checkContext.index).stream()
@@ -1441,7 +1453,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         @Override
         public Expression visitAggregateFunction(AggregateFunction aggregateFunction, RewriteContext context) {
             String aggStateName = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(
-                    AggregateType.GENERIC_AGGREGATION, StateCombinator.create(aggregateFunction).toSql()));
+                    AggregateType.GENERIC_AGGREGATION,
+                    StateCombinator.create(aggregateFunction).toSqlWithoutQualifier()));
 
             Column mvColumn = context.checkContext.getColumn(aggStateName);
             if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
@@ -1451,7 +1464,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                 Set<Slot> slots = aggregateFunction.collect(SlotReference.class::isInstance);
                 for (Slot slot : slots) {
-                    if (!context.checkContext.keyNameToColumn.containsKey(normalizeName(slot.toSql()))) {
+                    if (!context.checkContext.keyNameToColumn
+                            .containsKey(normalizeName(slot.toSqlWithoutQualifier()))) {
                         context.exprRewriteMap.slotMap.put(slot, aggStateSlot);
                         context.exprRewriteMap.projectExprMap.put(slot, aggStateSlot);
                     }

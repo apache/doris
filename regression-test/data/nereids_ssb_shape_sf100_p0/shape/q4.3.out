@@ -28,6 +28,6 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[part]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter(d_year IN (1997, 1998))
+----------------------------filter(default_cluster:regression_test_nereids_ssb_shape_sf100_p0.dates.d_year IN (1997, 1998))
 ------------------------------PhysicalOlapScan[dates]
 

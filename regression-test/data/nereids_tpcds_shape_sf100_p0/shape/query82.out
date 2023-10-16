@@ -21,7 +21,7 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[inventory]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((item.i_current_price <= 47.00) and (item.i_current_price >= 17.00) and i_manufact_id IN (138, 169, 339, 639))
+--------------------------------filter((item.i_current_price <= 47.00) and (item.i_current_price >= 17.00) and default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_manufact_id IN (138, 169, 339, 639))
 ----------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject

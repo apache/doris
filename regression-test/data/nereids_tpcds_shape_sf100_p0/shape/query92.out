@@ -7,7 +7,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------filter((cast(ws_ext_discount_amt as DECIMALV3(38, 5)) > (1.3 * avg(cast(ws_ext_discount_amt as DECIMALV3(9, 4))) OVER(PARTITION BY i_item_sk))))
+--------------filter((cast(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.web_sales.ws_ext_discount_amt as DECIMALV3(38, 5)) > (1.3 * avg(cast(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.web_sales.ws_ext_discount_amt as DECIMALV3(9, 4))) OVER(PARTITION BY default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_item_sk))))
 ----------------PhysicalWindow
 ------------------PhysicalQuickSort
 --------------------PhysicalDistribute

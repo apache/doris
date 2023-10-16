@@ -12,7 +12,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------PhysicalOlapScan[store_sales]
 --------------------PhysicalDistribute
-----------------------filter(d_year IN (1999, 2000))
+----------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_year IN (1999, 2000))
 ------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalOlapScan[customer]
@@ -26,7 +26,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------PhysicalOlapScan[web_sales]
 ----------------------PhysicalDistribute
-------------------------filter(d_year IN (1999, 2000))
+------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_year IN (1999, 2000))
 --------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalOlapScan[customer]
@@ -35,7 +35,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute
 --------PhysicalTopN
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((t_s_firstyear.customer_id = t_w_firstyear.customer_id))otherCondition=((if((year_total > 0), (year_total / year_total), NULL) > if((year_total > 0), (year_total / year_total), NULL)))
+------------hashJoin[INNER_JOIN] hashCondition=((t_s_firstyear.customer_id = t_w_firstyear.customer_id))otherCondition=((if((t_w_firstyear.year_total > 0), (t_w_secyear.year_total / t_w_firstyear.year_total), NULL) > if((t_s_firstyear.year_total > 0), (t_s_secyear.year_total / t_s_firstyear.year_total), NULL)))
 --------------hashJoin[INNER_JOIN] hashCondition=((t_s_firstyear.customer_id = t_w_secyear.customer_id))otherCondition=()
 ----------------hashJoin[INNER_JOIN] hashCondition=((t_s_secyear.customer_id = t_s_firstyear.customer_id))otherCondition=()
 ------------------PhysicalDistribute

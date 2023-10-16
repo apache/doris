@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------PhysicalTopN
 --------PhysicalProject
-----------filter((if((avg_quarterly_sales > 0.0000), (abs((cast(sum_sales as DOUBLE) - cast(avg_quarterly_sales as DOUBLE))) / cast(avg_quarterly_sales as DOUBLE)), NULL) > 0.1))
+----------filter((if((avg_quarterly_sales > 0.0000), (abs((cast(tmp1.sum_sales as DOUBLE) - cast(avg_quarterly_sales as DOUBLE))) / cast(avg_quarterly_sales as DOUBLE)), NULL) > 0.1))
 ------------PhysicalWindow
 --------------PhysicalQuickSort
 ----------------PhysicalDistribute
@@ -25,11 +25,11 @@ PhysicalResultSink
 --------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
-----------------------------------------------filter((((i_category IN ('Books', 'Children', 'Electronics') AND i_class IN ('personal', 'portable', 'reference', 'self-help')) AND i_brand IN ('exportiunivamalg #9', 'scholaramalgamalg #14', 'scholaramalgamalg #7', 'scholaramalgamalg #9')) OR ((i_category IN ('Men', 'Music', 'Women') AND i_class IN ('accessories', 'classical', 'fragrances', 'pants')) AND i_brand IN ('amalgimporto #1', 'edu packscholar #1', 'exportiimporto #1', 'importoamalg #1'))))
+----------------------------------------------filter((((default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_category IN ('Books', 'Children', 'Electronics') AND default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_class IN ('personal', 'portable', 'reference', 'self-help')) AND default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_brand IN ('exportiunivamalg #9', 'scholaramalgamalg #14', 'scholaramalgamalg #7', 'scholaramalgamalg #9')) OR ((default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_category IN ('Men', 'Music', 'Women') AND default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_class IN ('accessories', 'classical', 'fragrances', 'pants')) AND default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_brand IN ('amalgimporto #1', 'edu packscholar #1', 'exportiimporto #1', 'importoamalg #1'))))
 ------------------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter(d_month_seq IN (1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211))
+----------------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_month_seq IN (1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject

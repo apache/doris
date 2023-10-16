@@ -23,6 +23,6 @@ PhysicalResultSink
 ------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter(i_category IN ('Books', 'Shoes', 'Women'))
+------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_category IN ('Books', 'Shoes', 'Women'))
 --------------------------------PhysicalOlapScan[item]
 

@@ -14,7 +14,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalOlapScan[store_sales]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter((ss.d_year = 2000) and d_qoy IN (1, 2, 3))
+------------------------filter((ss.d_year = 2000) and ss.d_qoy IN (1, 2, 3))
 --------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute
 ----------------PhysicalProject
@@ -33,7 +33,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalOlapScan[web_sales]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((ws.d_year = 2000) and d_qoy IN (1, 2, 3))
+--------------------------filter((ws.d_year = 2000) and ws.d_qoy IN (1, 2, 3))
 ----------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
@@ -43,7 +43,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute
 ----------PhysicalQuickSort
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((ws1.ca_county = ws3.ca_county))otherCondition=((if((web_sales > 0.00), (cast(web_sales as DOUBLE) / cast(web_sales as DOUBLE)), NULL) > if((store_sales > 0.00), (cast(store_sales as DOUBLE) / cast(store_sales as DOUBLE)), NULL)))
+--------------hashJoin[INNER_JOIN] hashCondition=((ws1.ca_county = ws3.ca_county))otherCondition=((if((ws2.web_sales > 0.00), (cast(ws3.web_sales as DOUBLE) / cast(ws2.web_sales as DOUBLE)), NULL) > if((ss2.store_sales > 0.00), (cast(ss3.store_sales as DOUBLE) / cast(ss2.store_sales as DOUBLE)), NULL)))
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------filter((ws3.d_qoy = 3) and (ws3.d_year = 2000))
@@ -54,7 +54,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalProject
 ------------------------filter((ss3.d_qoy = 3) and (ss3.d_year = 2000))
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
---------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ca_county = ws2.ca_county))otherCondition=((if((web_sales > 0.00), (cast(web_sales as DOUBLE) / cast(web_sales as DOUBLE)), NULL) > if((store_sales > 0.00), (cast(store_sales as DOUBLE) / cast(store_sales as DOUBLE)), NULL)))
+--------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ca_county = ws2.ca_county))otherCondition=((if((ws1.web_sales > 0.00), (cast(ws2.web_sales as DOUBLE) / cast(ws1.web_sales as DOUBLE)), NULL) > if((ss1.store_sales > 0.00), (cast(ss2.store_sales as DOUBLE) / cast(ss1.store_sales as DOUBLE)), NULL)))
 ----------------------hashJoin[INNER_JOIN] hashCondition=((ss1.ca_county = ws1.ca_county))otherCondition=()
 ------------------------hashJoin[INNER_JOIN] hashCondition=((ss1.ca_county = ss2.ca_county))otherCondition=()
 --------------------------PhysicalDistribute

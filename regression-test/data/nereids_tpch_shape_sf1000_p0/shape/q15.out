@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------PhysicalOlapScan[supplier]
 ------------PhysicalDistribute
---------------hashJoin[INNER_JOIN] hashCondition=((revenue0.total_revenue = max(total_revenue)))otherCondition=()
+--------------hashJoin[INNER_JOIN] hashCondition=((revenue0.total_revenue = max(internal.default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.revenue0.total_revenue)))otherCondition=()
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute

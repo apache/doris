@@ -22,14 +22,14 @@ PhysicalResultSink
 ----------------------------------PhysicalOlapScan[store_sales]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter((((date_dim.d_dom >= 1) AND (date_dim.d_dom <= 3)) OR ((date_dim.d_dom >= 25) AND (date_dim.d_dom <= 28))) and d_year IN (1998, 1999, 2000))
+------------------------------------filter((((date_dim.d_dom >= 1) AND (date_dim.d_dom <= 3)) OR ((date_dim.d_dom >= 25) AND (date_dim.d_dom <= 28))) and default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_year IN (1998, 1999, 2000))
 --------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((household_demographics.hd_vehicle_count > 0) and (if((hd_vehicle_count > 0), (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)), NULL) > 1.2) and hd_buy_potential IN ('0-500', '1001-5000'))
+--------------------------------filter((household_demographics.hd_vehicle_count > 0) and (if((default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.household_demographics.hd_vehicle_count > 0), (cast(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.household_demographics.hd_dep_count as DOUBLE) / cast(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.household_demographics.hd_vehicle_count as DOUBLE)), NULL) > 1.2) and default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.household_demographics.hd_buy_potential IN ('0-500', '1001-5000'))
 ----------------------------------PhysicalOlapScan[household_demographics]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter(s_county IN ('Barrow County', 'Daviess County', 'Franklin Parish', 'Luce County', 'Richland County', 'Walker County', 'Williamson County', 'Ziebach County'))
+------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.store.s_county IN ('Barrow County', 'Daviess County', 'Franklin Parish', 'Luce County', 'Richland County', 'Walker County', 'Williamson County', 'Ziebach County'))
 --------------------------------PhysicalOlapScan[store]
 

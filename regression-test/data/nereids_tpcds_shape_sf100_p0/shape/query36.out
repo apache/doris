@@ -32,6 +32,6 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[item]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter(s_state IN ('AL', 'GA', 'MI', 'MO', 'OH', 'SC', 'SD', 'TN'))
+------------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.store.s_state IN ('AL', 'GA', 'MI', 'MO', 'OH', 'SC', 'SD', 'TN'))
 --------------------------------------PhysicalOlapScan[store]
 

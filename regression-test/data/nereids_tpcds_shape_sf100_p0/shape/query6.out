@@ -19,7 +19,7 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[customer]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((j.i_category = i.i_category))otherCondition=((cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(cast(i_current_price as DECIMALV3(9, 4))))))
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((j.i_category = i.i_category))otherCondition=((cast(i.i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(cast(j.i_current_price as DECIMALV3(9, 4))))))
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((s.ss_item_sk = i.i_item_sk))otherCondition=()
 --------------------------------------PhysicalDistribute

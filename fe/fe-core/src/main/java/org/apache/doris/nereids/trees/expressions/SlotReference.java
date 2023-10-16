@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
@@ -27,6 +28,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /**
@@ -119,6 +122,11 @@ public class SlotReference extends Slot {
 
     @Override
     public String toSql() {
+        return Stream.concat(qualifier.stream(), Stream.of(name)).collect(Collectors.joining("."));
+    }
+
+    @Override
+    public String toSqlWithoutQualifier() throws UnboundException {
         return name;
     }
 

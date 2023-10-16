@@ -116,7 +116,9 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
     public List<NamedExpression> buildNewOutputs() {
         ImmutableList.Builder<NamedExpression> newOutputs = new Builder<>();
         for (Slot slot : resetNullableForLeftOutputs()) {
-            newOutputs.add(new SlotReference(slot.toSql(), slot.getDataType(), slot.nullable()));
+            // NOTICE: we use Slot#getName here to compatibility with legacy planner and MySQL.
+            //   they discard slot's qualifier after doing set operation.
+            newOutputs.add(new SlotReference(slot.getName(), slot.getDataType(), slot.nullable()));
         }
         return newOutputs.build();
     }

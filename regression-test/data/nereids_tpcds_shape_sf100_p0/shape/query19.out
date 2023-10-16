@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=(( not (substring(ca_zip, 1, 5) = substring(s_zip, 1, 5))))
+------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=(( not (substring(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.customer_address.ca_zip, 1, 5) = substring(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.store.s_zip, 1, 5))))
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk))otherCondition=()
 ------------------------PhysicalProject

@@ -27,7 +27,7 @@ PhysicalResultSink
 --------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter(i_color IN ('cyan', 'green', 'powder'))
+----------------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_color IN ('cyan', 'green', 'powder'))
 ------------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalDistribute
 ------------------------------filter((customer_address.ca_gmt_offset = -6.00))
@@ -53,7 +53,7 @@ PhysicalResultSink
 --------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter(i_color IN ('cyan', 'green', 'powder'))
+----------------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_color IN ('cyan', 'green', 'powder'))
 ------------------------------------------PhysicalOlapScan[item]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
@@ -76,6 +76,6 @@ PhysicalResultSink
 --------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter(i_color IN ('cyan', 'green', 'powder'))
+----------------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.item.i_color IN ('cyan', 'green', 'powder'))
 ------------------------------------------PhysicalOlapScan[item]
 

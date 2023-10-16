@@ -27,7 +27,7 @@ PhysicalResultSink
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk))otherCondition=()
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
-----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_ship_date_sk = d3.d_date_sk))otherCondition=((d3.d_date > cast((cast(d_date as BIGINT) + 5) as DATEV2)))
+----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_ship_date_sk = d3.d_date_sk))otherCondition=((d3.d_date > cast((cast(d1.d_date as BIGINT) + 5) as DATEV2)))
 ------------------------------------------------PhysicalDistribute
 --------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk))otherCondition=()
 ----------------------------------------------------PhysicalDistribute

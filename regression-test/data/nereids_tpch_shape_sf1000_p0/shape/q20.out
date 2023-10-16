@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((supplier.s_suppkey = partsupp.ps_suppkey))otherCondition=()
 ------------PhysicalDistribute
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_partkey = partsupp.ps_partkey) and (lineitem.l_suppkey = partsupp.ps_suppkey))otherCondition=((cast(ps_availqty as DECIMALV3(38, 3)) > (0.5 * sum(l_quantity))))
+----------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_partkey = partsupp.ps_partkey) and (lineitem.l_suppkey = partsupp.ps_suppkey))otherCondition=((cast(default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.partsupp.ps_availqty as DECIMALV3(38, 3)) > (0.5 * sum(default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.lineitem.l_quantity))))
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute
 ----------------------hashAgg[LOCAL]
@@ -20,7 +20,7 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[partsupp]
 ----------------------PhysicalProject
-------------------------filter((p_name like 'forest%'))
+------------------------filter((default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.part.p_name like 'forest%'))
 --------------------------PhysicalOlapScan[part]
 ------------PhysicalDistribute
 --------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey))otherCondition=()

@@ -99,7 +99,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalRepeat
 ----------------------PhysicalUnion
 ------------------------PhysicalProject
---------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DOUBLE) > cast(average_sales as DOUBLE))
+--------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DOUBLE) > cast(avg_sales.average_sales as DOUBLE))
 ----------------------------PhysicalProject
 ------------------------------hashAgg[GLOBAL]
 --------------------------------PhysicalDistribute
@@ -122,7 +122,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 ------------------------PhysicalProject
---------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DOUBLE) > cast(average_sales as DOUBLE))
+--------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DOUBLE) > cast(avg_sales.average_sales as DOUBLE))
 ----------------------------PhysicalProject
 ------------------------------hashAgg[GLOBAL]
 --------------------------------PhysicalDistribute
@@ -145,7 +145,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 ------------------------PhysicalProject
---------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DOUBLE) > cast(average_sales as DOUBLE))
+--------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DOUBLE) > cast(avg_sales.average_sales as DOUBLE))
 ----------------------------PhysicalProject
 ------------------------------hashAgg[GLOBAL]
 --------------------------------PhysicalDistribute

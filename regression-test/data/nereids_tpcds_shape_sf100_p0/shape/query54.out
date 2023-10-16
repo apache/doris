@@ -13,8 +13,8 @@ PhysicalResultSink
 --------------------PhysicalDistribute
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------NestedLoopJoin[INNER_JOIN](cast(d_month_seq as BIGINT) <= (d_month_seq + 3))
-----------------------------NestedLoopJoin[INNER_JOIN](cast(d_month_seq as BIGINT) >= (d_month_seq + 1))
+--------------------------NestedLoopJoin[INNER_JOIN](cast(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_month_seq as BIGINT) <= (default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_month_seq + 3))
+----------------------------NestedLoopJoin[INNER_JOIN](cast(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_month_seq as BIGINT) >= (default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_month_seq + 1))
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------------------PhysicalDistribute

@@ -14,10 +14,10 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[partsupp]
 ----------------------PhysicalProject
-------------------------filter(( not (p_brand = 'Brand#45')) and ( not (p_type like 'MEDIUM POLISHED%')) and p_size IN (14, 19, 23, 3, 36, 45, 49, 9))
+------------------------filter(( not (default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.part.p_brand = 'Brand#45')) and ( not (default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.part.p_type like 'MEDIUM POLISHED%')) and default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.part.p_size IN (14, 19, 23, 3, 36, 45, 49, 9))
 --------------------------PhysicalOlapScan[part]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------filter((s_comment like '%Customer%Complaints%'))
+----------------------filter((default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.supplier.s_comment like '%Customer%Complaints%'))
 ------------------------PhysicalOlapScan[supplier]
 

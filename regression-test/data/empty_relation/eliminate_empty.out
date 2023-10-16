@@ -51,7 +51,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[nation]
 ------PhysicalDistribute
 --------PhysicalProject
-----------filter(( not (n_nationkey = 1)))
+----------filter(( not (default_cluster:regression_test_empty_relation.nation.n_nationkey = 1)))
 ------------PhysicalOlapScan[nation]
 
 -- !except_data_empty_data --

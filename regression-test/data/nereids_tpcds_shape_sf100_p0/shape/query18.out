@@ -32,11 +32,11 @@ PhysicalResultSink
 --------------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk))otherCondition=()
 ----------------------------------------------PhysicalDistribute
 ------------------------------------------------PhysicalProject
---------------------------------------------------filter(c_birth_month IN (1, 10, 2, 4, 7, 8))
+--------------------------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.customer.c_birth_month IN (1, 10, 2, 4, 7, 8))
 ----------------------------------------------------PhysicalOlapScan[customer]
 ----------------------------------------------PhysicalDistribute
 ------------------------------------------------PhysicalProject
---------------------------------------------------filter(ca_state IN ('GA', 'IN', 'ME', 'NC', 'OK', 'WA', 'WY'))
+--------------------------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.customer_address.ca_state IN ('GA', 'IN', 'ME', 'NC', 'OK', 'WA', 'WY'))
 ----------------------------------------------------PhysicalOlapScan[customer_address]
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject

@@ -25,7 +25,7 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[lineitem]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter((p_name like '%green%'))
+----------------------------------------filter((default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.part.p_name like '%green%'))
 ------------------------------------------PhysicalOlapScan[part]
 ------------------------------PhysicalDistribute
 --------------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey))otherCondition=()

@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------PhysicalQuickSort
 --------PhysicalProject
-----------NestedLoopJoin[INNER_JOIN](cast(value as DOUBLE) > cast((sum((ps_supplycost * cast(ps_availqty as DECIMALV3(10, 0)))) * 0.000002) as DOUBLE))
+----------NestedLoopJoin[INNER_JOIN](cast(value as DOUBLE) > cast((sum((default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.partsupp.ps_supplycost * cast(default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.partsupp.ps_availqty as DECIMALV3(10, 0)))) * 0.000002) as DOUBLE))
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey))otherCondition=()

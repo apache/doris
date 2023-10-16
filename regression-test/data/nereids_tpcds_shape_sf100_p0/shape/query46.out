@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------PhysicalTopN
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk))otherCondition=(( not (ca_city = bought_city)))
+----------hashJoin[INNER_JOIN] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk))otherCondition=(( not (current_addr.ca_city = dn.bought_city)))
 ------------PhysicalDistribute
 --------------PhysicalProject
 ----------------hashAgg[LOCAL]
@@ -21,7 +21,7 @@ PhysicalResultSink
 ------------------------------------PhysicalOlapScan[store_sales]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------filter(d_dow IN (0, 6) and d_year IN (1999, 2000, 2001))
+--------------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_dow IN (0, 6) and default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_year IN (1999, 2000, 2001))
 ----------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
@@ -29,7 +29,7 @@ PhysicalResultSink
 ------------------------------------PhysicalOlapScan[household_demographics]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter(s_city IN ('Centerville', 'Fairview', 'Five Points', 'Liberty', 'Oak Grove'))
+--------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.store.s_city IN ('Centerville', 'Fairview', 'Five Points', 'Liberty', 'Oak Grove'))
 ----------------------------------PhysicalOlapScan[store]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject

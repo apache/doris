@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalDistribute
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------filter((cast(l_quantity as DECIMALV3(38, 5)) < (0.2 * avg(cast(l_quantity as DECIMALV3(17, 4))) OVER(PARTITION BY p_partkey))))
+------------filter((cast(default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.lineitem.l_quantity as DECIMALV3(38, 5)) < (0.2 * avg(cast(default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.lineitem.l_quantity as DECIMALV3(17, 4))) OVER(PARTITION BY default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.part.p_partkey))))
 --------------PhysicalWindow
 ----------------PhysicalQuickSort
 ------------------PhysicalDistribute

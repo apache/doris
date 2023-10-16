@@ -4,7 +4,7 @@ PhysicalResultSink
 --PhysicalTopN
 ----PhysicalDistribute
 ------PhysicalTopN
---------filter((if((inv_before > 0), (cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)), NULL) <= 1.5) and (if((inv_before > 0), (cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)), NULL) >= cast((2.000000 / 3.0) as DOUBLE)))
+--------filter((if((x.inv_before > 0), (cast(x.inv_after as DOUBLE) / cast(x.inv_before as DOUBLE)), NULL) <= 1.5) and (if((x.inv_before > 0), (cast(x.inv_after as DOUBLE) / cast(x.inv_before as DOUBLE)), NULL) >= cast((2.000000 / 3.0) as DOUBLE)))
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]

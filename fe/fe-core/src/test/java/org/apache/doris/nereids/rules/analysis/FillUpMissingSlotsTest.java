@@ -127,7 +127,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
         );
-        Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
+        Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(default_cluster:test_resolve_aggregate_functions.t1.a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .applyBottomUp(new ExpressionRewrite(FunctionBinder.INSTANCE))
                 .matches(
@@ -152,7 +152,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
         );
-        Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
+        Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(default_cluster:test_resolve_aggregate_functions.t1.a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalProject(
@@ -165,7 +165,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
 
         sql = "SELECT a1, sum(a2) FROM t1 GROUP BY a1 HAVING sum(a2) > 0";
-        sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
+        sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(default_cluster:test_resolve_aggregate_functions.t1.a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalProject(
@@ -219,12 +219,12 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
         );
-        sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
+        sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(default_cluster:test_resolve_aggregate_functions.t1.a2)");
         SlotReference pk = new SlotReference(
                 new ExprId(0), "pk", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
         );
-        Alias minPK = new Alias(new ExprId(4), new Min(pk), "min(pk)");
+        Alias minPK = new Alias(new ExprId(4), new Min(pk), "min(default_cluster:test_resolve_aggregate_functions.t1.pk)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalProject(
@@ -237,7 +237,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
 
         sql = "SELECT a1, sum(a1 + a2) FROM t1 GROUP BY a1 HAVING sum(a1 + a2) > 0";
-        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
+        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum((default_cluster:test_resolve_aggregate_functions.t1.a1 + default_cluster:test_resolve_aggregate_functions.t1.a2))");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalProject(
@@ -250,7 +250,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
 
         sql = "SELECT a1, sum(a1 + a2) FROM t1 GROUP BY a1 HAVING sum(a1 + a2 + 3) > 0";
         Alias sumA1A23 = new Alias(new ExprId(4), new Sum(new Add(new Add(a1, a2), new TinyIntLiteral((byte) 3))),
-                "sum(((a1 + a2) + 3))");
+                "sum(((default_cluster:test_resolve_aggregate_functions.t1.a1 + default_cluster:test_resolve_aggregate_functions.t1.a2) + 3))");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalProject(
@@ -291,8 +291,8 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 new ExprId(4), "b1", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t2")
         );
-        Alias sumA2 = new Alias(new ExprId(6), new Sum(a2), "sum(a2)");
-        Alias sumB1 = new Alias(new ExprId(7), new Sum(b1), "sum(b1)");
+        Alias sumA2 = new Alias(new ExprId(6), new Sum(a2), "sum(default_cluster:test_resolve_aggregate_functions.t1.a2)");
+        Alias sumB1 = new Alias(new ExprId(7), new Sum(b1), "sum(default_cluster:test_resolve_aggregate_functions.t2.b1)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalProject(
@@ -324,7 +324,8 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,
                 "Aggregate functions in having clause can't be nested:"
-                        + " sum((cast(a1 as DOUBLE) + avg(a2))).",
+                        + " sum((cast(default_cluster:test_resolve_aggregate_functions.t1.a1 as DOUBLE)"
+                        + " + avg(default_cluster:test_resolve_aggregate_functions.t1.a2))).",
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT a1 FROM t1 GROUP BY a1 HAVING sum(a1 + AVG(a2)) > 0"
                 ));
@@ -332,7 +333,9 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,
                 "Aggregate functions in having clause can't be nested:"
-                        + " sum((cast((a1 + a2) as DOUBLE) + avg(a2))).",
+                        + " sum((cast((default_cluster:test_resolve_aggregate_functions.t1.a1"
+                        + " + default_cluster:test_resolve_aggregate_functions.t1.a2) as DOUBLE)"
+                        + " + avg(default_cluster:test_resolve_aggregate_functions.t1.a2))).",
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT a1 FROM t1 GROUP BY a1 HAVING sum(a1 + a2 + AVG(a2)) > 0"
                 ));
@@ -348,7 +351,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
         );
         SlotReference pk1 = new SlotReference(
-                new ExprId(6), "(pk + 1)", IntegerType.INSTANCE, true,
+                new ExprId(6), "(default_cluster:test_resolve_aggregate_functions.t1.pk + 1)", IntegerType.INSTANCE, true,
                 ImmutableList.of()
         );
         SlotReference a1 = new SlotReference(
@@ -361,10 +364,10 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias pk11 = new Alias(new ExprId(7), new Add(new Add(pk, Literal.of((byte) 1)), Literal.of((byte) 1)), "((pk + 1) + 1)");
         Alias pk2 = new Alias(new ExprId(8), new Add(pk, Literal.of((byte) 2)), "(pk + 2)");
-        Alias sumA1 = new Alias(new ExprId(9), new Sum(a1), "sum(a1)");
-        Alias countA1 = new Alias(new ExprId(13), new Count(a1), "count(a1)");
+        Alias sumA1 = new Alias(new ExprId(9), new Sum(a1), "sum(default_cluster:test_resolve_aggregate_functions.t1.a1)");
+        Alias countA1 = new Alias(new ExprId(13), new Count(a1), "count(default_cluster:test_resolve_aggregate_functions.t1.a1)");
         Alias countA11 = new Alias(new ExprId(10), new Add(countA1.toSlot(), Literal.of((byte) 1)), "(count(a1) + 1)");
-        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
+        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum((default_cluster:test_resolve_aggregate_functions.t1.a1 + default_cluster:test_resolve_aggregate_functions.t1.a2))");
         Alias v1 = new Alias(new ExprId(12), new Count(a2), "v1");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
@@ -408,7 +411,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
         );
-        Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
+        Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(default_cluster:test_resolve_aggregate_functions.t1.a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalProject(
@@ -421,7 +424,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
 
         sql = "SELECT a1, sum(a2) FROM t1 GROUP BY a1 ORDER BY sum(a2)";
-        sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
+        sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(default_cluster:test_resolve_aggregate_functions.t1.a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalSort(
@@ -459,12 +462,12 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 new ExprId(2), "a2", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
         );
-        sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
+        sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(default_cluster:test_resolve_aggregate_functions.t1.a2)");
         SlotReference pk = new SlotReference(
                 new ExprId(0), "pk", TinyIntType.INSTANCE, true,
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
         );
-        Alias minPK = new Alias(new ExprId(4), new Min(pk), "min(pk)");
+        Alias minPK = new Alias(new ExprId(4), new Min(pk), "min(default_cluster:test_resolve_aggregate_functions.t1.pk)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalProject(
@@ -477,7 +480,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
 
         sql = "SELECT a1, sum(a1 + a2) FROM t1 GROUP BY a1 ORDER BY sum(a1 + a2)";
-        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
+        Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "sum((default_cluster:test_resolve_aggregate_functions.t1.a1 + default_cluster:test_resolve_aggregate_functions.t1.a2))");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalSort(
@@ -489,7 +492,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
 
         sql = "SELECT a1, sum(a1 + a2) FROM t1 GROUP BY a1 ORDER BY sum(a1 + a2 + 3)";
         Alias sumA1A23 = new Alias(new ExprId(4), new Sum(new Add(new Add(a1, a2), new TinyIntLiteral((byte) 3))),
-                "sum(((a1 + a2) + 3))");
+                "sum(((default_cluster:test_resolve_aggregate_functions.t1.a1 + default_cluster:test_resolve_aggregate_functions.t1.a2) + 3))");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(
                         logicalProject(
@@ -525,7 +528,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
         );
         SlotReference pk1 = new SlotReference(
-                new ExprId(6), "(pk + 1)", IntegerType.INSTANCE, true,
+                new ExprId(6), "(default_cluster:test_resolve_aggregate_functions.t1.pk + 1)", IntegerType.INSTANCE, true,
                 ImmutableList.of()
         );
         SlotReference a1 = new SlotReference(
@@ -538,10 +541,10 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias pk11 = new Alias(new ExprId(7), new Add(new Add(pk, Literal.of((byte) 1)), Literal.of((byte) 1)), "((pk + 1) + 1)");
         Alias pk2 = new Alias(new ExprId(8), new Add(pk, Literal.of((byte) 2)), "(pk + 2)");
-        Alias sumA1 = new Alias(new ExprId(9), new Sum(a1), "sum(a1)");
-        Alias countA1 = new Alias(new ExprId(13), new Count(a1), "count(a1)");
+        Alias sumA1 = new Alias(new ExprId(9), new Sum(a1), "sum(default_cluster:test_resolve_aggregate_functions.t1.a1)");
+        Alias countA1 = new Alias(new ExprId(13), new Count(a1), "count(default_cluster:test_resolve_aggregate_functions.t1.a1)");
         Alias countA11 = new Alias(new ExprId(10), new Add(new Count(a1), Literal.of((byte) 1)), "(count(a1) + 1)");
-        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum((a1 + a2))");
+        Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "sum((default_cluster:test_resolve_aggregate_functions.t1.a1 + default_cluster:test_resolve_aggregate_functions.t1.a2))");
         Alias v1 = new Alias(new ExprId(12), new Count(a2), "v1");
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(logicalProject(logicalSort(logicalProject(logicalAggregate(logicalProject(

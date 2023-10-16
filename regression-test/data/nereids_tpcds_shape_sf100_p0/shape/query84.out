@@ -31,6 +31,6 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[household_demographics]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((cast(ib_upper_bound as BIGINT) <= 55806) and (income_band.ib_lower_bound >= 5806))
+--------------------------------filter((cast(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.income_band.ib_upper_bound as BIGINT) <= 55806) and (income_band.ib_lower_bound >= 5806))
 ----------------------------------PhysicalOlapScan[income_band]
 

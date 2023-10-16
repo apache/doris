@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------PhysicalTopN
 --------PhysicalProject
-----------filter((partsupp.ps_supplycost = min(ps_supplycost) OVER(PARTITION BY p_partkey)))
+----------filter((partsupp.ps_supplycost = min(default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.partsupp.ps_supplycost) OVER(PARTITION BY default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.part.p_partkey)))
 ------------PhysicalWindow
 --------------PhysicalQuickSort
 ----------------PhysicalDistribute
@@ -17,7 +17,7 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[partsupp]
 ----------------------------PhysicalProject
-------------------------------filter((p_type like '%BRASS') and (part.p_size = 15))
+------------------------------filter((default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.part.p_type like '%BRASS') and (part.p_size = 15))
 --------------------------------PhysicalOlapScan[part]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject

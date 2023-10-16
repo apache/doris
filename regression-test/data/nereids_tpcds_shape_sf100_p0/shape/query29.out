@@ -43,6 +43,6 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[store]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------filter(d_year IN (1999, 2000, 2001))
+----------------------filter(d3.d_year IN (1999, 2000, 2001))
 ------------------------PhysicalOlapScan[date_dim]
 

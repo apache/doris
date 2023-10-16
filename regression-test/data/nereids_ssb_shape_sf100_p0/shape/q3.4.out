@@ -17,7 +17,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[lineorder]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter(s_city IN ('UNITED KI1', 'UNITED KI5'))
+------------------------------filter(default_cluster:regression_test_nereids_ssb_shape_sf100_p0.supplier.s_city IN ('UNITED KI1', 'UNITED KI5'))
 --------------------------------PhysicalOlapScan[supplier]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
@@ -25,6 +25,6 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[dates]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------filter(c_city IN ('UNITED KI1', 'UNITED KI5'))
+----------------------filter(default_cluster:regression_test_nereids_ssb_shape_sf100_p0.customer.c_city IN ('UNITED KI1', 'UNITED KI5'))
 ------------------------PhysicalOlapScan[customer]
 

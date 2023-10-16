@@ -13,7 +13,7 @@ PhysicalResultSink
 --------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey))otherCondition=()
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(( not (o_comment like '%special%requests%')))
+--------------------------filter(( not (default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.orders.o_comment like '%special%requests%')))
 ----------------------------PhysicalOlapScan[orders]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject

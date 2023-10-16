@@ -15,7 +15,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalOlapScan[store_sales]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(d_year IN (2000, 2001, 2002, 2003))
+--------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_year IN (2000, 2001, 2002, 2003))
 ----------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
@@ -23,7 +23,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteAnchor ( cteId=CTEId#2 )
 ----PhysicalCteProducer ( cteId=CTEId#2 )
 ------PhysicalProject
---------NestedLoopJoin[INNER_JOIN](cast(ssales as DOUBLE) > cast((0.9500 * tpcds_cmax) as DOUBLE))
+--------NestedLoopJoin[INNER_JOIN](cast(ssales as DOUBLE) > cast((0.9500 * max_store_sales.tpcds_cmax) as DOUBLE))
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk))otherCondition=()
@@ -48,7 +48,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------------PhysicalOlapScan[store_sales]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter(d_year IN (2000, 2001, 2002, 2003))
+------------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_year IN (2000, 2001, 2002, 2003))
 --------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject

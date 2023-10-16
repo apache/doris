@@ -19,7 +19,7 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[orders]
 ------------------------PhysicalProject
---------------------------filter((sum(l_quantity) > 300.00))
+--------------------------filter((sum(default_cluster:regression_test_nereids_tpch_shape_sf1000_p0.lineitem.l_quantity) > 300.00))
 ----------------------------hashAgg[LOCAL]
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[lineitem]

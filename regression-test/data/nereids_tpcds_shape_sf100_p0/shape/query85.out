@@ -26,7 +26,7 @@ PhysicalResultSink
 ------------------------------------------filter(((((cd1.cd_marital_status = 'M') AND (cd1.cd_education_status = '4 yr Degree')) OR ((cd1.cd_marital_status = 'S') AND (cd1.cd_education_status = 'Secondary'))) OR ((cd1.cd_marital_status = 'W') AND (cd1.cd_education_status = 'Advanced Degree'))))
 --------------------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------------------PhysicalDistribute
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk))otherCondition=((((ca_state IN ('DE', 'FL', 'TX') AND ((web_sales.ws_net_profit >= 100.00) AND (web_sales.ws_net_profit <= 200.00))) OR (ca_state IN ('ID', 'IN', 'ND') AND ((web_sales.ws_net_profit >= 150.00) AND (web_sales.ws_net_profit <= 300.00)))) OR (ca_state IN ('IL', 'MT', 'OH') AND ((web_sales.ws_net_profit >= 50.00) AND (web_sales.ws_net_profit <= 250.00)))))
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk))otherCondition=((((default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.customer_address.ca_state IN ('DE', 'FL', 'TX') AND ((web_sales.ws_net_profit >= 100.00) AND (web_sales.ws_net_profit <= 200.00))) OR (default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.customer_address.ca_state IN ('ID', 'IN', 'ND') AND ((web_sales.ws_net_profit >= 150.00) AND (web_sales.ws_net_profit <= 300.00)))) OR (default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.customer_address.ca_state IN ('IL', 'MT', 'OH') AND ((web_sales.ws_net_profit >= 50.00) AND (web_sales.ws_net_profit <= 250.00)))))
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
 ----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number))otherCondition=()
@@ -42,7 +42,7 @@ PhysicalResultSink
 --------------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
-----------------------------------------------filter(((ca_state IN ('DE', 'FL', 'TX') OR ca_state IN ('ID', 'IN', 'ND')) OR ca_state IN ('IL', 'MT', 'OH')) and (customer_address.ca_country = 'United States'))
+----------------------------------------------filter(((default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.customer_address.ca_state IN ('DE', 'FL', 'TX') OR default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.customer_address.ca_state IN ('ID', 'IN', 'ND')) OR default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.customer_address.ca_state IN ('IL', 'MT', 'OH')) and (customer_address.ca_country = 'United States'))
 ------------------------------------------------PhysicalOlapScan[customer_address]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject

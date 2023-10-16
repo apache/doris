@@ -3,7 +3,7 @@
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
-------filter((if((mean = 0), 0, (stdev / mean)) > 1))
+------filter((if((foo.mean = 0), 0, (foo.stdev / foo.mean)) > 1))
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
@@ -15,7 +15,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalOlapScan[inventory]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter((date_dim.d_year = 1998) and d_moy IN (1, 2))
+----------------------------filter((date_dim.d_year = 1998) and inv.d_moy IN (1, 2))
 ------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject

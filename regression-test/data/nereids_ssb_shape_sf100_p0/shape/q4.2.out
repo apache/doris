@@ -24,7 +24,7 @@ PhysicalResultSink
 --------------------------------------PhysicalOlapScan[supplier]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter(d_year IN (1997, 1998))
+----------------------------------filter(default_cluster:regression_test_nereids_ssb_shape_sf100_p0.dates.d_year IN (1997, 1998))
 ------------------------------------PhysicalOlapScan[dates]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
@@ -32,6 +32,6 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[customer]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------filter(p_mfgr IN ('MFGR#1', 'MFGR#2'))
+----------------------filter(default_cluster:regression_test_nereids_ssb_shape_sf100_p0.part.p_mfgr IN ('MFGR#1', 'MFGR#2'))
 ------------------------PhysicalOlapScan[part]
 

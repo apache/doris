@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((cs1.cs_order_number = cs2.cs_order_number))otherCondition=(( not (cs_warehouse_sk = cs_warehouse_sk)))
+------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((cs1.cs_order_number = cs2.cs_order_number))otherCondition=(( not (cs1.cs_warehouse_sk = cs2.cs_warehouse_sk)))
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[catalog_sales]
@@ -33,6 +33,6 @@ PhysicalResultSink
 ----------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(cc_county IN ('Barrow County', 'Daviess County', 'Luce County', 'Richland County', 'Ziebach County'))
+--------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.call_center.cc_county IN ('Barrow County', 'Daviess County', 'Luce County', 'Richland County', 'Ziebach County'))
 ----------------------------PhysicalOlapScan[call_center]
 

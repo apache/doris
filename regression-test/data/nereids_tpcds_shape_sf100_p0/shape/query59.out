@@ -17,7 +17,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute
 --------PhysicalTopN
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 52)) and (y.s_store_id1 = x.s_store_id2))otherCondition=()
+------------hashJoin[INNER_JOIN] hashCondition=((expr_cast(y.d_week_seq1 as BIGINT) = expr_(x.d_week_seq2 - 52)) and (y.s_store_id1 = x.s_store_id2))otherCondition=()
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((wss.ss_store_sk = store.s_store_sk))otherCondition=()

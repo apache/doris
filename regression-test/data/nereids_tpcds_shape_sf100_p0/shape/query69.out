@@ -53,6 +53,6 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[customer]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter(ca_state IN ('MI', 'TX', 'VA'))
+----------------------------------------filter(ca.ca_state IN ('MI', 'TX', 'VA'))
 ------------------------------------------PhysicalOlapScan[customer_address]
 

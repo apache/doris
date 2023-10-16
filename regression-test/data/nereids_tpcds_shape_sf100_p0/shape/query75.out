@@ -24,7 +24,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter(d_year IN (1998, 1999))
+----------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_year IN (1998, 1999))
 ------------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute
 ----------------PhysicalProject
@@ -43,7 +43,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter(d_year IN (1998, 1999))
+----------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_year IN (1998, 1999))
 ------------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute
 ----------------PhysicalProject
@@ -62,14 +62,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter(d_year IN (1998, 1999))
+----------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_year IN (1998, 1999))
 ------------------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalTopN
 ------PhysicalDistribute
 --------PhysicalTopN
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((curr_yr.i_brand_id = prev_yr.i_brand_id) and (curr_yr.i_category_id = prev_yr.i_category_id) and (curr_yr.i_class_id = prev_yr.i_class_id) and (curr_yr.i_manufact_id = prev_yr.i_manufact_id))otherCondition=(((cast(cast(sales_cnt as DECIMALV3(17, 2)) as DECIMALV3(23, 8)) / cast(sales_cnt as DECIMALV3(17, 2))) < 0.900000))
+------------hashJoin[INNER_JOIN] hashCondition=((curr_yr.i_brand_id = prev_yr.i_brand_id) and (curr_yr.i_category_id = prev_yr.i_category_id) and (curr_yr.i_class_id = prev_yr.i_class_id) and (curr_yr.i_manufact_id = prev_yr.i_manufact_id))otherCondition=(((cast(cast(curr_yr.sales_cnt as DECIMALV3(17, 2)) as DECIMALV3(23, 8)) / cast(prev_yr.sales_cnt as DECIMALV3(17, 2))) < 0.900000))
 --------------PhysicalDistribute
 ----------------filter((curr_yr.d_year = 1999))
 ------------------PhysicalCteConsumer ( cteId=CTEId#0 )

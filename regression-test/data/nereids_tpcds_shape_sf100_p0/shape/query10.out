@@ -34,7 +34,7 @@ PhysicalResultSink
 ------------------------------------------PhysicalOlapScan[customer]
 ----------------------------------------PhysicalDistribute
 ------------------------------------------PhysicalProject
---------------------------------------------filter(ca_county IN ('Cochran County', 'Kandiyohi County', 'Marquette County', 'Storey County', 'Warren County'))
+--------------------------------------------filter(ca.ca_county IN ('Cochran County', 'Kandiyohi County', 'Marquette County', 'Storey County', 'Warren County'))
 ----------------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject

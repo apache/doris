@@ -73,6 +73,10 @@ public interface ExpressionTrait extends TreeNode<Expression> {
         throw new UnboundException("sql");
     }
 
+    default String toSqlWithoutQualifier() throws UnboundException {
+        return toSql();
+    }
+
     default boolean foldable() {
         return true;
     }

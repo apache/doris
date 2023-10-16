@@ -47,6 +47,6 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[item]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter(t_meal_time IN ('breakfast', 'dinner'))
+------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.time_dim.t_meal_time IN ('breakfast', 'dinner'))
 --------------------------PhysicalOlapScan[time_dim]
 

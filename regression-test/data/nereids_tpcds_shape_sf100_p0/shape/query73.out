@@ -22,14 +22,14 @@ PhysicalResultSink
 ----------------------------------PhysicalOlapScan[store_sales]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_dom <= 2) and (date_dim.d_dom >= 1) and d_year IN (2000, 2001, 2002))
+------------------------------------filter((date_dim.d_dom <= 2) and (date_dim.d_dom >= 1) and default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.date_dim.d_year IN (2000, 2001, 2002))
 --------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter((household_demographics.hd_vehicle_count > 0) and (if((hd_vehicle_count > 0), (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)), NULL) > 1) and hd_buy_potential IN ('501-1000', 'Unknown'))
+--------------------------------filter((household_demographics.hd_vehicle_count > 0) and (if((default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.household_demographics.hd_vehicle_count > 0), (cast(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.household_demographics.hd_dep_count as DOUBLE) / cast(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.household_demographics.hd_vehicle_count as DOUBLE)), NULL) > 1) and default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.household_demographics.hd_buy_potential IN ('501-1000', 'Unknown'))
 ----------------------------------PhysicalOlapScan[household_demographics]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter(s_county IN ('Barrow County', 'Daviess County', 'Fairfield County', 'Walker County'))
+------------------------------filter(default_cluster:regression_test_nereids_tpcds_shape_sf100_p0.store.s_county IN ('Barrow County', 'Daviess County', 'Fairfield County', 'Walker County'))
 --------------------------------PhysicalOlapScan[store]
 
