@@ -67,8 +67,8 @@ public class HistogramTask extends BaseAnalysisTask {
         params.put("tblId", String.valueOf(tbl.getId()));
         params.put("idxId", String.valueOf(info.indexId));
         params.put("colId", String.valueOf(info.colName));
-        params.put("dbName", info.dbName);
-        params.put("tblName", String.valueOf(info.tblName));
+        params.put("dbName", db.getFullName());
+        params.put("tblName", tbl.getName());
         params.put("colName", String.valueOf(info.colName));
         params.put("sampleRate", getSampleRateFunction());
         params.put("maxBucketNum", String.valueOf(info.maxBucketNum));

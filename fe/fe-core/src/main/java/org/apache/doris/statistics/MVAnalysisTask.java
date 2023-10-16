@@ -114,9 +114,9 @@ public class MVAnalysisTask extends BaseAnalysisTask {
                         String.valueOf(olapTable.getPartition(partName).getId());
                 params.put("partId", partId);
                 params.put("dataSizeFunction", getDataSizeFunction(column));
-                params.put("dbName", info.dbName);
+                params.put("dbName", db.getFullName());
                 params.put("colName", colName);
-                params.put("tblName", String.valueOf(info.tblName));
+                params.put("tblName", tbl.getName());
                 params.put("sql", sql);
                 StatisticsUtil.execUpdate(ANALYZE_MV_PART, params);
             }

@@ -30,6 +30,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -94,9 +95,9 @@ public abstract class BaseAnalysisTask {
 
     protected AnalysisInfo info;
 
-    protected CatalogIf catalog;
+    protected CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog;
 
-    protected DatabaseIf db;
+    protected DatabaseIf<? extends TableIf> db;
 
     protected TableIf tbl;
 
@@ -119,25 +120,11 @@ public abstract class BaseAnalysisTask {
     }
 
     protected void init(AnalysisInfo info) {
-        catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.catalogName);
-        if (catalog == null) {
-            Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(info, AnalysisState.FAILED,
-                    String.format("Catalog with name: %s not exists", info.dbName), System.currentTimeMillis());
-            return;
-        }
-        db = (DatabaseIf) catalog.getDb(info.dbName).orElse(null);
-        if (db == null) {
-            Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(info, AnalysisState.FAILED,
-                    String.format("DB with name %s not exists", info.dbName), System.currentTimeMillis());
-            return;
-        }
-        tbl = (TableIf) db.getTable(info.tblName).orElse(null);
-        if (tbl == null) {
-            Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(
-                    info, AnalysisState.FAILED,
-                    String.format("Table with name %s not exists", info.tblName), System.currentTimeMillis());
-        }
         tableSample = getTableSample();
+        DBObjects dbObjects = StatisticsUtil.convertIdToObjects(info.catalogId, info.dbId, info.tblId);
+        catalog = dbObjects.catalog;
+        db = dbObjects.db;
+        tbl = dbObjects.table;
         // External Table level task doesn't contain a column. Don't need to do the column related analyze.
         if (info.externalTableLevelTask) {
             return;
@@ -146,7 +133,7 @@ public abstract class BaseAnalysisTask {
                 || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
             if (col == null) {
-                throw new RuntimeException(String.format("Column with name %s not exists", info.tblName));
+                throw new RuntimeException(String.format("Column with name %s not exists", tbl.getName()));
             }
             Preconditions.checkArgument(!StatisticsUtil.isUnsupportedType(col.getType()),
                     String.format("Column with type %s is not supported", col.getType().toString()));
@@ -261,7 +248,7 @@ public abstract class BaseAnalysisTask {
             QueryState queryState = stmtExecutor.getContext().getState();
             if (queryState.getStateType().equals(MysqlStateType.ERR)) {
                 throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
-                        info.catalogName, info.dbName, info.colName, stmtExecutor.getOriginStmt().toString(),
+                        catalog.getName(), db.getFullName(), info.colName, stmtExecutor.getOriginStmt().toString(),
                         queryState.getErrorMessage()));
             }
         } finally {

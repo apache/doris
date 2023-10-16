@@ -137,9 +137,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("idxId", String.valueOf(info.indexId));
             params.put("colId", String.valueOf(info.colName));
             params.put("dataSizeFunction", getDataSizeFunction(col));
-            params.put("dbName", info.dbName);
-            params.put("colName", String.valueOf(info.colName));
-            params.put("tblName", String.valueOf(info.tblName));
+            params.put("dbName", db.getFullName());
+            params.put("colName", info.colName);
+            params.put("tblName", tbl.getName());
             params.put("scaleFactor", String.valueOf(scaleFactor));
             params.put("tablets", tabletStr.isEmpty() ? "" : String.format("TABLET(%s)", tabletStr));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -207,9 +207,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("idxId", String.valueOf(info.indexId));
         params.put("colId", String.valueOf(info.colName));
         params.put("dataSizeFunction", getDataSizeFunction(col));
-        params.put("dbName", info.dbName);
+        params.put("dbName", db.getFullName());
         params.put("colName", String.valueOf(info.colName));
-        params.put("tblName", String.valueOf(info.tblName));
+        params.put("tblName", String.valueOf(tbl.getName()));
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
@@ -249,7 +249,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 QueryState queryState = r.connectContext.getState();
                 if (queryState.getStateType().equals(MysqlStateType.ERR)) {
                     throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
-                            info.catalogName, info.dbName, info.colName, partitionCollectSQL,
+                            catalog.getName(), db.getFullName(), info.colName, partitionCollectSQL,
                             queryState.getErrorMessage()));
                 }
             }
