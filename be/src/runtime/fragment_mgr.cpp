@@ -430,8 +430,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
 #endif
 
     LOG_INFO(func_name)
-            .tag("query_id", fragment_executor->query_id())
-            .tag("instance_id", fragment_executor->fragment_instance_id())
+            .tag("query_id", print_id(fragment_executor->query_id()))
+            .tag("instance_id", print_id(fragment_executor->fragment_instance_id()))
             .tag("pthread_id", (uintptr_t)pthread_self());
 
     Status st = fragment_executor->execute();
@@ -959,6 +959,15 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
         query_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit, false);
     }
 #endif
+}
+
+
+bool FragmentMgr::is_pipeline_fragment(const TUniqueId& id) {
+    std::unique_lock<std::mutex> state_lock(_lock);
+    if (_pipeline_map.contains(id)) {
+        return true;
+    }
+    return false;
 }
 
 void FragmentMgr::cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,

@@ -150,6 +150,8 @@ public:
         return _query_ctx_map.size();
     }
 
+    bool is_pipeline_fragment(const TUniqueId& fid);
+
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
                               const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
