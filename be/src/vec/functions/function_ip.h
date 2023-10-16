@@ -234,10 +234,12 @@ public:
 
         auto col_res = convertToIPv4<exception_mode, ColumnInt64>(column, null_map);
 
-        if (null_map && !col_res->is_nullable())
+        if (null_map && !col_res->is_nullable()) {
             block.replace_by_position(result,
                                       ColumnNullable::create(IColumn::mutate(col_res),
                                                              IColumn::mutate(null_map_column)));
+            return Status::OK();
+        }
 
         block.replace_by_position(result, col_res);
         return Status::OK();
