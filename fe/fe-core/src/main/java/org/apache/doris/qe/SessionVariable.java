@@ -28,6 +28,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
+import org.apache.doris.nereids.parser.ParseDialect;
+import org.apache.doris.nereids.parser.ParseDialect.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
@@ -39,6 +41,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -409,6 +412,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FULL_AUTO_ANALYZE_START_TIME = "full_auto_analyze_start_time";
 
     public static final String FULL_AUTO_ANALYZE_END_TIME = "full_auto_analyze_end_time";
+
+    public static final String SQL_DIALECT = "sql_dialect";
 
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
 
@@ -1211,6 +1216,10 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public String fullAutoAnalyzeEndTime = "02:00:00";
 
+    @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
+            description = {"解析sql使用的方言", "The dialect used to parse sql."})
+    public String sqlDialect = "doris";
+
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
 
@@ -1933,6 +1942,17 @@ public class SessionVariable implements Serializable, Writable {
         this.enableOrcLazyMat = enableOrcLazyMat;
     }
 
+    public String getSqlDialect() {
+        return sqlDialect;
+    }
+
+    public ParseDialect.Dialect getSqlParseDialect() {
+        return ParseDialect.Dialect.getByName(sqlDialect);
+    }
+
+    public void setSqlDialect(String sqlDialect) {
+        this.sqlDialect = sqlDialect == null ? null : sqlDialect.toLowerCase();
+    }
 
     /**
      * getInsertVisibleTimeoutMs.
@@ -2629,6 +2649,14 @@ public class SessionVariable implements Serializable, Writable {
         VariableMgr.setVar(this, new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
     }
 
+    public void disableNereidsJoinReorderOnce() throws DdlException {
+        if (!enableNereidsPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this, new SetVar(SessionVariable.DISABLE_JOIN_REORDER, new StringLiteral("false")));
+    }
+
     // return number of variables by given variable annotation
     public int getVariableNumByVariableAnnotation(VariableAnnotation type) {
         int num = 0;
@@ -2690,5 +2718,17 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean fasterFloatConvert() {
         return this.fasterFloatConvert;
+    }
+
+    public void checkSqlDialect(String sqlDialect) {
+        if (StringUtils.isEmpty(sqlDialect)) {
+            LOG.warn("sqlDialect value is empty");
+            throw new UnsupportedOperationException("sqlDialect value is empty");
+        }
+        if (Arrays.stream(Dialect.values())
+                .noneMatch(dialect -> dialect.getDialectName().equalsIgnoreCase(sqlDialect))) {
+            LOG.warn("sqlDialect value is invalid, the invalid value is {}", sqlDialect);
+            throw new UnsupportedOperationException("sqlDialect value is invalid, the invalid value is " + sqlDialect);
+        }
     }
 }
