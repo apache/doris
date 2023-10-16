@@ -102,7 +102,7 @@ public class MetaReader {
                 }
                 // skip deprecated modules
                 if (PersistMetaModules.DEPRECATED_MODULE_NAMES.contains(metaIndex.name)) {
-                    LOG.warn("meta modules {} is deprecated, ignore and skip it");
+                    LOG.warn("meta modules {} is deprecated, ignore and skip it", metaIndex.name);
                     // If this is the last module, nothing need to do.
                     if (i < metaFooter.metaIndices.size() - 1) {
                         IOUtils.skipFully(dis, metaFooter.metaIndices.get(i + 1).offset - metaIndex.offset);
@@ -112,7 +112,7 @@ public class MetaReader {
                 MetaPersistMethod persistMethod = PersistMetaModules.MODULES_MAP.get(metaIndex.name);
                 if (persistMethod == null) {
                     if (Config.ignore_unknown_metadata_module) {
-                        LOG.warn("meta modules {} is unknown, ignore and skip it");
+                        LOG.warn("meta modules {} is unknown, ignore and skip it", metaIndex.name);
                         // If this is the last module, nothing need to do.
                         if (i < metaFooter.metaIndices.size() - 1) {
                             IOUtils.skipFully(dis, metaFooter.metaIndices.get(i + 1).offset - metaIndex.offset);
