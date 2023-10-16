@@ -47,7 +47,6 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
 
     // While doing sample analysis, the sampled ndv result will multiply a factor (total size/sample size)
     // if ndv(col)/count(col) is greater than this threshold.
-    private static final String NDV_MULTIPLY_THRESHOLD = "0.3";
 
     private static final String ANALYZE_TABLE_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
@@ -59,11 +58,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "${idxId} AS idx_id, "
             + "'${colId}' AS col_id, "
             + "NULL AS part_id, "
-            + "ROUND(COUNT(1) * ${scaleFactor}) AS row_count, "
-            + "case when NDV(`${colName}`)/count('${colName}') < "
-            + NDV_MULTIPLY_THRESHOLD
-            + " then NDV(`${colName}`) "
-            + "else NDV(`${colName}`) * ${scaleFactor} end AS ndv, "
+            + NDV_SAMPLE_TEMPLATE
             + "ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS null_count, "
             + "MIN(`${colName}`) AS min, "
             + "MAX(`${colName}`) AS max, "
