@@ -519,10 +519,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             LOG.info("schema change tasks not finished. job: {}", jobId);
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
-                if (task.getFailedTimes() >= 3) {
+                if (task.getFailedTimes() > 0) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                    LOG.warn("schema change task failed after try three times: " + task.getErrorMsg());
+                    LOG.warn("schema change task failed: " + task.getErrorMsg());
                     if (!failedAgentTasks.containsKey(task.getTabletId())) {
                         failedAgentTasks.put(task.getTabletId(), Lists.newArrayList(task));
                     } else {
