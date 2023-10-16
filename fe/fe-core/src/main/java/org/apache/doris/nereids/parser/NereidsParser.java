@@ -22,10 +22,14 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.UnsupportedDialectException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.trino.LogicalPlanTrinoBuilder;
+import org.apache.doris.nereids.parser.trino.TrinoParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.CharStreams;
@@ -33,15 +37,20 @@ import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 
 /**
  * Sql parser, convert sql DSL to logical plan.
  */
 public class NereidsParser {
+    public static final Logger LOG = LogManager.getLogger(NereidsParser.class);
     private static final ParseErrorListener PARSE_ERROR_LISTENER = new ParseErrorListener();
     private static final PostProcessor POST_PROCESSOR = new PostProcessor();
 
@@ -56,6 +65,39 @@ public class NereidsParser {
             statementBases.add(new LogicalPlanAdapter(parsedPlanToContext.first, parsedPlanToContext.second));
         }
         return statementBases;
+    }
+
+    /**
+     * ParseSQL with dialect.
+     */
+    public List<StatementBase> parseSQL(String sql, SessionVariable sessionVariable) {
+        if (ParseDialect.TRINO_395.getDialect().getDialectName()
+                .equalsIgnoreCase(sessionVariable.getSqlDialect())) {
+            return parseSQLWithDialect(sql, sessionVariable);
+        } else {
+            return parseSQL(sql);
+        }
+    }
+
+    private List<StatementBase> parseSQLWithDialect(String sql, SessionVariable sessionVariable) {
+        final List<StatementBase> logicalPlans = new ArrayList<>();
+        try {
+            io.trino.sql.parser.StatementSplitter splitter = new io.trino.sql.parser.StatementSplitter(sql);
+            ParserContext parserContext = new ParserContext(ParseDialect.TRINO_395);
+            StatementContext statementContext = new StatementContext();
+            for (io.trino.sql.parser.StatementSplitter.Statement statement : splitter.getCompleteStatements()) {
+                Object parsedPlan = parseSingleWithDialect(statement.statement(), parserContext);
+                logicalPlans.add(parsedPlan == null
+                        ? null : new LogicalPlanAdapter((LogicalPlan) parsedPlan, statementContext));
+            }
+        } catch (io.trino.sql.parser.ParsingException | UnsupportedDialectException e) {
+            LOG.debug("Failed to parse logical plan from trino, sql is :{}", sql, e);
+            return parseSQL(sql);
+        }
+        if (logicalPlans.isEmpty() || logicalPlans.stream().anyMatch(Objects::isNull)) {
+            return parseSQL(sql);
+        }
+        return logicalPlans;
     }
 
     /**
@@ -88,6 +130,25 @@ public class NereidsParser {
         ParserRuleContext tree = toAst(sql, parseFunction);
         LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
         return (T) logicalPlanBuilder.visit(tree);
+    }
+
+    /**
+     * Parse dialect sql.
+     *
+     * @param sql sql string
+     * @param parserContext parse context
+     * @return logical plan
+     */
+    public <T> T parseSingleWithDialect(String sql, ParserContext parserContext) {
+        if (ParseDialect.TRINO_395.equals(parserContext.getParserDialect())) {
+            io.trino.sql.tree.Statement statement = TrinoParser.parse(sql);
+            return (T) new LogicalPlanTrinoBuilder().visit(statement, parserContext);
+        } else {
+            LOG.debug("Failed to parse logical plan, the dialect name is {}, version is {}",
+                    parserContext.getParserDialect().getDialect().getDialectName(),
+                    parserContext.getParserDialect().getVersion());
+            throw new UnsupportedDialectException(parserContext.getParserDialect());
+        }
     }
 
     private ParserRuleContext toAst(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {

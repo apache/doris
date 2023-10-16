@@ -17,24 +17,18 @@
 
 package org.apache.doris.nereids.parser;
 
-import org.apache.doris.nereids.util.ExpressionParseChecker;
-import org.apache.doris.nereids.util.MemoPatternMatchSupported;
-import org.apache.doris.nereids.util.PlanParseChecker;
-import org.apache.doris.nereids.util.TrinoDialectPlanParseChecker;
-
 /**
- * Base class to check SQL parsing result.
+ * SQL parser context, support additional variable to control parse process.
  */
-public abstract class ParserTestBase implements MemoPatternMatchSupported {
-    public PlanParseChecker parsePlan(String sql) {
-        return new PlanParseChecker(sql);
+public class ParserContext {
+
+    private final ParseDialect parseDialect;
+
+    public ParserContext(ParseDialect parseDialect) {
+        this.parseDialect = parseDialect;
     }
 
-    public ExpressionParseChecker parseExpression(String sql) {
-        return new ExpressionParseChecker(sql);
-    }
-
-    public TrinoDialectPlanParseChecker trinoDialectParsePlan(String sql) {
-        return new TrinoDialectPlanParseChecker(sql);
+    public ParseDialect getParserDialect() {
+        return parseDialect;
     }
 }

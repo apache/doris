@@ -15,26 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser;
+package org.apache.doris.nereids.exceptions;
 
-import org.apache.doris.nereids.util.ExpressionParseChecker;
-import org.apache.doris.nereids.util.MemoPatternMatchSupported;
-import org.apache.doris.nereids.util.PlanParseChecker;
-import org.apache.doris.nereids.util.TrinoDialectPlanParseChecker;
+import org.apache.doris.nereids.parser.ParseDialect;
 
 /**
- * Base class to check SQL parsing result.
+ * UnsupportedDialectException when not match any in
+ * {@link org.apache.doris.nereids.parser.ParseDialect}.
  */
-public abstract class ParserTestBase implements MemoPatternMatchSupported {
-    public PlanParseChecker parsePlan(String sql) {
-        return new PlanParseChecker(sql);
+public class UnsupportedDialectException extends UnsupportedOperationException {
+
+    public UnsupportedDialectException(ParseDialect dialect) {
+        super(String.format("Unsupported dialect name is %s, version is %s",
+                dialect.getDialect().getDialectName(), dialect.getVersion().getVersionName()));
     }
 
-    public ExpressionParseChecker parseExpression(String sql) {
-        return new ExpressionParseChecker(sql);
-    }
-
-    public TrinoDialectPlanParseChecker trinoDialectParsePlan(String sql) {
-        return new TrinoDialectPlanParseChecker(sql);
+    public UnsupportedDialectException(String type, String msg) {
+        super(String.format("Unsupported dialect type is %s, msg is %s", type, msg));
     }
 }

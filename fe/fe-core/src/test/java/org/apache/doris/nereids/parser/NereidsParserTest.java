@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.qe.SessionVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -171,6 +173,23 @@ public class NereidsParserTest extends ParserTestBase {
         LogicalPlan logicalPlan0 = (LogicalPlan) ((LogicalPlanAdapter) statementBases.get(0)).getLogicalPlan().child(0);
         LogicalPlan logicalPlan1 = ((LogicalPlanAdapter) statementBases.get(1)).getLogicalPlan();
         Assertions.assertTrue(logicalPlan0 instanceof LogicalProject);
+        Assertions.assertTrue(logicalPlan1 instanceof ExplainCommand);
+    }
+
+    @Test
+    public void testParseSQLWithDialect() {
+        String sql = "select `AD``D` from t1 where a = 1;explain graph select `AD``D` from t1 where a = 1;";
+        NereidsParser nereidsParser = new NereidsParser();
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setSqlDialect("trino");
+        // test fall back to doris parser
+        List<StatementBase> statementBases = nereidsParser.parseSQL(sql, sessionVariable);
+        Assertions.assertEquals(2, statementBases.size());
+        Assertions.assertTrue(statementBases.get(0) instanceof LogicalPlanAdapter);
+        Assertions.assertTrue(statementBases.get(1) instanceof LogicalPlanAdapter);
+        LogicalPlan logicalPlan0 = ((LogicalPlanAdapter) statementBases.get(0)).getLogicalPlan();
+        LogicalPlan logicalPlan1 = ((LogicalPlanAdapter) statementBases.get(1)).getLogicalPlan();
+        Assertions.assertTrue(logicalPlan0 instanceof UnboundResultSink);
         Assertions.assertTrue(logicalPlan1 instanceof ExplainCommand);
     }
 
