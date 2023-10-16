@@ -65,6 +65,7 @@ public:                                                             \
     void release(const Status& st) {                                \
         if (st.ok() && _release_after_close_func) {                 \
             _release_after_close_func();                            \
+            _release_after_close_func = nullptr;                    \
         }                                                           \
     }                                                               \
     void set_release_func_after_close(std::function<void()> func) { \
