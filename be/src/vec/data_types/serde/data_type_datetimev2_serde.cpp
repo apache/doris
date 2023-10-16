@@ -26,6 +26,8 @@
 
 namespace doris {
 namespace vectorized {
+    static const int64_t timestamp_threshold = -2177481943;
+    static const int64_t timestamp_diff = 343;
 
 Status DataTypeDateTimeV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                          int end_idx, BufferWritable& bw,
@@ -145,42 +147,30 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const IColumn& column, const
                                                     int start, int end,
                                                     std::vector<StringRef>& buffer_list) const {
     auto& col_data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
-    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
-
-    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
-    if (!ptr) {
-        return Status::InternalError(
-                "malloc memory error when write largeint column data to orc file.");
-    }
-    StringRef bufferRef;
-    bufferRef.data = ptr;
-    bufferRef.size = BUFFER_UNIT_SIZE;
-    size_t offset = 0;
-    const size_t begin_off = offset;
+    orc::TimestampVectorBatch* cur_batch = dynamic_cast<orc::TimestampVectorBatch*>(orc_col_batch);
 
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 0) {
             continue;
         }
 
-        int len = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(col_data[row_id])
-                          .to_buffer(const_cast<char*>(bufferRef.data) + offset, scale);
-
-        REALLOC_MEMORY_FOR_ORC_WRITER()
-
-        cur_batch->length[row_id] = len;
-        offset += len;
-    }
-
-    size_t data_off = 0;
-    for (size_t row_id = start; row_id < end; row_id++) {
-        if (cur_batch->notNull[row_id] == 1) {
-            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + begin_off + data_off;
-            data_off += cur_batch->length[row_id];
+        int64_t timestamp = 0;
+        DateV2Value<DateTimeV2ValueType> datetime_val =
+                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(col_data[row_id]);
+        if (!datetime_val.unix_timestamp(&timestamp, TimezoneUtils::default_time_zone)) {
+            return Status::InternalError("get unix timestamp error.");
         }
-    }
 
-    buffer_list.emplace_back(bufferRef);
+        // -2177481943 represent '1900-12-31 23:54:17'
+        // but -2177481944 represent '1900-12-31 23:59:59'
+        // so for timestamp <= -2177481944, we subtract 343 (5min 43s)
+        if (timestamp < timestamp_threshold) {
+            timestamp -= timestamp_diff;
+        }
+
+        cur_batch->data[row_id] = timestamp;
+        cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * 1000;
+    }
     cur_batch->numElements = end - start;
     return Status::OK();
 }
