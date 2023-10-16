@@ -485,14 +485,14 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
 #endif
 
 template <typename RowRefListType>
-using SerializedHashTableContext = MethodSerialized<PartitionedHashMap<StringRef, RowRefListType>>;
+using SerializedHashTableContext = MethodSerialized<JoinFixedHashMap<StringRef, RowRefListType>>;
 
 template <class T, typename RowRefListType>
 using PrimaryTypeHashTableContext =
-        MethodOneNumber<T, PartitionedHashMap<T, RowRefListType, HashCRC32<T>>>;
+        MethodOneNumber<T, JoinFixedHashMap<T, RowRefListType, HashCRC32<T>>>;
 
 template <class Key, bool has_null, typename Value>
 using FixedKeyHashTableContext =
-        MethodKeysFixed<PartitionedHashMap<Key, Value, HashCRC32<Key>>, has_null>;
+        MethodKeysFixed<JoinFixedHashMap<Key, Value, HashCRC32<Key>>, has_null>;
 
 } // namespace doris::vectorized
