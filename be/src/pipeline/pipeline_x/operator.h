@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <functional>
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
@@ -55,6 +56,19 @@ struct LocalSinkStateInfo {
     Dependency* dependency;
     const TDataSink& tsink;
 };
+
+#define CREATE_RELEASE_AFTER_CLOSE                                  \
+    std::function<void()> _release_after_close_func;                \
+                                                                    \
+public:                                                             \
+    void release(const Status& st) {                                \
+        if (st.ok() && _release_after_close_func) {                 \
+            _release_after_close_func();                            \
+        }                                                           \
+    }                                                               \
+    void set_release_func_after_close(std::function<void()> func) { \
+        _release_after_close_func = func;                           \
+    }
 
 class PipelineXLocalStateBase {
 public:
@@ -141,6 +155,8 @@ protected:
     bool _closed = false;
     vectorized::Block _origin_block;
     std::shared_ptr<FinishDependency> _finish_dependency;
+
+    CREATE_RELEASE_AFTER_CLOSE
 };
 
 class OperatorXBase : public OperatorBase {
@@ -396,6 +412,8 @@ protected:
     RuntimeProfile::Counter* _wait_for_dependency_timer;
 
     std::shared_ptr<FinishDependency> _finish_dependency;
+
+    CREATE_RELEASE_AFTER_CLOSE
 };
 
 class DataSinkOperatorXBase : public OperatorBase {
@@ -478,6 +496,8 @@ public:
     [[nodiscard]] bool is_source() const override { return false; }
 
     virtual Status close(RuntimeState* state, Status exec_status) {
+        auto local_state = state->get_sink_local_state(id());
+        if (!local_state) return Status::OK();
         return state->get_sink_local_state(id())->close(state, exec_status);
     }
 

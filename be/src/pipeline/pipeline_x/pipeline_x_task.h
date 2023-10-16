@@ -116,6 +116,11 @@ public:
         return false;
     }
 
+    void release_dependency() {
+        std::vector<DependencySPtr> {}.swap(_downstream_dependency);
+        DependencyMap {}.swap(_upstream_dependency);
+    }
+
     std::vector<DependencySPtr>& get_downstream_dependency() { return _downstream_dependency; }
 
     void add_upstream_dependency(std::vector<DependencySPtr>& multi_upstream_dependency) {

@@ -427,6 +427,10 @@ void RuntimeState::emplace_local_state(
         int id, std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> state) {
     std::unique_lock<std::mutex> l(_local_state_lock);
     _op_id_to_local_state.emplace(id, state);
+    // _op_id_to_local_state[id]->set_release_func_after_close([_id = id, this]() {
+    //     _op_id_to_local_state[_id].reset();
+    //     _op_id_to_local_state.erase(_id);
+    // });
 }
 
 std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> RuntimeState::get_local_state(int id) {
@@ -441,6 +445,10 @@ void RuntimeState::emplace_sink_local_state(
         int id, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
     std::unique_lock<std::mutex> l(_local_sink_state_lock);
     _op_id_to_sink_local_state.emplace(id, state);
+    // _op_id_to_sink_local_state[id]->set_release_func_after_close([_id = id, this]() {
+    //     _op_id_to_sink_local_state[_id].reset();
+    //     _op_id_to_sink_local_state.erase(_id);
+    // });
 }
 
 std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> RuntimeState::get_sink_local_state(

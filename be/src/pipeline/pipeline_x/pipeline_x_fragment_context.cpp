@@ -411,7 +411,11 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                                                         _runtime_states[i].get(), this,
                                                         _runtime_states[i]->runtime_profile());
             pipeline_id_to_task.insert({_pipelines[pip_idx]->id(), task.get()});
-            _tasks[i].emplace_back(std::move(task));
+            auto& task_ptr_ref = _tasks[i].emplace_back(std::move(task));
+            task_ptr_ref->set_release_func_after_close([_i = i, _j = pip_idx, this]() {
+                auto& task = _tasks[_i][_j];
+                task->release_dependency();
+            });
         }
 
         /**

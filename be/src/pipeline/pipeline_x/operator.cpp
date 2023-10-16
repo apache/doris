@@ -159,6 +159,8 @@ Status OperatorXBase::close(RuntimeState* state) {
     if (_child_x && !is_source()) {
         RETURN_IF_ERROR(_child_x->close(state));
     }
+    auto local_state = state->get_local_state(id());
+    if (!local_state) return Status::OK();
     return state->get_local_state(id())->close(state);
 }
 
@@ -430,6 +432,7 @@ Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
     }
     profile()->add_to_span(_span);
     _closed = true;
+    release(Status::OK());
     return Status::OK();
 }
 
@@ -465,6 +468,7 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
         COUNTER_SET(_wait_for_dependency_timer, _dependency->write_watcher_elapse_time());
     }
     _closed = true;
+    release(Status::OK());
     return Status::OK();
 }
 
