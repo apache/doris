@@ -30,24 +30,30 @@ Thanks to our community users and developers, 489 improvements and bug fixes hav
 
 ## Behavior Changes
 
-- [Remove json -> operator convert to json_extract #24679](https://github.com/apache/doris/pull/24679) <br>
+- [Remove json -> operator convert to json_extract #24679](https://github.com/apache/doris/pull/24679)
+
   Remove json '->' operator since it is conflicted with lambda function syntax. It's a syntax sugar for function json_extract and can be replaced with the former.
-- [Start the script to set metadata_failure_recovery #24308](https://github.com/apache/doris/pull/24308) <br>
+- [Start the script to set metadata_failure_recovery #24308](https://github.com/apache/doris/pull/24308)
+
   Move metadata_failure_recovery from fe.conf to start_fe.sh argument to prevent being used unexpectedly.
 - [Change ordinary type null value is \N,complex type null value is null #24207](https://github.com/apache/doris/pull/24207)
 - [Optimize priority_ network matching logic for be #23795](https://github.com/apache/doris/pull/23795)
-- [Fix cancel load failed because Job could not be cancelled… #17730](https://github.com/apache/doris/pull/17730) <br>
+- [Fix cancel load failed because Job could not be cancelled… #17730](https://github.com/apache/doris/pull/17730)
+  
   Allow cancel a retrying load job.
 
 ## Improvements
 
 ### Easier to use
 
-- [Support custom lib dir to save custom libs #23887](https://github.com/apache/doris/pull/23887) <br>
+- [Support custom lib dir to save custom libs #23887](https://github.com/apache/doris/pull/23887)
+  
   Add a custom_lib dir to allow users place custom lib files and custom_lib will not be replaced.
-- [Optimize priority_ network matching logic #23784](https://github.com/apache/doris/pull/23784) <br>
+- [Optimize priority_ network matching logic #23784](https://github.com/apache/doris/pull/23784) 
+
   Optimize priority_network logic to avoid error when this config is wrong or not configured.
-- [Row policy support role #23022](https://github.com/apache/doris/pull/23022) <br>
+- [Row policy support role #23022](https://github.com/apache/doris/pull/23022) 
+
   Support role based auth for row policy.
 
 ### New optimizer Nereids statistics collection improvement
@@ -61,13 +67,17 @@ Thanks to our community users and developers, 489 improvements and bug fixes hav
 
 - [Support hadoop viewfs. #24168](https://github.com/apache/doris/pull/24168)
 - [Avoid calling checksum when replaying creating jdbc catalog and fix ranger issue #22369](https://github.com/apache/doris/pull/22369)
-- [Optimize the JDBC Catalog connection error message #23868](https://github.com/apache/doris/pull/23868) <br>
+- [Optimize the JDBC Catalog connection error message #23868](https://github.com/apache/doris/pull/23868) 
+
   Improve property check and error message for JDBC catalog
-- [Fix mc decimal type parse, fix wrong obj location #24242](https://github.com/apache/doris/pull/24242) <br>
+- [Fix mc decimal type parse, fix wrong obj location #24242](https://github.com/apache/doris/pull/24242) 
+
   Fix some issues for Max Compute catalog
-- [Support sql cache for hms catalog #23391](https://github.com/apache/doris/pull/23391) <br>
+- [Support sql cache for hms catalog #23391](https://github.com/apache/doris/pull/23391) 
+
   SQL cache for Hive catalog
-- [Merge hms partition events. #22869](https://github.com/apache/doris/pull/22869) <br>
+- [Merge hms partition events. #22869](https://github.com/apache/doris/pull/22869) 
+
   Improve performance for Hive metadata sync
 - [Add metadata_name_ids for quickly get catlogs,db,table and add profiling table in order to Compatible with mysql #22702](https://github.com/apache/doris/pull/22702)
 
@@ -76,8 +86,10 @@ Thanks to our community users and developers, 489 improvements and bug fixes hav
 - [Add bkd index query cache to improve perf #23952](https://github.com/apache/doris/pull/23952)
 - [Improve performance for count on index other than match #24678](https://github.com/apache/doris/pull/24678)
 - [Improve match performance without index #24751](https://github.com/apache/doris/pull/24751)
-- [Optimize multiple terms conjunction query #23871](https://github.com/apache/doris/pull/23871) <br> Improve performance of MATCH_ALL
-- [Optimize unnecessary conversions #24389](https://github.com/apache/doris/pull/24389) <br> Improve performance of MATCH
+- [Optimize multiple terms conjunction query #23871](https://github.com/apache/doris/pull/23871) 
+Improve performance of MATCH_ALL
+- [Optimize unnecessary conversions #24389](https://github.com/apache/doris/pull/24389) 
+Improve performance of MATCH
 
 ### Improve Array functions
 
