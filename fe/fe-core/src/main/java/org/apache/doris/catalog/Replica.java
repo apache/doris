@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.annotations.SerializedName;
@@ -113,6 +114,14 @@ public class Replica implements Writable {
 
     private TUniqueId cooldownMetaId;
     private long cooldownTerm = -1;
+
+    // A replica version should increase monotonically,
+    // but backend may missing some versions due to disk failure or bugs.
+    // FE should found these and mark the replica as missing versions.
+    // If backend's report version < fe version, record the backend's report version as `regressiveVersion`,
+    // and if time exceed 5min, fe should mark this replica as missing versions.
+    private long regressiveVersion = -1;
+    private long regressiveVersionTimestamp = 0;
 
     /*
      * This can happen when this replica is created by a balance clone task, and
@@ -435,9 +444,9 @@ public class Replica implements Writable {
 
         if (lastFailedVersion != this.lastFailedVersion) {
             // Case 2:
-            if (lastFailedVersion > this.lastFailedVersion) {
+            if (lastFailedVersion > this.lastFailedVersion || lastFailedVersion < 0) {
                 this.lastFailedVersion = lastFailedVersion;
-                this.lastFailedTimestamp = System.currentTimeMillis();
+                this.lastFailedTimestamp = lastFailedVersion > 0 ? System.currentTimeMillis() : -1L;
             }
 
             this.lastSuccessVersion = this.version;
@@ -506,10 +515,6 @@ public class Replica implements Writable {
         return true;
     }
 
-    public void setLastFailedVersion(long lastFailedVersion) {
-        this.lastFailedVersion = lastFailedVersion;
-    }
-
     public void setState(ReplicaState replicaState) {
         this.state = replicaState;
     }
@@ -532,6 +537,25 @@ public class Replica implements Writable {
 
     public void setVersionCount(long versionCount) {
         this.versionCount = versionCount;
+    }
+
+    public boolean checkVersionRegressive(long newVersion) {
+        if (newVersion >= version) {
+            regressiveVersion = -1;
+            regressiveVersionTimestamp = -1;
+            return false;
+        }
+
+        if (DebugPointUtil.isEnable("Replica.regressive_version_immediately")) {
+            return true;
+        }
+
+        if (newVersion != regressiveVersion) {
+            regressiveVersion = newVersion;
+            regressiveVersionTimestamp = System.currentTimeMillis();
+        }
+
+        return System.currentTimeMillis() - regressiveVersionTimestamp >= 5 * 60 * 1000L;
     }
 
     @Override
