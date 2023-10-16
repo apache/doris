@@ -25,8 +25,48 @@ import java.util.HashMap;
  * Used for collecting information obtained from the profile.
  */
 public class ProfileStatistics {
+    class PipelineXStatistics {
+        ArrayList<String> sinkInfos;
+        ArrayList<String> infos;
+
+        PipelineXStatistics() {
+            sinkInfos = new ArrayList<String>();
+            infos = new ArrayList<String>();
+        }
+
+        void add(boolean isSink, String str) {
+            if (isSink) {
+                sinkInfos.add(str);
+            } else {
+                infos.add(str);
+            }
+        }
+
+        String to_String() {
+            return null;
+        }
+
+        void getInfo(ArrayList<String> infos, String prefix, StringBuilder str) {
+            Collections.sort(infos);
+            for (String info : infos) {
+                str.append(prefix + info + "\n");
+            }
+        }
+
+        void getOperator(String prefix, StringBuilder str) {
+            getInfo(infos, prefix, str);
+        }
+
+        void getSink(String prefix, StringBuilder str) {
+            getInfo(sinkInfos, prefix, str);
+        }
+    }
+
     // Record statistical information based on nodeid.
     private HashMap<Integer, ArrayList<String>> statisticalInfo;
+
+    // Record statistical information based on nodeid(use in pipelineX).
+    private HashMap<Integer, PipelineXStatistics> pipelineXStatisticalInfo;
 
     // Record statistical information based on fragment ID.
     // "Currently used to record sink nodes.
@@ -41,6 +81,7 @@ public class ProfileStatistics {
     public ProfileStatistics(boolean isPipelineX) {
         statisticalInfo = new HashMap<Integer, ArrayList<String>>();
         fragmentInfo = new HashMap<Integer, ArrayList<String>>();
+        pipelineXStatisticalInfo = new HashMap<Integer, PipelineXStatistics>();
         fragmentId = 0;
         isDataSink = false;
         this.isPipelineX = isPipelineX;
@@ -53,6 +94,13 @@ public class ProfileStatistics {
         statisticalInfo.get(id).add(info);
     }
 
+    private void addPipelineXPlanNodeInfo(boolean isSink, int id, String info) {
+        if (!pipelineXStatisticalInfo.containsKey(id)) {
+            pipelineXStatisticalInfo.put(id, new PipelineXStatistics());
+        }
+        pipelineXStatisticalInfo.get(id).add(isSink, info);
+    }
+
     private void addDataSinkInfo(String info) {
         if (fragmentInfo.get(fragmentId) == null) {
             fragmentInfo.put(fragmentId, new ArrayList<String>());
@@ -62,12 +110,7 @@ public class ProfileStatistics {
 
     public void addInfoFromProfile(RuntimeProfile profile, String name, String info) {
         if (isPipelineX) {
-            if (profile.sinkOperator()) {
-                name = name + "(Sink)";
-            } else {
-                name = name + "(Operator)";
-            }
-            addPlanNodeInfo(profile.nodeId(), name + ": " + info);
+            addPipelineXPlanNodeInfo(profile.sinkOperator(), profile.nodeId(), name + ": " + info);
         } else {
             if (isDataSink) {
                 addDataSinkInfo(name + ": " + info);
@@ -78,18 +121,35 @@ public class ProfileStatistics {
     }
 
     public boolean hasInfo(int id) {
-        return statisticalInfo.containsKey(id);
+        if (isPipelineX) {
+            return pipelineXStatisticalInfo.containsKey(id);
+        } else {
+            return statisticalInfo.containsKey(id);
+        }
     }
 
     public void getInfoById(int id, String prefix, StringBuilder str) {
         if (!hasInfo(id)) {
             return;
         }
-        ArrayList<String> infos = statisticalInfo.get(id);
-        Collections.sort(infos);
-        for (String info : infos) {
-            str.append(prefix + info + "\n");
+        if (isPipelineX) {
+            getPipelineXInfoById(id, prefix, str);
+        } else {
+            ArrayList<String> infos = statisticalInfo.get(id);
+            Collections.sort(infos);
+            for (String info : infos) {
+                str.append(prefix + info + "\n");
+            }
         }
+    }
+
+    private void getPipelineXInfoById(int id, String prefix, StringBuilder str) {
+        PipelineXStatistics statistics = pipelineXStatisticalInfo.get(id);
+        str.append(prefix + "Operator: \n");
+        statistics.getOperator(prefix + "  ", str);
+
+        str.append(prefix + "Sink: \n");
+        statistics.getSink(prefix + "  ", str);
     }
 
     public void getDataSinkInfo(int fragmentIdx, String prefix, StringBuilder str) {
