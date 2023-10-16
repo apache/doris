@@ -32,7 +32,7 @@ template <int JoinOpType, typename Parent>
 ProcessHashTableProbe<JoinOpType, Parent>::ProcessHashTableProbe(Parent* parent, int batch_size)
         : _parent(parent),
           _batch_size(batch_size),
-          _build_blocks(parent->build_blocks()),
+          _build_block(parent->build_block()),
           _tuple_is_null_left_flags(parent->is_outer_join()
                                             ? &(reinterpret_cast<ColumnUInt8&>(
                                                         *parent->_tuple_is_null_left_flag_column)
@@ -69,51 +69,13 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
             JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN;
 
     if (!is_semi_anti_join || have_other_join_conjunct) {
-        if (_build_blocks->size() == 1) {
-            for (int i = 0; i < _right_col_len; i++) {
-                auto& column = *(*_build_blocks)[0].get_by_position(i).column;
-                if (output_slot_flags[i]) {
-                    mcol[i + _right_col_idx]->insert_indices_from(column, _build_block_rows.data(),
-                                                                  _build_block_rows.data() + size);
-                } else {
-                    mcol[i + _right_col_idx]->insert_many_defaults(size);
-                }
-            }
-        } else {
-            for (int i = 0; i < _right_col_len; i++) {
-                if (output_slot_flags[i]) {
-                    for (int j = 0; j < size; j++) {
-                        if constexpr (probe_all) {
-                            if (_build_block_offsets[j] == -1) {
-                                DCHECK(mcol[i + _right_col_idx]->is_nullable());
-                                assert_cast<ColumnNullable*>(mcol[i + _right_col_idx].get())
-                                        ->insert_default();
-                            } else {
-                                auto& column = *(*_build_blocks)[_build_block_offsets[j]]
-                                                        .get_by_position(i)
-                                                        .column;
-                                mcol[i + _right_col_idx]->insert_from(column, _build_block_rows[j]);
-                            }
-                        } else {
-                            if (_build_block_offsets[j] == -1) {
-                                // the only case to reach here:
-                                // 1. left anti join with other conjuncts, and
-                                // 2. equal conjuncts does not match
-                                // since nullptr is emplaced back to visited_map,
-                                // the output value of the build side does not matter,
-                                // just insert default value
-                                mcol[i + _right_col_idx]->insert_default();
-                            } else {
-                                auto& column = *(*_build_blocks)[_build_block_offsets[j]]
-                                                        .get_by_position(i)
-                                                        .column;
-                                mcol[i + _right_col_idx]->insert_from(column, _build_block_rows[j]);
-                            }
-                        }
-                    }
-                } else {
-                    mcol[i + _right_col_idx]->insert_many_defaults(size);
-                }
+        for (int i = 0; i < _right_col_len; i++) {
+            const auto& column = *_build_block->get_by_position(i).column;
+            if (output_slot_flags[i]) {
+                mcol[i + _right_col_idx]->insert_indices_from(column, _build_block_rows.data(),
+                                                              _build_block_rows.data() + size);
+            } else {
+                mcol[i + _right_col_idx]->insert_many_defaults(size);
             }
         }
     }
@@ -167,7 +129,6 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
     _row_count_from_last_probe = 0;
 
     _build_block_rows.clear();
-    _build_block_offsets.clear();
     _probe_indexs.clear();
     if (with_other_join_conjuncts) {
         // use in right join to change visited state after exec the vother join conjunct
@@ -178,7 +139,6 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
     }
     _probe_indexs.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
     _build_block_rows.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
-    _build_block_offsets.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
 
     if (!_parent->_ready_probe) {
         _parent->_ready_probe = true;
@@ -199,8 +159,7 @@ ForwardIterator<Mapped>& ProcessHashTableProbe<JoinOpType, Parent>::_probe_row_m
 
     SCOPED_TIMER(_search_hashtable_timer);
     for (; probe_row_match_iter.ok() && current_offset < _batch_size; ++probe_row_match_iter) {
-        _emplace_element(probe_row_match_iter->block_offset, probe_row_match_iter->row_num,
-                         current_offset);
+        _emplace_element(probe_row_match_iter->row_num, current_offset);
         _probe_indexs.emplace_back(probe_index);
         if constexpr (with_other_join_conjuncts) {
             _visited_map.emplace_back(&probe_row_match_iter->visited);
@@ -218,10 +177,8 @@ ForwardIterator<Mapped>& ProcessHashTableProbe<JoinOpType, Parent>::_probe_row_m
 }
 
 template <int JoinOpType, typename Parent>
-void ProcessHashTableProbe<JoinOpType, Parent>::_emplace_element(int8_t block_offset,
-                                                                 int32_t block_row,
+void ProcessHashTableProbe<JoinOpType, Parent>::_emplace_element(int32_t block_row,
                                                                  int& current_offset) {
-    _build_block_offsets.emplace_back(block_offset);
     _build_block_rows.emplace_back(block_row);
     current_offset++;
 }
@@ -236,20 +193,12 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
                                                              size_t probe_rows) {
     auto& probe_index = _parent->_probe_index;
 
-    using KeyGetter = typename HashTableType::State;
     using Mapped = typename HashTableType::Mapped;
 
-    KeyGetter key_getter =
-            _init_probe_side<HashTableType>(hash_table_ctx, probe_rows, with_other_conjuncts,
-                                            need_null_map_for_probe ? null_map->data() : nullptr);
+    _init_probe_side<HashTableType>(hash_table_ctx, probe_rows, with_other_conjuncts,
+                                    need_null_map_for_probe ? null_map->data() : nullptr);
 
     auto& mcol = mutable_block.mutable_columns();
-
-    constexpr auto is_right_semi_anti_join =
-            JoinOpType == TJoinOp::RIGHT_ANTI_JOIN || JoinOpType == TJoinOp::RIGHT_SEMI_JOIN;
-
-    constexpr auto probe_all =
-            JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN;
 
     int last_probe_index = probe_index;
 
@@ -283,121 +232,12 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
 
     {
         SCOPED_TIMER(_search_hashtable_timer);
-        using FindResult = KeyGetter::FindResult;
-        FindResult empty = {nullptr, false};
-        while (current_offset < _batch_size && probe_index < probe_rows) {
-            if constexpr (ignore_null && need_null_map_for_probe) {
-                if ((*null_map)[probe_index]) {
-                    if constexpr (probe_all) {
-                        // only full outer / left outer need insert the data of right table
-                        _emplace_element(-1, -1, current_offset);
-                        _probe_indexs.emplace_back(probe_index);
-
-                        if constexpr (with_other_conjuncts) {
-                            _same_to_prev.emplace_back(false);
-                            _visited_map.emplace_back(nullptr);
-                        }
-                    } else {
-                        all_match_one = false;
-                    }
-                    probe_index++;
-                    continue;
-                }
-            }
-
-            const auto& find_result = need_null_map_for_probe && (*null_map)[probe_index]
-                                              ? empty
-                                              : hash_table_ctx.find(key_getter, probe_index);
-
-            auto current_probe_index = probe_index;
-            if constexpr (!with_other_conjuncts &&
-                          (JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
-                           JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                           JoinOpType == TJoinOp::LEFT_SEMI_JOIN)) {
-                bool need_go_ahead =
-                        (JoinOpType != TJoinOp::LEFT_SEMI_JOIN) ^ find_result.is_found();
-                if constexpr (is_mark_join) {
-                    ++current_offset;
-                    bool null_result = (need_null_map_for_probe && (*null_map)[probe_index]) ||
-                                       (!need_go_ahead && *_has_null_in_build_side);
-                    if (null_result) {
-                        mark_column->insert_null();
-                    } else {
-                        mark_column->insert_value(need_go_ahead);
-                    }
-                } else {
-                    current_offset += need_go_ahead;
-                }
-                ++probe_index;
-            } else {
-                if (find_result.is_found()) {
-                    auto& mapped = find_result.get_mapped();
-                    auto origin_offset = current_offset;
-
-                    // For mark join, if euqual-matched tuple count for one probe row
-                    // excceeds batch size, it's difficult to implement the logic to
-                    // split them into multiple sub blocks and handle them, keep the original
-                    // logic for now.
-                    if constexpr (is_mark_join && with_other_conjuncts) {
-                        for (auto it = mapped.begin(); it.ok(); ++it) {
-                            _emplace_element(it->block_offset, it->row_num, current_offset);
-                            _visited_map.emplace_back(&it->visited);
-                        }
-                        ++probe_index;
-                    } else if constexpr (with_other_conjuncts || !is_right_semi_anti_join) {
-                        auto multi_match_last_offset = current_offset;
-                        auto it = mapped.begin();
-                        for (; it.ok() && current_offset < _batch_size; ++it) {
-                            _emplace_element(it->block_offset, it->row_num, current_offset);
-
-                            if constexpr (with_other_conjuncts) {
-                                _visited_map.emplace_back(&it->visited);
-                            }
-                        }
-                        probe_row_match_iter = it;
-                        if (!it.ok()) {
-                            // If all matched rows for the current probe row are handled,
-                            // advance to next probe row.
-                            // If not(which means it excceed batch size), probe_index is not increased and
-                            // remaining matched rows for the current probe row will be
-                            // handled in the next call of this function
-                            ++probe_index;
-                        } else if constexpr (with_other_conjuncts) {
-                            multi_matched_output_row_count =
-                                    current_offset - multi_match_last_offset;
-                        }
-                    } else {
-                        ++probe_index;
-                    }
-                    if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
-                        mapped.visited = true;
-                    }
-
-                    if constexpr (with_other_conjuncts) {
-                        _same_to_prev.emplace_back(false);
-                        for (int i = 0; i < current_offset - origin_offset - 1; ++i) {
-                            _same_to_prev.emplace_back(true);
-                        }
-                    }
-                } else if constexpr (probe_all || JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
-                                     JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                                     (JoinOpType == TJoinOp::LEFT_SEMI_JOIN && is_mark_join)) {
-                    // only full outer / left outer need insert the data of right table
-                    _emplace_element(-1, -1, current_offset);
-
-                    if constexpr (with_other_conjuncts) {
-                        _same_to_prev.emplace_back(false);
-                        _visited_map.emplace_back(nullptr);
-                    }
-                    ++probe_index;
-                } else {
-                    ++probe_index;
-                }
-            }
-            all_match_one &= (current_offset == _probe_indexs.size() + 1);
-            _probe_indexs.resize(current_offset, current_probe_index);
-        }
-        probe_size = probe_index - last_probe_index + probe_row_match_iter.ok();
+        auto [new_probe_idx, new_current_offset] = hash_table_ctx.hash_table->find_batch(
+                hash_table_ctx.keys, hash_table_ctx.hash_values.data(), probe_index, probe_rows,
+                _probe_indexs, _build_block_rows);
+        probe_index = new_probe_idx;
+        current_offset = new_current_offset;
+        probe_size = probe_index - last_probe_index;
     }
 
     build_side_output_column(mcol, *_right_output_slot_flags, current_offset, with_other_conjuncts);
@@ -793,24 +633,20 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
         auto& visited_iter =
                 std::get<ForwardIterator<Mapped>>(_parent->_outer_join_pull_visited_iter);
         _build_blocks_locs.resize(_batch_size);
-        auto register_build_loc = [&](int8_t offset, int32_t row_nums) {
-            _build_blocks_locs[block_size++] = std::pair<int8_t, int>(offset, row_nums);
-        };
-
         if (visited_iter.ok()) {
             if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
                 for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-                    register_build_loc(visited_iter->block_offset, visited_iter->row_num);
+                    _build_blocks_locs[block_size++] = visited_iter->row_num;
                 }
             } else {
                 for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
                     if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
                         if (visited_iter->visited) {
-                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
+                            _build_blocks_locs[block_size++] = visited_iter->row_num;
                         }
                     } else {
                         if (!visited_iter->visited) {
-                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
+                            _build_blocks_locs[block_size++] = visited_iter->row_num;
                         }
                     }
                 }
@@ -827,7 +663,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
                     if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
                         visited_iter = mapped.begin();
                         for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
+                            _build_blocks_locs[block_size++] = visited_iter->row_num;
                         }
                         if (visited_iter.ok()) {
                             // block_size >= _batch_size, quit for loop
@@ -838,7 +674,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
                     if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
                         visited_iter = mapped.begin();
                         for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
+                            _build_blocks_locs[block_size++] = visited_iter->row_num;
                         }
                         if (visited_iter.ok()) {
                             // block_size >= _batch_size, quit for loop
@@ -851,11 +687,11 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
                 for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
                     if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
                         if (visited_iter->visited) {
-                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
+                            _build_blocks_locs[block_size++] = visited_iter->row_num;
                         }
                     } else {
                         if (!visited_iter->visited) {
-                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
+                            _build_blocks_locs[block_size++] = visited_iter->row_num;
                         }
                     }
                 }
@@ -867,38 +703,17 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
         }
         _build_blocks_locs.resize(block_size);
 
-        auto insert_build_rows = [&](int8_t offset) {
-            for (size_t j = 0; j < right_col_len; ++j) {
-                auto& column = *(*_build_blocks)[offset].get_by_position(j).column;
-                mcol[j + right_col_idx]->insert_indices_from(
-                        column, _build_block_rows.data(),
-                        _build_block_rows.data() + _build_block_rows.size());
-            }
-        };
-        if (_build_blocks->size() > 1) {
-            std::sort(_build_blocks_locs.begin(), _build_blocks_locs.end(),
-                      [](const auto a, const auto b) { return a.first > b.first; });
-            auto start = 0, end = 0;
-            while (start < _build_blocks_locs.size()) {
-                while (end < _build_blocks_locs.size() &&
-                       _build_blocks_locs[start].first == _build_blocks_locs[end].first) {
-                    end++;
-                }
-                auto offset = _build_blocks_locs[start].first;
-                _build_block_rows.resize(end - start);
-                for (int i = 0; start + i < end; i++) {
-                    _build_block_rows[i] = _build_blocks_locs[start + i].second;
-                }
-                start = end;
-                insert_build_rows(offset);
-            }
-        } else if (_build_blocks->size() == 1) {
-            const auto size = _build_blocks_locs.size();
-            _build_block_rows.resize(_build_blocks_locs.size());
-            for (int i = 0; i < size; i++) {
-                _build_block_rows[i] = _build_blocks_locs[i].second;
-            }
-            insert_build_rows(0);
+        const auto size = _build_blocks_locs.size();
+        _build_block_rows.resize(_build_blocks_locs.size());
+        for (int i = 0; i < size; i++) {
+            _build_block_rows[i] = _build_blocks_locs[i];
+        }
+
+        for (size_t j = 0; j < right_col_len; ++j) {
+            const auto& column = *_build_block->get_by_position(j).column;
+            mcol[j + right_col_idx]->insert_indices_from(
+                    column, _build_block_rows.data(),
+                    _build_block_rows.data() + _build_block_rows.size());
         }
 
         // just resize the left table column in case with other conjunct to make block size is not zero

@@ -106,21 +106,18 @@ using ProfileCounter = RuntimeProfile::Counter;
 template <class HashTableContext, typename Parent>
 struct ProcessHashTableBuild {
     ProcessHashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
-                          Parent* parent, int batch_size, uint8_t offset, RuntimeState* state)
+                          Parent* parent, int batch_size, RuntimeState* state)
             : _rows(rows),
-              _skip_rows(0),
               _acquired_block(acquired_block),
               _build_raw_ptrs(build_raw_ptrs),
               _parent(parent),
               _batch_size(batch_size),
-              _offset(offset),
               _state(state),
               _build_side_compute_hash_timer(parent->_build_side_compute_hash_timer) {}
 
     template <bool ignore_null, bool short_circuit_for_null>
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
         using KeyGetter = typename HashTableContext::State;
-        using Mapped = typename HashTableContext::Mapped;
 
         Defer defer {[&]() {
             int64_t bucket_size = hash_table_ctx.hash_table->get_buffer_size_in_cells();
@@ -132,18 +129,14 @@ struct ProcessHashTableBuild {
                         hash_table_ctx.hash_table->get_collisions());
             COUNTER_SET(_parent->_build_buckets_fill_counter, filled_bucket_size);
 
-            auto hash_table_buckets = hash_table_ctx.hash_table->get_buffer_sizes_in_cells();
             std::string hash_table_buckets_info;
-            for (auto bucket_count : hash_table_buckets) {
-                hash_table_buckets_info += std::to_string(bucket_count) + ", ";
-            }
+
+            hash_table_buckets_info +=
+                    std::to_string(hash_table_ctx.hash_table->get_buffer_size_in_cells()) + ", ";
             _parent->add_hash_buckets_info(hash_table_buckets_info);
 
-            auto hash_table_sizes = hash_table_ctx.hash_table->sizes();
             hash_table_buckets_info.clear();
-            for (auto table_size : hash_table_sizes) {
-                hash_table_buckets_info += std::to_string(table_size) + ", ";
-            }
+            hash_table_buckets_info += std::to_string(hash_table_ctx.hash_table->size()) + ", ";
             _parent->add_hash_buckets_filled_info(hash_table_buckets_info);
         }};
 
@@ -151,17 +144,6 @@ struct ProcessHashTableBuild {
 
         SCOPED_TIMER(_parent->_build_table_insert_timer);
         hash_table_ctx.hash_table->reset_resize_timer();
-
-        // only not build_unique, we need expanse hash table before insert data
-        // 1. There are fewer duplicate keys, reducing the number of resize hash tables
-        // can improve performance to a certain extent, about 2%-5%
-        // 2. There are many duplicate keys, and the hash table filled bucket is far less than
-        // the hash table build bucket, which may waste a lot of memory.
-        // TODO, use the NDV expansion of the key column in the optimizer statistics
-        if (!_parent->build_unique()) {
-            RETURN_IF_CATCH_EXCEPTION(hash_table_ctx.hash_table->expanse_for_add_elem(
-                    std::min<int>(_rows, config::hash_table_pre_expanse_max_rows)));
-        }
 
         vector<int>& inserted_rows = _parent->_inserted_rows[&_acquired_block];
         bool has_runtime_filter = !_parent->runtime_filter_descs().empty();
@@ -174,72 +156,24 @@ struct ProcessHashTableBuild {
 
         auto& arena = *_parent->arena();
         auto old_build_arena_memory = arena.size();
-
-        size_t k = 0;
-        bool inserted = false;
-        auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-            HashTableContext::try_presis_key(key, origin, arena);
-            inserted = true;
-            ctor(key, Mapped {k, _offset});
-        };
-
-        bool build_unique = _parent->build_unique();
-#define EMPLACE_IMPL(stmt)                                                    \
-    for (; k < _rows; ++k) {                                                  \
-        if (k % CHECK_FRECUENCY == 0) {                                       \
-            RETURN_IF_CANCELLED(_state);                                      \
-        }                                                                     \
-        if constexpr (short_circuit_for_null) {                               \
-            if ((*null_map)[k]) {                                             \
-                *has_null_key = true;                                         \
-                return Status::OK();                                          \
-            }                                                                 \
-        } else if constexpr (ignore_null) {                                   \
-            if ((*null_map)[k]) {                                             \
-                *has_null_key = true;                                         \
-                continue;                                                     \
-            }                                                                 \
-        }                                                                     \
-        inserted = false;                                                     \
-        [[maybe_unused]] auto& mapped =                                       \
-                hash_table_ctx.lazy_emplace(key_getter, k, creator, nullptr); \
-        stmt;                                                                 \
-    }
-
-        if (has_runtime_filter && build_unique) {
-            EMPLACE_IMPL(
-                    if (inserted) { inserted_rows.push_back(k); } else { _skip_rows++; });
-        } else if (has_runtime_filter && !build_unique) {
-            EMPLACE_IMPL(
-                    if (inserted) { inserted_rows.push_back(k); } else {
-                        mapped.insert({k, _offset}, *_parent->arena());
-                        inserted_rows.push_back(k);
-                    });
-        } else if (!has_runtime_filter && build_unique) {
-            EMPLACE_IMPL(if (!inserted) { _skip_rows++; });
-        } else {
-            EMPLACE_IMPL(if (!inserted) { mapped.insert({k, _offset}, *_parent->arena()); });
-        }
+        hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.hash_values.data(),
+                                         _rows);
         _parent->_build_rf_cardinality += inserted_rows.size();
 
         _parent->_build_arena_memory_usage->add(arena.size() - old_build_arena_memory);
 
         COUNTER_UPDATE(_parent->_build_table_expanse_timer,
                        hash_table_ctx.hash_table->get_resize_timer_value());
-        COUNTER_UPDATE(_parent->_build_table_convert_timer,
-                       hash_table_ctx.hash_table->get_convert_timer_value());
 
         return Status::OK();
     }
 
 private:
     const int _rows;
-    int _skip_rows;
     Block& _acquired_block;
     ColumnRawPtrs& _build_raw_ptrs;
     Parent* _parent;
     int _batch_size;
-    uint8_t _offset;
     RuntimeState* _state;
 
     ProfileCounter* _build_side_compute_hash_timer;
@@ -325,8 +259,6 @@ using HashTableIteratorVariants =
         std::variant<std::monostate, ForwardIterator<RowRefList>,
                      ForwardIterator<RowRefListWithFlag>, ForwardIterator<RowRefListWithFlags>>;
 
-static constexpr auto HASH_JOIN_MAX_BUILD_BLOCK_COUNT = 128;
-
 class HashJoinNode final : public VJoinNodeBase {
 public:
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
@@ -369,7 +301,7 @@ public:
     bool have_other_join_conjunct() const { return _have_other_join_conjunct; }
     bool is_right_semi_anti() const { return _is_right_semi_anti; }
     bool is_outer_join() const { return _is_outer_join; }
-    std::shared_ptr<std::vector<Block>> build_blocks() const { return _build_blocks; }
+    std::shared_ptr<Block> build_block() const { return _build_block; }
     std::vector<bool>* left_output_slot_flags() { return &_left_output_slot_flags; }
     std::vector<bool>* right_output_slot_flags() { return &_right_output_slot_flags; }
     bool* has_null_in_build_side() { return &_has_null_in_build_side; }
@@ -390,16 +322,16 @@ private:
         _short_circuit_for_probe =
                 (_has_null_in_build_side && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                  !_is_mark_join) ||
-                (_build_blocks->empty() && _join_op == TJoinOp::INNER_JOIN && !_is_mark_join) ||
-                (_build_blocks->empty() && _join_op == TJoinOp::LEFT_SEMI_JOIN && !_is_mark_join) ||
-                (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
-                (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
-                (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_ANTI_JOIN);
+                (!_build_block && _join_op == TJoinOp::INNER_JOIN && !_is_mark_join) ||
+                (!_build_block && _join_op == TJoinOp::LEFT_SEMI_JOIN && !_is_mark_join) ||
+                (!_build_block && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
+                (!_build_block && _join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
+                (!_build_block && _join_op == TJoinOp::RIGHT_ANTI_JOIN);
 
         //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
         //we could get the result is probe table + null-column(if need output)
         _empty_right_table_need_probe_dispose =
-                (_build_blocks->empty() && !_have_other_join_conjunct && !_is_mark_join) &&
+                (!_build_block && !_have_other_join_conjunct && !_is_mark_join) &&
                 (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN ||
                  _join_op == TJoinOp::LEFT_ANTI_JOIN);
     }
@@ -467,7 +399,7 @@ private:
     HashTableIteratorVariants _outer_join_pull_visited_iter;
     HashTableIteratorVariants _probe_row_match_iter;
 
-    std::shared_ptr<std::vector<Block>> _build_blocks;
+    std::shared_ptr<Block> _build_block;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     ColumnUInt8::MutablePtr _null_map_column;
@@ -501,7 +433,7 @@ private:
 
     Status _materialize_build_side(RuntimeState* state) override;
 
-    Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
+    Status _process_build_block(RuntimeState* state, Block& block);
 
     Status _do_evaluate(Block& block, VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
