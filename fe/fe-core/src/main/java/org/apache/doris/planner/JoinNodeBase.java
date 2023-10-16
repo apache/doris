@@ -585,6 +585,7 @@ public abstract class JoinNodeBase extends PlanNode {
                 rhsExpr = rhsExpr.substitute(tmpSmap);
                 vSrcToOutputSMap.getLhs().add(rhsExpr);
                 SlotRef slotRef = new SlotRef(slotDesc);
+                slotRef.materializeSrcExpr();
                 vSrcToOutputSMap.getRhs().add(slotRef);
                 newRhs.add(slotRef);
                 bSmapChanged = true;
