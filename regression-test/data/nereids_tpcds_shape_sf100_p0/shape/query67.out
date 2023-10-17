@@ -17,13 +17,14 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
 --------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk))otherCondition=()
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store_sales]
-------------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------------------------PhysicalProject
-----------------------------------------filter((date_dim.d_month_seq <= 1217) and (date_dim.d_month_seq >= 1206))
-------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------PhysicalOlapScan[store_sales]
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------filter((date_dim.d_month_seq <= 1217) and (date_dim.d_month_seq >= 1206))
+--------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[item]

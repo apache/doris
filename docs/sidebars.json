@@ -93,6 +93,13 @@
                                 "data-operate/import/import-way/insert-into-manual",
                                 "data-operate/import/import-way/load-json-format"
                             ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Import Advanced",
+                            "items": [
+                                "data-operate/import/import-advanced/min-load-replica-num"
+                            ]
                         }
                     ]
                 },
@@ -1312,6 +1319,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",
                 "releasenotes/release-2.0.0",
                 "releasenotes/release-1.2.7",

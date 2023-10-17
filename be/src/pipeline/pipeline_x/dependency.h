@@ -19,10 +19,12 @@
 
 #include <sqltypes.h>
 
+#include <memory>
 #include <mutex>
 
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
+#include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/exec/join/process_hash_table_probe.h"
@@ -313,7 +315,6 @@ public:
     std::unique_ptr<vectorized::SpillPartitionHelper> spill_partition_helper;
     // group by k1,k2
     vectorized::VExprContextSPtrs probe_expr_ctxs;
-    std::vector<size_t> probe_key_sz;
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
@@ -439,7 +440,9 @@ private:
 
 struct UnionSharedState {
 public:
-    std::shared_ptr<DataQueue> data_queue;
+    UnionSharedState(int child_count = 1, WriteDependency* dependency = nullptr)
+            : data_queue(child_count, dependency) {};
+    DataQueue data_queue;
 };
 
 class UnionDependency final : public WriteDependency {
@@ -447,11 +450,13 @@ public:
     using SharedState = UnionSharedState;
     UnionDependency(int id) : WriteDependency(id, "UnionDependency") {}
     ~UnionDependency() override = default;
-    void* shared_state() override { return (void*)&_union_state; }
-
+    void* shared_state() override { return (void*)_union_state.get(); }
+    void set_shared_state(std::shared_ptr<UnionSharedState> union_state) {
+        _union_state = union_state;
+    }
     void set_ready_for_write() override {}
     void set_ready_for_read() override {
-        if (!_union_state.data_queue->is_all_finish()) {
+        if (!_union_state->data_queue.is_all_finish()) {
             return;
         }
         if (_ready_for_read) {
@@ -465,12 +470,14 @@ public:
     void block_writing() override {}
 
 private:
-    UnionSharedState _union_state;
+    std::shared_ptr<UnionSharedState> _union_state;
 };
 
 struct MultiCastSharedState {
 public:
-    std::shared_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
+    MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count)
+            : multi_cast_data_streamer(row_desc, pool, cast_sender_count) {}
+    pipeline::MultiCastDataStreamer multi_cast_data_streamer;
 };
 
 class MultiCastDependency final : public WriteDependency {
@@ -478,9 +485,12 @@ public:
     using SharedState = MultiCastSharedState;
     MultiCastDependency(int id) : WriteDependency(id, "MultiCastDependency") {}
     ~MultiCastDependency() override = default;
-    void* shared_state() override { return (void*)&_multi_cast_state; };
+    void* shared_state() override { return (void*)_multi_cast_state.get(); };
+    void set_shared_state(std::shared_ptr<MultiCastSharedState> multi_cast_state) {
+        _multi_cast_state = multi_cast_state;
+    }
     MultiCastDependency* can_read(const int consumer_id) {
-        if (_multi_cast_state.multi_cast_data_streamer->can_read(consumer_id)) {
+        if (_multi_cast_state->multi_cast_data_streamer.can_read(consumer_id)) {
             return nullptr;
         } else {
             return this;
@@ -488,7 +498,7 @@ public:
     }
 
 private:
-    MultiCastSharedState _multi_cast_state;
+    std::shared_ptr<MultiCastSharedState> _multi_cast_state;
 };
 
 struct AnalyticSharedState {
@@ -548,7 +558,10 @@ struct JoinSharedState {
     // For some join case, we can apply a short circuit strategy
     // 1. _has_null_in_build_side = true
     // 2. build side rows is empty, Join op is: inner join/right outer join/left semi/right semi/right anti
+    bool _has_null_in_build_side = false;
     bool short_circuit_for_probe = false;
+    // for some join, when build side rows is empty, we could return directly by add some additional null data in probe table.
+    bool empty_right_table_need_probe_dispose = false;
     vectorized::JoinOpVariants join_op_variants;
 };
 
@@ -562,14 +575,9 @@ struct HashJoinSharedState : public JoinSharedState {
     // maybe share hash table with other fragment instances
     std::shared_ptr<vectorized::HashTableVariants> hash_table_variants =
             std::make_shared<vectorized::HashTableVariants>();
-    // for full/right outer join
-    vectorized::HashTableIteratorVariants outer_join_pull_visited_iter;
-    vectorized::HashTableIteratorVariants probe_row_match_iter;
-    vectorized::Sizes probe_key_sz;
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
-    std::shared_ptr<std::vector<vectorized::Block>> build_blocks =
-            std::make_shared<std::vector<vectorized::Block>>();
+    std::shared_ptr<std::vector<vectorized::Block>> build_blocks = nullptr;
     bool probe_ignore_null = false;
 };
 
@@ -623,20 +631,31 @@ public:
     std::mutex buffer_mutex;
     std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
     std::unique_ptr<vectorized::SortCursorCmp> previous_row = nullptr;
-    int sort_idx = 0;
 };
 
 class PartitionSortDependency final : public WriteDependency {
 public:
     using SharedState = PartitionSortNodeSharedState;
-    PartitionSortDependency(int id) : WriteDependency(id, "PartitionSortDependency") {}
+    PartitionSortDependency(int id) : WriteDependency(id, "PartitionSortDependency"), _eos(false) {}
     ~PartitionSortDependency() override = default;
     void* shared_state() override { return (void*)&_partition_sort_state; };
     void set_ready_for_write() override {}
     void block_writing() override {}
 
+    [[nodiscard]] Dependency* read_blocked_by() override {
+        if (config::enable_fuzzy_mode && !(_ready_for_read || _eos) &&
+            _read_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                         << id();
+        }
+        return _ready_for_read || _eos ? nullptr : this;
+    }
+
+    void set_eos() { _eos = true; }
+
 private:
     PartitionSortNodeSharedState _partition_sort_state;
+    std::atomic<bool> _eos;
 };
 
 class AsyncWriterDependency final : public WriteDependency {
@@ -661,11 +680,9 @@ struct SetSharedState {
 
     //// shared static states (shared, decided in prepare/open...)
 
-    /// init in setup_local_states
+    /// init in setup_local_state
     std::unique_ptr<vectorized::HashTableVariants> hash_table_variants; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
-    std::vector<size_t> probe_key_sz;
-    std::vector<size_t> build_key_sz;
 
     /// init in both upstream side.
     //The i-th result expr list refers to the i-th child.
@@ -677,14 +694,12 @@ struct SetSharedState {
     std::vector<bool> probe_finished_children_index; // use in probe side
 
     /// init in probe side
-    //record build column type
-    vectorized::DataTypes left_table_data_types;
     std::vector<vectorized::VExprContextSPtrs> probe_child_exprs_lists;
 
     std::atomic<bool> ready_for_read = false;
 
 public:
-    /// called in setup_local_states
+    /// called in setup_local_state
     void hash_table_init() {
         if (child_exprs_lists[0].size() == 1 && (!build_not_ignore_null[0])) {
             // Single column optimization
@@ -727,57 +742,9 @@ public:
             return;
         }
 
-        bool use_fixed_key = true;
-        bool has_null = false;
-        size_t key_byte_size = 0;
-        size_t bitmap_size = vectorized::get_bitmap_size(child_exprs_lists[0].size());
-
-        build_key_sz.resize(child_exprs_lists[0].size());
-        probe_key_sz.resize(child_exprs_lists[0].size());
-        for (int i = 0; i < child_exprs_lists[0].size(); ++i) {
-            const auto vexpr = child_exprs_lists[0][i]->root();
-            const auto& data_type = vexpr->data_type();
-
-            if (!data_type->have_maximum_size_of_value()) {
-                use_fixed_key = false;
-                break;
-            }
-
-            auto is_null = data_type->is_nullable();
-            has_null |= is_null;
-            build_key_sz[i] = data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
-            probe_key_sz[i] = build_key_sz[i];
-            key_byte_size += probe_key_sz[i];
-        }
-
-        if (bitmap_size + key_byte_size > sizeof(vectorized::UInt256)) {
-            use_fixed_key = false;
-        }
-        if (use_fixed_key) {
-            if (has_null) {
-                if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt64)) {
-                    hash_table_variants->emplace<vectorized::I64FixedKeyHashTableContext<
-                            true, vectorized::RowRefListWithFlags>>();
-                } else if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt128)) {
-                    hash_table_variants->emplace<vectorized::I128FixedKeyHashTableContext<
-                            true, vectorized::RowRefListWithFlags>>();
-                } else {
-                    hash_table_variants->emplace<vectorized::I256FixedKeyHashTableContext<
-                            true, vectorized::RowRefListWithFlags>>();
-                }
-            } else {
-                if (key_byte_size <= sizeof(vectorized::UInt64)) {
-                    hash_table_variants->emplace<vectorized::I64FixedKeyHashTableContext<
-                            false, vectorized::RowRefListWithFlags>>();
-                } else if (key_byte_size <= sizeof(vectorized::UInt128)) {
-                    hash_table_variants->emplace<vectorized::I128FixedKeyHashTableContext<
-                            false, vectorized::RowRefListWithFlags>>();
-                } else {
-                    hash_table_variants->emplace<vectorized::I256FixedKeyHashTableContext<
-                            false, vectorized::RowRefListWithFlags>>();
-                }
-            }
-        } else {
+        if (!try_get_hash_map_context_fixed<PartitionedHashMap, HashCRC32,
+                                            vectorized::RowRefListWithFlags>(
+                    *hash_table_variants, child_exprs_lists[0])) {
             hash_table_variants->emplace<
                     vectorized::SerializedHashTableContext<vectorized::RowRefListWithFlags>>();
         }

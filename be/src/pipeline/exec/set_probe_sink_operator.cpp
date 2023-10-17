@@ -71,11 +71,52 @@ template class SetProbeSinkOperator<true>;
 template class SetProbeSinkOperator<false>;
 
 template <bool is_intersect>
+Status SetProbeSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState* state) {
+    const std::vector<std::vector<TExpr>>* result_texpr_lists;
+
+    // Create result_expr_ctx_lists_ from thrift exprs.
+    if (tnode.node_type == TPlanNodeType::type::INTERSECT_NODE) {
+        result_texpr_lists = &(tnode.intersect_node.result_expr_lists);
+    } else if (tnode.node_type == TPlanNodeType::type::EXCEPT_NODE) {
+        result_texpr_lists = &(tnode.except_node.result_expr_lists);
+    } else {
+        return Status::NotSupported("Not Implemented, Check The Operation Node.");
+    }
+
+    const auto& texpr = (*result_texpr_lists)[_cur_child_id];
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(texpr, _child_exprs));
+
+    return Status::OK();
+}
+
+template <bool is_intersect>
+Status SetProbeSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::prepare(state));
+    return vectorized::VExpr::prepare(_child_exprs, state, _child_x->row_desc());
+}
+
+template <bool is_intersect>
+Status SetProbeSinkOperatorX<is_intersect>::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::open(state));
+    return vectorized::VExpr::open(_child_exprs, state);
+}
+
+template <bool is_intersect>
+WriteDependency* SetProbeSinkOperatorX<is_intersect>::wait_for_dependency(RuntimeState* state) {
+    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    return ((SetSharedState*)local_state._dependency->shared_state())
+                           ->probe_finished_children_index[_cur_child_id - 1]
+                   ? nullptr
+                   : local_state._dependency;
+}
+
+template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
                                                  SourceState source_state) {
     RETURN_IF_CANCELLED(state);
     CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state._probe_timer);
+    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
     if (_cur_child_id > 1) {
         CHECK(local_state._shared_state->probe_finished_children_index[_cur_child_id - 1])
@@ -111,8 +152,6 @@ Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSink
     RETURN_IF_ERROR(PipelineXSinkLocalState<SetDependency>::init(state, info));
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
-    _probe_timer = ADD_TIMER(_profile, "ProbeTime");
-
     Parent& parent = _parent->cast<Parent>();
 
     _child_exprs.resize(parent._child_exprs.size());
@@ -183,7 +222,7 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
                     [&](auto&& arg) {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                            valid_element_in_hash_tbl = arg.hash_table.size();
+                            valid_element_in_hash_tbl = arg.hash_table->size();
                         }
                     },
                     *hash_table_variants);
@@ -207,17 +246,18 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     if constexpr (std::is_same_v<typename HashTableCtxType::Mapped,
                                                  vectorized::RowRefListWithFlags>) {
-                        HashTableCtxType tmp_hash_table;
+                        auto tmp_hash_table =
+                                std::make_shared<typename HashTableCtxType::HashMapType>();
                         bool is_need_shrink =
-                                arg.hash_table.should_be_shrink(valid_element_in_hash_tbl);
+                                arg.hash_table->should_be_shrink(valid_element_in_hash_tbl);
                         if (is_intersect || is_need_shrink) {
-                            tmp_hash_table.hash_table.init_buf_size(
-                                    valid_element_in_hash_tbl / arg.hash_table.get_factor() + 1);
+                            tmp_hash_table->init_buf_size(
+                                    valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1);
                         }
 
-                        arg.init_once();
-                        auto& iter = arg.iter;
-                        auto iter_end = arg.hash_table.end();
+                        arg.init_iterator();
+                        auto& iter = arg.iterator;
+                        auto iter_end = arg.hash_table->end();
                         std::visit(
                                 [&](auto is_need_shrink_const) {
                                     while (iter != iter_end) {
@@ -227,14 +267,13 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                                         if constexpr (is_intersect) { //intersected
                                             if (it->visited) {
                                                 it->visited = false;
-                                                tmp_hash_table.hash_table.insert(iter->get_value());
+                                                tmp_hash_table->insert(iter->get_value());
                                             }
                                             ++iter;
                                         } else { //except
                                             if constexpr (is_need_shrink_const) {
                                                 if (!it->visited) {
-                                                    tmp_hash_table.hash_table.insert(
-                                                            iter->get_value());
+                                                    tmp_hash_table->insert(iter->get_value());
                                                 }
                                             }
                                             ++iter;
@@ -243,9 +282,9 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                                 },
                                 vectorized::make_bool_variant(is_need_shrink));
 
-                        arg.inited = false;
+                        arg.reset();
                         if (is_intersect || is_need_shrink) {
-                            arg.hash_table = std::move(tmp_hash_table.hash_table);
+                            arg.hash_table = std::move(tmp_hash_table);
                         }
                     } else {
                         LOG(FATAL) << "FATAL: Invalid RowRefList";

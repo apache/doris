@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -649,6 +650,36 @@ public class HMSExternalTable extends ExternalTable {
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
         estimatedRowCount = -1;
+    }
+
+    @Override
+    public List<Long> getChunkSizes() {
+        HiveMetaStoreCache.HivePartitionValues partitionValues = StatisticsUtil.getPartitionValuesForTable(this);
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions
+                = StatisticsUtil.getFilesForPartitions(this, partitionValues, 0);
+        List<Long> result = Lists.newArrayList();
+        for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
+            for (HiveMetaStoreCache.HiveFileStatus file : files.getFiles()) {
+                result.add(file.getLength());
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public long getDataSize(boolean singleReplica) {
+        long totalSize = StatisticsUtil.getTotalSizeFromHMS(this);
+        // Usually, we can get total size from HMS parameter.
+        if (totalSize > 0) {
+            return totalSize;
+        }
+        // If not found the size in HMS, calculate it by sum all files' size in table.
+        List<Long> chunkSizes = getChunkSizes();
+        long total = 0;
+        for (long size : chunkSizes) {
+            total += size;
+        }
+        return total;
     }
 }
 

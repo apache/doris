@@ -83,3 +83,171 @@
 -- !sql --
 0	1	2	3
 
+-- !point_select --
+1231	119291.110000000	ddd	laooq	\N	2020-01-01 12:36:38	\N	1022-01-01	\N	1.111	\N	[119181.111100000, 819019.119100000, NULL]
+
+-- !point_select --
+1231	119291.110000000	ddd	laooq	\N	2020-01-01 12:36:38	\N	1022-01-01	\N	1.111	\N	[119181.111100000, 819019.119100000, NULL]
+
+-- !point_select --
+1237	120939.111300000	a    ddd	laooq	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	90696620686827832.374	[1.100000000, 2.200000000, 3.300000000, 4.400000000, 5.500000000]	[]
+
+-- !point_select --
+1232	12222.991211350	xxx	laooq	2023-01-02	2020-01-01 12:36:38	522.762	2022-01-01	true	212.111	\N	\N
+
+-- !point_select --
+251	120939.111300000	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	laooq	2030-01-02	2020-01-01 12:36:38	251.0	7022-01-01	true	90696620686827832.374	[11111.000000000]	[]
+
+-- !point_select --
+252	120939.111300000	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	laooq	2030-01-02	2020-01-01 12:36:38	252.0	7022-01-01	false	90696620686827832.374	\N	[0.000000000]
+
+-- !point_select --
+298	120939.111300000	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	laooq	2030-01-02	2020-01-01 12:36:38	298.0	7022-01-01	true	90696620686827832.374	[]	[]
+
+-- !point_select --
+1235	991129292901.111380000	dd	\N	2120-01-02	2020-01-01 12:36:38	652.692	5022-01-01	false	90696620686827832.374	[119181.111100000]	["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+
+-- !point_select --
+646464	6C616F6F71
+
+-- !point_select --
+646464	6C616F6F71
+
+-- !point_select --
+646464	6C616F6F71
+
+-- !point_select --
+1235	120939.111300000	a    ddd	laooq	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	true	1.111	[119291.192910000]	["111", "222", "333"]	1
+
+-- !point_select --
+1235	120939.111300000	a    ddd	laooq	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	true	1.111	[119291.192910000]	["111", "222", "333"]	1
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	["111", "222", "333"]	2
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	["111", "222", "333"]	2
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	["111", "222", "333"]	2
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	\N	5630	0
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	\N	5630	0
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	["111", "222", "333"]	2
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	["111", "222", "333"]	2
+
+-- !sql --
+1231	119291.110000000	ddd	laooq	\N	2020-01-01T12:36:38	\N	1022-01-01	\N	1.111	[119181.111100000, 819019.119100000, NULL]	\N	\N
+
+-- !sql --
+1237	120939.111300000	a    ddd	laooq	2030-01-02	2020-01-01T12:36:38	22.822	7022-01-01	false	90696620686827832.374	[1.100000000, 2.200000000, 3.300000000, 4.400000000, 5.500000000]	[]	\N
+
+-- !sql --
+6120202020646464	6C616F6F71	32.92200050354004
+
+-- !sql --
+1231	119291.110000000	ddd	laooq	\N	2020-01-01T12:36:38	\N	1022-01-01	\N	1.111	[119181.111100000, 819019.119100000, NULL]	\N	\N
+
+-- !sql --
+1237	120939.111300000	a    ddd	laooq	2030-01-02	2020-01-01T12:36:38	22.822	7022-01-01	false	90696620686827832.374	[1.100000000, 2.200000000, 3.300000000, 4.400000000, 5.500000000]	[]	\N
+
+-- !sql --
+1231	119291.110000000	ddd	laooq	\N	2020-01-01T12:36:38	\N	1022-01-01	\N	1.111	[119181.111100000, 819019.119100000, NULL]	\N	\N
+
+-- !sql --
+1237	120939.111300000	a    ddd	laooq	2030-01-02	2020-01-01T12:36:38	22.822	7022-01-01	false	90696620686827832.374	[1.100000000, 2.200000000, 3.300000000, 4.400000000, 5.500000000]	[]	\N
+
+-- !sql --
+0	1	2	3
+
+-- !point_select --
+1231	119291.110000000	ddd	laooq	\N	2020-01-01 12:36:38	\N	1022-01-01	\N	1.111	\N	[119181.111100000, 819019.119100000, NULL]
+
+-- !point_select --
+1231	119291.110000000	ddd	laooq	\N	2020-01-01 12:36:38	\N	1022-01-01	\N	1.111	\N	[119181.111100000, 819019.119100000, NULL]
+
+-- !point_select --
+1237	120939.111300000	a    ddd	laooq	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	90696620686827832.374	[1.100000000, 2.200000000, 3.300000000, 4.400000000, 5.500000000]	[]
+
+-- !point_select --
+1232	12222.991211350	xxx	laooq	2023-01-02	2020-01-01 12:36:38	522.762	2022-01-01	true	212.111	\N	\N
+
+-- !point_select --
+251	120939.111300000	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	laooq	2030-01-02	2020-01-01 12:36:38	251.0	7022-01-01	true	90696620686827832.374	[11111.000000000]	[]
+
+-- !point_select --
+252	120939.111300000	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	laooq	2030-01-02	2020-01-01 12:36:38	252.0	7022-01-01	false	90696620686827832.374	\N	[0.000000000]
+
+-- !point_select --
+298	120939.111300000	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	laooq	2030-01-02	2020-01-01 12:36:38	298.0	7022-01-01	true	90696620686827832.374	[]	[]
+
+-- !point_select --
+1235	991129292901.111380000	dd	\N	2120-01-02	2020-01-01 12:36:38	652.692	5022-01-01	false	90696620686827832.374	[119181.111100000]	["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+
+-- !point_select --
+646464	6C616F6F71
+
+-- !point_select --
+646464	6C616F6F71
+
+-- !point_select --
+646464	6C616F6F71
+
+-- !point_select --
+1235	120939.111300000	a    ddd	laooq	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	true	1.111	[119291.192910000]	["111", "222", "333"]	1
+
+-- !point_select --
+1235	120939.111300000	a    ddd	laooq	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	true	1.111	[119291.192910000]	["111", "222", "333"]	1
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	["111", "222", "333"]	2
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	["111", "222", "333"]	2
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	["111", "222", "333"]	2
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	\N	5630	0
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	\N	5630	0
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	["111", "222", "333"]	2
+
+-- !point_select --
+1235	120939.111300000	a    ddd	xxxxxx	2030-01-02	2020-01-01 12:36:38	22.822	7022-01-01	false	1929111.111	[119291.192910000]	["111", "222", "333"]	2
+
+-- !sql --
+1231	119291.110000000	ddd	laooq	\N	2020-01-01T12:36:38	\N	1022-01-01	\N	1.111	[119181.111100000, 819019.119100000, NULL]	\N	\N
+
+-- !sql --
+1237	120939.111300000	a    ddd	laooq	2030-01-02	2020-01-01T12:36:38	22.822	7022-01-01	false	90696620686827832.374	[1.100000000, 2.200000000, 3.300000000, 4.400000000, 5.500000000]	[]	\N
+
+-- !sql --
+6120202020646464	6C616F6F71	32.92200050354004
+
+-- !sql --
+1231	119291.110000000	ddd	laooq	\N	2020-01-01T12:36:38	\N	1022-01-01	\N	1.111	[119181.111100000, 819019.119100000, NULL]	\N	\N
+
+-- !sql --
+1237	120939.111300000	a    ddd	laooq	2030-01-02	2020-01-01T12:36:38	22.822	7022-01-01	false	90696620686827832.374	[1.100000000, 2.200000000, 3.300000000, 4.400000000, 5.500000000]	[]	\N
+
+-- !sql --
+1231	119291.110000000	ddd	laooq	\N	2020-01-01T12:36:38	\N	1022-01-01	\N	1.111	[119181.111100000, 819019.119100000, NULL]	\N	\N
+
+-- !sql --
+1237	120939.111300000	a    ddd	laooq	2030-01-02	2020-01-01T12:36:38	22.822	7022-01-01	false	90696620686827832.374	[1.100000000, 2.200000000, 3.300000000, 4.400000000, 5.500000000]	[]	\N
+
+-- !sql --
+0	1	2	3
+

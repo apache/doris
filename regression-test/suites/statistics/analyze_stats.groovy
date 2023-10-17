@@ -18,7 +18,7 @@ import java.util.stream.Collectors
 // under the License.
 
 suite("test_analyze") {
-    String db = "test_analyze"
+    String db = "regression_test_statistics"
     String tbl = "analyzetestlimited_duplicate_all"
 
     sql """
@@ -27,6 +27,12 @@ suite("test_analyze") {
 
     sql """
         CREATE DATABASE `${db}`
+    """
+
+    // regression framework will auto create an default DB with name regression_test_$(case dir name) and use it to run case,
+    // if we do not use the default DB, here we should use the custom DB explicitly
+    sql """
+        USE `${db}`
     """
 
     sql """
@@ -917,7 +923,7 @@ PARTITION `p599` VALUES IN (599)
     expected_col_stats(inc_res, 6, 1)
 
     sql """
-        DROP TABLE regression_test_statistics.increment_analyze_test;
+        DROP TABLE increment_analyze_test;
     """
 
     sql """

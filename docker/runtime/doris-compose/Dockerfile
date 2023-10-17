@@ -25,6 +25,8 @@ ENV JAVA_HOME="/usr/local/openjdk-8/"
 ADD output /opt/apache-doris/
 
 RUN apt-get update && \
-    apt-get install -y default-mysql-client python lsof && \
+    apt-get install -y default-mysql-client python lsof tzdata && \
+    ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    dpkg-reconfigure -f noninteractive tzdata && \
     apt-get clean
 

@@ -92,7 +92,7 @@ public:
     // This method is thread-safe.
     Status flush_single_block(const vectorized::Block* block) override;
 
-    RowsetSharedPtr build() override;
+    Status build(RowsetSharedPtr& rowset) override;
 
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override;
 
