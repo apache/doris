@@ -594,6 +594,7 @@ terminal String
     KW_SYNC,
     KW_SYSTEM,
     KW_TABLE,
+    KW_TABLE_ID,
     KW_TABLES,
     KW_TABLESAMPLE,
     KW_TABLET,
@@ -4840,7 +4841,7 @@ insert_stmt ::=
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
     | /* used for group commit */
-    KW_INSERT KW_INTO INTEGER_LITERAL:table_id opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
+    KW_INSERT KW_INTO KW_TABLE_ID LPAREN INTEGER_LITERAL:table_id RPAREN opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
         RESULT = new NativeInsertStmt(table_id, label, cols, source, hints);
     :}
