@@ -93,7 +93,15 @@ suite("test_array_map_function") {
                 assertTrue(exception != null)
                 logger.info(exception.message)
             }
-        }        
+        }
+
+        test {
+            sql"""select /*+SET_VAR(experimental_enable_pipeline_engine=true)*/ array_map((x,y)->x+y, c_array1, c_array2) from ${tableName} where id > 10 order by id"""
+            check{result, exception, startTime, endTime ->
+                assertTrue(exception != null)
+                logger.info(exception.message)
+            }
+        }             
 
         sql "DROP TABLE IF EXISTS ${tableName}"
 }
