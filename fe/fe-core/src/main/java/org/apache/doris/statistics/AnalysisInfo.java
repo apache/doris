@@ -179,13 +179,17 @@ public class AnalysisInfo implements Writable {
     @SerializedName("forceFull")
     public final boolean forceFull;
 
+    @SerializedName("usingSqlForPartitionColumn")
+    public final boolean usingSqlForPartitionColumn;
+
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, long sampleRows, int maxBucketNum, long periodTimeInMs, String message,
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
-            boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull) {
+            boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
+            boolean usingSqlForPartitionColumn) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -219,6 +223,7 @@ public class AnalysisInfo implements Writable {
             this.cronExprStr = cronExpression.getCronExpression();
         }
         this.forceFull = forceFull;
+        this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
     }
 
     @Override
@@ -259,6 +264,7 @@ public class AnalysisInfo implements Writable {
             sj.add("cronExpr: " + cronExprStr);
         }
         sj.add("forceFull: " + forceFull);
+        sj.add("usingSqlForPartitionColumn: " + usingSqlForPartitionColumn);
         return sj.toString();
     }
 

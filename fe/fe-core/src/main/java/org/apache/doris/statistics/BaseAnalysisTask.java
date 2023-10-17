@@ -93,6 +93,24 @@ public abstract class BaseAnalysisTask {
             + "     ${internalDB}.${columnStatTbl}.part_id IS NOT NULL"
             + "     ) t1, \n";
 
+    protected static final String ANALYZE_PARTITION_COLUMN_TEMPLATE = "INSERT INTO "
+            + "${internalDB}.${columnStatTbl}"
+            + " SELECT "
+            + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
+            + "${catalogId} AS catalog_id, "
+            + "${dbId} AS db_id, "
+            + "${tblId} AS tbl_id, "
+            + "${idxId} AS idx_id, "
+            + "'${colId}' AS col_id, "
+            + "NULL AS part_id, "
+            + "${row_count} AS row_count, "
+            + "${ndv} AS ndv, "
+            + "${null_count} AS null_count, "
+            + "'${min}' AS min, "
+            + "'${max}' AS max, "
+            + "${data_size} AS data_size, "
+            + "NOW() ";
+
     protected AnalysisInfo info;
 
     protected CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog;

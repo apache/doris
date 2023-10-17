@@ -27,6 +27,7 @@ import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -46,8 +47,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -217,6 +221,18 @@ public final class HiveUtil {
             method.setAccessible(true);
             return (boolean) method.invoke(inputFormat, FileSystemFactory.getNativeByPath(path, jobConf), path);
         } catch (InvocationTargetException | IllegalAccessException | IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static String getHivePartitionValue(String part) {
+        String[] kv = part.split("=");
+        Preconditions.checkState(kv.length == 2, String.format("Malformed partition name %s", part));
+        try {
+            // hive partition value maybe contains special characters like '=' and '/'
+            return URLDecoder.decode(kv[1], StandardCharsets.UTF_8.name());
+        } catch (UnsupportedEncodingException e) {
+            // It should not be here
             throw new RuntimeException(e);
         }
     }

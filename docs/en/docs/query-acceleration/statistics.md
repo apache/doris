@@ -52,9 +52,9 @@ Syntax:
 
 ```SQL
 ANALYZE < TABLE | DATABASE table_name | db_name >
-    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT] ]
+    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT ] ]
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ]]
+    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH SQL ] ]
     [ PROPERTIES ("key" = "value", ...) ];
 ```
 
@@ -65,6 +65,7 @@ Where:
 - `column_name`: Specifies the target column. It must be an existing column in `table_name`, and multiple column names are separated by commas.
 - `sync`: Collect statistics synchronously. Returns upon completion. If not specified, it executes asynchronously and returns a task ID.
 - `sample percent | rows`: Collect statistics using sampling. You can specify either the sampling percentage or the number of sampled rows.
+- `sql`: Collect statistics for external partition column with sql. By default, it uses meta data for partition columns, which is faster but may inaccurate for row count and size. Using sql could collect the accurate stats.
 
 ### Automatic Statistics Collection
 
