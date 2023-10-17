@@ -39,8 +39,7 @@ import java.util.List;
  * <p>
  * origin plan:
  * <p>
- * UnboundOneRowRelation ( relationId=RelationId#0, projects=[UnboundAlias(1), UnboundAlias('a'),
- *     UnboundAlias(COUNT())])
+ * LogicalOneRowRelation ( projects=[1 AS `1`#0, 'a' AS `'a'`#1, count(*) AS `count(*)`#2] )
  * transformed plan:
  * <p>
  * LogicalAggregate[23] ( groupByExpr=[], outputExpr=[1 AS `1`#0, 'a' AS `'a'`#1, count(*) AS `count(*)`#2],
