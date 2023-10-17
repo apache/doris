@@ -72,9 +72,9 @@ public:
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
 
-    RuntimeState(const TPipelineInstanceParams& pipeline_params, const TUniqueId& query_id,
-                 int32 fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
+                 const TQueryOptions& query_options, const TQueryGlobals& query_globals,
+                 ExecEnv* exec_env);
 
     // Used by pipelineX. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
@@ -102,6 +102,9 @@ public:
         return _query_options.__isset.scan_queue_mem_limit ? _query_options.scan_queue_mem_limit
                                                            : _query_options.mem_limit / 20;
     }
+
+    void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params) const;
+
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
@@ -441,7 +444,9 @@ public:
         return 0;
     }
 
-    void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
+    void set_be_exec_version(int32_t version) noexcept {
+        _query_options.be_exec_version = version;
+    }
 
     int64_t external_agg_bytes_threshold() const {
         return _query_options.__isset.external_agg_bytes_threshold
