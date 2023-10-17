@@ -73,6 +73,9 @@ public:
 
     bool is_child_finished(int child_id) const;
 
+    int64_t* valid_element_in_hash_tbl() { return &_valid_element_in_hash_tbl; }
+    int64_t* mem_used() { return &_mem_used; };
+
 private:
     void _finalize_probe(int child_id);
     //Todo: In build process of hashtable, It's same as join node.
