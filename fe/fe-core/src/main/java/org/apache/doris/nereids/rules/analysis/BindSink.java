@@ -107,6 +107,21 @@ public class BindSink implements AnalysisRuleFactory {
                         throw new AnalysisException("insert into cols should be corresponding to the query output");
                     }
 
+                    try {
+                        if (table.hasSequenceCol() && table.getSequenceMapCol() != null && !boundSink.isPartialUpdate()) {
+                            Column seqCol = table.getFullSchema().stream()
+                                            .filter(col -> col.getName().equals(table.getSequenceMapCol()))
+                                            .findFirst().get();
+                            if (seqCol.getDefaultValue() == null
+                                    || !seqCol.getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                                throw new AnalysisException("Table " + table.getName()
+                                    + " has sequence column, need to specify the sequence column");
+                            }
+                        }
+                    } catch (Exception e) {
+                        throw new AnalysisException(e.getMessage(), e.getCause());
+                    }
+
                     Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
                     for (int i = 0; i < boundSink.getCols().size(); ++i) {
                         columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));

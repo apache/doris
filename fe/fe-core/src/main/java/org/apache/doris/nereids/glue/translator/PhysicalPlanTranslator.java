@@ -379,16 +379,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         boolean isPartialUpdate = olapTableSink.isPartialUpdate();
         OlapTable olapTable = (OlapTable) olapTableSink.getTargetTable();
 
-        if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
-                && !olapTableSink.getOutput().isEmpty() && olapTableSink.isFromNativeInsertStmt()) {
-            Optional<Slot> foundCol = olapTableSink.getOutput().stream()
-                        .filter(slot -> slot.getName().equalsIgnoreCase(olapTable.getSequenceMapCol())).findAny();
-            if (!foundCol.isPresent() && !isPartialUpdate) {
-                throw new AnalysisException("Table " + olapTable.getName()
-                        + " has sequence column, need to specify the sequence column");
-            }
-        }
-
         if (isPartialUpdate) {
             if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 throw new AnalysisException("Partial update is only allowed in"
