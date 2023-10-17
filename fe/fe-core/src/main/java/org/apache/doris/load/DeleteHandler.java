@@ -89,29 +89,33 @@ public class DeleteHandler implements Writable {
         Database targetDb = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDbName());
         OlapTable targetTbl = targetDb.getOlapTableOrDdlException(stmt.getTableName());
         DeleteJob deleteJob = null;
-        targetTbl.readLock();
         try {
-            if (targetTbl.getState() != OlapTable.OlapTableState.NORMAL) {
-                // table under alter operation can also do delete.
-                // just add a comment here to notice.
+            targetTbl.readLock();
+            try {
+                if (targetTbl.getState() != OlapTable.OlapTableState.NORMAL) {
+                    // table under alter operation can also do delete.
+                    // just add a comment here to notice.
+                }
+                deleteJob = DeleteJob.newBuilder()
+                        .buildWith(new DeleteJob.BuildParams(
+                                targetDb,
+                                targetTbl,
+                                stmt.getPartitionNames(),
+                                stmt.getDeleteConditions()));
+
+                long txnId = deleteJob.beginTxn();
+                TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(targetDb.getId(), txnId);
+                // must call this to make sure we only handle the tablet in the mIndex we saw here.
+                // table may be under schema change or rollup, and the newly created tablets will not be checked later,
+                // to make sure that the delete transaction can be done successfully.
+                txnState.addTableIndexes(targetTbl);
+                idToDeleteJob.put(txnId, deleteJob);
+                deleteJob.dispatch();
+            } finally {
+                targetTbl.readUnlock();
             }
-            deleteJob = DeleteJob.newBuilder()
-                    .buildWith(new DeleteJob.BuildParams(
-                            targetDb,
-                            targetTbl,
-                            stmt.getPartitionNames(),
-                            stmt.getDeleteConditions()));
-
-            long txnId = deleteJob.beginTxn();
-            TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionState(targetDb.getId(), txnId);
-            // must call this to make sure we only handle the tablet in the mIndex we saw here.
-            // table may be under schema change or rollup, and the newly created tablets will not be checked later,
-            // to make sure that the delete transaction can be done successfully.
-            txnState.addTableIndexes(targetTbl);
-            idToDeleteJob.put(txnId, deleteJob);
-
-            deleteJob.execute();
+            deleteJob.await();
             String commitMsg = deleteJob.commit();
             execState.setOk(0, 0, commitMsg);
         } catch (Exception ex) {
@@ -120,7 +124,6 @@ public class DeleteHandler implements Writable {
             }
             execState.setError(ex.getMessage());
         } finally {
-            targetTbl.readUnlock();
             clearJob(deleteJob);
         }
     }
@@ -137,7 +140,7 @@ public class DeleteHandler implements Writable {
         }
         long signature = job.getTransactionId();
         idToDeleteJob.remove(signature);
-        job.cleanUpPushTasks();
+        job.cleanUp();
         // do not remove callback from GlobalTransactionMgr's callback factory here.
         // the callback will be removed after transaction is aborted or visible.
     }

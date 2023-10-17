@@ -80,7 +80,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-public class DeleteJob extends AbstractTxnStateChangeCallback {
+public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJobLifeCycle {
     private static final Logger LOG = LogManager.getLogger(DeleteJob.class);
 
     public static final String DELETE_PREFIX = "delete_";
@@ -114,6 +114,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
     private List<Partition> partitions;
 
     private List<Predicate> deleteConditions;
+
+    private MarkedCountDownLatch<Long, Long> countDownLatch;
 
     public DeleteJob(long id, long transactionId, String label,
                      Map<Long, Short> partitionReplicaNum, DeleteInfo deleteInfo) {
@@ -271,9 +273,11 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         this.deleteConditions = deleteConditions;
     }
 
-    /**
-     * @return txn id
-     */
+    public void setCountDownLatch(MarkedCountDownLatch<Long, Long> countDownLatch) {
+        this.countDownLatch = countDownLatch;
+    }
+
+    @Override
     public long beginTxn() throws Exception {
         long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(deleteInfo.getDbId(),
                 Lists.newArrayList(deleteInfo.getTableId()), label, null,
@@ -285,51 +289,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         return txnId;
     }
 
-    public void execute() throws Exception {
-        long replicaNum = partitions.stream().mapToLong(Partition::getAllReplicaCount).sum();
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>((int) replicaNum);
-        doExecute(countDownLatch);
-        long timeoutMs = getTimeoutMs();
-        boolean ok = countDownLatch.await(timeoutMs, TimeUnit.MILLISECONDS);
-        if (ok) {
-            return;
-        }
-
-        //handle failure
-        String errMsg = "";
-        List<Map.Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
-        // only show at most 5 results
-        List<Map.Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 5));
-        if (!subList.isEmpty()) {
-            errMsg = "unfinished replicas [BackendId=TabletId]: " + Joiner.on(", ").join(subList);
-        }
-        LOG.warn(errMsg);
-        checkAndUpdateQuorum();
-        switch (state) {
-            case UN_QUORUM:
-                LOG.warn("delete job timeout: transactionId {}, timeout {}, {}",
-                        signature, timeoutMs, errMsg);
-                throw new UserException(String.format("delete job timeout, timeout(ms):%s, msg:%s", timeoutMs, errMsg));
-            case QUORUM_FINISHED:
-            case FINISHED:
-                long nowQuorumTimeMs = System.currentTimeMillis();
-                long endQuorumTimeoutMs = nowQuorumTimeMs + timeoutMs / 2;
-                // if job's state is quorum_finished then wait for a period of time and commit it.
-                while (state == DeleteState.QUORUM_FINISHED
-                        && endQuorumTimeoutMs > nowQuorumTimeMs) {
-                    checkAndUpdateQuorum();
-                    Thread.sleep(1000);
-                    nowQuorumTimeMs = System.currentTimeMillis();
-                    LOG.debug("wait for quorum finished delete job: {}, txn id: {}",
-                            id, signature);
-                }
-                break;
-            default:
-                throw new IllegalStateException("wrong delete job state: " + state.name());
-        }
-    }
-
-    private void doExecute(MarkedCountDownLatch<Long, Long> countDownLatch) {
+    @Override
+    public void dispatch() throws Exception {
         // task sent to be
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Partition partition : partitions) {
@@ -385,6 +346,49 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         }
     }
 
+    @Override
+    public void await() throws Exception {
+        long timeoutMs = getTimeoutMs();
+        boolean ok = countDownLatch.await(timeoutMs, TimeUnit.MILLISECONDS);
+        if (ok) {
+            return;
+        }
+
+        //handle failure
+        String errMsg = "";
+        List<Map.Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
+        // only show at most 5 results
+        List<Map.Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 5));
+        if (!subList.isEmpty()) {
+            errMsg = "unfinished replicas [BackendId=TabletId]: " + Joiner.on(", ").join(subList);
+        }
+        LOG.warn(errMsg);
+        checkAndUpdateQuorum();
+        switch (state) {
+            case UN_QUORUM:
+                LOG.warn("delete job timeout: transactionId {}, timeout {}, {}",
+                        signature, timeoutMs, errMsg);
+                throw new UserException(String.format("delete job timeout, timeout(ms):%s, msg:%s", timeoutMs, errMsg));
+            case QUORUM_FINISHED:
+            case FINISHED:
+                long nowQuorumTimeMs = System.currentTimeMillis();
+                long endQuorumTimeoutMs = nowQuorumTimeMs + timeoutMs / 2;
+                // if job's state is quorum_finished then wait for a period of time and commit it.
+                while (state == DeleteState.QUORUM_FINISHED
+                        && endQuorumTimeoutMs > nowQuorumTimeMs) {
+                    checkAndUpdateQuorum();
+                    Thread.sleep(1000);
+                    nowQuorumTimeMs = System.currentTimeMillis();
+                    LOG.debug("wait for quorum finished delete job: {}, txn id: {}",
+                            id, signature);
+                }
+                break;
+            default:
+                throw new IllegalStateException("wrong delete job state: " + state.name());
+        }
+    }
+
+    @Override
     public String commit() throws Exception {
         TabletInvertedIndex currentInvertedIndex = Env.getCurrentInvertedIndex();
         List<TabletCommitInfo> tabletCommitInfos = Lists.newArrayList();
@@ -417,6 +421,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         return sb.toString();
     }
 
+    @Override
     public void cancel(String reason) {
         GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         try {
@@ -437,7 +442,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         }
     }
 
-    public void cleanUpPushTasks() {
+    @Override
+    public void cleanUp() {
         for (PushTask pushTask : pushTasks) {
             AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
                     pushTask.getVersion(),
@@ -500,10 +506,12 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
             DeleteInfo deleteInfo = new DeleteInfo(params.getDb().getId(), params.getTable().getId(),
                     params.getTable().getName(), getDeleteCondString(params.getDeleteConditions()));
             DeleteJob deleteJob = new DeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo);
+            long replicaNum = partitions.stream().mapToLong(Partition::getAllReplicaCount).sum();
             deleteJob.setPartitions(partitions);
             deleteJob.setDeleteConditions(params.getDeleteConditions());
             deleteJob.setTargetDb(params.getDb());
             deleteJob.setTargetTbl(params.getTable());
+            deleteJob.setCountDownLatch(new MarkedCountDownLatch<>((int) replicaNum));
             return deleteJob;
         }
 
