@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -116,6 +115,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -631,7 +631,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (colName == null) {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
-            ColumnStatistic cache = Config.enable_stats && FeConstants.enableInternalSchemaDb
+            ColumnStatistic cache = ConnectContext.get().getSessionVariable().enableStats
+                    && FeConstants.enableInternalSchemaDb
                     ? shouldIgnoreThisCol
                     ? ColumnStatistic.UNKNOWN : getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
             if (cache.avgSizeByte <= 0) {
