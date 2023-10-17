@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "olap/delta_writer_context.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
@@ -86,6 +87,10 @@ public:
     // For UT
     DeleteBitmapPtr get_delete_bitmap() { return _delete_bitmap; }
 
+    std::shared_ptr<PartialUpdateInfo> get_partial_update_info() const {
+        return _partial_update_info;
+    }
+
 private:
     void _garbage_collection();
 
@@ -112,6 +117,8 @@ private:
     std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
     // current rowset_ids, used to do diff in publish_version
     RowsetIdUnorderedSet _rowset_ids;
+
+    std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _build_rowset_timer = nullptr;

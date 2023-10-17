@@ -21,10 +21,12 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-public class GraphSimplifierTest {
+class GraphSimplifierTest {
     @Test
     void testStarQuery() {
         //      t1
@@ -209,5 +211,29 @@ public class GraphSimplifierTest {
             subgraphEnumerator.enumerate();
             Assertions.assertTrue(counter.getLimit() >= 0);
         }
+    }
+
+    @Disabled
+    @Test
+    void benchGraphSimplifier() {
+        int tableNum = 64;
+        int edgeNum = 64 * 63 / 2;
+        int limit = 1000;
+
+        int times = 1;
+        double totalTime = 0;
+        for (int i = 0; i < times; i++) {
+            totalTime += benchGraphSimplifier(tableNum, edgeNum, limit);
+        }
+        System.out.println(totalTime / times);
+    }
+
+    double benchGraphSimplifier(int tableNum, int edgeNum, int limit) {
+        HyperGraph hyperGraph = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN))
+                .randomBuildWith(tableNum, edgeNum);
+        double now = System.currentTimeMillis();
+        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        graphSimplifier.simplifyGraph(limit);
+        return System.currentTimeMillis() - now;
     }
 }
