@@ -367,14 +367,7 @@ echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
 
 # patch hyperscan
 # https://github.com/intel/hyperscan/issues/292
-if [[ "${HYPERSCAN_SOURCE}" == "hyperscan-5.4.0" ]]; then
-    cd "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p0 <"${TP_PATCH_DIR}/hyperscan-5.4.0.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-elif [[ "${HYPERSCAN_SOURCE}" == "vectorscan-vectorscan-5.4.7" ]]; then
+if [[ "${HYPERSCAN_SOURCE}" == "vectorscan-vectorscan-5.4.7" ]]; then
     cd "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
         patch -p0 <"${TP_PATCH_DIR}/vectorscan-5.4.7.patch"

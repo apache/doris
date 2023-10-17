@@ -152,10 +152,10 @@ RE2_SOURCE=re2-2021-02-02
 RE2_MD5SUM="48bc665463a86f68243c5af1bac75cd0"
 
 # hyperscan
-HYPERSCAN_DOWNLOAD="https://github.com/intel/hyperscan/archive/refs/tags/v5.4.0.tar.gz"
-HYPERSCAN_NAME=hyperscan-5.4.0.tar.gz
-HYPERSCAN_SOURCE=hyperscan-5.4.0
-HYPERSCAN_MD5SUM="65e08385038c24470a248f6ff2fa379b"
+HYPERSCAN_DOWNLOAD="https://github.com/intel/hyperscan/archive/refs/tags/v5.4.2.tar.gz"
+HYPERSCAN_NAME=hyperscan-5.4.2.tar.gz
+HYPERSCAN_SOURCE=hyperscan-5.4.2
+HYPERSCAN_MD5SUM="202f4b42f5dd4a7bb2506445e51a33b9"
 
 # vectorscan (support arm for hyperscan)
 MACHINE_TYPE=$(uname -m)
