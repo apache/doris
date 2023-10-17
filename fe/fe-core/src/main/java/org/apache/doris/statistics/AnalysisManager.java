@@ -537,6 +537,7 @@ public class AnalysisManager extends Daemon implements Writable {
         infoBuilder.setLastExecTimeInMs(0);
         infoBuilder.setCronExpression(cronExpression);
         infoBuilder.setForceFull(stmt.forceFull());
+        infoBuilder.setUsingSqlForPartitionColumn(stmt.usingSqlForPartitionColumn());
         if (analysisMethod == AnalysisMethod.SAMPLE) {
             infoBuilder.setSamplePercent(samplePercent);
             infoBuilder.setSampleRows(sampleRows);
