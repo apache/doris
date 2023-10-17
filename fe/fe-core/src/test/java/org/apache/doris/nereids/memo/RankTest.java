@@ -34,14 +34,15 @@ import org.junit.jupiter.api.Test;
 import java.util.HashSet;
 import java.util.Set;
 
-public class RankTest extends TestWithFeService {
+class RankTest extends TestWithFeService {
     @Test
     void test() {
         HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN));
         hyperGraphBuilder.init(0, 1, 2);
-        Plan plan = hyperGraphBuilder.addEdge(JoinType.INNER_JOIN, 1, 2)
-                                     .addEdge(JoinType.INNER_JOIN, 0, 1)
-                                     .buildPlan();
+        Plan plan = hyperGraphBuilder
+                .addEdge(JoinType.INNER_JOIN, 0, 1)
+                .addEdge(JoinType.INNER_JOIN, 1, 2)
+                .buildPlan();
         plan = new LogicalProject(plan.getOutput(), plan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
         hyperGraphBuilder.initStats(cascadesContext);
@@ -54,7 +55,7 @@ public class RankTest extends TestWithFeService {
             shape.add(memo.unrank(memo.rank(i + 1).first).shape(""));
         }
         System.out.println(shape);
-        Assertions.assertEquals(3, shape.size());
+        Assertions.assertEquals(4, shape.size());
         Assertions.assertEquals(bestPlan.shape(""), memo.unrank(memo.rank(1).first).shape(""));
     }
 }

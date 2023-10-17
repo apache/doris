@@ -16,19 +16,20 @@ PhysicalResultSink
 --------------------------PhysicalRepeat
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk))otherCondition=()
---------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = store_sales.ss_item_sk))otherCondition=()
-----------------------------------PhysicalDistribute
-------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_date_sk = store_sales.ss_sold_date_sk))otherCondition=()
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_sales]
-----------------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = store_sales.ss_item_sk))otherCondition=()
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_date_sk = store_sales.ss_sold_date_sk))otherCondition=()
 ------------------------------------------PhysicalProject
---------------------------------------------filter((d1.d_year = 2002))
-----------------------------------------------PhysicalOlapScan[date_dim]
-----------------------------------PhysicalDistribute
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[item]
+--------------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------------PhysicalDistribute
+--------------------------------------------PhysicalProject
+----------------------------------------------filter((d1.d_year = 2002))
+------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[item]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------filter(s_state IN ('AL', 'GA', 'MI', 'MO', 'OH', 'SC', 'SD', 'TN'))

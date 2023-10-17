@@ -92,6 +92,6 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
                     InnerJoinLeftAssociate.setNewTopJoinReorder(newTopJoin, topJoin);
 
                     return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
-                }).toRule(RuleType.LOGICAL_INNER_JOIN_LEFT_ASSOCIATIVE);
+                }).toRule(RuleType.LOGICAL_INNER_JOIN_LEFT_ASSOCIATIVE_PROJECT);
     }
 }

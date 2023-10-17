@@ -8,13 +8,13 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = l1.l_orderkey))otherCondition=()
+----------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((l2.l_orderkey = l1.l_orderkey))otherCondition=(( not (l_suppkey = l_suppkey)))
 ------------------PhysicalProject
---------------------filter((orders.o_orderstatus = 'F'))
-----------------------PhysicalOlapScan[orders]
-------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((l2.l_orderkey = l1.l_orderkey))otherCondition=(( not (l_suppkey = l_suppkey)))
+--------------------PhysicalOlapScan[lineitem]
+------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = l1.l_orderkey))otherCondition=()
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[lineitem]
+----------------------filter((orders.o_orderstatus = 'F'))
+------------------------PhysicalOlapScan[orders]
 --------------------hashJoin[RIGHT_ANTI_JOIN] hashCondition=((l3.l_orderkey = l1.l_orderkey))otherCondition=(( not (l_suppkey = l_suppkey)))
 ----------------------PhysicalProject
 ------------------------filter((l3.l_receiptdate > l3.l_commitdate))
