@@ -73,6 +73,12 @@ public class BindSink implements AnalysisRuleFactory {
 
                             LogicalPlan child = ((LogicalPlan) sink.child());
 
+                            if (sink.getColNames().isEmpty() && sink.isFromNativeInsertStmt()
+                                    && sink.isPartialUpdate()) {
+                                throw new AnalysisException("You must explicitly specify the columns to be updated "
+                                        + "when updating partial columns using the INSERT statement.");
+                            }
+
                             LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                                     database,
                                     table,
