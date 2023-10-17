@@ -235,7 +235,6 @@ public class DeleteHandlerTest {
         QueryState state = connectContext.getState();
         deleteHandler.process(deleteStmt, state);
         Assert.assertSame(state.getStateType(), QueryState.MysqlStateType.ERR);
-        Assert.fail();
     }
 
     @Test

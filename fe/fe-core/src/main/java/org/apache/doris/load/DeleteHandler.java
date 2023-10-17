@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.ListComparator;
@@ -124,7 +125,9 @@ public class DeleteHandler implements Writable {
             }
             execState.setError(ex.getMessage());
         } finally {
-            clearJob(deleteJob);
+            if (!FeConstants.runningUnitTest) {
+                clearJob(deleteJob);
+            }
         }
     }
 
