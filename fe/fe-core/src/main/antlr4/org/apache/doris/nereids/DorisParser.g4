@@ -468,7 +468,7 @@ dataType
 primitiveColType:
     | type=TINYINT
     | type=SMALLINT
-    | (SIGNED | UNSIGNED)? type=INT
+    | (SIGNED | UNSIGNED)? type=(INT | INTEGER)
     | type=BIGINT
     | type=LARGEINT
     | type=BOOLEAN
