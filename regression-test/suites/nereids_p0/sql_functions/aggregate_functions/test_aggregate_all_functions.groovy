@@ -109,7 +109,7 @@ suite("test_aggregate_all_functions") {
     qt_select4 "select bitmap_union_count(user_id) from  ${tableName_03}"
     qt_select5 "select bitmap_count(bitmap_union(user_id)) FROM ${tableName_03}"
     qt_select6 "select bitmap_union_count(user_id) from  ${tableName_03} group by page order by 1;"
-    qt_select7 "select bitmap_count(bitmap_union(user_id)) FROM ${tableName_03} group by page order by 1;"
+    qt_select7 "select bitmap_to_string(bitmap_union(user_id)) FROM ${tableName_03} group by page order by 1;"
 
     qt_group_bitmap_xor "select dt, bitmap_to_string(group_bitmap_xor(user_id_bitmap)) from ${tableName_04} group by dt order by dt"
 
