@@ -24,17 +24,18 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9134/?useLocalSessionState=true&allowLoadLocalInfile=true"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:9134/?useLocalSessionState=true&allowLoadLocalInfile=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feSourceThriftAddress = "127.0.0.1:9124"
-feTargetThriftAddress = "127.0.0.1:9124"
+feSourceThriftAddress = "127.0.0.1:9020"
+feTargetThriftAddress = "127.0.0.1:9020"
+syncerAddress = "127.0.0.1:9190"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
-feHttpAddress = "127.0.0.1:8134"
+feHttpAddress = "127.0.0.1:8030"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -45,6 +46,24 @@ dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
 sslCertificatePath = "${DORIS_HOME}/regression-test/ssl_default_certificate"
+
+// suite configs
+suites = {
+
+    //// equals to:
+    ////    suites.test_suite_1.key1 = "val1"
+    ////    suites.test_suite_1.key2 = "val2"
+    ////
+    //test_suite_1 {
+    //    key1 = "val1"
+    //    key2 = "val2"
+    //}
+
+    //test_suite_2 {
+    //    key3 = "val1"
+    //    key4 = "val2"
+    //}
+}
 
 // docker image
 image = ""
@@ -166,4 +185,3 @@ max_failure_num=0
 s3ExportBucketName = ""
 
 externalEnvIp="127.0.0.1"
-

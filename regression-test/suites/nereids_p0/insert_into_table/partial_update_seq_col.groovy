@@ -46,14 +46,15 @@ suite("nereids_partial_update_native_insert_seq_col", "p0") {
 
     qt_select_default """ select * from ${tableName} order by id;"""
 
-    // don't set partial update header, it's a row update streamload
-    // the input data don't contains sequence mapping column, will load fail
+    // set enable_unique_key_partial_update=false, it's a row update
+    // the input data don't contains sequence mapping column and the sequence mapping
+    // column's default value is not CURRENT_TIMESTAMP, will load fail
     test {
         sql "insert into ${tableName}(id,score) values(2,400),(1,200);"
         exception "Table nereids_partial_update_native_insert_seq_col has sequence column, need to specify the sequence column"
     }
 
-    // set partial update header, should success
+    // set enable_unique_key_partial_update=true, should success
     // we don't provide the sequence column in input data, so the updated rows
     // should use there original sequence column values.
     sql "set enable_unique_key_partial_update=true;"
@@ -86,4 +87,28 @@ suite("nereids_partial_update_native_insert_seq_col", "p0") {
     qt_partial_update_with_seq_hidden_columns """select * from ${tableName} order by id;"""
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
+
+
+    def tableName2 = "nereids_partial_update_native_insert_seq_col2"
+    sql """ DROP TABLE IF EXISTS ${tableName2} """
+    sql """
+            CREATE TABLE ${tableName2} (
+                `id` int(11) NOT NULL COMMENT "用户 ID",
+                `score` int(11) NOT NULL COMMENT "用户得分",
+                `update_time` DATETIMEV2 NULL DEFAULT CURRENT_TIMESTAMP)
+            UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES(
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true",
+                "function_column.sequence_col" = "update_time"
+            )""" 
+    
+    // don't set enable_unique_key_partial_update, it's a row update
+    // the input data don't contains sequence mapping column but the sequence mapping
+    // column's default value is CURRENT_TIMESTAMP, will load successfully
+    sql "set enable_unique_key_partial_update=false;"
+    sql "sync;"
+    sql "insert into ${tableName2}(id,score) values(2,400),(1,200);"
+    qt_sql """ select * from ${tableName2} order by id;"""
+    sql """ DROP TABLE IF EXISTS ${tableName2}; """
 }
