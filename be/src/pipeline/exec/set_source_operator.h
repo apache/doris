@@ -63,7 +63,7 @@ public:
     using Base = PipelineXLocalState<SetDependency>;
     using Parent = SetSourceOperatorX<is_intersect>;
     SetSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
-
+    Status init(RuntimeState* state, LocalStateInfo& infos) override;
     Status open(RuntimeState* state) override;
 
 private:
