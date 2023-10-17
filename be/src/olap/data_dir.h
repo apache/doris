@@ -113,9 +113,7 @@ public:
     // this is a producer function. After scan, it will notify the perform_path_gc function to gc
     Status perform_path_scan();
 
-    void perform_path_gc_by_rowsetid();
-
-    void perform_path_gc_by_tablet();
+    void perform_path_gc();
 
     void perform_remote_rowset_gc();
 
@@ -169,6 +167,10 @@ private:
     void _remove_check_paths(const std::set<std::string>& paths);
 
     bool _check_pending_ids(const std::string& id);
+
+    void _perform_path_gc_by_tablet();
+
+    void _perform_path_gc_by_rowsetid();
 
 private:
     std::atomic<bool> _stop_bg_worker = false;
