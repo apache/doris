@@ -168,6 +168,10 @@ extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
 
+enableMaxComputeTest=false
+aliYunAk="***********"
+aliYunSk="***********"
+
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"

@@ -37,6 +37,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class MaxComputeScanNode extends FileQueryScanNode {
 
@@ -96,7 +97,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
         try {
             List<Pair<Long, Long>> sliceRange = new ArrayList<>();
-            long totalRows = catalog.getTotalRows(table.getDbName(), table.getName());
+            Optional<String> partitionSpec = table.getPartitionSpec(conjuncts);
+            long totalRows = catalog.getTotalRows(table.getDbName(), table.getName(), partitionSpec);
             long fileNum = odpsTable.getFileNum();
             long start = 0;
             long splitSize = (long) Math.ceil((double) totalRows / fileNum);
