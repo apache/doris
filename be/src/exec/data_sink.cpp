@@ -352,7 +352,9 @@ Status DataSink::prepare(RuntimeState* state) {
 
 bool DataSink::_has_inverted_index(TOlapTableSink sink) {
     OlapTableSchemaParam schema;
-    schema.init(sink.schema);
+    if (!schema.init(sink.schema).ok()) {
+        return false;
+    }
     for (const auto& index_schema : schema.indexes()) {
         for (const auto& index : index_schema->indexes) {
             if (index->index_type() == INVERTED) {
