@@ -42,6 +42,7 @@ class QueryStatistics;
 class TDataSink;
 class TExpr;
 class TPipelineFragmentParams;
+class TOlapTableSink;
 
 namespace vectorized {
 class Block;
