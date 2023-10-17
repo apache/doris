@@ -33,6 +33,9 @@ constexpr size_t IPV4_BINARY_LENGTH = 4;
 constexpr size_t IPV4_MAX_TEXT_LENGTH = 15;       /// Does not count tail zero byte.
 constexpr size_t IPV4_MIN_NUM_VALUE = 0;          //num value of '0.0.0.0'
 constexpr size_t IPV4_MAX_NUM_VALUE = 4294967295; //num value of '255.255.255.255'
+constexpr size_t IPV4_MAX_OCTET_VALUE = 255;      //max vulue of octet 
+constexpr size_t IPV4_OCTET_BITS = 8;
+constexpr size_t DECIMAL_BASE = 10;
 
 namespace doris::vectorized {
 
@@ -118,30 +121,38 @@ inline void formatIPv4(const unsigned char* src, char*& dst, uint8_t mask_tail_o
 template <typename T, typename EOFfunction>
     requires(std::is_same<typename std::remove_cv<T>::type, char>::value)
 inline bool parseIPv4(T*& src, EOFfunction eof, unsigned char* dst, int64_t first_octet = -1) {
-    if (src == nullptr || first_octet > 255) return false;
-
-    int64_t result = 0;
-    int offset = 24;
-    if (first_octet >= 0) {
-        result |= first_octet << offset;
-        offset -= 8;
+    if (src == nullptr || first_octet > IPV4_MAX_OCTET_VALUE) {
+        return false;
     }
 
-    for (; true; offset -= 8, ++src) {
-        if (eof()) return false;
+    int64_t result = 0;
+    int offset = (IPV4_BINARY_LENGTH - 1) * IPV4_OCTET_BITS;
+    if (first_octet >= 0) {
+        result |= first_octet << offset;
+        offset -= IPV4_OCTET_BITS;
+    }
+
+    for (; true; offset -= IPV4_OCTET_BITS, ++src) {
+        if (eof()) {
+            return false;
+        }
 
         int64_t value = 0;
         size_t len = 0;
         while (is_numeric_ascii(*src) && len <= 3) {
-            value = value * 10 + (*src - '0');
+            value = value * DECIMAL_BASE + (*src - '0');
             ++len;
             ++src;
-            if (eof()) break;
+            if (eof()) {
+                break;
+            }
         }
-        if (len == 0 || value > 255 || (offset > 0 && (eof() || *src != '.'))) return false;
+        if (len == 0 || value > IPV4_MAX_OCTET_VALUE || (offset > 0 && (eof() || *src != '.'))) return false;
         result |= value << offset;
 
-        if (offset == 0) break;
+        if (offset == 0) {
+            break;
+        }
     }
 
     memcpy(dst, &result, sizeof(result));
@@ -151,8 +162,9 @@ inline bool parseIPv4(T*& src, EOFfunction eof, unsigned char* dst, int64_t firs
 /// returns pointer to the right after parsed sequence or null on failed parsing
 inline const char* parseIPv4(const char* src, const char* end, unsigned char* dst) {
     if (parseIPv4(
-                src, [&src, end]() { return src == end; }, dst))
+                src, [&src, end]() { return src == end; }, dst)) {
         return src;
+    }
     return nullptr;
 }
 
@@ -164,8 +176,9 @@ inline bool parseIPv4whole(const char* src, const char* end, unsigned char* dst)
 /// returns pointer to the right after parsed sequence or null on failed parsing
 inline const char* parseIPv4(const char* src, unsigned char* dst) {
     if (parseIPv4(
-                src, []() { return false; }, dst))
+                src, []() { return false; }, dst)) {
         return src;
+    }
     return nullptr;
 }
 
