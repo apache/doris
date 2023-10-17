@@ -987,37 +987,13 @@ void FragmentMgr::cancel_query_unlocked(const TUniqueId& query_id,
         return;
     }
 
-    if (ctx->second->enable_pipeline_exec()) {
-        for (auto it : ctx->second->fragment_ids) {
-            // instance_id will not be removed from query_context.instance_ids currently
-            // and it will be removed from fragment_mgr::_pipeline_map only.
-            // so we add this check to avoid too many WARNING log.
-            if (_pipeline_map.contains(it)) {
-                cancel_instance_unlocked(it, reason, state_lock, msg);
-            }
-        }
-    } else {
-        for (auto it : ctx->second->fragment_ids) {
-            cancel_fragment_unlocked(it, reason, state_lock, msg);
-        }
+    for (auto it : ctx->second->fragment_ids) {
+        cancel_instance_unlocked(it, reason, state_lock, msg);
     }
 
     ctx->second->cancel(true, msg, Status::Cancelled(msg));
     _query_ctx_map.erase(query_id);
-    LOG(INFO) << "Query " << print_id(query_id) << " is cancelled. Reason: " << msg;
-}
-
-void FragmentMgr::cancel_fragment(const TUniqueId& fragment_id,
-                                  const PPlanFragmentCancelReason& reason, const std::string& msg) {
-    std::unique_lock<std::mutex> state_lock(_lock);
-    return cancel_fragment_unlocked(fragment_id, reason, state_lock, msg);
-}
-
-void FragmentMgr::cancel_fragment_unlocked(const TUniqueId& fragment_id,
-                                           const PPlanFragmentCancelReason& reason,
-                                           const std::unique_lock<std::mutex>& state_lock,
-                                           const std::string& msg) {
-    return cancel_unlocked_impl(fragment_id, reason, state_lock, false /*not pipeline query*/, msg);
+    LOG(INFO) << "Query " << print_id(query_id) << " is cancelled and removed. Reason: " << msg;
 }
 
 void FragmentMgr::cancel_instance(const TUniqueId& instance_id,
@@ -1030,32 +1006,26 @@ void FragmentMgr::cancel_instance_unlocked(const TUniqueId& instance_id,
                                            const PPlanFragmentCancelReason& reason,
                                            const std::unique_lock<std::mutex>& state_lock,
                                            const std::string& msg) {
-    return cancel_unlocked_impl(instance_id, reason, state_lock, true /*pipeline query*/, msg);
-}
-
-void FragmentMgr::cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
-                                       const std::unique_lock<std::mutex>& /*state_lock*/,
-                                       bool is_pipeline, const std::string& msg) {
-    if (is_pipeline) {
-        const TUniqueId& instance_id = id;
+    const bool is_pipeline_instance = _pipeline_map.contains(instance_id);
+    
+    if (is_pipeline_instance) {
         auto itr = _pipeline_map.find(instance_id);
 
         if (itr != _pipeline_map.end()) {
             // calling PipelineFragmentContext::cancel
             itr->second->cancel(reason, msg);
         } else {
-            LOG(WARNING) << "Could not find the instance id:" << print_id(instance_id)
+            LOG(WARNING) << "Could not find the pipeline instance id:" << print_id(instance_id)
                          << " to cancel";
         }
     } else {
-        const TUniqueId& fragment_id = id;
-        auto itr = _fragment_map.find(fragment_id);
+        auto itr = _fragment_map.find(instance_id);
 
         if (itr != _fragment_map.end()) {
             // calling PlanFragmentExecutor::cancel
             itr->second->cancel(reason, msg);
         } else {
-            LOG(WARNING) << "Could not find the fragment id:" << print_id(fragment_id)
+            LOG(WARNING) << "Could not find the non pipeline instance id:" << print_id(instance_id)
                          << " to cancel";
         }
     }
@@ -1142,8 +1112,8 @@ void FragmentMgr::cancel_worker() {
         // designed to count canceled fragment of non-pipeline query.
         timeout_canceled_fragment_count->increment(to_cancel.size());
         for (auto& id : to_cancel) {
-            cancel_fragment(id, PPlanFragmentCancelReason::TIMEOUT);
-            LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout fragment "
+            cancel_instance(id, PPlanFragmentCancelReason::TIMEOUT);
+            LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout instance "
                       << print_id(id);
         }
 
