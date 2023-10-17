@@ -43,29 +43,29 @@ public:
     bool can_write() override;
 };
 
-class ResultBufferDependency : public WriteDependency {
+class ResultBufferDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(ResultBufferDependency);
     ResultBufferDependency(int id) : WriteDependency(id, "ResultBufferDependency") {}
-    ~ResultBufferDependency() = default;
+    ~ResultBufferDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 };
 
-class ResultQueueDependency : public WriteDependency {
+class ResultQueueDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(ResultQueueDependency);
     ResultQueueDependency(int id) : WriteDependency(id, "ResultQueueDependency") {}
-    ~ResultQueueDependency() = default;
+    ~ResultQueueDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 };
 
-class CancelDependency : public WriteDependency {
+class CancelDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(CancelDependency);
     CancelDependency(int id) : WriteDependency(id, "CancelDependency") { _ready_for_write = false; }
-    ~CancelDependency() = default;
+    ~CancelDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 };

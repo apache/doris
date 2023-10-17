@@ -54,6 +54,21 @@ TEST(DebugPointsTest, BaseTest) {
     EXPECT_TRUE(DebugPoints::instance()->is_enable("dbug4"));
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     EXPECT_FALSE(DebugPoints::instance()->is_enable("dbug4"));
+
+    POST_HTTP_TO_TEST_SERVER("/api/debug_point/add/dbug5?v1=1&v2=a&v3=1.2&v4=true&v5=false");
+    EXPECT_TRUE(DebugPoints::instance()->is_enable("dbug5"));
+    DBUG_EXECUTE_IF("dbug5", EXPECT_EQ(1, dp->param<int>("v1", 100)));
+    DBUG_EXECUTE_IF("dbug5", EXPECT_EQ("a", dp->param<std::string>("v2")));
+    DBUG_EXECUTE_IF("dbug5", EXPECT_EQ("a", dp->param("v2", std::string())));
+    DBUG_EXECUTE_IF("dbug5", EXPECT_EQ("a", dp->param("v2", "b")));
+    DBUG_EXECUTE_IF("dbug5", EXPECT_EQ(1.2, dp->param<double>("v3")));
+    DBUG_EXECUTE_IF("dbug5", EXPECT_EQ(1.2, dp->param("v3", 0.0)));
+    DBUG_EXECUTE_IF("dbug5", EXPECT_TRUE(dp->param("v4", false)));
+    DBUG_EXECUTE_IF("dbug5", EXPECT_FALSE(dp->param("v5", false)));
+    DBUG_EXECUTE_IF("dbug5", EXPECT_EQ(0L, dp->param<int64_t>("v_not_exist")));
+    DBUG_EXECUTE_IF("dbug5", EXPECT_EQ(0L, dp->param("v_not_exist", 0L)));
+    DBUG_EXECUTE_IF("dbug5", EXPECT_EQ(123, dp->param("v_not_exist", 123)));
+    DBUG_EXECUTE_IF("dbug5", EXPECT_EQ("abcd", dp->param("v_not_exist", "abcd")));
 }
 
 } // namespace doris

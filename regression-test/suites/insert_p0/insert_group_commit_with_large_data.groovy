@@ -15,7 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import com.mysql.cj.jdbc.StatementImpl
+
 suite("insert_group_commit_with_large_data") {
+    def db = "regression_test_insert_p0"
     def table = "insert_group_commit_with_large_data"
 
     def getRowCount = { expectedRowCount ->
@@ -29,6 +32,20 @@ suite("insert_group_commit_with_large_data") {
             }
             retry++
         }
+    }
+
+    def group_commit_insert = { sql, expected_row_count ->
+        def stmt = prepareStatement """ ${sql}  """
+        def result = stmt.executeUpdate()
+        logger.info("insert result: " + result)
+        def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
+        logger.info("result server info: " + serverInfo)
+        if (result != expected_row_count) {
+            logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
+        }
+        assertEquals(result, expected_row_count)
+        assertTrue(serverInfo.contains("'status':'PREPARE'"))
+        assertTrue(serverInfo.contains("'label':'group_commit_"))
     }
 
     try {
@@ -48,35 +65,34 @@ suite("insert_group_commit_with_large_data") {
         );
         """
 
-        sql """ set enable_insert_group_commit = true; """
+        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+            sql """ set enable_insert_group_commit = true; """
+            // TODO
+            sql """ set enable_nereids_dml = false; """
+            sql """ use ${db}; """
 
-        // insert into 5000 rows
-        def insert_sql = """ insert into ${table} values(1, 'a', 10)  """
-        for (def i in 2..5000) {
-            insert_sql += """, (${i}, 'a', 10) """
-        }
-        def result = sql """ ${insert_sql} """
-        logger.info("insert result: " + result)
-        assertEquals(1, result.size())
-        assertEquals(1, result[0].size())
-        assertEquals(5000, result[0][0])
-        getRowCount(5000)
+            // insert into 5000 rows
+            def insert_sql = """ insert into ${table} values(1, 'a', 10)  """
+            for (def i in 2..5000) {
+                insert_sql += """, (${i}, 'a', 10) """
+            }
+            group_commit_insert insert_sql, 5000
+            getRowCount(5000)
 
-        // data size is large than 4MB, need " set global max_allowed_packet = 5508950 "
-        /*def name_value = ""
-        for (def i in 0..1024) {
-            name_value += 'a'
+            // data size is large than 4MB, need " set global max_allowed_packet = 5508950 "
+            /*def name_value = ""
+            for (def i in 0..1024) {
+                name_value += 'a'
+            }
+            insert_sql = """ insert into ${table} values(1, '${name_value}', 10)  """
+            for (def i in 2..5000) {
+                insert_sql += """, (${i}, '${name_value}', 10) """
+            }
+            result = sql """ ${insert_sql} """
+            group_commit_insert insert_sql, 5000
+            getRowCount(10000)
+            */
         }
-        insert_sql = """ insert into ${table} values(1, '${name_value}', 10)  """
-        for (def i in 2..5000) {
-            insert_sql += """, (${i}, '${name_value}', 10) """
-        }
-        result = sql """ ${insert_sql} """
-        logger.info("insert result: " + result)
-        assertEquals(1, result.size())
-        assertEquals(1, result[0].size())
-        assertEquals(5000, result[0][0])
-        getRowCount(10000)*/
     } finally {
         // try_sql("DROP TABLE ${table}")
     }

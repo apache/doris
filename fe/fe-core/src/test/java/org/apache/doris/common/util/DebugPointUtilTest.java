@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.http.DorisHttpTestCase;
 
 import okhttp3.Request;
@@ -54,6 +55,17 @@ public class DebugPointUtilTest extends DorisHttpTestCase {
         Assert.assertTrue(DebugPointUtil.isEnable("dbug4"));
         Thread.sleep(1000);
         Assert.assertFalse(DebugPointUtil.isEnable("dbug4"));
+
+        sendRequest("/api/debug_point/add/dbug5?v1=1&v2=a&v3=1.2&v4=true&v5=false");
+        Assert.assertTrue(DebugPointUtil.isEnable("dbug5"));
+        DebugPoint debugPoint = DebugPointUtil.getDebugPoint("dbug5");
+        Assert.assertNotNull(debugPoint);
+        Assert.assertEquals(1, (int) debugPoint.param("v1", 0));
+        Assert.assertEquals("a", debugPoint.param("v2", ""));
+        Assert.assertEquals(1.2, debugPoint.param("v3", 0.0), 1e-6);
+        Assert.assertTrue(debugPoint.param("v4", false));
+        Assert.assertFalse(debugPoint.param("v5", false));
+        Assert.assertEquals(123L, (long) debugPoint.param("v_no_exist", 123L));
     }
 
     private void sendRequest(String uri) throws Exception {

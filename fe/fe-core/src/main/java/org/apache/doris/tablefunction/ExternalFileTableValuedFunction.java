@@ -180,7 +180,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         copiedProps.putAll(properties);
 
-        String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "");
+        String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         String defaultColumnSeparator = FileFormatConstants.DEFAULT_COLUMN_SEPARATOR;
         switch (formatString) {
             case "csv":
