@@ -34,7 +34,7 @@ suite("test_javaudf_auth") {
 
     def user = 'udf_auth_user'
     def pwd = '123456'
-    def dbName = 'account_auth_show_db'
+    def dbName = 'udf_auth_db'
 
     try_sql("DROP USER ${user}")
     try_sql("DROP FUNCTION IF EXISTS java_udf_auth_test(int);")
