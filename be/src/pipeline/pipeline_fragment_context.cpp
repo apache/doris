@@ -158,7 +158,11 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             .tag("instance_id", print_id(_runtime_state->fragment_instance_id()))
             .tag("reason", PPlanFragmentCancelReason_Name(reason))
             .tag("message", msg);
-
+    // TODO(zhiqiang): may be not need to check if query is already cancelled.
+    // Dont cancel in this situation may lead to bug. For example, result sink node
+    // can not be cancelled if other fragments set the query_ctx cancelled, this will
+    // make result receiver on fe be stocked on rpc forever until timeout...
+    // We need a more detail discussion.
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             LOG(WARNING) << "PipelineFragmentContext "
