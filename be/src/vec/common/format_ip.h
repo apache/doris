@@ -147,7 +147,9 @@ inline bool parseIPv4(T*& src, EOFfunction eof, unsigned char* dst, int64_t firs
                 break;
             }
         }
-        if (len == 0 || value > IPV4_MAX_OCTET_VALUE || (offset > 0 && (eof() || *src != '.'))) return false;
+        if (len == 0 || value > IPV4_MAX_OCTET_VALUE || (offset > 0 && (eof() || *src != '.'))) {
+            return false;
+        }
         result |= value << offset;
 
         if (offset == 0) {
