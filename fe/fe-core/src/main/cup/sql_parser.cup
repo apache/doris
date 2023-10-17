@@ -571,6 +571,7 @@ terminal String
     KW_SNAPSHOT,
     KW_SONAME,
     KW_SPLIT,
+    KW_SQL,
     KW_SQL_BLOCK_RULE,
     KW_START,
     KW_STATS,
@@ -6006,6 +6007,25 @@ with_analysis_properties ::=
             put("analysis.type", "HISTOGRAM");
         }};
     :}
+    | KW_CRON STRING_LITERAL:cron_expr
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("period.cron", cron_expr);
+        }};
+    :}
+    | KW_FULL
+    {:
+        RESULT = new HashMap<String, String>() {{
+             put(AnalyzeProperties.PROPERTY_FORCE_FULL, "true");
+        }};
+    :}
+    | KW_SQL
+    {:
+        RESULT = new HashMap<String, String>() {{
+             put(AnalyzeProperties.PROPERTY_PARTITION_COLUMN_FROM_SQL, "true");
+        }};
+    :}
+
     ;
 
 opt_with_analysis_properties ::=

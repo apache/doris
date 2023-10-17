@@ -629,7 +629,12 @@ public class StatisticsUtil {
         }
         // Estimate row count: totalSize/estimatedRowSize
         long estimatedRowSize = 0;
+        List<Column> partitionColumns = table.getPartitionColumns();
         for (Column column : table.getFullSchema()) {
+            // Partition column shouldn't count to the row size, because it is not in the data file.
+            if (partitionColumns != null && partitionColumns.contains(column)) {
+                continue;
+            }
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {

@@ -423,6 +423,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("snapshot", new Integer(SqlParserSymbols.KW_SNAPSHOT));
         keywordMap.put("soname", new Integer(SqlParserSymbols.KW_SONAME));
         keywordMap.put("split", new Integer(SqlParserSymbols.KW_SPLIT));
+        keywordMap.put("sql", new Integer(SqlParserSymbols.KW_SQL));
         keywordMap.put("sql_block_rule", new Integer(SqlParserSymbols.KW_SQL_BLOCK_RULE));
         keywordMap.put("sample", new Integer(SqlParserSymbols.KW_SAMPLE));
         keywordMap.put("start", new Integer(SqlParserSymbols.KW_START));

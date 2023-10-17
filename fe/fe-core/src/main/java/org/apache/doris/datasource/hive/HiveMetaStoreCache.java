@@ -87,10 +87,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.FileNotFoundException;
-import java.io.UnsupportedEncodingException;
 import java.net.URI;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -298,16 +295,7 @@ public class HiveMetaStoreCache {
         Preconditions.checkState(parts.length == types.size(), partitionName + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
         for (String part : parts) {
-            String[] kv = part.split("=");
-            Preconditions.checkState(kv.length == 2, partitionName);
-            String partitionValue;
-            try {
-                // hive partition value maybe contains special characters like '=' and '/'
-                partitionValue = URLDecoder.decode(kv[1], StandardCharsets.UTF_8.name());
-            } catch (UnsupportedEncodingException e) {
-                // It should not be here
-                throw new RuntimeException(e);
-            }
+            String partitionValue = HiveUtil.getHivePartitionValue(part);
             values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
         }
         try {
