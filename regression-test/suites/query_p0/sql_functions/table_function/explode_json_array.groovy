@@ -50,7 +50,7 @@ suite("explode_json_array") {
                             ORDER BY id, c_age """
 
     qt_explode_json_array10 """ SELECT id, name, age, class, address, d, c FROM ${tableName}
-                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", 3]') t1 as c 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", -3]') t1 as c 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
                         ORDER BY id, c, d """
 
@@ -69,4 +69,8 @@ suite("explode_json_array") {
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[-92233720368547758071,-92233720368547758081]') t1 as c_age 
                         GROUP BY c_age ORDER BY c_age """
 
+    qt_explode_json_array14 """ SELECT id, name, age, class, address, d, c FROM ${tableName}
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1182381637816312, "b", -1273982982312333]') t1 as c 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
+                        ORDER BY id, c, d """
 }

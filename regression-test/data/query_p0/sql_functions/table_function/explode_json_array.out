@@ -24,39 +24,39 @@
 -- !explode_json_array9 --
 
 -- !explode_json_array10 --
+100	John	30	1	Street 1	1.23	-3
+100	John	30	1	Street 1	22.214	-3
+100	John	30	1	Street 1	214.1	-3
 100	John	30	1	Street 1	1.23	1
 100	John	30	1	Street 1	22.214	1
 100	John	30	1	Street 1	214.1	1
-100	John	30	1	Street 1	1.23	3
-100	John	30	1	Street 1	22.214	3
-100	John	30	1	Street 1	214.1	3
 100	John	30	1	Street 1	1.23	b
 100	John	30	1	Street 1	22.214	b
 100	John	30	1	Street 1	214.1	b
+200	Mary	\N	1	Street 2	1.23	-3
+200	Mary	\N	1	Street 2	22.214	-3
+200	Mary	\N	1	Street 2	214.1	-3
 200	Mary	\N	1	Street 2	1.23	1
 200	Mary	\N	1	Street 2	22.214	1
 200	Mary	\N	1	Street 2	214.1	1
-200	Mary	\N	1	Street 2	1.23	3
-200	Mary	\N	1	Street 2	22.214	3
-200	Mary	\N	1	Street 2	214.1	3
 200	Mary	\N	1	Street 2	1.23	b
 200	Mary	\N	1	Street 2	22.214	b
 200	Mary	\N	1	Street 2	214.1	b
+300	Mike	80	3	Street 3	1.23	-3
+300	Mike	80	3	Street 3	22.214	-3
+300	Mike	80	3	Street 3	214.1	-3
 300	Mike	80	3	Street 3	1.23	1
 300	Mike	80	3	Street 3	22.214	1
 300	Mike	80	3	Street 3	214.1	1
-300	Mike	80	3	Street 3	1.23	3
-300	Mike	80	3	Street 3	22.214	3
-300	Mike	80	3	Street 3	214.1	3
 300	Mike	80	3	Street 3	1.23	b
 300	Mike	80	3	Street 3	22.214	b
 300	Mike	80	3	Street 3	214.1	b
+400	Dan	50	4	Street 4	1.23	-3
+400	Dan	50	4	Street 4	22.214	-3
+400	Dan	50	4	Street 4	214.1	-3
 400	Dan	50	4	Street 4	1.23	1
 400	Dan	50	4	Street 4	22.214	1
 400	Dan	50	4	Street 4	214.1	1
-400	Dan	50	4	Street 4	1.23	3
-400	Dan	50	4	Street 4	22.214	3
-400	Dan	50	4	Street 4	214.1	3
 400	Dan	50	4	Street 4	1.23	b
 400	Dan	50	4	Street 4	22.214	b
 400	Dan	50	4	Street 4	214.1	b
@@ -94,4 +94,42 @@
 
 -- !explode_json_array13 --
 -9223372036854775808	8
+
+-- !explode_json_array14 --
+100	John	30	1	Street 1	1.23	-1273982982312333
+100	John	30	1	Street 1	22.214	-1273982982312333
+100	John	30	1	Street 1	214.1	-1273982982312333
+100	John	30	1	Street 1	1.23	1182381637816312
+100	John	30	1	Street 1	22.214	1182381637816312
+100	John	30	1	Street 1	214.1	1182381637816312
+100	John	30	1	Street 1	1.23	b
+100	John	30	1	Street 1	22.214	b
+100	John	30	1	Street 1	214.1	b
+200	Mary	\N	1	Street 2	1.23	-1273982982312333
+200	Mary	\N	1	Street 2	22.214	-1273982982312333
+200	Mary	\N	1	Street 2	214.1	-1273982982312333
+200	Mary	\N	1	Street 2	1.23	1182381637816312
+200	Mary	\N	1	Street 2	22.214	1182381637816312
+200	Mary	\N	1	Street 2	214.1	1182381637816312
+200	Mary	\N	1	Street 2	1.23	b
+200	Mary	\N	1	Street 2	22.214	b
+200	Mary	\N	1	Street 2	214.1	b
+300	Mike	80	3	Street 3	1.23	-1273982982312333
+300	Mike	80	3	Street 3	22.214	-1273982982312333
+300	Mike	80	3	Street 3	214.1	-1273982982312333
+300	Mike	80	3	Street 3	1.23	1182381637816312
+300	Mike	80	3	Street 3	22.214	1182381637816312
+300	Mike	80	3	Street 3	214.1	1182381637816312
+300	Mike	80	3	Street 3	1.23	b
+300	Mike	80	3	Street 3	22.214	b
+300	Mike	80	3	Street 3	214.1	b
+400	Dan	50	4	Street 4	1.23	-1273982982312333
+400	Dan	50	4	Street 4	22.214	-1273982982312333
+400	Dan	50	4	Street 4	214.1	-1273982982312333
+400	Dan	50	4	Street 4	1.23	1182381637816312
+400	Dan	50	4	Street 4	22.214	1182381637816312
+400	Dan	50	4	Street 4	214.1	1182381637816312
+400	Dan	50	4	Street 4	1.23	b
+400	Dan	50	4	Street 4	22.214	b
+400	Dan	50	4	Street 4	214.1	b
 
