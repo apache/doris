@@ -446,7 +446,7 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
 }
 
 Status VFileScanner::_fill_columns_from_path(size_t rows) {
-    1 DataTypeSerDe::FormatOptions _text_formatOptions;
+    DataTypeSerDe::FormatOptions _text_formatOptions;
     for (auto& kv : *_partition_columns) {
         auto doris_column = _src_block_ptr->get_by_name(kv.first).column;
         IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
