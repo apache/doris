@@ -114,6 +114,9 @@ public:
 
     virtual bool can_write() { return true; }
 
+private:
+    static bool _has_inverted_index(TOlapTableSink sink);
+
 protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
