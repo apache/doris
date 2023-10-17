@@ -57,6 +57,7 @@
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "util/stack_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
