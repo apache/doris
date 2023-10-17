@@ -17,6 +17,8 @@
 
 #include "multi_cast_data_stream_sink.h"
 
+#include "pipeline/pipeline_x/dependency.h"
+
 namespace doris::pipeline {
 
 OperatorPtr MultiCastDataStreamSinkOperatorBuilder::build_operator() {
@@ -31,6 +33,17 @@ std::string MultiCastDataStreamSinkLocalState::id_name() {
     }
     id_name += ")";
     return id_name;
+}
+
+Status MultiCastDataStreamSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    auto multi_cast_data_streamer = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent)
+                                            ->create_multi_cast_data_streamer();
+    auto& deps = info.dependencys;
+    for (auto dep : deps) {
+        ((MultiCastDependency*)dep.get())->set_shared_state(multi_cast_data_streamer);
+    }
+    RETURN_IF_ERROR(Base::init(state, info));
+    return Status::OK();
 }
 
 } // namespace doris::pipeline

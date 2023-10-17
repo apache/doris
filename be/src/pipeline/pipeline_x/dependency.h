@@ -19,6 +19,7 @@
 
 #include <sqltypes.h>
 
+#include <memory>
 #include <mutex>
 
 #include "pipeline/exec/data_queue.h"
@@ -439,7 +440,9 @@ private:
 
 struct UnionSharedState {
 public:
-    std::shared_ptr<DataQueue> data_queue;
+    UnionSharedState(int child_count = 1, WriteDependency* dependency = nullptr)
+            : data_queue(child_count, dependency) {};
+    DataQueue data_queue;
 };
 
 class UnionDependency final : public WriteDependency {
@@ -447,11 +450,13 @@ public:
     using SharedState = UnionSharedState;
     UnionDependency(int id) : WriteDependency(id, "UnionDependency") {}
     ~UnionDependency() override = default;
-    void* shared_state() override { return (void*)&_union_state; }
-
+    void* shared_state() override { return (void*)_union_state.get(); }
+    void set_shared_state(std::shared_ptr<UnionSharedState> union_state) {
+        _union_state = union_state;
+    }
     void set_ready_for_write() override {}
     void set_ready_for_read() override {
-        if (!_union_state.data_queue->is_all_finish()) {
+        if (!_union_state->data_queue.is_all_finish()) {
             return;
         }
         if (_ready_for_read) {
@@ -465,12 +470,14 @@ public:
     void block_writing() override {}
 
 private:
-    UnionSharedState _union_state;
+    std::shared_ptr<UnionSharedState> _union_state;
 };
 
 struct MultiCastSharedState {
 public:
-    std::shared_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
+    MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count)
+            : multi_cast_data_streamer(row_desc, pool, cast_sender_count) {}
+    pipeline::MultiCastDataStreamer multi_cast_data_streamer;
 };
 
 class MultiCastDependency final : public WriteDependency {
@@ -478,9 +485,12 @@ public:
     using SharedState = MultiCastSharedState;
     MultiCastDependency(int id) : WriteDependency(id, "MultiCastDependency") {}
     ~MultiCastDependency() override = default;
-    void* shared_state() override { return (void*)&_multi_cast_state; };
+    void* shared_state() override { return (void*)_multi_cast_state.get(); };
+    void set_shared_state(std::shared_ptr<MultiCastSharedState> multi_cast_state) {
+        _multi_cast_state = multi_cast_state;
+    }
     MultiCastDependency* can_read(const int consumer_id) {
-        if (_multi_cast_state.multi_cast_data_streamer->can_read(consumer_id)) {
+        if (_multi_cast_state->multi_cast_data_streamer.can_read(consumer_id)) {
             return nullptr;
         } else {
             return this;
@@ -488,7 +498,7 @@ public:
     }
 
 private:
-    MultiCastSharedState _multi_cast_state;
+    std::shared_ptr<MultiCastSharedState> _multi_cast_state;
 };
 
 struct AnalyticSharedState {
@@ -670,7 +680,7 @@ struct SetSharedState {
 
     //// shared static states (shared, decided in prepare/open...)
 
-    /// init in setup_local_states
+    /// init in setup_local_state
     std::unique_ptr<vectorized::HashTableVariants> hash_table_variants; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
@@ -689,7 +699,7 @@ struct SetSharedState {
     std::atomic<bool> ready_for_read = false;
 
 public:
-    /// called in setup_local_states
+    /// called in setup_local_state
     void hash_table_init() {
         if (child_exprs_lists[0].size() == 1 && (!build_not_ignore_null[0])) {
             // Single column optimization

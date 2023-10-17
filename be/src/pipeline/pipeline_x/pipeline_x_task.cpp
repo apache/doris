@@ -66,13 +66,9 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
 
     {
         // set sink local state
-        auto& deps = get_downstream_dependency();
-        std::vector<LocalSinkStateInfo> infos;
-        for (auto& dep : deps) {
-            infos.emplace_back(
-                    LocalSinkStateInfo {_parent_profile, local_params.sender_id, dep.get(), tsink});
-        }
-        RETURN_IF_ERROR(_sink->setup_local_states(state, infos));
+        LocalSinkStateInfo info {_parent_profile, local_params.sender_id,
+                                 get_downstream_dependency(), tsink};
+        RETURN_IF_ERROR(_sink->setup_local_state(state, info));
     }
 
     std::vector<TScanRangeParams> no_scan_ranges;
@@ -81,16 +77,12 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
 
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& deps = get_upstream_dependency(_operators[op_idx]->id());
-        std::vector<LocalStateInfo> infos;
-        for (auto& dep : deps) {
-            LocalStateInfo info {
-                    op_idx == _operators.size() - 1
-                            ? _parent_profile
-                            : state->get_local_state(_operators[op_idx + 1]->id())->profile(),
-                    scan_ranges, dep.get()};
-            infos.emplace_back(info);
-        }
-        RETURN_IF_ERROR(_operators[op_idx]->setup_local_states(state, infos));
+        LocalStateInfo info {
+                op_idx == _operators.size() - 1
+                        ? _parent_profile
+                        : state->get_local_state(_operators[op_idx + 1]->id())->profile(),
+                scan_ranges, deps};
+        RETURN_IF_ERROR(_operators[op_idx]->setup_local_state(state, info));
     }
 
     _block = doris::vectorized::Block::create_unique();
