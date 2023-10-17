@@ -284,9 +284,10 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     RowsForTablet rows_for_tablet;
     _tablet_finder->clear_for_new_batch();
     _row_distribution_watch.start();
-    auto num_rows = block->rows();
+    const auto num_rows = input_rows;
+    const auto* __restrict filter_map = _block_convertor->filter_map();
     for (int i = 0; i < num_rows; ++i) {
-        if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
+        if (UNLIKELY(has_filtered_rows) && filter_map[i]) {
             continue;
         }
         const VOlapTablePartition* partition = nullptr;
