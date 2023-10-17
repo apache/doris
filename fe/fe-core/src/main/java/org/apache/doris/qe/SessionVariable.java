@@ -48,6 +48,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -2576,6 +2578,16 @@ public class SessionVariable implements Serializable, Writable {
             return true;
         }
         return connectContext.getSessionVariable().enableAggState;
+    }
+
+    public void checkAnalyzeTimeFormat(String time) {
+        try {
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            timeFormatter.parse(time);
+        } catch (DateTimeParseException e) {
+            LOG.warn("Parse analyze start/end time format fail", e);
+            throw new UnsupportedOperationException("Expect format: HH:mm:ss");
+        }
     }
 }
 
