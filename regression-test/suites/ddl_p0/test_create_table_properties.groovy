@@ -21,20 +21,20 @@
 suite("test_create_table_properties") {    
 	try {
 		sql """
-		create table test_create_table_properties (
-			`user_id` LARGEINT NOT NULL COMMENT "用户id",
-			`start_time` DATETIME,
-			`billing_cycle_id` INT
-		)
-		partition by range(`billing_cycle_id`, `start_time`)(
-			PARTITION p202201_otr VALUES [("202201", '2000-01-01 00:00:00'), ("202201", '2022-01-01 00:00:00')),
-			PARTITION error_partition VALUES [("999999", '1970-01-01 00:00:00'), ("999999", '1970-01-02 00:00:00'))
-		)
-		distributed by hash(`user_id`) buckets 1
-		properties(
-			"replication_num"="1",
-			"abc"="false"
-		);
+        create table test_create_table_properties (
+            `user_id` LARGEINT NOT NULL COMMENT "用户id",
+            `start_time` DATETIME,
+            `billing_cycle_id` INT
+        )
+        partition by range(`billing_cycle_id`, `start_time`)(
+            PARTITION p202201_otr VALUES [("202201", '2000-01-01 00:00:00'), ("202201", '2022-01-01 00:00:00')),
+            PARTITION error_partition VALUES [("999999", '1970-01-01 00:00:00'), ("999999", '1970-01-02 00:00:00'))
+        )
+        distributed by hash(`user_id`) buckets 1
+        properties(
+            "replication_num"="1",
+            "abc"="false"
+        );
 			"""
         assertTrue(false, "should not be able to execute")
 	}
@@ -67,7 +67,7 @@ suite("test_create_table_properties") {
     """
 
     def create_table_use_created_policy = try_sql """
-		create table if not exists test_create_table_properties (
+	    create table if not exists test_create_table_properties (
 			`user_id` LARGEINT NOT NULL COMMENT "用户id",
 			`start_time` DATETIME,
 			`billing_cycle_id` INT
@@ -82,10 +82,88 @@ suite("test_create_table_properties") {
 			"storage_policy" = "test_create_table_use_policy"
 		);
     """
-	
-	sql """
-    DROP TABLE test_create_table_properties;
-    """
+
+    sql """ DROP TABLE IF EXISTS test_create_table_properties"""
+    
+	try {
+        sql """
+        create table test_create_table_properties (
+            `user_id` LARGEINT NOT NULL COMMENT "用户id",
+			`start_time` DATETIME,
+			`billing_cycle_id` INT
+		)
+		partition by range(`billing_cycle_id`, `start_time`)(
+			PARTITION p202201_otr VALUES [("202201", '2000-01-01 00:00:00'), ("202201", '2022-01-01 00:00:00')),
+			PARTITION error_partition VALUES [("999999", '1970-01-01 00:00:00'), ("999999", '1970-01-02 00:00:00'))
+		)
+		distributed by hash(`user_id`) buckets 1
+		properties(
+			"replication_num"="1",
+			"storage_policy" = "test_create_table_use_policy",
+			"abc"="false"
+		);
+			"""
+        assertTrue(false, "should not be able to execute")
+	}
+	catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("Unknown properties"))
+	} finally {
+        sql """ DROP TABLE IF EXISTS test_create_table_properties"""
+    }
+
+    try {
+        sql """
+        create table test_create_table_properties (
+            `user_id` LARGEINT NOT NULL COMMENT "用户id",
+			`start_time` DATETIME,
+			`billing_cycle_id` INT
+		)
+		partition by range(`billing_cycle_id`, `start_time`)(
+			PARTITION p202201_otr VALUES [("202201", '2000-01-01 00:00:00'), ("202201", '2022-01-01 00:00:00')),
+			PARTITION error_partition VALUES [("999999", '1970-01-01 00:00:00'), ("999999", '1970-01-02 00:00:00'))
+		)
+		distributed by hash(`user_id`) buckets 1
+		properties(
+			"replication_num"="1",
+			"storage_policy" = "test_create_table_use_policy",
+            "dynamic_partition.start" = "-7"
+		);
+			"""
+        assertTrue(false, "should not be able to execute")
+	}
+	catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("Dynamic partition only support single-column range partition"))
+	} finally {
+        sql """ DROP TABLE IF EXISTS test_create_table_properties"""
+    }
+
+    try {
+        sql """
+        create table test_create_table_properties (
+            `user_id` LARGEINT NOT NULL COMMENT "用户id",
+			`start_time` DATETIME,
+			`billing_cycle_id` INT
+		)
+		partition by range(`billing_cycle_id`, `start_time`)(
+			PARTITION p202201_otr VALUES [("202201", '2000-01-01 00:00:00'), ("202201", '2022-01-01 00:00:00')),
+			PARTITION error_partition VALUES [("999999", '1970-01-01 00:00:00'), ("999999", '1970-01-02 00:00:00'))
+		)
+		distributed by hash(`user_id`) buckets 1
+		properties(
+			"replication_num"="1",
+			"storage_policy" = "test_create_table_use_policy",
+            "dynamic_partition.start" = "-7",
+            "abc"="false"
+		);
+			"""
+        assertTrue(false, "should not be able to execute")
+	}
+	catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("Unknown properties"))
+	} finally {
+        sql """ DROP TABLE IF EXISTS test_create_table_properties"""
+    }
+
     sql """
     DROP STORAGE POLICY test_create_table_use_policy;
     """

@@ -2308,16 +2308,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             partitionInfo.setIsInMemory(partitionId, isInMemory);
             partitionInfo.setTabletType(partitionId, tabletType);
             partitionInfo.setIsMutable(partitionId, isMutable);
-        } else if (partitionInfo.getType() == PartitionType.RANGE) {
-            try {
-                PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                    new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
-            } catch (AnalysisException e) {
-                throw new DdlException(e.getMessage());
-            }
-
         }
-
         // check colocation properties
         try {
             String colocateGroup = PropertyAnalyzer.analyzeColocate(properties);
@@ -2477,16 +2468,16 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
+                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
+                        new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                     Map<String, String> propertiesCheck = new HashMap<>(properties);
                     propertiesCheck.entrySet().removeIf(entry -> entry.getKey().contains("dynamic_partition"));
-                    if (storagePolicy.equals("") && propertiesCheck != null && !propertiesCheck.isEmpty()) {
+                    if (propertiesCheck != null && !propertiesCheck.isEmpty()) {
                         // here, all properties should be checked
                         throw new DdlException("Unknown properties: " + propertiesCheck);
                     }
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
-                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                            new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
                     } else if (partitionInfo.getType() == PartitionType.LIST) {
