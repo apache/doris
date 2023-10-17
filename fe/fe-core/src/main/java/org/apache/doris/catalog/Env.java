@@ -2741,10 +2741,12 @@ public class Env {
         try {
             Frontend fe = checkFeExist(host, port);
             if (fe == null) {
-                throw new DdlException("frontend does not exist[" + host + ":" + port + "]");
+                throw new DdlException("frontend does not exist[" + NetUtils
+                        .getHostPortInAccessibleFormat(host, port) + "]");
             }
             if (fe.getRole() != role) {
-                throw new DdlException(role.toString() + " does not exist[" + host + ":" + port + "]");
+                throw new DdlException(role.toString() + " does not exist[" + NetUtils
+                        .getHostPortInAccessibleFormat(host, port) + "]");
             }
             frontends.remove(fe.getNodeName());
             removedFrontends.add(fe.getNodeName());

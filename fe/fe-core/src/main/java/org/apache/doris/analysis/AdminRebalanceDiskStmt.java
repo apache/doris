@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
@@ -40,7 +41,9 @@ public class AdminRebalanceDiskStmt extends DdlStmt {
         ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
         Map<String, Long> backendsID = new HashMap<String, Long>();
         for (Backend backend : backendsInfo.values()) {
-            backendsID.put(backend.getHost() + ":" + backend.getHeartbeatPort(), backend.getId());
+            backendsID.put(
+                    NetUtils.getHostPortInAccessibleFormat(backend.getHost(), backend.getHeartbeatPort()),
+                    backend.getId());
         }
         if (backends == null) {
             this.backends.addAll(backendsInfo.values());

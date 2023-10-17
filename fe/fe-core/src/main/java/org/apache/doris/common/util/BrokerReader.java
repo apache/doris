@@ -100,7 +100,8 @@ public class BrokerReader {
     }
 
     public TBrokerFD open(String path) throws IOException {
-        String clientId = FrontendOptions.getLocalHostAddress() + ":" + Config.rpc_port;
+        String clientId = NetUtils
+                .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.rpc_port);
         TBrokerOpenReaderRequest tOpenReaderRequest = new TBrokerOpenReaderRequest(
                 TBrokerVersion.VERSION_ONE, path, 0, clientId, brokerDesc.getProperties());
         TBrokerOpenReaderResponse tOpenReaderResponse = null;

@@ -20,6 +20,7 @@ package org.apache.doris.journal.bdbje;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
@@ -87,7 +88,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         // so that we do not need to update bdbje when the IP changes.
         // WARNING:However, it is necessary to ensure that the hostname of the node
         // can be resolved and accessed by other nodes.
-        selfNodeHostPort = selfNode.getHost() + ":" + selfNode.getPort();
+        selfNodeHostPort = NetUtils.getHostPortInAccessibleFormat(selfNode.getHost(), selfNode.getPort());
     }
 
     /*
@@ -327,7 +328,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             bdbEnvironment = new BDBEnvironment();
 
             HostInfo helperNode = Env.getServingEnv().getHelperNode();
-            String helperHostPort = helperNode.getHost() + ":" + helperNode.getPort();
+            String helperHostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), helperNode.getPort());
             try {
                 bdbEnvironment.setup(dbEnv, selfNodeName, selfNodeHostPort, helperHostPort,
                         Env.getServingEnv().isElectable());
@@ -411,7 +412,8 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
 
         bdbEnvironment.close();
         bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
-                helperNode.getHost() + ":" + helperNode.getPort(), Env.getServingEnv().isElectable());
+                NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), helperNode.getPort()),
+                Env.getServingEnv().isElectable());
     }
 
     @Override
