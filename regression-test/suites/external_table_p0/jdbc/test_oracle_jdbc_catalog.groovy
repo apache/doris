@@ -80,6 +80,7 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         order_qt_date4  """ select * from TEST_DATE where (T1 > '2022-01-21 00:00:00' and T1 < '2022-01-22 00:00:00') or (T1 > '2022-01-20 00:00:00' and T1 < '2022-01-23 00:00:00'); """
         order_qt_date5  """ select * from TEST_DATE where T1 < '2022-01-22 00:00:00' or T1 = '2022-01-21 05:23:01'; """
         order_qt_date6  """ select * from TEST_DATE where (T1 < '2022-01-22 00:00:00' or T1 > '2022-01-20 00:00:00') and (T1 < '2022-01-23 00:00:00' or T1 > '2022-01-19 00:00:00'); """
+        order_qt_date7  """select * from TEST_TIMESTAMP where T2 < str_to_date('2020-12-21 12:34:56', '%Y-%m-%d %H:%i:%s');"""
 
         // The result of TEST_RAW will change
         // So instead of qt, we're using sql here.
