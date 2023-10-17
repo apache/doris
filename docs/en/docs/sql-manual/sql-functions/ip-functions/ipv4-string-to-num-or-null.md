@@ -1,6 +1,6 @@
 ---
 {
-"title": "INET_ATON",
+"title": "IPV4_STRING_TO_NUM_OR_NULL",
 "language": "en"
 }
 ---
@@ -22,11 +22,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## INET_ATON
+## IPv4StringToNumOrNull
 
 <version since="dev">
 
-inet_aton
+IPv4StringToNumOrNull
 
 </version>
 
@@ -34,28 +34,36 @@ inet_aton
 
 #### Syntax
 
-`BIGINT INET_ATON(VARCHAR ipv4_string)`
+`BIGINT IPv4StringToNumOrNull(VARCHAR ipv4_string)`
 
 Takes a string containing an IPv4 address in the format A.B.C.D (dot-separated numbers in decimal form). Returns a BIGINT number representing the corresponding IPv4 address in big endian.
 
 ### notice
 
-`will return an error if the input string is not a valid IPv4 address`
+`will return null if the input parameter is invalid ipv4 value`
 
 ### example
 ```
-mysql> select inet_aton('192.168.0.1'); 
-+--------------------------------+ 
-| inet_aton('192.168.0.1') | 
-+--------------------------------+ 
-| 3232235521                     | 
-+--------------------------------+ 
+mysql> select ipv4stringtonumornull('192.168.0.1'); 
++--------------------------------------+ 
+| ipv4stringtonumornull('192.168.0.1') | 
++--------------------------------------+ 
+| 3232235521                           | 
++--------------------------------------+ 
 1 row in set (0.01 sec)
 
-mysql> SELECT inet_aton('192.168');
-ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][INVALID_ARGUMENT][E33] Invalid IPv4 value
+mysql> select str, ipv4stringtonumornull(str) from ipv4_str; 
++-----------------+----------------------------+ 
+|str              | ipv4stringtonumornull(str) | 
++-----------------+----------------------------+ 
+| 0.0.0.0         | 0                          | 
+| 127.0.0.1       | 2130706433                 | 
+| 255.255.255.255 | 4294967295                 | 
+| invalid         | NULL                       | 
++-----------------+----------------------------+ 
+4 rows in set (0.01 sec)
 ```
 
 ### keywords
 
-INET_ATON, IP
+IPV4STRINGTONUMORNULL, IP

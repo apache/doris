@@ -52,16 +52,8 @@ mysql> select ipv4stringtonum('192.168.0.1');
 +--------------------------------+ 
 1 row in set (0.01 sec)
 
-mysql> select str, ipv4stringtonum(str) from ipv4_str; 
-+-----------------+----------------------+ 
-|str              | ipv4stringtonum(str) | 
-+-----------------+----------------------+ 
-| 0.0.0.0         | 0                    | 
-| 127.0.0.1       | 2130706433           | 
-| 255.255.255.255 | 4294967295           | 
-| invalid         | ERROR                | 
-+-----------------+----------------------+ 
-4 rows in set (0.01 sec)
+mysql> select ipv4stringtonum('invalid'); 
+ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][INVALID_ARGUMENT][E33] Invalid IPv4 value
 ```
 
 ### keywords

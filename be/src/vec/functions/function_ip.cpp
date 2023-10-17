@@ -28,6 +28,7 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Throw>>();
     factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Default>>();
     factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Null>>();
-    factory.register_alias(FunctionIPv4StringToNum<IPStringToNumExceptionMode::Throw>::name, "inet_aton");
+    factory.register_alias(FunctionIPv4StringToNum<IPStringToNumExceptionMode::Throw>::name,
+                           "inet_aton");
 }
 } // namespace doris::vectorized
