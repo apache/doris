@@ -447,7 +447,7 @@ public class NativeInsertStmt extends InsertStmt {
             if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null && targetColumnNames != null) {
                 Optional<String> foundCol = targetColumnNames.stream()
                             .filter(c -> c.equalsIgnoreCase(olapTable.getSequenceMapCol())).findAny();
-                if (!foundCol.isPresent() && !isPartialUpdate
+                if (!foundCol.isPresent() && !isPartialUpdate && !isFromDeleteOrUpdateStmt
                         && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
                     throw new AnalysisException("Table " + olapTable.getName()
                             + " has sequence column, need to specify the sequence column");

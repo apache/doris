@@ -106,9 +106,10 @@ suite("nereids_partial_update_native_insert_seq_col", "p0") {
     // don't set enable_unique_key_partial_update, it's a row update
     // the input data don't contains sequence mapping column but the sequence mapping
     // column's default value is CURRENT_TIMESTAMP, will load successfully
+    sql "SET show_hidden_columns=false"
     sql "set enable_unique_key_partial_update=false;"
     sql "sync;"
     sql "insert into ${tableName2}(id,score) values(2,400),(1,200);"
-    qt_sql """ select * from ${tableName2} order by id;"""
+    qt_sql """ select id,score from ${tableName2} order by id;"""
     sql """ DROP TABLE IF EXISTS ${tableName2}; """
 }
