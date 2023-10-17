@@ -204,14 +204,14 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
          select * from s3("uri" = "${csv_as_json[i]}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
-                "format" = "csv") order by c1 limit 1;
+                "format" = "csv", "column_separator" = "\t") order by c1 limit 1;
             """
 
         sql """
         insert into ${table_names[i]} select * from s3("uri" = "${csv_as_json[i]}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
-                "format" = "csv");
+                "format" = "csv", "column_separator" = "\t");
              """
 
         qt_sql_arr_csv_as_json_doris """ select * from ${table_names[i]} order by k1 limit 1; """
@@ -226,7 +226,7 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
             "uri" = "${csv_as_json[i]}",
             "s3.access_key"= "${ak}",
             "s3.secret_key" = "${sk}",
-            "format" = "csv") order by c1 limit 1;
+            "format" = "csv", "column_separator" = "\t") order by c1 limit 1;
             """
 
         sql """
@@ -235,7 +235,7 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
                 "uri" = "${csv_as_json[i]}",
                 "s3.access_key"= "${ak}",
                 "s3.secret_key" = "${sk}",
-                "format" = "csv");"""
+                "format" = "csv", "column_separator" = "\t");"""
 
         qt_sql_arr_csv_as_json_doris """ select c_bool,c_bigint,c_decimalv3,c_date, c_datev2,c_datetime,c_datetimev2 from ${table_names[i]} order by k1 limit 1; """
     }
