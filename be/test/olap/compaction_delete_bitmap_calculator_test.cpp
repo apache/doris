@@ -27,11 +27,10 @@
 #include <gtest/gtest-test-part.h>
 
 #include "gtest/gtest_pred_impl.h"
-#include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet.h"
-#include "olap/tablet_meta.h"
+#include "olap/task/engine_publish_version_task.h"
 #include "olap/txn_manager.h"
 #include "util/uid_util.h"
 
@@ -40,18 +39,83 @@ namespace doris {
 
 static StorageEngine* k_engine = nullptr;
 
-const std::string rowset_meta_path = "./be/test/olap/test_data/rowset_meta.json";
-const std::string rowset_meta_path_2 = "./be/test/olap/test_data/rowset_meta2.json";
+const std::string json_rowset_meta1 = R"({
+            "rowset_id": 10000,
+            "tablet_id": 11111,
+            "txn_id": 1,
+            "tablet_schema_hash": 567997577,
+            "rowset_type": "BETA_ROWSET",
+            "rowset_state": "VISIBLE",
+            "start_version": 0,
+            "end_version": 1,
+            "num_rows": 3929,
+            "total_disk_size": 41,
+            "data_disk_size": 41,
+            "index_disk_size": 235,
+            "empty": false,
+            "load_id": {
+                "hi": 1,
+                "lo": 1
+            },
+            "creation_time": 1553765670,
+            "num_segments": 3
+        })";
+
+const std::string json_rowset_meta2 = R"({
+            "rowset_id": 10001,
+            "tablet_id": 11111,
+            "txn_id": 2,
+            "tablet_schema_hash": 567997577,
+            "rowset_type": "BETA_ROWSET",
+            "rowset_state": "VISIBLE",
+            "start_version": 2,
+            "end_version": 2,
+            "num_rows": 3929,
+            "total_disk_size": 41,
+            "data_disk_size": 41,
+            "index_disk_size": 235,
+            "empty": false,
+            "load_id": {
+                "hi": 2,
+                "lo": 2
+            },
+            "creation_time": 1553765677,
+            "num_segments": 3
+        })";
+
+const std::string json_rowset_meta3 = R"({
+            "rowset_id": 10002,
+            "tablet_id": 15673,
+            "txn_id": 3,
+            "tablet_schema_hash": 567997577,
+            "rowset_type": "BETA_ROWSET",
+            "rowset_state": "VISIBLE",
+            "start_version": 3,
+            "end_version": 4,
+            "num_rows": 3929,
+            "total_disk_size": 41,
+            "data_disk_size": 41,
+            "index_disk_size": 235,
+            "empty": false,
+            "load_id": {
+                "hi": 3,
+                "lo": 3
+            },
+            "creation_time": 1553765679,
+            "num_segments": 3
+        })";
+
+
 
 class TestCompactionDeleteBitmapCalculator: public testing::Test {
 public:
     TestCompactionDeleteBitmapCalculator() = default;
     void init_tablet_schema() {
         TabletSchemaPB tablet_schema_pb;
-        tablet_schema_pb.set_keys_type(DUP_KEYS);
+        tablet_schema_pb.set_keys_type(UNIQUE_KEYS);
         tablet_schema_pb.set_num_short_key_columns(3);
         tablet_schema_pb.set_num_rows_per_row_block(1024);
-        tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
+        tablet_schema_pb.set_compress_kind( COMPRESS_LZ4);
         tablet_schema_pb.set_next_column_unique_id(4);
 
         ColumnPB* column_1 = tablet_schema_pb.add_column();
@@ -81,7 +145,7 @@ public:
         column_3->set_type("VARCHAR");
         column_3->set_length(10);
         column_3->set_index_length(10);
-        column_3->set_is_key(true);
+        column_3->set_is_key(false);
         column_3->set_is_nullable(false);
         column_3->set_is_bf_column(false);
 
@@ -118,39 +182,36 @@ public:
         init_tablet_schema();
 
         // init rowset meta 1
-        std::ifstream infile(rowset_meta_path);
-        char buffer[1024];
-        while (!infile.eof()) {
-            infile.getline(buffer, 1024);
-            _json_rowset_meta = _json_rowset_meta + buffer + "\n";
-        }
-        _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
         RowsetId rowset_id;
         rowset_id.init(10000);
-        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
-        rowset_meta->init_from_json(_json_rowset_meta);
-        EXPECT_EQ(rowset_meta->rowset_id(), rowset_id);
+        RowsetMetaSharedPtr rowset_meta1(new RowsetMeta());
+        rowset_meta1->init_from_json(json_rowset_meta1);
+        EXPECT_EQ(rowset_meta1->rowset_id(), rowset_id);
         EXPECT_EQ(Status::OK(),
-                  RowsetFactory::create_rowset(_schema, rowset_meta_path, rowset_meta, &_rowset));
-        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema, rowset_meta_path, rowset_meta,
-                                                             &_rowset_same_id));
+                  RowsetFactory::create_rowset(_schema, meta_path, rowset_meta1, &_rowset1));
 
         // init rowset meta 2
-        _json_rowset_meta = "";
-        std::ifstream infile2(rowset_meta_path_2);
-        char buffer2[1024];
-        while (!infile2.eof()) {
-            infile2.getline(buffer2, 1024);
-            _json_rowset_meta = _json_rowset_meta + buffer2 + "\n";
-        }
-        _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
         rowset_id.init(10001);
         RowsetMetaSharedPtr rowset_meta2(new RowsetMeta());
-        rowset_meta2->init_from_json(_json_rowset_meta);
+        rowset_meta2->init_from_json(json_rowset_meta2);
         EXPECT_EQ(rowset_meta2->rowset_id(), rowset_id);
-        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema, rowset_meta_path_2,
-                                                             rowset_meta2, &_rowset_diff_id));
+        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema, meta_path,
+                                                             rowset_meta2, &_rowset2));
+
+        // init rowset meta 3
+        rowset_id.init(10002);
+        RowsetMetaSharedPtr rowset_meta3(new RowsetMeta());
+        rowset_meta3->init_from_json(json_rowset_meta3);
+        EXPECT_EQ(rowset_meta3->rowset_id(), rowset_id);
+        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema, meta_path,
+                                                             rowset_meta3, &_rowset3));
         _tablet_uid = TabletUid(10, 10);
+        // init tablet meta
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta1));
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta2));
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta3));
+        TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+        static_cast<void>(_tablet->init());
     }
 
      void TearDown() override {
@@ -168,37 +229,51 @@ private:
     TabletUid _tablet_uid {0, 0};
     PUniqueId load_id;
     TabletSchemaSPtr _schema;
-    RowsetSharedPtr _rowset0;
     RowsetSharedPtr _rowset1;
     RowsetSharedPtr _rowset2;
+    RowsetSharedPtr _rowset3;
+    TabletSharedPtr _tablet;
+    TabletMetaSharedPtr _tablet_meta;
 };
 
 TEST_F(TestCompactionDeleteBitmapCalculator, a) {
-    Status status =
-            _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, _tablet_uid, load_id);
-    static_cast<void>(_txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                           _tablet_uid, load_id, _rowset, false));
+    // publish rowset 1
+    Status status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, _tablet_uid, load_id);
     EXPECT_TRUE(status == Status::OK());
+    status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
+                                           _tablet_uid, load_id, _rowset1, false);
+    EXPECT_TRUE(status == Status::OK());
+    TabletPublishStatistics stats;
+    status = _txn_mgr->publish_txn(_meta, partition_id, transaction_id, tablet_id, _tablet_uid,
+                                   Version(0,1), &stats);
+    EXPECT_TRUE(status == Status::OK());
+
+    // commit rowset 2
+    status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, _tablet_uid, load_id);
+    EXPECT_TRUE(status == Status::OK());
+    status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
+                                           _tablet_uid, load_id, _rowset2, false);
+    EXPECT_TRUE(status == Status::OK());
+
+    // prepare rowset 3
+    status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, _tablet_uid, load_id);
+    EXPECT_TRUE(status == Status::OK());
+
     RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _rowset->rowset_id(),
+    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _rowset1->rowset_id(),
                                                 rowset_meta);
     EXPECT_TRUE(status == Status::OK());
-    EXPECT_TRUE(rowset_meta->rowset_id() == _rowset->rowset_id());
+    EXPECT_TRUE(rowset_meta->rowset_id() == _rowset1->rowset_id());
 
-    static_cast<void>(_tablet->init());
-
-    std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
-                    CUMULATIVE_SIZE_BASED_POLICY);
-    const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION,
-                                                          cumulative_compaction_policy);
 
     CommitTabletTxnInfoVec commit_tablet_txn_info_vec {};
-    StorageEngine::instance()->txn_manager()->get_all_commit_tablet_txn_info_by_tablet(
+    _txn_mgr->get_all_commit_tablet_txn_info_by_tablet(
                     _tablet, &commit_tablet_txn_info_vec);
+    /*
     _tablet->calc_compaction_output_rowset_delete_bitmap(
                             _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
                             &location_map, *it.delete_bitmap.get(), &txn_output_delete_bitmap);
+    */
 }
 } // namespace doris
 
