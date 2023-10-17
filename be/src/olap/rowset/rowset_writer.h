@@ -85,9 +85,9 @@ public:
                 "RowsetWriter not support flush_single_memtable");
     }
 
-    // finish building and return pointer to the built rowset (guaranteed to be inited).
-    // return nullptr when failed
-    virtual RowsetSharedPtr build() = 0;
+    // finish building and set rowset pointer to the built rowset (guaranteed to be inited).
+    // rowset is invalid if returned Status is not OK
+    virtual Status build(RowsetSharedPtr& rowset) = 0;
 
     // we have to load segment data to build delete_bitmap for current segment,
     // so we  build a tmp rowset ptr to load segment data.

@@ -1956,21 +1956,23 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
         context.segments_overlap = OVERLAP_UNKNOWN;
         context.tablet_schema = tablet_schema();
         context.newest_write_timestamp = UnixSeconds();
-        res = create_rowset_writer(context, &rs_writer);
 
-        if (!res.ok()) {
+        if (!(res = create_rowset_writer(context, &rs_writer)).ok()) {
             LOG(WARNING) << "failed to init rowset writer for tablet " << full_name();
             break;
         }
-        res = rs_writer->flush();
-        if (!res.ok()) {
+
+        if (!(res = rs_writer->flush()).ok()) {
             LOG(WARNING) << "failed to flush rowset writer for tablet " << full_name();
             break;
         }
 
-        new_rowset = rs_writer->build();
-        res = add_rowset(new_rowset);
-        if (!res.ok()) {
+        if (!(res = rs_writer->build(new_rowset)).ok()) {
+            LOG(WARNING) << "failed to build rowset for tablet " << full_name();
+            break;
+        }
+
+        if (!(res = add_rowset(new_rowset)).ok()) {
             LOG(WARNING) << "failed to add rowset for tablet " << full_name();
             break;
         }

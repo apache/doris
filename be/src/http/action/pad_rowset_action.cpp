@@ -107,7 +107,8 @@ Status PadRowsetAction::_pad_rowset(TabletSharedPtr tablet, const Version& versi
     ctx.tablet_schema = tablet->tablet_schema();
     ctx.newest_write_timestamp = UnixSeconds();
     RETURN_IF_ERROR(tablet->create_rowset_writer(ctx, &writer));
-    auto rowset = writer->build();
+    RowsetSharedPtr rowset;
+    RETURN_IF_ERROR(writer->build(rowset));
     rowset->make_visible(version);
 
     std::vector<RowsetSharedPtr> to_add {rowset};

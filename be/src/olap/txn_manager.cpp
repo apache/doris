@@ -374,7 +374,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         if (rowset->tablet_schema()->is_partial_update()) {
             // build rowset writer and merge transient rowset
             RETURN_IF_ERROR(rowset_writer->flush());
-            RowsetSharedPtr transient_rowset = rowset_writer->build();
+            RowsetSharedPtr transient_rowset;
+            RETURN_IF_ERROR(rowset_writer->build(transient_rowset));
             rowset->merge_rowset_meta(transient_rowset->rowset_meta());
 
             // erase segment cache cause we will add a segment to rowset
