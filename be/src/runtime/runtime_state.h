@@ -444,9 +444,7 @@ public:
         return 0;
     }
 
-    void set_be_exec_version(int32_t version) noexcept {
-        _query_options.be_exec_version = version;
-    }
+    void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
 
     int64_t external_agg_bytes_threshold() const {
         return _query_options.__isset.external_agg_bytes_threshold
