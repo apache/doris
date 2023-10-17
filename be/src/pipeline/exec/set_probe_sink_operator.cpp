@@ -131,9 +131,9 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                 [&](auto&& arg) -> Status {
                     using HashTableCtxType = std::decay_t<decltype(arg)>;
                     if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                        vectorized::HashTableProbeX<HashTableCtxType, is_intersect>
-                                process_hashtable_ctx(local_state, probe_rows);
-                        return process_hashtable_ctx.mark_data_in_hashtable(local_state, arg);
+                        vectorized::HashTableProbe<HashTableCtxType, is_intersect>
+                                process_hashtable_ctx(&local_state, probe_rows);
+                        return process_hashtable_ctx.mark_data_in_hashtable(arg);
                     } else {
                         LOG(FATAL) << "FATAL: uninited hash table";
                     }
