@@ -285,6 +285,7 @@ set_target_properties(gssapi_krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}
 
 add_library(dragonbox_to_chars STATIC IMPORTED)
 set_target_properties(dragonbox_to_chars PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libdragonbox_to_chars.a)
+target_include_directories(dragonbox_to_chars INTERFACE ${THIRDPARTY_DIR}/include/dragonbox-1.1.3)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
