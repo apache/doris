@@ -28,6 +28,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
+import org.apache.doris.nereids.parser.ParseDialect;
+import org.apache.doris.nereids.parser.ParseDialect.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
@@ -39,6 +41,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -410,11 +413,15 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FULL_AUTO_ANALYZE_END_TIME = "full_auto_analyze_end_time";
 
+    public static final String SQL_DIALECT = "sql_dialect";
+
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
 
     public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
 
     public static final String ENABLE_FULL_AUTO_ANALYZE = "enable_full_auto_analyze";
+
+    public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -1209,6 +1216,10 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public String fullAutoAnalyzeEndTime = "02:00:00";
 
+    @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
+            description = {"解析sql使用的方言", "The dialect used to parse sql."})
+    public String sqlDialect = "doris";
+
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
 
@@ -1223,6 +1234,25 @@ public class SessionVariable implements Serializable, Writable {
             description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
             flag = VariableMgr.GLOBAL)
     public boolean enableFullAutoAnalyze = true;
+
+    @VariableMgr.VarAttr(name = FASTER_FLOAT_CONVERT,
+            description = {"是否启用更快的浮点数转换算法，注意会影响输出格式", "Set true to enable faster float pointer number convert"})
+    public boolean fasterFloatConvert = false;
+
+    public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
+
+    public Set<String> getIgnoreShapePlanNodes() {
+        return Arrays.stream(ignoreShapePlanNodes.split(",[\\s]*")).collect(ImmutableSet.toImmutableSet());
+    }
+
+    public void setIgnoreShapePlanNodes(String ignoreShapePlanNodes) {
+        this.ignoreShapePlanNodes = ignoreShapePlanNodes;
+    }
+
+    @VariableMgr.VarAttr(name = IGNORE_SHAPE_NODE,
+            description = {"'explain shape plan' 命令中忽略的PlanNode 类型",
+                    "the plan node type which is ignored in 'explain shape plan' command"})
+    public String ignoreShapePlanNodes = "";
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1927,6 +1957,17 @@ public class SessionVariable implements Serializable, Writable {
         this.enableOrcLazyMat = enableOrcLazyMat;
     }
 
+    public String getSqlDialect() {
+        return sqlDialect;
+    }
+
+    public ParseDialect.Dialect getSqlParseDialect() {
+        return ParseDialect.Dialect.getByName(sqlDialect);
+    }
+
+    public void setSqlDialect(String sqlDialect) {
+        this.sqlDialect = sqlDialect == null ? null : sqlDialect.toLowerCase();
+    }
 
     /**
      * getInsertVisibleTimeoutMs.
@@ -2345,6 +2386,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
 
+        tResult.setFasterFloatConvert(fasterFloatConvert);
+
         return tResult;
     }
 
@@ -2621,6 +2664,14 @@ public class SessionVariable implements Serializable, Writable {
         VariableMgr.setVar(this, new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
     }
 
+    public void disableNereidsJoinReorderOnce() throws DdlException {
+        if (!enableNereidsPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this, new SetVar(SessionVariable.DISABLE_JOIN_REORDER, new StringLiteral("false")));
+    }
+
     // return number of variables by given variable annotation
     public int getVariableNumByVariableAnnotation(VariableAnnotation type) {
         int num = 0;
@@ -2678,5 +2729,21 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getProfileLevel() {
         return this.profileLevel;
+    }
+
+    public boolean fasterFloatConvert() {
+        return this.fasterFloatConvert;
+    }
+
+    public void checkSqlDialect(String sqlDialect) {
+        if (StringUtils.isEmpty(sqlDialect)) {
+            LOG.warn("sqlDialect value is empty");
+            throw new UnsupportedOperationException("sqlDialect value is empty");
+        }
+        if (Arrays.stream(Dialect.values())
+                .noneMatch(dialect -> dialect.getDialectName().equalsIgnoreCase(sqlDialect))) {
+            LOG.warn("sqlDialect value is invalid, the invalid value is {}", sqlDialect);
+            throw new UnsupportedOperationException("sqlDialect value is invalid, the invalid value is " + sqlDialect);
+        }
     }
 }

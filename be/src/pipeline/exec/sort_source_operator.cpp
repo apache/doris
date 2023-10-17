@@ -60,14 +60,4 @@ Dependency* SortSourceOperatorX::wait_for_dependency(RuntimeState* state) {
     return local_state._dependency->read_blocked_by();
 }
 
-Status SortLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
-    SCOPED_TIMER(_close_timer);
-    if (_closed) {
-        return Status::OK();
-    }
-    _shared_state->sorter = nullptr;
-    return PipelineXLocalState<SortDependency>::close(state);
-}
-
 } // namespace doris::pipeline

@@ -25,7 +25,7 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[store_returns]
 ----------------------------------PhysicalDistribute
-------------------------------------filter((date_dim.d_date <= 2000-09-02) and (date_dim.d_date >= 2000-08-19))
+------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalOlapScan[store]
@@ -44,7 +44,7 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[catalog_returns]
 ----------------------------------PhysicalDistribute
-------------------------------------filter((date_dim.d_date <= 2000-09-02) and (date_dim.d_date >= 2000-08-19))
+------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalOlapScan[catalog_page]
@@ -65,7 +65,7 @@ PhysicalResultSink
 ------------------------------------------PhysicalOlapScan[web_sales]
 ------------------------------------------PhysicalOlapScan[web_returns]
 ----------------------------------PhysicalDistribute
-------------------------------------filter((date_dim.d_date <= 2000-09-02) and (date_dim.d_date >= 2000-08-19))
+------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalOlapScan[web_site]

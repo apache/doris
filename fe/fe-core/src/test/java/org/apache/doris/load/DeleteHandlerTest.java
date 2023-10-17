@@ -214,7 +214,7 @@ public class DeleteHandlerTest {
         };
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testUnQuorumTimeout() throws DdlException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
@@ -322,7 +322,7 @@ public class DeleteHandlerTest {
         }
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testCommitFail(@Mocked MarkedCountDownLatch countDownLatch) throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));

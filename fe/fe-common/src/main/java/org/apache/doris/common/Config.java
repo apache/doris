@@ -458,6 +458,10 @@ public class Config extends ConfigBase {
             "Maximal timeout for delete job, in seconds."})
     public static int delete_job_max_timeout_second = 300;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"Load 成功所需的最小写入副本数。",
+            "Minimal number of write successful replicas for load job."})
+    public static short min_load_replica_num = -1;
+
     @ConfField(description = {"load job 调度器的执行间隔，单位是秒。",
             "The interval of load job scheduler, in seconds."})
     public static int load_checker_interval_second = 5;
@@ -708,6 +712,10 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"是否启用group间的均衡",
+            "is allow colocate balance between all groups"})
+    public static boolean disable_colocate_balance_between_groups = false;
+
     /**
      * The default user resource publishing timeout.
      */
@@ -950,6 +958,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int schedule_batch_size = 50;
 
+    /**
+     * tablet health check interval. Do not modify it in production environment.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static long tablet_checker_interval_ms = 20 * 1000;
+
+    /**
+     * tablet scheduled interval. Do not modify it in production environment.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static long tablet_schedule_interval_ms = 1000;
 
     /**
      * Deprecated after 0.10

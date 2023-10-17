@@ -306,7 +306,7 @@ public class DateLiteral extends Literal {
 
     @Override
     public String toSql() {
-        return toString();
+        return String.format("'%s'", toString());
     }
 
     @Override

@@ -20,7 +20,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[customer]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter((orders.o_orderdate < 1994-01-01) and (orders.o_orderdate >= 1993-10-01))
+------------------------------filter((orders.o_orderdate < '1994-01-01') and (orders.o_orderdate >= '1993-10-01'))
 --------------------------------PhysicalOlapScan[orders]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject

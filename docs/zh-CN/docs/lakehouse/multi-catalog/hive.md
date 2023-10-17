@@ -380,6 +380,14 @@ CREATE CATALOG hive PROPERTIES (
 
 该变量默认为 false。
 
+## 使用 broker 访问 HMS
+
+创建 HMS Catalog 时增加如下配置，Hive 外表文件分片和文件扫描将会由名为 `test_broker` 的 broker 完成
+
+```sql
+"broker.name" = "test_broker"
+```
+
 ## 使用 Ranger 进行权限校验
 
 Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以及全方位数据安全访问管理的安全框架。

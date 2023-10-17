@@ -31,7 +31,7 @@ class RuntimeState;
 namespace vectorized {
 class Block;
 template <class HashTableContext, bool is_intersected>
-struct HashTableProbeX;
+struct HashTableProbe;
 } // namespace vectorized
 
 namespace pipeline {
@@ -81,13 +81,13 @@ public:
             : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    int64_t* valid_element_in_hash_tbl() { return &_shared_state->valid_element_in_hash_tbl; }
 
 private:
     friend class SetProbeSinkOperatorX<is_intersect>;
     template <class HashTableContext, bool is_intersected>
-    friend struct vectorized::HashTableProbeX;
+    friend struct vectorized::HashTableProbe;
 
-    RuntimeProfile::Counter* _probe_timer; // time to probe
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
     vectorized::ColumnRawPtrs _probe_columns;
@@ -113,44 +113,16 @@ public:
                 DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::_name);
     }
 
-    Status init(const TPlanNode& tnode, RuntimeState* state) override {
-        const std::vector<std::vector<TExpr>>* result_texpr_lists;
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-        // Create result_expr_ctx_lists_ from thrift exprs.
-        if (tnode.node_type == TPlanNodeType::type::INTERSECT_NODE) {
-            result_texpr_lists = &(tnode.intersect_node.result_expr_lists);
-        } else if (tnode.node_type == TPlanNodeType::type::EXCEPT_NODE) {
-            result_texpr_lists = &(tnode.except_node.result_expr_lists);
-        } else {
-            return Status::NotSupported("Not Implemented, Check The Operation Node.");
-        }
+    Status prepare(RuntimeState* state) override;
 
-        const auto& texpr = (*result_texpr_lists)[_cur_child_id];
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(texpr, _child_exprs));
-
-        return Status::OK();
-    }
-
-    Status prepare(RuntimeState* state) override {
-        RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::prepare(state));
-        return vectorized::VExpr::prepare(_child_exprs, state, _child_x->row_desc());
-    }
-
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::open(state));
-        return vectorized::VExpr::open(_child_exprs, state);
-    }
+    Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return ((SetSharedState*)local_state._dependency->shared_state())
-                               ->probe_finished_children_index[_cur_child_id - 1]
-                       ? nullptr
-                       : local_state._dependency;
-    }
+    WriteDependency* wait_for_dependency(RuntimeState* state) override;
 
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);

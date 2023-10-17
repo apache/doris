@@ -44,6 +44,7 @@
 #include "olap/binlog_config.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
@@ -253,6 +254,11 @@ public:
         _last_full_compaction_success_millis = millis;
     }
 
+    int64_t last_base_compaction_schedule_time() { return _last_base_compaction_schedule_millis; }
+    void set_last_base_compaction_schedule_time(int64_t millis) {
+        _last_base_compaction_schedule_millis = millis;
+    }
+
     void delete_all_files();
 
     void check_tablet_path_exists();
@@ -322,6 +328,12 @@ public:
         return _cumulative_compaction_policy;
     }
 
+    void set_last_base_compaction_status(std::string status) {
+        _last_base_compaction_status = status;
+    }
+
+    std::string get_last_base_compaction_status() { return _last_base_compaction_status; }
+
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->all_beta();
@@ -340,7 +352,8 @@ public:
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_transient_rowset_writer(RowsetSharedPtr rowset_ptr,
-                                          std::unique_ptr<RowsetWriter>* rowset_writer);
+                                          std::unique_ptr<RowsetWriter>* rowset_writer,
+                                          std::shared_ptr<PartialUpdateInfo> partial_update_info);
     Status create_transient_rowset_writer(RowsetWriterContext& context, const RowsetId& rowset_id,
                                           std::unique_ptr<RowsetWriter>* rowset_writer);
 
@@ -466,7 +479,8 @@ public:
     void prepare_to_read(const RowLocation& row_location, size_t pos,
                          PartialUpdateReadPlan* read_plan);
     Status generate_new_block_for_partial_update(
-            TabletSchemaSPtr rowset_schema, const PartialUpdateReadPlan& read_plan_ori,
+            TabletSchemaSPtr rowset_schema, const std::vector<uint32>& missing_cids,
+            const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
             const PartialUpdateReadPlan& read_plan_update,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             vectorized::Block* output_block);
@@ -656,10 +670,13 @@ private:
     std::atomic<int64_t> _last_base_compaction_success_millis;
     // timestamp of last full compaction success
     std::atomic<int64_t> _last_full_compaction_success_millis;
+    // timestamp of last base compaction schedule time
+    std::atomic<int64_t> _last_base_compaction_schedule_millis;
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int64_t> _cumulative_promotion_size;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
+    std::string _last_base_compaction_status;
 
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;

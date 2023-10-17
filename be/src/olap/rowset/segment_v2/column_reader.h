@@ -162,6 +162,9 @@ public:
 
     bool is_empty() const { return _num_rows == 0; }
 
+    bool prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
+                                      const int column_id) const;
+
     CompressionTypePB get_compression() const { return _meta_compression; }
 
     uint64_t num_rows() const { return _num_rows; }

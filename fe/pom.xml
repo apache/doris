@@ -320,6 +320,7 @@ under the License.
         <!-- paimon -->
         <paimon.version>0.4.0-incubating</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
+        <trino.parser.version>395</trino.parser.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
         <flatbuffers.version>1.12.0</flatbuffers.version>
@@ -344,9 +345,10 @@ under the License.
                     <url>https://repository.apache.org/content/repositories/snapshots/</url>
                 </repository>
                 <!-- for java-cup -->
+                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
                 <repository>
-                    <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
                 </repository>
             </repositories>
             <pluginRepositories>
@@ -355,9 +357,10 @@ under the License.
                     <url>https://repo.maven.apache.org/maven2</url>
                 </pluginRepository>
                 <!-- for cup-maven-plugin -->
+                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
                 <pluginRepository>
-                    <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
@@ -1449,6 +1452,13 @@ under the License.
                 <groupId>com.vesoft</groupId>
                 <artifactId>client</artifactId>
                 <version>${vesoft.client.version}</version>
+            </dependency>
+            <!-- trino-parser The version of antlr-runtime in trino parser is need to be consistent with doris,
+            when upgrade trino-parser antlr-runtime version, should take care of trino-parser doris.-->
+            <dependency>
+                <groupId>io.trino</groupId>
+                <artifactId>trino-parser</artifactId>
+                <version>${trino.parser.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>

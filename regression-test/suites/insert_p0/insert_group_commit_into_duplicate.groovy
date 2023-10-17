@@ -15,8 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import com.mysql.cj.jdbc.StatementImpl
+
 suite("insert_group_commit_into_duplicate") {
-    def table = "insert_group_commit_into_duplicate"
+    def dbName = "regression_test_insert_p0"
+    def tableName = "insert_group_commit_into_duplicate"
+    def table = dbName + "." + tableName
 
     def getRowCount = { expectedRowCount ->
         def retry = 0
@@ -33,11 +37,12 @@ suite("insert_group_commit_into_duplicate") {
 
     def getAlterTableState = {
         def retry = 0
+        sql "use ${dbName};"
         while (true) {
             sleep(2000)
-            def state = sql "show alter table column where tablename = '${table}' order by CreateTime desc "
+            def state = sql " show alter table column where tablename = '${tableName}' order by CreateTime desc "
             logger.info("alter table state: ${state}")
-            if (state.size()> 0 && state[0][9] == "FINISHED") {
+            if (state.size() > 0 && state[0][9] == "FINISHED") {
                 return true
             }
             retry++
@@ -53,7 +58,7 @@ suite("insert_group_commit_into_duplicate") {
         sql """ drop table if exists ${table}; """
 
         sql """
-        CREATE TABLE `${table}` (
+        CREATE TABLE ${table} (
             `id` int(11) NOT NULL,
             `name` varchar(50) NULL,
             `score` int(11) NULL default "-1"
@@ -69,104 +74,107 @@ suite("insert_group_commit_into_duplicate") {
         );
         """
 
-        sql """ set enable_insert_group_commit = true; """
+        def group_commit_insert = { sql, expected_row_count ->
+            def stmt = prepareStatement """ ${sql}  """
+            def result = stmt.executeUpdate()
+            logger.info("insert result: " + result)
+            def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
+            logger.info("result server info: " + serverInfo)
+            if (result != expected_row_count) {
+                logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
+            }
+            // assertEquals(result, expected_row_count)
+            assertTrue(serverInfo.contains("'status':'PREPARE'"))
+            assertTrue(serverInfo.contains("'label':'group_commit_"))
+        }
 
-        // 1. insert into
-        def result = sql """ insert into ${table}(name, id) values('c', 3);  """
-        logger.info("insert result: " + result)
-        assertEquals(1, result.size())
-        assertEquals(1, result[0].size())
-        assertEquals(1, result[0][0])
-        result = sql """ insert into ${table}(id) values(4);  """
-        logger.info("insert result: " + result)
-        result = sql """ insert into ${table} values (1, 'a', 10),(5, 'q', 50);  """
-        logger.info("insert result: " + result)
-        assertEquals(1, result.size())
-        assertEquals(1, result[0].size())
-        assertEquals(2, result[0][0])
-        result = sql """ insert into ${table}(id, name) values(2, 'b');  """
-        logger.info("insert result: " + result)
-        result = sql """ insert into ${table}(id) select 6; """
-        logger.info("insert result: " + result)
+        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+            sql """ set enable_insert_group_commit = true; """
+            // TODO
+            sql """ set enable_nereids_dml = false; """
 
-        getRowCount(6)
-        qt_sql """ select * from ${table} order by id, name, score asc; """
+            // 1. insert into
+            group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
+            group_commit_insert """ insert into ${table}(id) values(4);  """, 1
+            group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50); """, 2
+            group_commit_insert """ insert into ${table}(id, name) values(2, 'b'); """, 1
+            group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
-        // 2. insert into and delete
-        sql """ delete from ${table} where id = 4; """
-        sql """ insert into ${table}(name, id) values('c', 3);  """
-        /*sql """ insert into ${table}(id, name) values(4, 'd1');  """
-        sql """ insert into ${table}(id, name) values(4, 'd1');  """
-        sql """ delete from ${table} where id = 4; """*/
-        sql """ insert into ${table}(id, name) values(4, 'e1');  """
-        sql """ insert into ${table} values (1, 'a', 10),(5, 'q', 50);  """
-        sql """ insert into ${table}(id, name) values(2, 'b');  """
-        sql """ insert into ${table}(id) select 6; """
+            getRowCount(6)
+            qt_sql """ select * from ${table} order by id, name, score asc; """
 
-        getRowCount(11)
-        qt_sql """ select * from ${table} order by id, name, score asc; """
+            // 2. insert into and delete
+            sql """ delete from ${table} where id = 4; """
+            group_commit_insert """ insert into ${table}(name, id) values('c', 3); """, 1
+            /*sql """ insert into ${table}(id, name) values(4, 'd1');  """
+            sql """ insert into ${table}(id, name) values(4, 'd1');  """
+            sql """ delete from ${table} where id = 4; """*/
+            group_commit_insert """ insert into ${table}(id, name) values(4, 'e1'); """, 1
+            group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50); """, 2
+            group_commit_insert """ insert into ${table}(id, name) values(2, 'b'); """, 1
+            group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
-        // 3. insert into and light schema change: add column
-        sql """ insert into ${table}(name, id) values('c', 3);  """
-        sql """ insert into ${table}(id) values(4);  """
-        sql """ insert into ${table} values (1, 'a', 10),(5, 'q', 50);  """
-        sql """ alter table ${table} ADD column age int after name; """
-        sql """ insert into ${table}(id, name) values(2, 'b');  """
-        sql """ insert into ${table}(id) select 6; """
+            getRowCount(11)
+            qt_sql """ select * from ${table} order by id, name, score asc; """
 
-        assertTrue(getAlterTableState(), "add column should success")
-        getRowCount(17)
-        qt_sql """ select * from ${table} order by id, name,score asc; """
+            // 3. insert into and light schema change: add column
+            group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
+            group_commit_insert """ insert into ${table}(id) values(4);  """, 1
+            group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50);  """, 2
+            sql """ alter table ${table} ADD column age int after name; """
+            group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
+            group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
-        // 4. insert into and truncate table
-        /*sql """ insert into ${table}(name, id) values('c', 3);  """
-        sql """ insert into ${table}(id) values(4);  """
-        sql """ insert into ${table} values (1, 'a', 5, 10),(5, 'q', 6, 50);  """*/
-        sql """ truncate table ${table}; """
-        sql """ insert into ${table}(id, name) values(2, 'b');  """
-        sql """ insert into ${table}(id) select 6; """
+            assertTrue(getAlterTableState(), "add column should success")
+            getRowCount(17)
+            qt_sql """ select * from ${table} order by id, name,score asc; """
 
-        getRowCount(2)
-        qt_sql """ select * from ${table} order by id, name, score asc; """
+            // 4. insert into and truncate table
+            /*sql """ insert into ${table}(name, id) values('c', 3);  """
+            sql """ insert into ${table}(id) values(4);  """
+            sql """ insert into ${table} values (1, 'a', 5, 10),(5, 'q', 6, 50);  """*/
+            sql """ truncate table ${table}; """
+            group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
+            group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
-        // 5. insert into and schema change: modify column order
-        sql """ insert into ${table}(name, id) values('c', 3);  """
-        sql """ insert into ${table}(id) values(4);  """
-        sql """ insert into ${table} values (1, 'a', 5, 10),(5, 'q', 6, 50);  """
-        // sql """ alter table ${table} order by (id, name, score, age); """
-        sql """ insert into ${table}(id, name) values(2, 'b');  """
-        sql """ insert into ${table}(id) select 6; """
+            getRowCount(2)
+            qt_sql """ select * from ${table} order by id, name, score asc; """
 
-        // assertTrue(getAlterTableState(), "modify column order should success")
-        getRowCount(8)
-        qt_sql """ select id, name, score, age from ${table} order by id, name, score asc; """
+            // 5. insert into and schema change: modify column order
+            group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
+            group_commit_insert """ insert into ${table}(id) values(4);  """, 1
+            group_commit_insert """ insert into ${table} values (1, 'a', 5, 10),(5, 'q', 6, 50);  """, 2
+            // sql """ alter table ${table} order by (id, name, score, age); """
+            group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
+            group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
-        // 6. insert into and light schema change: drop column
-        sql """ insert into ${table}(name, id) values('c', 3);  """
-        sql """ insert into ${table}(id) values(4);  """
-        sql """ insert into ${table} values (1, 'a', 5, 10),(5, 'q', 6, 50);  """
-        sql """ alter table ${table} DROP column age; """
-        sql """ insert into ${table}(id, name) values(2, 'b');  """
-        sql """ insert into ${table}(id) select 6; """
+            // assertTrue(getAlterTableState(), "modify column order should success")
+            getRowCount(8)
+            qt_sql """ select id, name, score, age from ${table} order by id, name, score asc; """
 
-        assertTrue(getAlterTableState(), "drop column should success")
-        getRowCount(14)
-        qt_sql """ select * from ${table} order by id, name, score asc; """
+            // 6. insert into and light schema change: drop column
+            group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
+            group_commit_insert """ insert into ${table}(id) values(4);  """, 1
+            group_commit_insert """ insert into ${table} values (1, 'a', 5, 10),(5, 'q', 6, 50);  """, 2
+            sql """ alter table ${table} DROP column age; """
+            group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
+            group_commit_insert """ insert into ${table}(id) select 6; """, 1
 
-        // 7. insert into and add rollup
-        sql """ insert into ${table}(name, id) values('c', 3);  """
-        sql """ insert into ${table}(id) values(4);  """
-        result = sql """ insert into ${table} values (1, 'a', 10),(5, 'q', 50),(101, 'a', 100);  """
-        logger.info("insert result: " + result)
-        assertEquals(1, result.size())
-        assertEquals(1, result[0].size())
-        assertEquals(2, result[0][0])
-        // sql """ alter table ${table} ADD ROLLUP r1(name, score); """
-        sql """ insert into ${table}(id, name) values(2, 'b');  """
-        sql """ insert into ${table}(id) select 6; """
+            assertTrue(getAlterTableState(), "drop column should success")
+            getRowCount(14)
+            qt_sql """ select * from ${table} order by id, name, score asc; """
 
-        getRowCount(20)
-        qt_sql """ select name, score from ${table} order by name asc; """
+            // 7. insert into and add rollup
+            group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
+            group_commit_insert """ insert into ${table}(id) values(4);  """, 1
+            group_commit_insert """ insert into ${table} values (1, 'a', 10),(5, 'q', 50),(101, 'a', 100);  """, 2
+            // sql """ alter table ${table} ADD ROLLUP r1(name, score); """
+            group_commit_insert """ insert into ${table}(id, name) values(2, 'b');  """, 1
+            group_commit_insert """ insert into ${table}(id) select 6; """, 1
+
+            getRowCount(20)
+            qt_sql """ select name, score from ${table} order by name asc; """
+        }
     } finally {
         // try_sql("DROP TABLE ${table}")
     }

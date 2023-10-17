@@ -173,6 +173,10 @@ public:
         return true;
     }
 
+    virtual bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const {
+        return false;
+    }
+
     virtual bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const {
         return false;
     }

@@ -73,6 +73,9 @@ public:
 
     bool is_child_finished(int child_id) const;
 
+    int64_t* valid_element_in_hash_tbl() { return &_valid_element_in_hash_tbl; }
+    int64_t* mem_used() { return &_mem_used; };
+
 private:
     void _finalize_probe(int child_id);
     //Todo: In build process of hashtable, It's same as join node.
@@ -95,8 +98,6 @@ private:
 
     std::unique_ptr<HashTableVariants> _hash_table_variants;
 
-    std::vector<size_t> _probe_key_sz;
-    std::vector<size_t> _build_key_sz;
     std::vector<bool> _build_not_ignore_null;
 
     //record element size in hashtable
@@ -125,6 +126,7 @@ private:
     RuntimeProfile::Counter* _build_timer; // time to build hash table
     RuntimeProfile::Counter* _probe_timer; // time to probe
     RuntimeProfile::Counter* _pull_timer;  // time to pull data
+    Arena _arena;
 
     template <class HashTableContext, bool is_intersected>
     friend struct HashTableBuild;

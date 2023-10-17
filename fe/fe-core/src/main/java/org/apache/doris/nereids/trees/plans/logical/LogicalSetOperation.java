@@ -245,7 +245,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
                 boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable();
                 DataType commonType = getAssignmentCompatibleType(
                         leftFields.get(i).getDataType(), rightFields.get(i).getDataType());
-                StructField commonField = leftFields.get(i).withDataTypeAndNulalble(commonType, nullable);
+                StructField commonField = leftFields.get(i).withDataTypeAndNullable(commonType, nullable);
                 commonFields.add(commonField);
             }
             return new StructType(commonFields.build());

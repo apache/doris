@@ -326,6 +326,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         }
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");
+        str.append("  HAS_COLO_PLAN_NODE: " + hasColocatePlanNode + "\n");
+        str.append("\n");
         if (sink != null) {
             str.append(sink.getExplainString("  ", explainLevel) + "\n");
         }
