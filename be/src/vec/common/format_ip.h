@@ -33,7 +33,7 @@ constexpr size_t IPV4_BINARY_LENGTH = 4;
 constexpr size_t IPV4_MAX_TEXT_LENGTH = 15;       /// Does not count tail zero byte.
 constexpr size_t IPV4_MIN_NUM_VALUE = 0;          //num value of '0.0.0.0'
 constexpr size_t IPV4_MAX_NUM_VALUE = 4294967295; //num value of '255.255.255.255'
-+constexpr size_t IPV4_MAX_OCTET_VALUE = 255;      //max vulue of octet
+constexpr size_t IPV4_MAX_OCTET_VALUE = 255;      //max vulue of octet
 constexpr size_t IPV4_OCTET_BITS = 8;
 constexpr size_t DECIMAL_BASE = 10;
 
