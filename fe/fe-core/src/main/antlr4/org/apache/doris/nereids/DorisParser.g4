@@ -89,7 +89,7 @@ planType
 outFileClause
     : INTO OUTFILE filePath=constant
         (FORMAT AS format=identifier)?
-        (PROPERTIES LEFT_PAREN properties+=tvfProperty (COMMA properties+=tvfProperty)* RIGHT_PAREN)?
+        (PROPERTIES LEFT_PAREN properties+=property (COMMA properties+=property)* RIGHT_PAREN)?
     ;
 
 query
@@ -262,15 +262,15 @@ relationPrimary
     : multipartIdentifier specifiedPartition? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
-      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
+      (properties+=property (COMMA properties+=property)*)?
       RIGHT_PAREN tableAlias                                                                  #tableValuedFunction
     ;
 
-tvfProperty
-    : key=tvfPropertyItem EQ value=tvfPropertyItem
+property
+    : key=propertyItem EQ value=propertyItem
     ;
 
-tvfPropertyItem : identifier | constant ;
+propertyItem : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?
