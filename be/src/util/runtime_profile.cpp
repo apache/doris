@@ -628,6 +628,15 @@ void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree) {
     to_thrift(&tree->nodes);
 }
 
+void RuntimeProfile::sub_projection() {
+    static constexpr auto projection_name = "ProjectionTime";
+    for (auto& [child, _t] : _children) {
+        if (child->_counter_map.contains(projection_name)) {
+            _counter_total_time.sub_value(child->_counter_map[projection_name]->value());
+        }
+    }
+}
+
 void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     nodes->reserve(nodes->size() + _children.size());
 
@@ -641,6 +650,7 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
     if (this->is_set_sink()) {
         node.__set_is_sink(this->is_sink());
     }
+    sub_projection();
     CounterMap counter_map;
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);

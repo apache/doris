@@ -97,6 +97,8 @@ public:
 
         virtual void update(int64_t delta) { _value.fetch_add(delta, std::memory_order_relaxed); }
 
+        void sub_value(int64_t delta) { _value.fetch_sub(delta, std::memory_order_relaxed); }
+
         void bit_or(int64_t delta) { _value.fetch_or(delta, std::memory_order_relaxed); }
 
         virtual void set(int64_t value) { _value.store(value, std::memory_order_relaxed); }
@@ -341,6 +343,8 @@ public:
     // Does not hold locks when it makes any function calls.
     void to_thrift(TRuntimeProfileTree* tree);
     void to_thrift(std::vector<TRuntimeProfileNode>* nodes);
+
+    void sub_projection();
 
     // Divides all counters by n
     void divide(int n);
