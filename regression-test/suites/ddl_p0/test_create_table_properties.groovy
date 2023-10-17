@@ -164,10 +164,118 @@ suite("test_create_table_properties") {
         sql """ DROP TABLE IF EXISTS test_create_table_properties"""
     }
 
+
+
+    sql "drop table if exists test_create_table_properties"
+    sql """
+        CREATE TABLE IF NOT EXISTS test_create_table_properties ( 
+            k1 tinyint NOT NULL, 
+            k2 smallint NOT NULL, 
+            k3 int NOT NULL, 
+            k4 bigint NOT NULL, 
+            k5 decimal(9, 3) NOT NULL,
+            k8 double max NOT NULL, 
+            k9 float sum NOT NULL ) 
+        AGGREGATE KEY(k1,k2,k3,k4,k5)
+        PARTITION BY LIST(k1,k2) ( 
+            PARTITION p1 VALUES IN (("1","2"),("3","4")), 
+            PARTITION p2 VALUES IN (("5","6"),("7","8")), 
+            PARTITION p3 ) 
+        DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
+        """
+
+    sql "drop table if exists test_create_table_properties"
+    try {
+    sql """
+        CREATE TABLE IF NOT EXISTS test_create_table_properties ( 
+            k1 tinyint NOT NULL, 
+            k2 smallint NOT NULL, 
+            k3 int NOT NULL, 
+            k4 bigint NOT NULL, 
+            k5 decimal(9, 3) NOT NULL,
+            k8 double max NOT NULL, 
+            k9 float sum NOT NULL ) 
+        AGGREGATE KEY(k1,k2,k3,k4,k5)
+        PARTITION BY LIST(k1,k2) ( 
+            PARTITION p1 VALUES IN (("1","2"),("3","4")), 
+            PARTITION p2 VALUES IN (("5","6"),("7","8")), 
+            PARTITION p3 ) 
+        DISTRIBUTED BY HASH(k1) BUCKETS 5 
+        properties(
+            "replication_num" = "1",
+            "abc" = "false"
+        )
+        """
+        assertTrue(false, "should not be able to execute")
+	}
+	catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("Unknown properties"))
+	} finally {
+        sql """ DROP TABLE IF EXISTS test_create_table_properties"""
+    }
+
+
+    try {
+    sql """
+        CREATE TABLE IF NOT EXISTS test_create_table_properties ( 
+            k1 tinyint NOT NULL, 
+            k2 smallint NOT NULL, 
+            k3 int NOT NULL, 
+            k4 bigint NOT NULL, 
+            k5 decimal(9, 3) NOT NULL,
+            k8 double max NOT NULL, 
+            k9 float sum NOT NULL ) 
+        AGGREGATE KEY(k1,k2,k3,k4,k5)
+        PARTITION BY LIST(k1,k2) ( 
+            PARTITION p1 VALUES IN (("1","2"),("3","4")), 
+            PARTITION p2 VALUES IN (("5","6"),("7","8")), 
+            PARTITION p3 ) 
+        DISTRIBUTED BY HASH(k1) BUCKETS 5 
+        properties(
+            "replication_num" = "1",
+            "storage_policy" = "test_create_table_use_policy",
+            "abc" = "false"
+        )
+        """
+        assertTrue(false, "should not be able to execute")
+	}
+	catch (Exception ex) {
+        assertTrue(ex.getMessage().contains("Unknown properties"))
+	} finally {
+        sql """ DROP TABLE IF EXISTS test_create_table_properties"""
+    }
+
+    sql """
+        CREATE TABLE IF NOT EXISTS test_create_table_properties ( 
+            k1 tinyint NOT NULL, 
+            k2 smallint NOT NULL, 
+            k3 int NOT NULL, 
+            k4 bigint NOT NULL, 
+            k5 decimal(9, 3) NOT NULL,
+            k8 double max NOT NULL, 
+            k9 float sum NOT NULL ) 
+        AGGREGATE KEY(k1,k2,k3,k4,k5)
+        PARTITION BY LIST(k1,k2) ( 
+            PARTITION p1 VALUES IN (("1","2"),("3","4")), 
+            PARTITION p2 VALUES IN (("5","6"),("7","8")), 
+            PARTITION p3 ) 
+        DISTRIBUTED BY HASH(k1) BUCKETS 5 
+        properties(
+            "replication_num" = "1",
+			"storage_policy" = "test_create_table_use_policy"
+        )
+        """
+
+    sql """ 
+    DROP TABLE IF EXISTS test_create_table_properties"""
     sql """
     DROP STORAGE POLICY test_create_table_use_policy;
     """
     sql """
     DROP RESOURCE test_create_table_use_resource
     """
+
+
+
+
 }
