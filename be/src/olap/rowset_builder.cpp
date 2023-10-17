@@ -43,6 +43,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "util/brpc_client_cache.h"
 #include "util/mem_info.h"
@@ -172,6 +173,7 @@ Status RowsetBuilder::init() {
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
+    context.partial_update_info = _partial_update_info;
     std::unique_ptr<RowsetWriter> rowset_writer;
     RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &rowset_writer));
     _rowset_writer = std::move(rowset_writer);
@@ -223,7 +225,7 @@ Status RowsetBuilder::submit_calc_delete_bitmap_task() {
     // For partial update, we need to fill in the entire row of data, during the calculation
     // of the delete bitmap. This operation is resource-intensive, and we need to minimize
     // the number of times it occurs. Therefore, we skip this operation here.
-    if (_rowset->tablet_schema()->is_partial_update()) {
+    if (_partial_update_info->is_partial_update) {
         return Status::OK();
     }
 
@@ -235,8 +237,7 @@ Status RowsetBuilder::submit_calc_delete_bitmap_task() {
 }
 
 Status RowsetBuilder::wait_calc_delete_bitmap() {
-    if (!_tablet->enable_unique_key_merge_on_write() ||
-        _rowset->tablet_schema()->is_partial_update()) {
+    if (!_tablet->enable_unique_key_merge_on_write() || _partial_update_info->is_partial_update) {
         return Status::OK();
     }
     std::lock_guard<std::mutex> l(_lock);
@@ -278,7 +279,7 @@ Status RowsetBuilder::commit_txn() {
     if (_tablet->enable_unique_key_merge_on_write()) {
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->tablet_uid(), true,
-                _delete_bitmap, _rowset_ids);
+                _delete_bitmap, _rowset_ids, _partial_update_info);
     }
 
     _is_committed = true;
@@ -321,9 +322,10 @@ void RowsetBuilder::_build_current_tablet_schema(int64_t index_id,
 
     _tablet_schema->set_table_id(table_schema_param->table_id());
     // set partial update columns info
-    _tablet_schema->set_partial_update_info(table_schema_param->is_partial_update(),
-                                            table_schema_param->partial_update_input_columns());
-    _tablet_schema->set_is_strict_mode(table_schema_param->is_strict_mode());
+    _partial_update_info = std::make_shared<PartialUpdateInfo>();
+    _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
+                               table_schema_param->partial_update_input_columns(),
+                               table_schema_param->is_strict_mode());
 }
 
 } // namespace doris

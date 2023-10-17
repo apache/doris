@@ -131,6 +131,14 @@ public:
 
     int64_t segment_writer_ns() override { return _segment_writer_ns; }
 
+    std::shared_ptr<PartialUpdateInfo> get_partial_update_info() override {
+        return _context.partial_update_info;
+    }
+
+    bool is_partial_update() override {
+        return _context.partial_update_info && _context.partial_update_info->is_partial_update;
+    }
+
 private:
     Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
     Status _check_segment_number_limit();

@@ -39,6 +39,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "service/backend_options.h"
@@ -63,10 +64,13 @@ MemTableWriter::~MemTableWriter() {
 }
 
 Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
-                            TabletSchemaSPtr tablet_schema, bool unique_key_mow) {
+                            TabletSchemaSPtr tablet_schema,
+                            std::shared_ptr<PartialUpdateInfo> partial_update_info,
+                            bool unique_key_mow) {
     _rowset_writer = rowset_writer;
     _tablet_schema = tablet_schema;
     _unique_key_mow = unique_key_mow;
+    _partial_update_info = partial_update_info;
 
     _reset_mem_table();
 
@@ -195,8 +199,8 @@ void MemTableWriter::_reset_mem_table() {
         _mem_table_flush_trackers.push_back(mem_table_flush_tracker);
     }
     _mem_table.reset(new MemTable(_req.tablet_id, _tablet_schema.get(), _req.slots, _req.tuple_desc,
-                                  _unique_key_mow, mem_table_insert_tracker,
-                                  mem_table_flush_tracker));
+                                  _unique_key_mow, _partial_update_info.get(),
+                                  mem_table_insert_tracker, mem_table_flush_tracker));
 
     _segment_num++;
 }
