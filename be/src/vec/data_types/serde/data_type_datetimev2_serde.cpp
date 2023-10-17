@@ -28,6 +28,7 @@ namespace doris {
 namespace vectorized {
 static const int64_t timestamp_threshold = -2177481943;
 static const int64_t timestamp_diff = 343;
+static const int64_t micr_to_nano_second = 1000;
 
 Status DataTypeDateTimeV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                          int end_idx, BufferWritable& bw,
@@ -146,8 +147,8 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const IColumn& column, const
                                                     orc::ColumnVectorBatch* orc_col_batch,
                                                     int start, int end,
                                                     std::vector<StringRef>& buffer_list) const {
-    auto& col_data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
-    orc::TimestampVectorBatch* cur_batch = dynamic_cast<orc::TimestampVectorBatch*>(orc_col_batch);
+    const auto& col_data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
+    auto* cur_batch = dynamic_cast<orc::TimestampVectorBatch*>(orc_col_batch);
 
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 0) {
@@ -169,7 +170,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const IColumn& column, const
         }
 
         cur_batch->data[row_id] = timestamp;
-        cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * 1000;
+        cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * micr_to_nano_second;
     }
     cur_batch->numElements = end - start;
     return Status::OK();
