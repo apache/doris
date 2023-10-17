@@ -15,27 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/cumulative_compaction_policy.h"
-#include "olap/olap_meta.h"
-#include "olap/storage_engine.h"
-#include "olap/rowset/rowset_meta_manager.h"
-#include "olap/rowset/rowset_factory.h"
-
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <memory>
+
 #include "gtest/gtest_pred_impl.h"
+#include "olap/cumulative_compaction_policy.h"
 #include "olap/olap_common.h"
+#include "olap/olap_meta.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_meta_manager.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_meta.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/txn_manager.h"
 #include "util/uid_util.h"
 
 namespace doris {
-
 
 static StorageEngine* k_engine = nullptr;
 
@@ -105,17 +106,15 @@ const std::string json_rowset_meta3 = R"({
             "num_segments": 3
         })";
 
-
-
-class TestCompactionDeleteBitmapCalculator: public testing::Test {
+class CompactionDeleteBitmapCalculatorTest : public testing::Test {
 public:
-    TestCompactionDeleteBitmapCalculator() = default;
+    CompactionDeleteBitmapCalculatorTest() = default;
     void init_tablet_schema() {
         TabletSchemaPB tablet_schema_pb;
         tablet_schema_pb.set_keys_type(UNIQUE_KEYS);
         tablet_schema_pb.set_num_short_key_columns(3);
         tablet_schema_pb.set_num_rows_per_row_block(1024);
-        tablet_schema_pb.set_compress_kind( COMPRESS_LZ4);
+        tablet_schema_pb.set_compress_kind(COMPRESS_LZ4);
         tablet_schema_pb.set_next_column_unique_id(4);
 
         ColumnPB* column_1 = tablet_schema_pb.add_column();
@@ -153,7 +152,7 @@ public:
         _schema->init_from_pb(tablet_schema_pb);
     }
 
-     void SetUp() override {
+    void SetUp() override {
         config::max_runnings_transactions_per_txn_map = 500;
         _txn_mgr.reset(new TxnManager(64, 1024));
 
@@ -195,18 +194,22 @@ public:
         RowsetMetaSharedPtr rowset_meta2(new RowsetMeta());
         rowset_meta2->init_from_json(json_rowset_meta2);
         EXPECT_EQ(rowset_meta2->rowset_id(), rowset_id);
-        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema, meta_path,
-                                                             rowset_meta2, &_rowset2));
+        EXPECT_EQ(Status::OK(),
+                  RowsetFactory::create_rowset(_schema, meta_path, rowset_meta2, &_rowset2));
 
         // init rowset meta 3
         rowset_id.init(10002);
         RowsetMetaSharedPtr rowset_meta3(new RowsetMeta());
         rowset_meta3->init_from_json(json_rowset_meta3);
         EXPECT_EQ(rowset_meta3->rowset_id(), rowset_id);
-        EXPECT_EQ(Status::OK(), RowsetFactory::create_rowset(_schema, meta_path,
-                                                             rowset_meta3, &_rowset3));
+        EXPECT_EQ(Status::OK(),
+                  RowsetFactory::create_rowset(_schema, meta_path, rowset_meta3, &_rowset3));
         _tablet_uid = TabletUid(10, 10);
         // init tablet meta
+        _tablet_meta = std::shared_ptr<TabletMeta>(new TabletMeta(
+                1, partition_id, tablet_id, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, _tablet_uid,
+                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F, 0, true, {}, "size_based",
+                1024, 2000, 3600));
         static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta1));
         static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta2));
         static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta3));
@@ -214,7 +217,7 @@ public:
         static_cast<void>(_tablet->init());
     }
 
-     void TearDown() override {
+    void TearDown() override {
         delete _meta;
         EXPECT_TRUE(std::filesystem::remove_all("./meta"));
     }
@@ -223,9 +226,9 @@ private:
     OlapMeta* _meta;
     std::string _json_rowset_meta;
     std::unique_ptr<TxnManager> _txn_mgr;
-    TPartitionId partition_id = 1123;
-    TTransactionId transaction_id = 111;
-    TTabletId tablet_id = 222;
+    TPartitionId partition_id = 111;
+    TTransactionId transaction_id = 222;
+    TTabletId tablet_id = 12345;
     TabletUid _tablet_uid {0, 0};
     PUniqueId load_id;
     TabletSchemaSPtr _schema;
@@ -236,23 +239,24 @@ private:
     TabletMetaSharedPtr _tablet_meta;
 };
 
-TEST_F(TestCompactionDeleteBitmapCalculator, a) {
+TEST_F(CompactionDeleteBitmapCalculatorTest, test) {
     // publish rowset 1
-    Status status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, _tablet_uid, load_id);
+    Status status =
+            _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, _tablet_uid, load_id);
     EXPECT_TRUE(status == Status::OK());
-    status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                           _tablet_uid, load_id, _rowset1, false);
+    status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, _tablet_uid,
+                                  load_id, _rowset1, false);
     EXPECT_TRUE(status == Status::OK());
     TabletPublishStatistics stats;
     status = _txn_mgr->publish_txn(_meta, partition_id, transaction_id, tablet_id, _tablet_uid,
-                                   Version(0,1), &stats);
+                                   Version(0, 1), &stats);
     EXPECT_TRUE(status == Status::OK());
 
     // commit rowset 2
     status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, _tablet_uid, load_id);
     EXPECT_TRUE(status == Status::OK());
-    status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
-                                           _tablet_uid, load_id, _rowset2, false);
+    status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, _tablet_uid,
+                                  load_id, _rowset2, false);
     EXPECT_TRUE(status == Status::OK());
 
     // prepare rowset 3
@@ -265,10 +269,8 @@ TEST_F(TestCompactionDeleteBitmapCalculator, a) {
     EXPECT_TRUE(status == Status::OK());
     EXPECT_TRUE(rowset_meta->rowset_id() == _rowset1->rowset_id());
 
-
     CommitTabletTxnInfoVec commit_tablet_txn_info_vec {};
-    _txn_mgr->get_all_commit_tablet_txn_info_by_tablet(
-                    _tablet, &commit_tablet_txn_info_vec);
+    _txn_mgr->get_all_commit_tablet_txn_info_by_tablet(_tablet, &commit_tablet_txn_info_vec);
     /*
     _tablet->calc_compaction_output_rowset_delete_bitmap(
                             _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
