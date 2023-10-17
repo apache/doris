@@ -158,8 +158,9 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
         if (null_map && (*null_map)[i]) {
             vec_res[i] = 0;
             prev_offset = offsets_src[i];
-            if constexpr (exception_mode == IPStringToNumExceptionMode::Null)
+            if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
                 (*vec_null_map_to)[i] = true;
+            }
             continue;
         }
 
