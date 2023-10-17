@@ -92,7 +92,8 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     }
     // empty array []
     if (slice.size == 2) {
-        offsets.push_back(offsets.back());
+        auto last_off = offsets.back();
+        offsets.push_back(last_off);
         return Status::OK();
     }
     slice.remove_prefix(1);

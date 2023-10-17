@@ -468,10 +468,11 @@ public class NereidsPlanner extends Planner {
         List<String> data = Lists.newArrayList();
         for (int i = 0; i < physicalOneRowRelation.getProjects().size(); i++) {
             NamedExpression item = physicalOneRowRelation.getProjects().get(i);
+            NamedExpression output = physicalPlan.getOutput().get(i);
             Expression expr = item.child(0);
             if (expr instanceof Literal) {
                 LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
-                columns.add(new Column(item.getName(), item.getDataType().toCatalogDataType()));
+                columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
                 super.handleLiteralInFe(legacyExpr, data);
             } else {
                 return Optional.empty();

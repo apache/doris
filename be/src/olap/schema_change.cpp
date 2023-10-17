@@ -822,15 +822,16 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                         versions_to_be_changed.size(), rs_splits.size());
                 break;
             }
-            auto& all_del_preds = base_tablet->delete_predicates();
-            for (auto& delete_pred : all_del_preds) {
-                if (delete_pred->version().first > end_version) {
+            std::vector<RowsetMetaSharedPtr> del_preds;
+            for (auto&& split : rs_splits) {
+                auto& rs_meta = split.rs_reader->rowset()->rowset_meta();
+                if (!rs_meta->has_delete_predicate() || rs_meta->start_version() > end_version) {
                     continue;
                 }
-                base_tablet_schema->merge_dropped_columns(
-                        base_tablet->tablet_schema(delete_pred->version()));
+                base_tablet_schema->merge_dropped_columns(*rs_meta->tablet_schema());
+                del_preds.push_back(rs_meta);
             }
-            res = delete_handler.init(base_tablet_schema, all_del_preds, end_version);
+            res = delete_handler.init(base_tablet_schema, del_preds, end_version);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. base_tablet="
                              << base_tablet->full_name() << ", end_version=" << end_version;

@@ -60,24 +60,23 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
-    reader_params.rs_splits.reserve(src_rowset_readers.size());
+
+    TabletReader::ReadSource read_source;
+    read_source.rs_splits.reserve(src_rowset_readers.size());
     for (const RowsetReaderSharedPtr& rs_reader : src_rowset_readers) {
-        reader_params.rs_splits.emplace_back(RowSetSplits(rs_reader));
+        read_source.rs_splits.emplace_back(RowSetSplits(rs_reader));
     }
+    read_source.fill_delete_predicates();
+    reader_params.set_read_source(std::move(read_source));
+
     reader_params.version = dst_rowset_writer->version();
 
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*cur_tablet_schema);
-    {
-        std::shared_lock rdlock(tablet->get_header_lock());
-        auto delete_preds = tablet->delete_predicates();
-        std::copy(delete_preds.cbegin(), delete_preds.cend(),
-                  std::inserter(reader_params.delete_predicates,
-                                reader_params.delete_predicates.begin()));
-        // Merge the columns in delete predicate that not in latest schema in to current tablet schema
-        for (auto& del_pred_rs : reader_params.delete_predicates) {
-            merge_tablet_schema->merge_dropped_columns(del_pred_rs->tablet_schema());
-        }
+
+    // Merge the columns in delete predicate that not in latest schema in to current tablet schema
+    for (auto& del_pred_rs : reader_params.delete_predicates) {
+        merge_tablet_schema->merge_dropped_columns(*del_pred_rs->tablet_schema());
     }
     reader_params.tablet_schema = merge_tablet_schema;
 
@@ -196,25 +195,24 @@ Status Merger::vertical_compact_one_group(
     reader_params.is_key_column_group = is_key;
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
-    reader_params.rs_splits.reserve(src_rowset_readers.size());
+
+    TabletReader::ReadSource read_source;
+    read_source.rs_splits.reserve(src_rowset_readers.size());
     for (const RowsetReaderSharedPtr& rs_reader : src_rowset_readers) {
-        reader_params.rs_splits.emplace_back(RowSetSplits(rs_reader));
+        read_source.rs_splits.emplace_back(RowSetSplits(rs_reader));
     }
+    read_source.fill_delete_predicates();
+    reader_params.set_read_source(std::move(read_source));
+
     reader_params.version = dst_rowset_writer->version();
 
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*tablet_schema);
-    {
-        std::shared_lock rdlock(tablet->get_header_lock());
-        auto delete_preds = tablet->delete_predicates();
-        std::copy(delete_preds.cbegin(), delete_preds.cend(),
-                  std::inserter(reader_params.delete_predicates,
-                                reader_params.delete_predicates.begin()));
 
-        for (auto& del_pred_rs : reader_params.delete_predicates) {
-            merge_tablet_schema->merge_dropped_columns(del_pred_rs->tablet_schema());
-        }
+    for (auto& del_pred_rs : reader_params.delete_predicates) {
+        merge_tablet_schema->merge_dropped_columns(*del_pred_rs->tablet_schema());
     }
+
     reader_params.tablet_schema = merge_tablet_schema;
 
     if (is_key && stats_output && stats_output->rowid_conversion) {

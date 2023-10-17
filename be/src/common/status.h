@@ -391,10 +391,10 @@ public:
 
     static Status OK() { return Status(); }
 
-#define ERROR_CTOR(name, code)                                                 \
-    template <typename... Args>                                                \
-    static Status name(std::string_view msg, Args&&... args) {                 \
-        return Error<ErrorCode::code, true>(msg, std::forward<Args>(args)...); \
+#define ERROR_CTOR(name, code)                                                       \
+    template <bool stacktrace = true, typename... Args>                              \
+    static Status name(std::string_view msg, Args&&... args) {                       \
+        return Error<ErrorCode::code, stacktrace>(msg, std::forward<Args>(args)...); \
     }
 
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)

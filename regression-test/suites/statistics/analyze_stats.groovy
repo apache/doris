@@ -18,7 +18,7 @@ import java.util.stream.Collectors
 // under the License.
 
 suite("test_analyze") {
-    String db = "test_analyze"
+    String db = "regression_test_statistics"
     String tbl = "analyzetestlimited_duplicate_all"
 
     sql """

@@ -24,9 +24,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.constants.S3Properties.Env;
-import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -145,7 +145,7 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
         final List<String> filePaths = dataDescription.getFilePaths();
         Preconditions.checkState(filePaths.size() == 1, "there should be only one file path");
         final String s3FilePath = filePaths.get(0);
-        params.put(S3TableValuedFunction.S3_URI, s3FilePath);
+        params.put(S3TableValuedFunction.PROP_URI, s3FilePath);
 
         final Map<String, String> dataDescProp = dataDescription.getProperties();
         if (dataDescProp != null) {
@@ -153,7 +153,8 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
         }
 
         final String format = Optional.ofNullable(dataDescription.getFileFormat()).orElse(DEFAULT_FORMAT);
-        params.put(ExternalFileTableValuedFunction.FORMAT, format);
+        params.put(FileFormatConstants.PROP_FORMAT, format);
+
         if (isCsvFormat(format)) {
             parseSeparator(dataDescription.getColumnSeparatorObj(), params);
             parseSeparator(dataDescription.getLineDelimiterObj(), params);
@@ -161,7 +162,7 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
 
         List<String> columnsFromPath = dataDescription.getColumnsFromPath();
         if (columnsFromPath != null) {
-            params.put(ExternalFileTableValuedFunction.PATH_PARTITION_KEYS,
+            params.put(FileFormatConstants.PROP_PATH_PARTITION_KEYS,
                     String.join(",", columnsFromPath));
         }
 
@@ -189,7 +190,7 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
         } catch (AnalysisException e) {
             throw new DdlException(String.format("failed to parse separator:%s", separator), e);
         }
-        tvfParams.put(ExternalFileTableValuedFunction.COLUMN_SEPARATOR, separator.getSeparator());
+        tvfParams.put(FileFormatConstants.PROP_COLUMN_SEPARATOR, separator.getSeparator());
     }
 
     private static boolean isCsvFormat(String format) {

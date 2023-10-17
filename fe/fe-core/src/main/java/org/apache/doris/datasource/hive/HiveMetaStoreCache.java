@@ -1071,6 +1071,9 @@ public class HiveMetaStoreCache {
         long length;
         long blockSize;
         long modificationTime;
+        boolean splittable;
+        List<String> partitionValues;
+        AcidInfo acidInfo;
     }
 
     @Data

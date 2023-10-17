@@ -60,6 +60,8 @@
 
 namespace doris::vectorized {
 
+using ReadSource = TabletReader::ReadSource;
+
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
                                bool aggregation, const TPaloScanRange& scan_range,
                                const std::vector<OlapScanRange*>& key_ranges,
@@ -76,13 +78,13 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
                                bool aggregation, const TPaloScanRange& scan_range,
                                const std::vector<OlapScanRange*>& key_ranges,
-                               const std::vector<RowSetSplits>& rs_splits, RuntimeProfile* profile)
+                               ReadSource read_source, RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _aggregation(aggregation),
           _version(-1),
           _scan_range(scan_range),
           _key_ranges(key_ranges) {
-    _tablet_reader_params.rs_splits = rs_splits;
+    _tablet_reader_params.set_read_source(std::move(read_source));
     _tablet_schema = std::make_shared<TabletSchema>();
     _is_init = false;
 }
@@ -175,38 +177,33 @@ Status NewOlapScanner::init() {
             }
         }
 
-        {
-            std::shared_lock rdlock(_tablet->get_header_lock());
-            if (_tablet_reader_params.rs_splits.empty()) {
-                const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
-                if (rowset == nullptr) {
-                    std::stringstream ss;
-                    ss << "fail to get latest version of tablet: " << tablet_id;
-                    LOG(WARNING) << ss.str();
-                    return Status::InternalError(ss.str());
-                }
-
-                // acquire tablet rowset readers at the beginning of the scan node
-                // to prevent this case: when there are lots of olap scanners to run for example 10000
-                // the rowsets maybe compacted when the last olap scanner starts
-                Version rd_version(0, _version);
-                Status acquire_reader_st =
-                        _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_splits);
-                if (!acquire_reader_st.ok()) {
-                    LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
-                    std::stringstream ss;
-                    ss << "failed to initialize storage reader. tablet=" << _tablet->full_name()
-                       << ", res=" << acquire_reader_st
-                       << ", backend=" << BackendOptions::get_localhost();
-                    return Status::InternalError(ss.str());
+        if (_tablet_reader_params.rs_splits.empty()) {
+            // Non-pipeline mode, Tablet : Scanner = 1 : 1
+            // acquire tablet rowset readers at the beginning of the scan node
+            // to prevent this case: when there are lots of olap scanners to run for example 10000
+            // the rowsets maybe compacted when the last olap scanner starts
+            Version rd_version(0, _version);
+            ReadSource read_source;
+            {
+                std::shared_lock rdlock(_tablet->get_header_lock());
+                auto st = _tablet->capture_rs_readers(rd_version, &read_source.rs_splits);
+                if (!st.ok()) {
+                    LOG(WARNING) << "fail to init reader.res=" << st;
+                    return Status::InternalError(
+                            "failed to initialize storage reader. tablet_id={} : {}",
+                            _tablet->tablet_id(), st.to_string());
                 }
             }
-
-            // Initialize tablet_reader_params
-            RETURN_IF_ERROR(_init_tablet_reader_params(_key_ranges, parent->_olap_filters,
-                                                       parent->_filter_predicates,
-                                                       parent->_push_down_functions));
+            if (!_state->skip_delete_predicate()) {
+                read_source.fill_delete_predicates();
+            }
+            _tablet_reader_params.set_read_source(std::move(read_source));
         }
+
+        // Initialize tablet_reader_params
+        RETURN_IF_ERROR(_init_tablet_reader_params(_key_ranges, parent->_olap_filters,
+                                                   parent->_filter_predicates,
+                                                   parent->_push_down_functions));
     }
 
     // add read columns in profile
@@ -306,16 +303,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
 
-    if (!_state->skip_delete_predicate()) {
-        auto& delete_preds = _tablet->delete_predicates();
-        std::copy(delete_preds.cbegin(), delete_preds.cend(),
-                  std::inserter(_tablet_reader_params.delete_predicates,
-                                _tablet_reader_params.delete_predicates.begin()));
-    }
-
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
-    for (auto& del_pred_pb : _tablet_reader_params.delete_predicates) {
-        _tablet_schema->merge_dropped_columns(_tablet->tablet_schema(del_pred_pb->version()));
+    for (auto& del_pred : _tablet_reader_params.delete_predicates) {
+        _tablet_schema->merge_dropped_columns(*del_pred->tablet_schema());
     }
 
     // Range

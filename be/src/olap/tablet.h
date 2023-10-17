@@ -191,11 +191,6 @@ public:
     Status capture_rs_readers(const std::vector<Version>& version_path,
                               std::vector<RowSetSplits>* rs_splits) const;
 
-    const std::vector<RowsetMetaSharedPtr> delete_predicates() {
-        return _tablet_meta->delete_predicates();
-    }
-    bool version_for_delete_predicate(const Version& version);
-
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }

@@ -30,6 +30,10 @@ suite("test_hive_statistic", "p2") {
             );
         """
         logger.info("catalog " + catalog_name + " created")
+
+        // Test analyze table without init.
+        sql """analyze table ${catalog_name}.tpch_1000_parquet.region with sync"""
+
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
         sql """use statistics;"""
@@ -234,11 +238,11 @@ suite("test_hive_statistic", "p2") {
         sql """analyze database `statistics` with sync"""
         result = sql """show table stats statistics"""
         assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "100")
+        assertTrue(result[0][2] == "100")
 
         result = sql """show table cached stats statistics"""
         assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "100")
+        assertTrue(result[0][2] == "100")
 
         sql """drop stats statistics"""
         result = sql """show column cached stats statistics"""

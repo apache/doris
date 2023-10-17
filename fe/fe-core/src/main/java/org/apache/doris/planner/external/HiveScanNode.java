@@ -63,8 +63,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.stream.Collectors;
 
 public class HiveScanNode extends FileQueryScanNode {
@@ -218,6 +220,11 @@ public class HiveScanNode extends FileQueryScanNode {
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
         }
+        if (tableSample != null) {
+            List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
+            splitAllFiles(allFiles, hiveFileStatuses);
+            return;
+        }
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             // This if branch is to support old splitter, will remove later.
             if (fileCacheValue.getSplits() != null) {
@@ -233,6 +240,51 @@ public class HiveScanNode extends FileQueryScanNode {
                 }
             }
         }
+    }
+
+    private void splitAllFiles(List<Split> allFiles,
+                               List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses) throws IOException {
+        for (HiveMetaStoreCache.HiveFileStatus status : hiveFileStatuses) {
+            allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
+                    status.getBlockLocations(), status.getLength(), status.getModificationTime(),
+                    status.isSplittable(), status.getPartitionValues(),
+                new HiveSplitCreator(status.getAcidInfo())));
+        }
+    }
+
+    private List<HiveMetaStoreCache.HiveFileStatus> selectFiles(List<FileCacheValue> inputCacheValue) {
+        List<HiveMetaStoreCache.HiveFileStatus> fileList = Lists.newArrayList();
+        long totalSize = 0;
+        for (FileCacheValue value : inputCacheValue) {
+            for (HiveMetaStoreCache.HiveFileStatus file : value.getFiles()) {
+                file.setSplittable(value.isSplittable());
+                file.setPartitionValues(value.getPartitionValues());
+                file.setAcidInfo(value.getAcidInfo());
+                fileList.add(file);
+                totalSize += file.getLength();
+            }
+        }
+        long sampleSize = 0;
+        if (tableSample.isPercent()) {
+            sampleSize = totalSize * tableSample.getSampleValue() / 100;
+        } else {
+            long estimatedRowSize = 0;
+            for (Column column : hmsTable.getFullSchema()) {
+                estimatedRowSize += column.getDataType().getSlotSize();
+            }
+            sampleSize = estimatedRowSize * tableSample.getSampleValue();
+        }
+        long selectedSize = 0;
+        Collections.shuffle(fileList, new Random(tableSample.getSeek()));
+        int index = 0;
+        for (HiveMetaStoreCache.HiveFileStatus file : fileList) {
+            selectedSize += file.getLength();
+            index += 1;
+            if (selectedSize >= sampleSize) {
+                break;
+            }
+        }
+        return fileList.subList(0, index);
     }
 
     private List<FileCacheValue> getFileSplitByTransaction(HiveMetaStoreCache cache, List<HivePartition> partitions) {

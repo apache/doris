@@ -612,5 +612,4 @@ public abstract class ExternalCatalog
         }
         return ret;
     }
-
 }

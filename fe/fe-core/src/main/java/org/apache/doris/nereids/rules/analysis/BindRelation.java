@@ -42,7 +42,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -214,13 +213,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     Plan hiveViewPlan = parseAndAnalyzeHiveView(hiveCatalog, ddlSql, cascadesContext);
                     return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                 }
-                return new LogicalFileScan(StatementScopeIdGenerator.newRelationId(),
-                        (HMSExternalTable) table, tableQualifier);
+                return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table, tableQualifier,
+                    unboundRelation.getTableSample());
             case ICEBERG_EXTERNAL_TABLE:
             case PAIMON_EXTERNAL_TABLE:
             case MAX_COMPUTE_EXTERNAL_TABLE:
-                return new LogicalFileScan(StatementScopeIdGenerator.newRelationId(),
-                        (ExternalTable) table, tableQualifier);
+                return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table, tableQualifier,
+                    unboundRelation.getTableSample());
             case SCHEMA:
                 return new LogicalSchemaScan(unboundRelation.getRelationId(), table, tableQualifier);
             case JDBC_EXTERNAL_TABLE:

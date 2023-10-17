@@ -29,6 +29,40 @@ suite("test_hive_statistic_cache", "p2") {
                 'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
             );
         """
+        sql """use ${catalog_name}.tpch_1000_parquet"""
+        sql """desc customer""";
+        sql """desc lineitem""";
+        sql """desc region""";
+        sql """desc nation""";
+        sql """desc orders""";
+        sql """desc part""";
+        sql """desc partsupp""";
+        sql """desc supplier""";
+        Thread.sleep(1000);
+        def result = sql """show table cached stats customer"""
+        assertTrue(result[0][2] == "150000000")
+
+        result = sql """show table cached stats lineitem"""
+        assertTrue(result[0][2] == "5999989709")
+
+        result = sql """show table cached stats region"""
+        assertTrue(result[0][2] == "5")
+
+        result = sql """show table cached stats nation"""
+        assertTrue(result[0][2] == "25")
+
+        result = sql """show table cached stats orders"""
+        assertTrue(result[0][2] == "1500000000")
+
+        result = sql """show table cached stats part"""
+        assertTrue(result[0][2] == "200000000")
+
+        result = sql """show table cached stats partsupp"""
+        assertTrue(result[0][2] == "800000000")
+
+        result = sql """show table cached stats supplier"""
+        assertTrue(result[0][2] == "10000000")
+
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
@@ -37,7 +71,7 @@ suite("test_hive_statistic_cache", "p2") {
         sql """analyze table `stats` with sync;"""
         sql """select count(*) from stats"""
         Thread.sleep(5000);
-        def result = sql """show column cached stats `stats` (lo_orderkey)"""
+        result = sql """show column cached stats `stats` (lo_orderkey)"""
         assertTrue(result[0][0] == "lo_orderkey")
         assertTrue(result[0][1] == "100.0")
         assertTrue(result[0][2] == "26.0")
