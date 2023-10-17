@@ -227,19 +227,20 @@ public class HyperGraph {
         edgeB.setRightExtendedNodes(rightRequired);
     }
 
-    private BitSet subTreeEdges(Edge edge) {
-        BitSet bitSet = new BitSet();
-        bitSet.or(subTreeEdges(edge.getLeftChildEdges()));
-        bitSet.or(subTreeEdges(edge.getRightChildEdges()));
-        bitSet.set(edge.getIndex());
-        return bitSet;
+    private BitSet subTreeEdge(Edge edge) {
+        long subTreeNodes = edge.getSubTreeNodes();
+        BitSet subEdges = new BitSet();
+        edges.stream()
+                .filter(e -> LongBitmap.isSubset(subTreeNodes, e.getReferenceNodes()))
+                .forEach(e -> subEdges.set(e.getIndex()));
+        return subEdges;
     }
 
     private BitSet subTreeEdges(BitSet edgeSet) {
         BitSet bitSet = new BitSet();
         edgeSet.stream()
-                .mapToObj(i -> subTreeEdges(edges.get(i)))
-                .forEach(b -> bitSet.or(b));
+                .mapToObj(i -> subTreeEdge(edges.get(i)))
+                .forEach(bitSet::or);
         return bitSet;
     }
 
