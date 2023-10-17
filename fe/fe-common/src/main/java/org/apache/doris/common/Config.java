@@ -2161,4 +2161,18 @@ public class Config extends ConfigBase {
             "min buckets of auto bucket"
     })
     public static int autobucket_min_buckets = 1;
+
+    @ConfField(description = {
+            "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
+                    + "默认为 false，如果 Image 文件中包含未知的模块，Doris 将会抛出异常。"
+                    + "该参数主要用于降级操作中，老版本可以兼容新版本的 Image 文件。",
+            "Whether to ignore unknown modules in Image file. "
+                    + "If true, metadata modules not in PersistMetaModules.MODULE_NAMES "
+                    + "will be ignored and skipped. Default is false, if Image file contains unknown modules, "
+                    + "Doris will throw exception. "
+                    + "This parameter is mainly used in downgrade operation, "
+                    + "old version can be compatible with new version Image file."
+    })
+    public static boolean ignore_unknown_metadata_module = false;
+
 }
