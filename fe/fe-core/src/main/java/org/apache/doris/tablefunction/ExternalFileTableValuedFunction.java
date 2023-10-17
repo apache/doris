@@ -344,22 +344,27 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
             PFetchTableSchemaRequest request = getFetchTableStructureRequest();
-            Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
-                    .fetchTableStructureAsync(address, request);
+            InternalService.PFetchTableSchemaResult result = null;
 
-            InternalService.PFetchTableSchemaResult result = future.get();
-            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-            String errMsg;
-            if (code != TStatusCode.OK) {
-                if (!result.getStatus().getErrorMsgsList().isEmpty()) {
-                    errMsg = result.getStatus().getErrorMsgsList().get(0);
-                } else {
-                    errMsg = "fetchTableStructureAsync failed. backend address: "
-                            + address.getHostname() + ":" + address.getPort();
+            // `request == null` means we don't need to get schemas from BE,
+            // and we fill a dummy col for this table.
+            if (request != null) {
+                Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
+                        .fetchTableStructureAsync(address, request);
+
+                result = future.get();
+                TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+                String errMsg;
+                if (code != TStatusCode.OK) {
+                    if (!result.getStatus().getErrorMsgsList().isEmpty()) {
+                        errMsg = result.getStatus().getErrorMsgsList().get(0);
+                    } else {
+                        errMsg = "fetchTableStructureAsync failed. backend address: "
+                                + address.getHostname() + ":" + address.getPort();
+                    }
+                    throw new AnalysisException(errMsg);
                 }
-                throw new AnalysisException(errMsg);
             }
-
             fillColumns(result);
         } catch (RpcException e) {
             throw new AnalysisException("fetchTableStructureResult rpc exception", e);
@@ -431,10 +436,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return Pair.of(type, parsedNodes);
     }
 
-    private void fillColumns(InternalService.PFetchTableSchemaResult result)
-            throws AnalysisException {
-        if (result.getColumnNums() == 0) {
-            throw new AnalysisException("The amount of column is 0");
+    private void fillColumns(InternalService.PFetchTableSchemaResult result) {
+        // `result == null` means we don't need to get schemas from BE,
+        // and we fill a dummy col for this table.
+        if (result == null) {
+            columns.add(new Column("__dummy_col", ScalarType.createStringType(), true));
+            return;
         }
         // add fetched file columns
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
@@ -450,7 +457,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
-    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws AnalysisException, TException {
+    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws TException {
         // set TFileScanRangeParams
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatType);
@@ -475,14 +482,19 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            if (fileStatus.isIsDir()) {
+            if (fileStatus.isIsDir() || fileStatus.size == 0) {
                 continue;
             }
             firstFile = fileStatus;
             break;
         }
+
+        // `firstFile == null` means:
+        // 1. No matching file path exists
+        // 2. All matched files have a size of 0
+        // For these two situations, we don't need to get schema from BE
         if (firstFile == null) {
-            throw new AnalysisException("Can not get first file, please check uri.");
+            return null;
         }
 
         // set TFileRangeDesc
