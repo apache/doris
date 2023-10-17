@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -51,6 +52,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -73,6 +75,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -362,6 +365,23 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             Preconditions.checkState(rollupIndex.getState() == IndexState.SHADOW, rollupIndex.getState());
             partition.createRollupIndex(rollupIndex);
         }
+        StringBuilder debugString = new StringBuilder();
+        if (this.partitionIdToRollupIndex.isEmpty() == false) {
+            for (MaterializedIndex rollupIdx : partitionIdToRollupIndex.values()) {
+                debugString.append(rollupIdx.toString() + "\n");
+            }
+        }
+        Set<String> indexNames = Sets.newTreeSet(tbl.getIndexNameToId().keySet());
+        for (String indexName : indexNames) {
+            long indexId = tbl.getIndexNameToId().get(indexName);
+            MaterializedIndexMeta indexMeta = tbl.getIndexIdToMeta().get(indexId);
+            debugString.append(indexName);
+            debugString.append(Util.getSchemaSignatureString(indexMeta.getSchema()));
+            debugString.append(indexMeta.getShortKeyColumnCount());
+            debugString.append(indexMeta.getStorageType());
+        }
+        //now add some log for P0 test case, this debugString info could remove after.
+        LOG.info("addRollupIndexToCatalog partition end: {}, table:{} ", debugString.toString(), tbl.toString());
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
                 rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN,
@@ -472,6 +492,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     }
 
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();
+
 
                     for (Replica rollupReplica : rollupReplicas) {
                         AlterReplicaTask rollupTask = new AlterReplicaTask(rollupReplica.getBackendId(), dbId, tableId,

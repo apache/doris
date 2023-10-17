@@ -420,7 +420,7 @@ public class OlapTable extends Table {
             // Column maybe renamed, rebuild the column name map
             indexMeta.initColumnNameMap();
         }
-        LOG.debug("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
+        LOG.info("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
     }
 
     public boolean deleteIndexInfo(String indexName) {
