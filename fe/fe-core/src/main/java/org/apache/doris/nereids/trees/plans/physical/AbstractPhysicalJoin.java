@@ -239,7 +239,7 @@ public abstract class AbstractPhysicalJoin<
             args.add("runtimeFilters");
             args.add(runtimeFilters.stream().map(rf -> rf.toString() + " ").collect(Collectors.toList()));
         }
-        return Utils.toSqlString(this.getClass().getName() + "[" + id.asInt() + "]" + getGroupIdWithPrefix(),
+        return Utils.toSqlString(this.getClass().getSimpleName() + "[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 args.toArray());
     }
 }
