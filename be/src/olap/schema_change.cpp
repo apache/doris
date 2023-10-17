@@ -612,7 +612,7 @@ Status VSchemaChangeWithSorting::_internal_sorting(
     RETURN_IF_ERROR(merger.merge(blocks, rowset_writer.get(), &merged_rows));
 
     _add_merged_rows(merged_rows);
-    *rowset = rowset_writer->build();
+    RETURN_IF_ERROR(rowset_writer->build(*rowset));
     return Status::OK();
 }
 
@@ -1135,8 +1135,8 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         // Add the new version of the data to the header
         // In order to prevent the occurrence of deadlock, we must first lock the old table, and then lock the new table
         std::lock_guard<std::mutex> lock(sc_params.new_tablet->get_push_lock());
-        RowsetSharedPtr new_rowset = rowset_writer->build();
-        if (new_rowset == nullptr) {
+        RowsetSharedPtr new_rowset;
+        if (!(res = rowset_writer->build(new_rowset)).ok()) {
             LOG(WARNING) << "failed to build rowset, exit alter process";
             return process_alter_exit();
         }

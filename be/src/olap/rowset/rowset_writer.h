@@ -118,9 +118,9 @@ public:
         return Status::NotSupported("RowsetWriter does not support add_segment");
     }
 
-    // finish building and return pointer to the built rowset (guaranteed to be inited).
-    // return nullptr when failed
-    virtual RowsetSharedPtr build() = 0;
+    // finish building and set rowset pointer to the built rowset (guaranteed to be inited).
+    // rowset is invalid if returned Status is not OK
+    virtual Status build(RowsetSharedPtr& rowset) = 0;
 
     // For ordered rowset compaction, manual build rowset
     virtual RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) = 0;
