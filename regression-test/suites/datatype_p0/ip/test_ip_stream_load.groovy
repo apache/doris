@@ -26,6 +26,9 @@ suite("test_ip_stream_load") {
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "USE $dbName"
 
+    sql """ SET enable_nereids_planner=true """
+    sql """ SET enable_fallback_to_original_planner=false """
+
     def tableName = "test_ip_stream_load"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """

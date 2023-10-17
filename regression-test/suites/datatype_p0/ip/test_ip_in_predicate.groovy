@@ -19,6 +19,10 @@
 suite("test_ip_in_predicate") {
     def tbName = "test_ip_in_predicate"
     sql """ DROP TABLE IF EXISTS ${tbName} """
+
+    sql """ SET enable_nereids_planner=true """
+    sql """ SET enable_fallback_to_original_planner=false """
+
     sql """
         CREATE TABLE ${tbName} (
           `id` int,

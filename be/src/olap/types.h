@@ -1010,7 +1010,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         std::istringstream iss(scan_key);
-        std::string token = 0;
+        std::string token;
         uint128_t result = 0;
         int count = 0;
 

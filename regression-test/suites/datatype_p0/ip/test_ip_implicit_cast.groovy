@@ -19,6 +19,10 @@
 suite("test_ip_implicit_cast") {
     def tableName = "test_ip_implicit_cast"
     sql """ DROP TABLE IF EXISTS ${tableName} """
+
+    sql """ SET enable_nereids_planner=true """
+    sql """ SET enable_fallback_to_original_planner=false """
+
     sql """
     CREATE TABLE ${tableName} (
       `id` bigint,

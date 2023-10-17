@@ -20,6 +20,9 @@ suite("test_ip_crud") {
     sql """ DROP TABLE IF EXISTS test_unique_ip_crud """
     sql """ DROP TABLE IF EXISTS test_dup_ip_crud """
 
+    sql """ SET enable_nereids_planner=true """
+    sql """ SET enable_fallback_to_original_planner=false """
+
     sql """
         CREATE TABLE test_unique_ip_crud (
           `id` int,
