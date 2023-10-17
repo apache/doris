@@ -29,6 +29,9 @@ public class ProfileStatistics {
         ArrayList<String> sinkInfos;
         ArrayList<String> infos;
 
+        int sinkInstance = 0;
+        int operatorInstance = 0;
+
         PipelineXStatistics() {
             sinkInfos = new ArrayList<String>();
             infos = new ArrayList<String>();
@@ -39,6 +42,14 @@ public class ProfileStatistics {
                 sinkInfos.add(str);
             } else {
                 infos.add(str);
+            }
+        }
+
+        void updateInstance(boolean isSink, int instance) {
+            if (isSink) {
+                sinkInstance = Math.max(sinkInstance, instance);
+            } else {
+                operatorInstance = Math.max(operatorInstance, instance);
             }
         }
 
@@ -54,16 +65,19 @@ public class ProfileStatistics {
         }
 
         void getOperator(String prefix, StringBuilder str) {
+            str.append(prefix + "Instance num : " + operatorInstance + "\n");
             getInfo(infos, prefix, str);
         }
 
         void getSink(String prefix, StringBuilder str) {
+            str.append(prefix + "Instance num : " + sinkInstance + "\n");
             getInfo(sinkInfos, prefix, str);
         }
     }
 
     // Record statistical information based on nodeid.
     private HashMap<Integer, ArrayList<String>> statisticalInfo;
+    private HashMap<Integer, Integer> statisticalInfoInstance;
 
     // Record statistical information based on nodeid(use in pipelineX).
     private HashMap<Integer, PipelineXStatistics> pipelineXStatisticalInfo;
@@ -71,7 +85,7 @@ public class ProfileStatistics {
     // Record statistical information based on fragment ID.
     // "Currently used to record sink nodes.
     private HashMap<Integer, ArrayList<String>> fragmentInfo;
-
+    private HashMap<Integer, Integer> fragmentInfoInstance;
     private int fragmentId;
 
     private boolean isDataSink;
@@ -80,42 +94,54 @@ public class ProfileStatistics {
 
     public ProfileStatistics(boolean isPipelineX) {
         statisticalInfo = new HashMap<Integer, ArrayList<String>>();
+        statisticalInfoInstance = new HashMap<Integer, Integer>();
+
         fragmentInfo = new HashMap<Integer, ArrayList<String>>();
         pipelineXStatisticalInfo = new HashMap<Integer, PipelineXStatistics>();
+        fragmentInfoInstance = new HashMap<Integer, Integer>();
         fragmentId = 0;
         isDataSink = false;
         this.isPipelineX = isPipelineX;
     }
 
-    private void addPlanNodeInfo(int id, String info) {
-        if (!statisticalInfo.containsKey(id)) {
-            statisticalInfo.put(id, new ArrayList<String>());
-        }
-        statisticalInfo.get(id).add(info);
-    }
-
-    private void addPipelineXPlanNodeInfo(boolean isSink, int id, String info) {
+    private void addPipelineXPlanNodeInfo(boolean isSink, int id, String info, int instance) {
         if (!pipelineXStatisticalInfo.containsKey(id)) {
             pipelineXStatisticalInfo.put(id, new PipelineXStatistics());
         }
         pipelineXStatisticalInfo.get(id).add(isSink, info);
+        pipelineXStatisticalInfo.get(id).updateInstance(isSink, instance);
     }
 
-    private void addDataSinkInfo(String info) {
+    private void addPlanNodeInfo(int id, String info, int instance) {
+        if (!statisticalInfo.containsKey(id)) {
+            statisticalInfo.put(id, new ArrayList<String>());
+            statisticalInfoInstance.put(id, new Integer(0));
+        }
+        statisticalInfo.get(id).add(info);
+        int ins = statisticalInfoInstance.get(id);
+        ins = Math.max(ins, instance);
+        statisticalInfoInstance.put(id, ins);
+    }
+
+    private void addDataSinkInfo(String info, int instance) {
         if (fragmentInfo.get(fragmentId) == null) {
             fragmentInfo.put(fragmentId, new ArrayList<String>());
+            fragmentInfoInstance.put(fragmentId, new Integer(0));
         }
         fragmentInfo.get(fragmentId).add(info);
+        int ins = fragmentInfoInstance.get(fragmentId);
+        ins = Math.max(ins, instance);
+        fragmentInfoInstance.put(fragmentId, ins);
     }
 
-    public void addInfoFromProfile(RuntimeProfile profile, String name, String info) {
+    public void addInfoFromProfile(RuntimeProfile profile, String name, String info, int instance) {
         if (isPipelineX) {
-            addPipelineXPlanNodeInfo(profile.sinkOperator(), profile.nodeId(), name + ": " + info);
+            addPipelineXPlanNodeInfo(profile.sinkOperator(), profile.nodeId(), name + ": " + info, instance);
         } else {
             if (isDataSink) {
-                addDataSinkInfo(name + ": " + info);
+                addDataSinkInfo(name + ": " + info, instance);
             } else {
-                addPlanNodeInfo(profile.nodeId(), name + ": " + info);
+                addPlanNodeInfo(profile.nodeId(), name + ": " + info, instance);
             }
         }
     }
@@ -136,6 +162,7 @@ public class ProfileStatistics {
             getPipelineXInfoById(id, prefix, str);
         } else {
             ArrayList<String> infos = statisticalInfo.get(id);
+            str.append(prefix + "Instance num :" + statisticalInfoInstance.get(id) + "\n");
             Collections.sort(infos);
             for (String info : infos) {
                 str.append(prefix + info + "\n");
@@ -156,6 +183,7 @@ public class ProfileStatistics {
         if (!fragmentInfo.containsKey(fragmentIdx)) {
             return;
         }
+        str.append(prefix + "Instance num :" + fragmentInfoInstance.get(fragmentIdx) + "\n");
         ArrayList<String> infos = fragmentInfo.get(fragmentIdx);
         Collections.sort(infos);
         for (String info : infos) {
