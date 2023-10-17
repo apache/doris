@@ -212,8 +212,7 @@ protected:
         }
 
         RowsetSharedPtr rowset;
-        rowset = rowset_writer->build();
-        EXPECT_TRUE(rowset != nullptr);
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         EXPECT_EQ(rowset_data.size(), rowset->rowset_meta()->num_segments());
         EXPECT_EQ(num_rows, rowset->rowset_meta()->num_rows());
         return rowset;
@@ -357,7 +356,8 @@ protected:
                                        input_rs_readers, output_rs_writer.get(), &stats);
         }
         EXPECT_TRUE(s.ok());
-        RowsetSharedPtr out_rowset = output_rs_writer->build();
+        RowsetSharedPtr out_rowset;
+        EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
 
         // create output rowset reader
         RowsetReaderContext reader_context;

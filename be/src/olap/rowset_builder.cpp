@@ -188,10 +188,7 @@ Status RowsetBuilder::build_rowset() {
 
     SCOPED_TIMER(_build_rowset_timer);
     // use rowset meta manager to save meta
-    _rowset = _rowset_writer->build();
-    if (_rowset == nullptr) {
-        return Status::Error<MEM_ALLOC_FAILED>("fail to build rowset");
-    }
+    RETURN_NOT_OK_STATUS_WITH_WARN(_rowset_writer->build(_rowset), "fail to build rowset");
     return Status::OK();
 }
 
