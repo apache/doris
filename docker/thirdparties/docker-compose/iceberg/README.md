@@ -19,14 +19,7 @@ under the License.
 
 
 ```
-data:
-    input: 初始化docker使用的数据
-        script: 初始化iceberg表使用的脚本
-        warehouse: 初始化iceberg表的数据文件
-        iceberg_rest_mode=memeory: 初始化iceberg表的元数据文件
-    output: docker输出的数据
-
 tools:
-    gen_data.py: 生成随机数据
-    save_docker.sh: 保存当前docker状态的脚本
+    gen_data.py: generate random data
+    save_docker.sh: save the current docker state
 ```
