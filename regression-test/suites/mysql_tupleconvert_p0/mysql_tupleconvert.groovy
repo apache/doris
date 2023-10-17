@@ -34,7 +34,7 @@ suite("mysql_tuple_convert_test") {
     qt_select """SELECT /*+SET_VAR(faster_float_convert=true)*/ * FROM ${testTable};"""
     // make sure we can convert number from string to value
     sql """INSERT INTO ${testTable} SELECT 2, col_1, col_2, col_3, col_4 from ${testTable} where col_0 = 1;"""
-    qt_select """SELECT * FROM ${testTable};"""
+    qt_select """SELECT * FROM ${testTable} ORDER BY col_0;"""
     sql """SET faster_float_convert=false;"""
     sql "DROP TABLE IF EXISTS ${testTable}"
 }
