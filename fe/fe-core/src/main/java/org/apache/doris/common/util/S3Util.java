@@ -20,6 +20,9 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.credentials.CloudCredential;
+import org.apache.doris.datasource.property.constants.CosProperties;
+import org.apache.doris.datasource.property.constants.ObsProperties;
+import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
 import org.apache.commons.lang3.StringUtils;
@@ -69,6 +72,11 @@ public class S3Util {
     }
 
     private static boolean isS3EndPoint(String location, Map<String, String> props) {
+        if (props.containsKey(ObsProperties.ENDPOINT)
+                || props.containsKey(OssProperties.ENDPOINT)
+                || props.containsKey(CosProperties.ENDPOINT)) {
+            return false;
+        }
         // wide check range for the compatibility of s3 properties
         return (props.containsKey(S3Properties.ENDPOINT) || props.containsKey(S3Properties.Env.ENDPOINT))
                     && isObjStorage(location);

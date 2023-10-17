@@ -26,6 +26,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
+#include "util/trace.h"
 
 namespace doris {
 
@@ -55,6 +56,8 @@ Status IndexBuilder::update_inverted_index_info() {
     // just do link files
     LOG(INFO) << "begin to update_inverted_index_info, tablet=" << _tablet->tablet_id()
               << ", is_drop_op=" << _is_drop_op;
+    // index ids that will not be linked
+    std::set<int32_t> without_index_uids;
     for (auto i = 0; i < _input_rowsets.size(); ++i) {
         auto input_rowset = _input_rowsets[i];
         TabletSchemaSPtr output_rs_tablet_schema = std::make_shared<TabletSchema>();
@@ -78,12 +81,13 @@ Status IndexBuilder::update_inverted_index_info() {
                 const TabletIndex* exist_index =
                         output_rs_tablet_schema->get_inverted_index(column_uid);
                 if (exist_index && exist_index->index_id() != index.index_id()) {
-                    // maybe there are concurrent drop index request did not obtain the lock,
-                    // so return error, to wait the drop index request finished.
-                    return Status::Error<ErrorCode::INVERTED_INDEX_BUILD_WAITTING>(
+                    LOG(WARNING) << fmt::format(
                             "column: {} has a exist inverted index, but the index id not equal "
-                            "request's index id, , exist index id: {}, request's index id: {}",
+                            "request's index id, , exist index id: {}, request's index id: {}, "
+                            "remove exist index in new output_rs_tablet_schema",
                             column_uid, exist_index->index_id(), index.index_id());
+                    without_index_uids.insert(exist_index->index_id());
+                    output_rs_tablet_schema->remove_index(exist_index->index_id());
                 }
                 output_rs_tablet_schema->append_index(index);
             }
@@ -105,9 +109,17 @@ Status IndexBuilder::update_inverted_index_info() {
         if (!status.ok()) {
             return Status::Error<ErrorCode::ROWSET_BUILDER_INIT>(status.to_string());
         }
-        RETURN_IF_ERROR(input_rowset->link_files_to(_tablet->tablet_path(),
-                                                    output_rs_writer->rowset_id(), 0,
-                                                    &_alter_index_ids)); // build output rowset
+
+        // if without_index_uids is not empty, copy _alter_index_ids to it
+        // else just use _alter_index_ids to avoid copy
+        if (!without_index_uids.empty()) {
+            without_index_uids.insert(_alter_index_ids.begin(), _alter_index_ids.end());
+        }
+
+        // build output rowset
+        RETURN_IF_ERROR(input_rowset->link_files_to(
+                _tablet->tablet_path(), output_rs_writer->rowset_id(), 0,
+                without_index_uids.empty() ? &_alter_index_ids : &without_index_uids));
 
         auto input_rowset_meta = input_rowset->rowset_meta();
         RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
@@ -120,7 +132,7 @@ Status IndexBuilder::update_inverted_index_info() {
         rowset_meta->set_segments_overlap(input_rowset_meta->segments_overlap());
         rowset_meta->set_rowset_state(input_rowset_meta->rowset_state());
         std::vector<KeyBoundsPB> key_bounds;
-        input_rowset->get_segments_key_bounds(&key_bounds);
+        static_cast<void>(input_rowset->get_segments_key_bounds(&key_bounds));
         rowset_meta->set_segments_key_bounds(key_bounds);
         auto output_rowset = output_rs_writer->manual_build(rowset_meta);
         if (input_rowset_meta->has_delete_predicate()) {
@@ -227,7 +239,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             for (auto& writer_sign : inverted_index_writer_signs) {
                 try {
                     if (_inverted_index_builders[writer_sign]) {
-                        _inverted_index_builders[writer_sign]->finish();
+                        static_cast<void>(_inverted_index_builders[writer_sign]->finish());
                     }
                 } catch (const std::exception& e) {
                     return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -478,6 +490,7 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
         _tablet->enable_unique_key_merge_on_write()) {
         std::lock_guard<std::mutex> rowset_update_wlock(_tablet->get_rowset_update_lock());
         std::lock_guard<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
         for (auto i = 0; i < _input_rowsets.size(); ++i) {
             RowsetId input_rowset_id = _input_rowsets[i]->rowset_id();

@@ -153,7 +153,7 @@ public:
 
     template <typename ColumnType, bool when_null, bool then_null>
     Status execute_short_circuit(const DataTypePtr& data_type, Block& block, size_t result,
-                                 CaseWhenColumnHolder column_holder) {
+                                 CaseWhenColumnHolder column_holder) const {
         auto case_column_ptr = column_holder.when_ptrs[0].value_or(nullptr);
         int rows_count = column_holder.rows_count;
 
@@ -196,7 +196,7 @@ public:
 
     template <typename ColumnType, bool when_null, bool then_null>
     Status execute_impl(const DataTypePtr& data_type, Block& block, size_t result,
-                        CaseWhenColumnHolder column_holder) {
+                        CaseWhenColumnHolder column_holder) const {
         if (column_holder.pair_count > UINT8_MAX) {
             return execute_short_circuit<ColumnType, when_null, then_null>(data_type, block, result,
                                                                            column_holder);
@@ -250,7 +250,7 @@ public:
 
     template <typename ColumnType, bool then_null>
     Status execute_update_result(const DataTypePtr& data_type, size_t result, Block& block,
-                                 uint8* then_idx, CaseWhenColumnHolder& column_holder) {
+                                 uint8* then_idx, CaseWhenColumnHolder& column_holder) const {
         auto result_column_ptr = data_type->create_column();
 
         if constexpr (std::is_same_v<ColumnType, ColumnString> ||
@@ -278,7 +278,7 @@ public:
 
     template <typename IndexType, typename ColumnType, bool then_null>
     void update_result_normal(MutableColumnPtr& result_column_ptr, IndexType* then_idx,
-                              CaseWhenColumnHolder& column_holder) {
+                              CaseWhenColumnHolder& column_holder) const {
         std::vector<uint8_t> is_consts(column_holder.then_ptrs.size());
         std::vector<ColumnPtr> raw_columns(column_holder.then_ptrs.size());
         for (size_t i = 0; i < column_holder.then_ptrs.size(); i++) {
@@ -309,7 +309,7 @@ public:
     template <typename ColumnType>
     void update_result_auto_simd(MutableColumnPtr& result_column_ptr,
                                  const uint8* __restrict then_idx,
-                                 CaseWhenColumnHolder& column_holder) {
+                                 CaseWhenColumnHolder& column_holder) const {
         for (size_t i = 0; i < column_holder.then_ptrs.size(); i++) {
             column_holder.then_ptrs[i]->reset(
                     column_holder.then_ptrs[i].value()->convert_to_full_column_if_const());
@@ -342,7 +342,7 @@ public:
     template <typename ColumnType, bool when_null>
     Status execute_get_then_null(const DataTypePtr& data_type, Block& block,
                                  const ColumnNumbers& arguments, size_t result,
-                                 size_t input_rows_count) {
+                                 size_t input_rows_count) const {
         bool then_null = false;
         for (int i = 1 + has_case; i < arguments.size() - has_else; i += 2) {
             if (block.get_by_position(arguments[i]).type->is_nullable()) {
@@ -372,7 +372,7 @@ public:
     template <typename ColumnType>
     Status execute_get_when_null(const DataTypePtr& data_type, Block& block,
                                  const ColumnNumbers& arguments, size_t result,
-                                 size_t input_rows_count) {
+                                 size_t input_rows_count) const {
         bool when_null = false;
         if constexpr (has_case) {
             block.replace_by_position_if_const(arguments[0]);
@@ -398,7 +398,7 @@ public:
 
     Status execute_get_type(const DataTypePtr& data_type, Block& block,
                             const ColumnNumbers& arguments, size_t result,
-                            size_t input_rows_count) {
+                            size_t input_rows_count) const {
         WhichDataType which(
                 data_type->is_nullable()
                         ? assert_cast<const DataTypeNullable*>(data_type.get())->get_nested_type()
@@ -413,7 +413,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         return execute_get_type(block.get_by_position(result).type, block, arguments, result,
                                 input_rows_count);
     }

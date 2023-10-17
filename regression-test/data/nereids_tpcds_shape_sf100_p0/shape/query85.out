@@ -9,40 +9,45 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](cd2.cd_demo_sk = web_returns.wr_returning_cdemo_sk)(cd1.cd_marital_status = cd2.cd_marital_status)(cd1.cd_education_status = cd2.cd_education_status)
---------------------PhysicalProject
-----------------------PhysicalOlapScan[customer_demographics]
+------------------hashJoin[INNER_JOIN] hashCondition=((reason.r_reason_sk = web_returns.wr_reason_sk))otherCondition=()
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](web_sales.ws_web_page_sk = web_page.wp_web_page_sk)
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[web_page]
+------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk))otherCondition=()
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](cd1.cd_demo_sk = web_returns.wr_refunded_cdemo_sk)(((((cast(cd_marital_status as VARCHAR(*)) = 'M') AND (cast(cd_education_status as VARCHAR(*)) = '4 yr Degree')) AND ((web_sales.ws_sales_price >= 100.00) AND (web_sales.ws_sales_price <= 150.00))) OR (((cast(cd_marital_status as VARCHAR(*)) = 'S') AND (cast(cd_education_status as VARCHAR(*)) = 'Secondary')) AND ((web_sales.ws_sales_price >= 50.00) AND (web_sales.ws_sales_price <= 100.00)))) OR (((cast(cd_marital_status as VARCHAR(*)) = 'W') AND (cast(cd_education_status as VARCHAR(*)) = 'Advanced Degree')) AND ((web_sales.ws_sales_price >= 150.00) AND (web_sales.ws_sales_price <= 200.00))))
+------------------------------hashJoin[INNER_JOIN] hashCondition=((cd1.cd_education_status = cd2.cd_education_status) and (cd1.cd_marital_status = cd2.cd_marital_status) and (cd2.cd_demo_sk = web_returns.wr_returning_cdemo_sk))otherCondition=()
 --------------------------------PhysicalProject
-----------------------------------filter(((((cast(cd_marital_status as VARCHAR(*)) = 'M') AND (cast(cd_education_status as VARCHAR(*)) = '4 yr Degree')) OR ((cast(cd_marital_status as VARCHAR(*)) = 'S') AND (cast(cd_education_status as VARCHAR(*)) = 'Secondary'))) OR ((cast(cd_marital_status as VARCHAR(*)) = 'W') AND (cast(cd_education_status as VARCHAR(*)) = 'Advanced Degree'))))
-------------------------------------PhysicalOlapScan[customer_demographics]
+----------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------------PhysicalDistribute
-----------------------------------hashJoin[INNER_JOIN](reason.r_reason_sk = web_returns.wr_reason_sk)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[reason]
-------------------------------------PhysicalDistribute
---------------------------------------hashJoin[INNER_JOIN](customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk)(((ca_state IN ('FL', 'TX', 'DE') AND ((web_sales.ws_net_profit >= 100.00) AND (web_sales.ws_net_profit <= 200.00))) OR (ca_state IN ('IN', 'ND', 'ID') AND ((web_sales.ws_net_profit >= 150.00) AND (web_sales.ws_net_profit <= 300.00)))) OR (ca_state IN ('MT', 'IL', 'OH') AND ((web_sales.ws_net_profit >= 50.00) AND (web_sales.ws_net_profit <= 250.00))))
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((cd1.cd_demo_sk = web_returns.wr_refunded_cdemo_sk))otherCondition=((((((cd1.cd_marital_status = 'M') AND (cd1.cd_education_status = '4 yr Degree')) AND ((web_sales.ws_sales_price >= 100.00) AND (web_sales.ws_sales_price <= 150.00))) OR (((cd1.cd_marital_status = 'S') AND (cd1.cd_education_status = 'Secondary')) AND ((web_sales.ws_sales_price >= 50.00) AND (web_sales.ws_sales_price <= 100.00)))) OR (((cd1.cd_marital_status = 'W') AND (cd1.cd_education_status = 'Advanced Degree')) AND ((web_sales.ws_sales_price >= 150.00) AND (web_sales.ws_sales_price <= 200.00)))))
+--------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
-------------------------------------------filter(((ca_state IN ('FL', 'TX', 'DE') OR ca_state IN ('IN', 'ND', 'ID')) OR ca_state IN ('MT', 'IL', 'OH'))(customer_address.ca_country = 'United States'))
---------------------------------------------PhysicalOlapScan[customer_address]
-----------------------------------------PhysicalDistribute
-------------------------------------------PhysicalProject
---------------------------------------------hashJoin[INNER_JOIN](web_sales.ws_item_sk = web_returns.wr_item_sk)(web_sales.ws_order_number = web_returns.wr_order_number)
-----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalOlapScan[web_returns]
-----------------------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+------------------------------------------filter(((((cd1.cd_marital_status = 'M') AND (cd1.cd_education_status = '4 yr Degree')) OR ((cd1.cd_marital_status = 'S') AND (cd1.cd_education_status = 'Secondary'))) OR ((cd1.cd_marital_status = 'W') AND (cd1.cd_education_status = 'Advanced Degree'))))
+--------------------------------------------PhysicalOlapScan[customer_demographics]
+--------------------------------------PhysicalDistribute
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk))otherCondition=((((ca_state IN ('DE', 'FL', 'TX') AND ((web_sales.ws_net_profit >= 100.00) AND (web_sales.ws_net_profit <= 200.00))) OR (ca_state IN ('ID', 'IN', 'ND') AND ((web_sales.ws_net_profit >= 150.00) AND (web_sales.ws_net_profit <= 300.00)))) OR (ca_state IN ('IL', 'MT', 'OH') AND ((web_sales.ws_net_profit >= 50.00) AND (web_sales.ws_net_profit <= 250.00)))))
+------------------------------------------PhysicalDistribute
+--------------------------------------------PhysicalProject
+----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number))otherCondition=()
 ------------------------------------------------PhysicalProject
---------------------------------------------------filter(((((web_sales.ws_net_profit >= 100.00) AND (web_sales.ws_net_profit <= 200.00)) OR ((web_sales.ws_net_profit >= 150.00) AND (web_sales.ws_net_profit <= 300.00))) OR ((web_sales.ws_net_profit >= 50.00) AND (web_sales.ws_net_profit <= 250.00)))((((web_sales.ws_sales_price >= 100.00) AND (web_sales.ws_sales_price <= 150.00)) OR ((web_sales.ws_sales_price >= 50.00) AND (web_sales.ws_sales_price <= 100.00))) OR ((web_sales.ws_sales_price >= 150.00) AND (web_sales.ws_sales_price <= 200.00))))
-----------------------------------------------------PhysicalOlapScan[web_sales]
-------------------------------------------------PhysicalDistribute
+--------------------------------------------------PhysicalOlapScan[web_returns]
+------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------------------------------------PhysicalProject
-----------------------------------------------------filter((date_dim.d_year = 2000))
-------------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------------filter(((((web_sales.ws_net_profit >= 100.00) AND (web_sales.ws_net_profit <= 200.00)) OR ((web_sales.ws_net_profit >= 150.00) AND (web_sales.ws_net_profit <= 300.00))) OR ((web_sales.ws_net_profit >= 50.00) AND (web_sales.ws_net_profit <= 250.00))) and ((((web_sales.ws_sales_price >= 100.00) AND (web_sales.ws_sales_price <= 150.00)) OR ((web_sales.ws_sales_price >= 50.00) AND (web_sales.ws_sales_price <= 100.00))) OR ((web_sales.ws_sales_price >= 150.00) AND (web_sales.ws_sales_price <= 200.00))))
+------------------------------------------------------PhysicalOlapScan[web_sales]
+--------------------------------------------------PhysicalDistribute
+----------------------------------------------------PhysicalProject
+------------------------------------------------------filter((date_dim.d_year = 2000))
+--------------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------PhysicalDistribute
+--------------------------------------------PhysicalProject
+----------------------------------------------filter(((ca_state IN ('DE', 'FL', 'TX') OR ca_state IN ('ID', 'IN', 'ND')) OR ca_state IN ('IL', 'MT', 'OH')) and (customer_address.ca_country = 'United States'))
+------------------------------------------------PhysicalOlapScan[customer_address]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[web_page]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[reason]
 

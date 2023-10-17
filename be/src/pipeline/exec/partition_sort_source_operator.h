@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vpartition_sort_node.h"
 
 namespace doris {
@@ -48,9 +49,47 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
-OperatorPtr PartitionSortSourceOperatorBuilder::build_operator() {
-    return std::make_shared<PartitionSortSourceOperator>(this, _node);
-}
+class PartitionSortSourceOperatorX;
+class PartitionSortSourceLocalState final : public PipelineXLocalState<PartitionSortDependency> {
+    ENABLE_FACTORY_CREATOR(PartitionSortSourceLocalState);
+
+public:
+    using Base = PipelineXLocalState<PartitionSortDependency>;
+    PartitionSortSourceLocalState(RuntimeState* state, OperatorXBase* parent)
+            : PipelineXLocalState<PartitionSortDependency>(state, parent),
+              _get_sorted_timer(nullptr),
+              _get_next_timer(nullptr),
+              _num_rows_returned(0) {}
+
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
+
+private:
+    friend class PartitionSortSourceOperatorX;
+    RuntimeProfile::Counter* _get_sorted_timer;
+    RuntimeProfile::Counter* _get_next_timer;
+    int64_t _num_rows_returned;
+    int _sort_idx = 0;
+};
+
+class PartitionSortSourceOperatorX final : public OperatorX<PartitionSortSourceLocalState> {
+public:
+    using Base = OperatorX<PartitionSortSourceLocalState>;
+    PartitionSortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+                                 const DescriptorTbl& descs)
+            : OperatorX<PartitionSortSourceLocalState>(pool, tnode, descs) {}
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
+
+    Dependency* wait_for_dependency(RuntimeState* state) override;
+
+    bool is_source() const override { return true; }
+
+private:
+    friend class PartitionSortSourceLocalState;
+    Status get_sorted_block(RuntimeState* state, vectorized::Block* output_block,
+                            PartitionSortSourceLocalState& local_state);
+};
 
 } // namespace pipeline
 } // namespace doris

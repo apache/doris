@@ -44,7 +44,20 @@
 #include "util/time.h"
 #include "vec/sink/vdata_stream_sender.h"
 
-namespace doris::pipeline {
+namespace doris {
+namespace vectorized {
+
+void BroadcastPBlockHolder::unref() noexcept {
+    DCHECK_GT(_ref_count._value, 0);
+    auto old_value = _ref_count._value.fetch_sub(1);
+    if (_dep && old_value == 1) {
+        _dep->return_available_block();
+    }
+}
+
+} // namespace vectorized
+
+namespace pipeline {
 
 template <typename Parent>
 ExchangeSinkBuffer<Parent>::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
@@ -88,7 +101,7 @@ bool ExchangeSinkBuffer<Parent>::is_pending_finish() {
     for (auto& pair : _instance_to_package_queue_mutex) {
         std::unique_lock<std::mutex> lock(*(pair.second));
         auto& id = pair.first;
-        if (!_instance_to_sending_by_pipeline.at(id)) {
+        if (!_rpc_channel_is_idle.at(id)) {
             // when pending finish, we need check whether current query is cancelled
             if (need_cancel && _instance_to_rpc_ctx.find(id) != _instance_to_rpc_ctx.end()) {
                 auto& rpc_ctx = _instance_to_rpc_ctx[id];
@@ -118,10 +131,11 @@ void ExchangeSinkBuffer<Parent>::register_sink(TUniqueId fragment_instance_id) {
             std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>();
     _instance_to_broadcast_package_queue[low_id] =
             std::queue<BroadcastTransmitInfo<Parent>, std::list<BroadcastTransmitInfo<Parent>>>();
+    _queue_capacity = QUEUE_CAPACITY_FACTOR * _instance_to_package_queue.size();
     PUniqueId finst_id;
     finst_id.set_hi(fragment_instance_id.hi);
     finst_id.set_lo(fragment_instance_id.lo);
-    _instance_to_sending_by_pipeline[low_id] = true;
+    _rpc_channel_is_idle[low_id] = true;
     _instance_to_rpc_ctx[low_id] = {};
     _instance_to_receiver_eof[low_id] = false;
     _instance_to_rpc_time[low_id] = 0;
@@ -138,11 +152,19 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
     {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[ins_id.lo]);
         // Do not have in process rpc, directly send
-        if (_instance_to_sending_by_pipeline[ins_id.lo]) {
+        if (_rpc_channel_is_idle[ins_id.lo]) {
             send_now = true;
-            _instance_to_sending_by_pipeline[ins_id.lo] = false;
+            _rpc_channel_is_idle[ins_id.lo] = false;
+            _busy_channels++;
+            if (_finish_dependency) {
+                _finish_dependency->block_finishing();
+            }
         }
         _instance_to_package_queue[ins_id.lo].emplace(std::move(request));
+        _total_queue_size++;
+        if (_queue_dependency && _total_queue_size > _queue_capacity) {
+            _queue_dependency->block_writing();
+        }
     }
     if (send_now) {
         RETURN_IF_ERROR(_send_rpc(ins_id.lo));
@@ -152,7 +174,8 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
 }
 
 template <typename Parent>
-Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& request) {
+Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& request,
+                                             [[maybe_unused]] bool* sent) {
     if (_is_finishing) {
         return Status::OK();
     }
@@ -161,13 +184,20 @@ Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& req
         return Status::EndOfFile("receiver eof");
     }
     bool send_now = false;
+    if (sent) {
+        *sent = true;
+    }
     request.block_holder->ref();
     {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[ins_id.lo]);
         // Do not have in process rpc, directly send
-        if (_instance_to_sending_by_pipeline[ins_id.lo]) {
+        if (_rpc_channel_is_idle[ins_id.lo]) {
             send_now = true;
-            _instance_to_sending_by_pipeline[ins_id.lo] = false;
+            _rpc_channel_is_idle[ins_id.lo] = false;
+            _busy_channels++;
+            if (_finish_dependency) {
+                _finish_dependency->block_finishing();
+            }
         }
         _instance_to_broadcast_package_queue[ins_id.lo].emplace(request);
     }
@@ -182,7 +212,7 @@ template <typename Parent>
 Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
 
-    DCHECK(_instance_to_sending_by_pipeline[id] == false);
+    DCHECK(_rpc_channel_is_idle[id] == false);
 
     std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>& q =
             _instance_to_package_queue[id];
@@ -190,7 +220,11 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
             broadcast_q = _instance_to_broadcast_package_queue[id];
 
     if (_is_finishing) {
-        _instance_to_sending_by_pipeline[id] = true;
+        _rpc_channel_is_idle[id] = true;
+        _busy_channels--;
+        if (_finish_dependency && _busy_channels == 0) {
+            _finish_dependency->set_ready_to_finish();
+        }
         return Status::OK();
     }
 
@@ -202,6 +236,9 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
         if (request.block) {
             brpc_request->set_allocated_block(request.block.get());
+        }
+        if (!request.exec_status.ok()) {
+            request.exec_status.to_protobuf(brpc_request->mutable_exec_status());
         }
         auto* closure = request.channel->get_closure(id, request.eos, nullptr);
 
@@ -228,7 +265,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
             } else if (eos) {
                 _ended(id);
             } else {
-                _send_rpc(id);
+                static_cast<void>(_send_rpc(id));
             }
         });
         {
@@ -244,6 +281,10 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
             static_cast<void>(brpc_request->release_block());
         }
         q.pop();
+        _total_queue_size--;
+        if (_queue_dependency && _total_queue_size <= _queue_capacity) {
+            _queue_dependency->set_ready_for_write();
+        }
     } else if (!broadcast_q.empty()) {
         // If we have data to shuffle which is broadcasted
         auto& request = broadcast_q.front();
@@ -280,7 +321,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
             } else if (eos) {
                 _ended(id);
             } else {
-                _send_rpc(id);
+                static_cast<void>(_send_rpc(id));
             }
         });
         {
@@ -297,7 +338,11 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         }
         broadcast_q.pop();
     } else {
-        _instance_to_sending_by_pipeline[id] = true;
+        _rpc_channel_is_idle[id] = true;
+        _busy_channels--;
+        if (_finish_dependency && _busy_channels == 0) {
+            _finish_dependency->set_ready_to_finish();
+        }
     }
 
     return Status::OK();
@@ -317,7 +362,13 @@ void ExchangeSinkBuffer<Parent>::_construct_request(InstanceLoId id, PUniqueId f
 template <typename Parent>
 void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
-    _instance_to_sending_by_pipeline[id] = true;
+    if (!_rpc_channel_is_idle[id]) {
+        _busy_channels--;
+        _rpc_channel_is_idle[id] = true;
+        if (_finish_dependency && _busy_channels == 0) {
+            _finish_dependency->set_ready_to_finish();
+        }
+    }
 }
 
 template <typename Parent>
@@ -331,7 +382,13 @@ template <typename Parent>
 void ExchangeSinkBuffer<Parent>::_set_receiver_eof(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     _instance_to_receiver_eof[id] = true;
-    _instance_to_sending_by_pipeline[id] = true;
+    if (!_rpc_channel_is_idle[id]) {
+        _busy_channels--;
+        _rpc_channel_is_idle[id] = true;
+        if (_finish_dependency && _busy_channels == 0) {
+            _finish_dependency->set_ready_to_finish();
+        }
+    }
 }
 
 template <typename Parent>
@@ -351,7 +408,7 @@ void ExchangeSinkBuffer<Parent>::get_max_min_rpc_time(int64_t* max_time, int64_t
         }
     }
     *max_time = local_max_time;
-    *min_time = local_min_time;
+    *min_time = local_min_time == INT64_MAX ? 0 : local_min_time;
 }
 
 template <typename Parent>
@@ -395,6 +452,6 @@ void ExchangeSinkBuffer<Parent>::update_profile(RuntimeProfile* profile) {
 
 template class ExchangeSinkBuffer<vectorized::VDataStreamSender>;
 template class ExchangeSinkBuffer<pipeline::ExchangeSinkLocalState>;
-//
-//template bool ExchangeSinkBuffer<vectorized::VDataStreamSender>::can_write() const;
-} // namespace doris::pipeline
+
+} // namespace pipeline
+} // namespace doris

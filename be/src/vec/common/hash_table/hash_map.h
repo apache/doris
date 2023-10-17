@@ -57,7 +57,7 @@ struct HashMapCell {
 
     value_type value;
 
-    HashMapCell() {}
+    HashMapCell() = default;
     HashMapCell(const Key& key_, const State&) : value(key_, NoInitTag()) {}
     HashMapCell(const Key& key_, const Mapped& mapped_) : value(key_, mapped_) {}
     HashMapCell(const value_type& value_, const State&) : value(value_) {}
@@ -89,9 +89,6 @@ struct HashMapCell {
 
     /// Do I need to store the zero key separately (that is, can a zero key be inserted into the hash table).
     static constexpr bool need_zero_value_storage = true;
-
-    /// Whether the cell was deleted.
-    bool is_deleted() const { return false; }
 
     void set_mapped(const value_type& value_) { value.second = value_.second; }
 };
@@ -153,38 +150,6 @@ public:
 
     using HashTable<Key, Cell, Hash, Grower, Allocator>::HashTable;
 
-    /// Merge every cell's value of current map into the destination map via emplace.
-    ///  Func should have signature void(Mapped & dst, Mapped & src, bool emplaced).
-    ///  Each filled cell in current map will invoke func once. If that map doesn't
-    ///  have a key equals to the given cell, a new cell gets emplaced into that map,
-    ///  and func is invoked with the third argument emplaced set to true. Otherwise
-    ///  emplaced is set to false.
-    template <typename Func>
-    void ALWAYS_INLINE merge_to_via_emplace(Self& that, Func&& func) {
-        for (auto it = this->begin(), end = this->end(); it != end; ++it) {
-            typename Self::LookupResult res_it;
-            bool inserted;
-            that.emplace(it->get_first(), res_it, inserted, it.get_hash());
-            func(*lookup_result_get_mapped(res_it), it->get_second(), inserted);
-        }
-    }
-
-    /// Merge every cell's value of current map into the destination map via find.
-    ///  Func should have signature void(Mapped & dst, Mapped & src, bool exist).
-    ///  Each filled cell in current map will invoke func once. If that map doesn't
-    ///  have a key equals to the given cell, func is invoked with the third argument
-    ///  exist set to false. Otherwise exist is set to true.
-    template <typename Func>
-    void ALWAYS_INLINE merge_to_via_find(Self& that, Func&& func) {
-        for (auto it = this->begin(), end = this->end(); it != end; ++it) {
-            auto res_it = that.find(it->get_first(), it.get_hash());
-            if (!res_it)
-                func(it->get_second(), it->get_second(), false);
-            else
-                func(*lookup_result_get_mapped(res_it), it->get_second(), true);
-        }
-    }
-
     /// Call func(const Key &, Mapped &) for each hash map element.
     template <typename Func>
     void for_each_value(Func&& func) {
@@ -195,14 +160,6 @@ public:
     template <typename Func>
     void for_each_mapped(Func&& func) {
         for (auto& v : *this) func(v.get_second());
-    }
-
-    size_t get_size() {
-        size_t count = 0;
-        for (auto& v : *this) {
-            count += v.get_second().get_row_count();
-        }
-        return count;
     }
 
     mapped_type& ALWAYS_INLINE operator[](Key x) {
@@ -229,7 +186,10 @@ public:
         return *lookup_result_get_mapped(it);
     }
 
-    char* get_null_key_data() { return nullptr; }
+    template <typename MappedType>
+    char* get_null_key_data() {
+        return nullptr;
+    }
     bool has_null_key_data() const { return false; }
 };
 

@@ -67,6 +67,7 @@ WITH BROKER broker_name
   [COLUMNS TERMINATED BY "column_separator"]
   [LINES TERMINATED BY "line_delimiter"]
   [FORMAT AS "file_type"]
+  [COMPRESS_TYPE AS "compress_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
   [SET (column_mapping)]
@@ -104,6 +105,9 @@ WITH BROKER broker_name
   - `FORMAT AS`
 
     指定文件类型，支持 CSV、PARQUET 和 ORC 格式。默认为 CSV。
+
+  - `COMPRESS_TYPE AS`
+    指定文件压缩类型, 支持GZ/BZ2/LZ4FRAME。
 
   - `column list`
 
@@ -193,7 +197,7 @@ WITH BROKER broker_name
     
     - `load_to_single_tablet`
       
-      布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分区的olap表导数的时候设置。
+      布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分桶的olap表导数的时候设置。
 
     - <version since="dev" type="inline"> priority </version>
 
@@ -264,6 +268,7 @@ WITH BROKER broker_name
    (
        "username" = "",
        "password" = "",
+       "fs.defaultFS" = "hdfs://my_ha",
        "dfs.nameservices" = "my_ha",
        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",

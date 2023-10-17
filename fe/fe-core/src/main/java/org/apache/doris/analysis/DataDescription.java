@@ -29,6 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -173,22 +174,22 @@ public class DataDescription implements InsertStmt.DataDesc {
     }
 
     public DataDescription(String tableName,
-            PartitionNames partitionNames,
-            List<String> filePaths,
-            List<String> columns,
-            Separator columnSeparator,
-            String fileFormat,
-            List<String> columnsFromPath,
-            boolean isNegative,
-            List<Expr> columnMappingList,
-            Expr fileFilterExpr,
-            Expr whereExpr,
-            LoadTask.MergeType mergeType,
-            Expr deleteCondition,
-            String sequenceColName,
-            Map<String, String> properties) {
+                           PartitionNames partitionNames,
+                           List<String> filePaths,
+                           List<String> columns,
+                           Separator columnSeparator,
+                           String fileFormat,
+                           List<String> columnsFromPath,
+                           boolean isNegative,
+                           List<Expr> columnMappingList,
+                           Expr fileFilterExpr,
+                           Expr whereExpr,
+                           LoadTask.MergeType mergeType,
+                           Expr deleteCondition,
+                           String sequenceColName,
+                           Map<String, String> properties) {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, null,
-                fileFormat, columnsFromPath, isNegative, columnMappingList, fileFilterExpr, whereExpr,
+                fileFormat, null, columnsFromPath, isNegative, columnMappingList, fileFilterExpr, whereExpr,
                 mergeType, deleteCondition, sequenceColName, properties);
     }
 
@@ -199,6 +200,7 @@ public class DataDescription implements InsertStmt.DataDesc {
                            Separator columnSeparator,
                            Separator lineDelimiter,
                            String fileFormat,
+                           String compressType,
                            List<String> columnsFromPath,
                            boolean isNegative,
                            List<Expr> columnMappingList,
@@ -215,6 +217,7 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.columnSeparator = columnSeparator;
         this.lineDelimiter = lineDelimiter;
         this.fileFormat = fileFormat;
+        this.compressType = Util.getFileCompressType(compressType);
         this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
@@ -351,6 +354,9 @@ public class DataDescription implements InsertStmt.DataDesc {
                     case FORMAT_JSON:
                         this.fileFormat = "json";
                         break;
+                    case FORMAT_WAL:
+                        this.fileFormat = "wal";
+                        break;
                     default:
                         this.fileFormat = "unknown";
                         break;
@@ -362,8 +368,8 @@ public class DataDescription implements InsertStmt.DataDesc {
     }
 
     public static void validateMappingFunction(String functionName, List<String> args,
-            Map<String, String> columnNameMap,
-            Column mappingColumn, boolean isHadoopLoad) throws AnalysisException {
+                                               Map<String, String> columnNameMap,
+                                               Column mappingColumn, boolean isHadoopLoad) throws AnalysisException {
         if (functionName.equalsIgnoreCase("alignment_timestamp")) {
             validateAlignmentTimestamp(args, columnNameMap);
         } else if (functionName.equalsIgnoreCase("strftime")) {
@@ -1050,6 +1056,13 @@ public class DataDescription implements InsertStmt.DataDesc {
         if (isAnalyzed) {
             return;
         }
+        checkLoadPriv(fullDbName);
+        checkMergeType();
+        analyzeWithoutCheckPriv(fullDbName);
+        isAnalyzed = true;
+    }
+
+    private void checkMergeType() throws AnalysisException {
         if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
             throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE.");
         }
@@ -1059,24 +1072,32 @@ public class DataDescription implements InsertStmt.DataDesc {
         if (mergeType != LoadTask.MergeType.APPEND && isNegative) {
             throw new AnalysisException("not support MERGE or DELETE with NEGATIVE.");
         }
-        checkLoadPriv(fullDbName);
-        analyzeWithoutCheckPriv(fullDbName);
-        if (isNegative && mergeType != LoadTask.MergeType.APPEND) {
-            throw new AnalysisException("Negative is only used when merge type is append.");
-        }
-        isAnalyzed = true;
     }
 
     public void analyzeWithoutCheckPriv(String fullDbName) throws AnalysisException {
+        analyzeFilePaths();
+
+        analyzeLoadAttributes();
+
+        analyzeColumns();
+        analyzeMultiLoadColumns();
+        analyzeSequenceCol(fullDbName);
+
+        if (properties != null) {
+            analyzeProperties();
+        }
+    }
+
+    private void analyzeFilePaths() throws AnalysisException {
         if (!isLoadFromTable()) {
             if (filePaths == null || filePaths.isEmpty()) {
                 throw new AnalysisException("No file path in load statement.");
             }
-            for (int i = 0; i < filePaths.size(); ++i) {
-                filePaths.set(i, filePaths.get(i).trim());
-            }
+            filePaths.replaceAll(String::trim);
         }
+    }
 
+    private void analyzeLoadAttributes() throws AnalysisException {
         if (columnSeparator != null) {
             columnSeparator.analyze();
         }
@@ -1089,12 +1110,19 @@ public class DataDescription implements InsertStmt.DataDesc {
             partitionNames.analyze(null);
         }
 
-        analyzeColumns();
-        analyzeMultiLoadColumns();
-        analyzeSequenceCol(fullDbName);
-
-        if (properties != null) {
-            analyzeProperties();
+        // file format
+        // note(tsy): for historical reason, file format here must be string type rather than TFileFormatType
+        if (fileFormat != null) {
+            if (!fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_PARQUET)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_ORC)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_JSON)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_WAL)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_HIVE_TEXT)) {
+                throw new AnalysisException("File Format Type " + fileFormat + " is invalid.");
+            }
         }
     }
 

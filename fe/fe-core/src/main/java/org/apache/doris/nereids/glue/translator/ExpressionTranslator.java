@@ -87,6 +87,8 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeComb
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HighOrderFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
@@ -102,7 +104,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -193,7 +197,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
         String invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
-        String invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+        String invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
+        Map<String, String> invertedIndexCharFilter = new HashMap<>();
         SlotRef left = (SlotRef) match.left().accept(this, context);
         OlapTable olapTbl = Optional.ofNullable(getOlapTableFromSlotDesc(left.getDesc()))
                                     .orElse(getOlapTableDirectly(left));
@@ -210,6 +215,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     if (columns != null && !columns.isEmpty() && left.getColumnName().equals(columns.get(0))) {
                         invertedIndexParser = index.getInvertedIndexParser();
                         invertedIndexParserMode = index.getInvertedIndexParserMode();
+                        invertedIndexCharFilter = index.getInvertedIndexCharFilter();
                         break;
                     }
                 }
@@ -223,7 +229,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             match.getDataType().toCatalogDataType(),
             NullableMode.DEPEND_ON_ARGUMENT,
             invertedIndexParser,
-            invertedIndexParserMode);
+            invertedIndexParserMode,
+            invertedIndexCharFilter);
     }
 
     @Override
@@ -400,9 +407,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         return new LambdaFunctionExpr(func, lambda.getLambdaArgumentNames(), arguments);
     }
 
-    private Expr visitHighOrderFunction(ScalarFunction function, PlanTranslatorContext context) {
-        Lambda lambda = (Lambda) function.child(0);
-        List<Expr> arguments = new ArrayList<>(function.children().size());
+    @Override
+    public Expr visitArrayMap(ArrayMap arrayMap, PlanTranslatorContext context) {
+        Lambda lambda = (Lambda) arrayMap.child(0);
+        List<Expr> arguments = new ArrayList<>(arrayMap.children().size());
         arguments.add(null);
         int columnId = 0;
         for (ArrayItemReference arrayItemReference : lambda.getLambdaArguments()) {
@@ -419,7 +427,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             columnId += 1;
         }
 
-        List<Type> argTypes = function.getArguments().stream()
+        List<Type> argTypes = arrayMap.getArguments().stream()
                 .map(Expression::getDataType)
                 .map(DataType::toCatalogDataType)
                 .collect(Collectors.toList());
@@ -428,10 +436,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .map(Expression::getDataType)
                 .map(DataType::toCatalogDataType)
                 .forEach(argTypes::add);
+        NullableMode nullableMode = arrayMap.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
         org.apache.doris.catalog.Function catalogFunction = new Function(
-                new FunctionName(function.getName()), argTypes,
+                new FunctionName(arrayMap.getName()), argTypes,
                 ArrayType.create(lambda.getRetType().toCatalogDataType(), true),
-                true, true, NullableMode.DEPEND_ON_ARGUMENT);
+                true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
         Expr lambdaBody = visitLambda(lambda, context);
@@ -441,10 +452,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitScalarFunction(ScalarFunction function, PlanTranslatorContext context) {
-        if (function.isHighOrder()) {
-            return visitHighOrderFunction(function, context);
-        }
-
         List<Expr> arguments = function.getArguments().stream()
                 .map(arg -> arg.accept(this, context))
                 .collect(Collectors.toList());
@@ -464,6 +471,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
+        if (function instanceof HighOrderFunction) {
+            return new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+        }
         return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
     }
 

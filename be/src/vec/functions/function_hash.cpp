@@ -57,13 +57,13 @@ struct MurmurHash2Impl64 {
 
     static Status first_apply(const IDataType* type, const IColumn* column, size_t input_rows_count,
                               IColumn& icolumn) {
-        execute_any<true>(type, column, icolumn, input_rows_count);
+        static_cast<void>(execute_any<true>(type, column, icolumn, input_rows_count));
         return Status::OK();
     }
 
     static Status combine_apply(const IDataType* type, const IColumn* column,
                                 size_t input_rows_count, IColumn& icolumn) {
-        execute_any<false>(type, column, icolumn, input_rows_count);
+        static_cast<void>(execute_any<false>(type, column, icolumn, input_rows_count));
         return Status::OK();
     }
 

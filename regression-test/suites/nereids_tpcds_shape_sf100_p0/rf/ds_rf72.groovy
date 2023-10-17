@@ -30,6 +30,8 @@ suite("ds_rf72") {
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_pipeline_engine=true'
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set expand_runtime_filter_by_inner_join=false'
     String stmt = '''
     explain physical plan
     select  i_item_desc
@@ -78,6 +80,6 @@ limit 100;
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.72"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
-    
-     assertEquals("RF9[cs_item_sk->[cr_item_sk],RF10[cs_order_number->[cr_order_number],RF8[w_warehouse_sk->[inv_warehouse_sk],RF7[cs_item_sk->[i_item_sk],RF5[d_week_seq->[d_week_seq],RF6[d_date_sk->[inv_date_sk],RF4[cs_item_sk->[inv_item_sk],RF3[d_date_sk->[cs_ship_date_sk],RF2[cd_demo_sk->[cs_bill_cdemo_sk],RF1[d_date_sk->[cs_sold_date_sk],RF0[hd_demo_sk->[cs_bill_hdemo_sk]", getRuntimeFilters(plan))
+
+     assertEquals("RF10[w_warehouse_sk->[inv_warehouse_sk],RF8[d_date_sk->[inv_date_sk],RF9[cs_item_sk->[inv_item_sk],RF7[d_week_seq->[d_week_seq],RF5[cs_item_sk->[cr_item_sk],RF6[cs_order_number->[cr_order_number],RF4[i_item_sk->[cs_item_sk],RF3[d_date_sk->[cs_ship_date_sk],RF2[cd_demo_sk->[cs_bill_cdemo_sk],RF1[d_date_sk->[cs_sold_date_sk],RF0[hd_demo_sk->[cs_bill_hdemo_sk]", getRuntimeFilters(plan))
 }

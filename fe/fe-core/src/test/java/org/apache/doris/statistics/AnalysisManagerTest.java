@@ -21,6 +21,9 @@ import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -33,6 +36,7 @@ import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.apache.hadoop.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -40,6 +44,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 
 // CHECKSTYLE OFF
@@ -256,10 +261,92 @@ public class AnalysisManagerTest {
         analysisManager.buildAndAssignJob(analyzeTblStmt);
         new Expectations() {
             {
-                analysisManager.persistAnalysisJob(analysisInfo);
+                analysisManager.recordAnalysisJob(analysisInfo);
                 times = 1;
             }
         };
+    }
+
+    @Test
+    public void testSystemJobStatusUpdater() {
+        new MockUp<BaseAnalysisTask>() {
+
+            @Mock
+            protected void init(AnalysisInfo info) {
+
+            }
+        };
+
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public void updateTableStats(AnalysisInfo jobInfo) {}
+
+            @Mock
+            protected void logAutoJob(AnalysisInfo autoJob) {
+
+            }
+        };
+
+        AnalysisManager analysisManager = new AnalysisManager();
+        AnalysisInfo job = new AnalysisInfoBuilder()
+                .setJobId(0)
+                .setColName("col1, col2").build();
+        analysisManager.systemJobInfoMap.put(job.jobId, job);
+        AnalysisInfo task1 = new AnalysisInfoBuilder()
+                .setJobId(0)
+                .setTaskId(1)
+                .setState(AnalysisState.RUNNING)
+                .setColName("col1").build();
+        AnalysisInfo task2 = new AnalysisInfoBuilder()
+                .setJobId(0)
+                .setTaskId(1)
+                .setState(AnalysisState.FINISHED)
+                .setColName("col2").build();
+        OlapAnalysisTask ot1 = new OlapAnalysisTask(task1);
+        OlapAnalysisTask ot2 = new OlapAnalysisTask(task2);
+        Map<Long, BaseAnalysisTask> taskMap = new HashMap<>();
+        taskMap.put(ot1.info.taskId, ot1);
+        taskMap.put(ot2.info.taskId, ot2);
+        analysisManager.analysisJobIdToTaskMap.put(job.jobId, taskMap);
+
+        // test invalid job
+        AnalysisInfo invalidJob = new AnalysisInfoBuilder().setJobId(-1).build();
+        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(invalidJob,
+                AnalysisState.FAILED, "", 0));
+
+        // test finished
+        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(task1, AnalysisState.FAILED, "", 0));
+        analysisManager.systemJobStatusUpdater.apply(new TaskStatusWrapper(task1, AnalysisState.FINISHED, "", 0));
+        Assertions.assertEquals(1, analysisManager.autoJobs.size());
+        Assertions.assertTrue(analysisManager.systemJobInfoMap.isEmpty());
+    }
+
+    @Test
+    public void testReAnalyze() {
+        new MockUp<OlapTable>() {
+
+            int count = 0;
+            int[] rowCount = new int[]{100, 200};
+            @Mock
+            public long getRowCount() {
+                return rowCount[count++];
+            }
+
+            @Mock
+            public List<Column> getBaseSchema() {
+                return Lists.newArrayList(new Column("col1", PrimitiveType.INT));
+            }
+
+        };
+        OlapTable olapTable = new OlapTable();
+        TableStatsMeta stats1 = new TableStatsMeta(0, 50, new AnalysisInfoBuilder().setColName("col1").build());
+        stats1.updatedRows.addAndGet(30);
+
+        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats1));
+        TableStatsMeta stats2 = new TableStatsMeta(0, 190, new AnalysisInfoBuilder().setColName("col1").build());
+        stats2.updatedRows.addAndGet(20);
+        Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
+
     }
 
 }

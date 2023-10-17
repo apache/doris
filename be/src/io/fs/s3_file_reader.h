@@ -32,7 +32,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 class S3FileReader final : public FileReader {
 public:

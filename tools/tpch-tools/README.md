@@ -32,7 +32,7 @@ follow the steps below:
 
 ### 3. create tpc-h tables. modify `conf/doris-cluster.conf` to specify doris info, then run script below.
 
-    ./bin/create-tpch-tables.sh
+    ./bin/create-tpch-tables.sh -s 1
 
 ### 4. load tpc-h data. use -h for help.
 
@@ -40,8 +40,10 @@ follow the steps below:
 
 ### 5. run tpc-h queries.
 
-    ./bin/run-tpch-queries.sh
+    ./bin/run-tpch-queries.sh -s 1
 
     NOTICE: At present, Doris's query optimizer and statistical information functions are not complete, so we rewrite some queries in TPC-H to adapt to Doris' execution framework, but it does not affect the correctness of the results. The rewritten SQL is marked with "Modified" in the corresponding .sql file.
 
     A new query optimizer will be released in subsequent releases.
+
+    Currently, differnt scales use the same suite of query sqls.

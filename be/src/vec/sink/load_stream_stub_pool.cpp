@@ -35,7 +35,7 @@ std::shared_ptr<Streams> LoadStreamStubPool::get_or_create(PUniqueId load_id, in
     if (streams) {
         return streams;
     }
-    int32_t num_streams = std::max(1, config::num_streams_per_sink);
+    int32_t num_streams = std::max(1, config::num_streams_per_load);
     auto [it, _] = _template_stubs.emplace(load_id, new LoadStreamStub {load_id, src_id});
     auto deleter = [this, key](Streams* s) {
         std::lock_guard<std::mutex> lock(_mutex);

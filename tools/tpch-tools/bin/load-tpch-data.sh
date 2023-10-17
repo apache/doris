@@ -108,6 +108,7 @@ check_prerequest "curl --version" "curl"
 source "${CURDIR}/../conf/doris-cluster.conf"
 export MYSQL_PWD=${PASSWORD}
 
+echo "Parallelism: ${PARALLEL}"
 echo "FE_HOST: ${FE_HOST}"
 echo "FE_HTTP_PORT: ${FE_HTTP_PORT}"
 echo "USER: ${USER}"
@@ -236,3 +237,14 @@ end_time=$(date +%s)
 echo "End time: $(date)"
 
 echo "Finish load tpch data, Time taken: $((end_time - start_time)) seconds"
+echo '============================================'
+run_sql() {
+    echo "$*"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
+}
+start=$(date +%s)
+run_sql "analyze database ${DB} with sync;"
+end=$(date +%s)
+totalTime=$((end - start))
+echo "analyze database ${DB} with sync total time: ${totalTime} s"
+echo '============================================'

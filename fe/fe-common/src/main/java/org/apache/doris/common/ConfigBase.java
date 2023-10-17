@@ -133,7 +133,9 @@ public class ConfigBase {
 
     private void initConf(String confFile) throws Exception {
         Properties props = new Properties();
-        props.load(new FileReader(confFile));
+        try (FileReader fr = new FileReader(confFile)) {
+            props.load(fr);
+        }
         replacedByEnv(props);
         setFields(props, isLdapConfig);
     }
@@ -398,7 +400,9 @@ public class ConfigBase {
         }
 
         Properties props = new Properties();
-        props.load(new FileReader(customConfFile));
+        try (FileReader fr = new FileReader(customConfFile)) {
+            props.load(fr);
+        }
 
         for (Map.Entry<String, String> entry : customConf.entrySet()) {
             props.setProperty(entry.getKey(), entry.getValue());

@@ -44,7 +44,6 @@ import javax.servlet.http.HttpServletResponse;
 // { "status" : "OK", "msg" : "some msg" }
 @RestController
 public class MultiAction extends RestBaseController {
-    private ExecuteEnv execEnv;
     private static final String SUB_LABEL_KEY = "sub_label";
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_desc", method = RequestMethod.POST)
@@ -58,7 +57,6 @@ public class MultiAction extends RestBaseController {
         try {
             executeCheckPassword(request, response);
 
-            execEnv = ExecuteEnv.getInstance();
             String label = request.getParameter(LABEL_KEY);
             if (Strings.isNullOrEmpty(label)) {
                 return new RestBaseResult("No label selected");
@@ -73,9 +71,8 @@ public class MultiAction extends RestBaseController {
                 return redirectView;
             }
 
-            execEnv = ExecuteEnv.getInstance();
             final List<String> labels = Lists.newArrayList();
-            execEnv.getMultiLoadMgr().desc(fullDbName, label, labels);
+            ExecuteEnv.getInstance().getMultiLoadMgr().desc(fullDbName, label, labels);
             return new MultiLabelResult(labels);
         } catch (Exception e) {
             return new RestBaseResult(e.getMessage());
@@ -93,7 +90,6 @@ public class MultiAction extends RestBaseController {
 
         try {
             executeCheckPassword(request, response);
-            execEnv = ExecuteEnv.getInstance();
 
             String fullDbName = getFullDbName(dbName);
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
@@ -105,7 +101,7 @@ public class MultiAction extends RestBaseController {
             }
 
             final List<String> labels = Lists.newArrayList();
-            execEnv.getMultiLoadMgr().list(fullDbName, labels);
+            ExecuteEnv.getInstance().getMultiLoadMgr().list(fullDbName, labels);
             return new MultiLabelResult(labels);
         } catch (Exception e) {
             return new RestBaseResult(e.getMessage());
@@ -123,7 +119,6 @@ public class MultiAction extends RestBaseController {
 
         try {
             executeCheckPassword(request, response);
-            execEnv = ExecuteEnv.getInstance();
 
             String label = request.getParameter(LABEL_KEY);
             if (Strings.isNullOrEmpty(label)) {
@@ -154,7 +149,7 @@ public class MultiAction extends RestBaseController {
                     properties.put(key, value);
                 }
             }
-            execEnv.getMultiLoadMgr().startMulti(fullDbName, label, properties);
+            ExecuteEnv.getInstance().getMultiLoadMgr().startMulti(fullDbName, label, properties);
             return RestBaseResult.getOk();
         } catch (Exception e) {
             return new RestBaseResult(e.getMessage());
@@ -171,7 +166,6 @@ public class MultiAction extends RestBaseController {
 
         try {
             executeCheckPassword(request, response);
-            execEnv = ExecuteEnv.getInstance();
 
             String label = request.getParameter(LABEL_KEY);
             if (Strings.isNullOrEmpty(label)) {
@@ -191,7 +185,7 @@ public class MultiAction extends RestBaseController {
                 return redirectView;
             }
 
-            execEnv.getMultiLoadMgr().unload(fullDbName, label, subLabel);
+            ExecuteEnv.getInstance().getMultiLoadMgr().unload(fullDbName, label, subLabel);
             return RestBaseResult.getOk();
         } catch (Exception e) {
             return new RestBaseResult(e.getMessage());
@@ -209,7 +203,6 @@ public class MultiAction extends RestBaseController {
 
         try {
             executeCheckPassword(request, response);
-            execEnv = ExecuteEnv.getInstance();
 
             String label = request.getParameter(LABEL_KEY);
             if (Strings.isNullOrEmpty(label)) {
@@ -226,7 +219,7 @@ public class MultiAction extends RestBaseController {
                 return redirectView;
             }
             try {
-                execEnv.getMultiLoadMgr().commit(fullDbName, label);
+                ExecuteEnv.getInstance().getMultiLoadMgr().commit(fullDbName, label);
             } catch (Exception e) {
                 return new RestBaseResult(e.getMessage());
             }
@@ -247,7 +240,6 @@ public class MultiAction extends RestBaseController {
 
         try {
             executeCheckPassword(request, response);
-            execEnv = ExecuteEnv.getInstance();
 
             String label = request.getParameter(LABEL_KEY);
             if (Strings.isNullOrEmpty(label)) {
@@ -263,7 +255,7 @@ public class MultiAction extends RestBaseController {
                 return redirectView;
             }
 
-            execEnv.getMultiLoadMgr().abort(fullDbName, label);
+            ExecuteEnv.getInstance().getMultiLoadMgr().abort(fullDbName, label);
             return RestBaseResult.getOk();
         } catch (Exception e) {
             return new RestBaseResult(e.getMessage());

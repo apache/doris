@@ -353,17 +353,25 @@ public abstract class TestWithFeService {
         if (!file.exists()) {
             file.mkdir();
         }
+        if (null != System.getenv("DORIS_HOME")) {
+            File metaDir = new File(Config.meta_dir);
+            if (!metaDir.exists()) {
+                metaDir.mkdir();
+            }
+        }
         System.out.println("CREATE FE SERVER DIR: " + Config.custom_config_dir);
 
         int feHttpPort = findValidPort();
         int feRpcPort = findValidPort();
         int feQueryPort = findValidPort();
+        int arrowFlightSqlPort = findValidPort();
         int feEditLogPort = findValidPort();
         Map<String, String> feConfMap = Maps.newHashMap();
         // set additional fe config
         feConfMap.put("http_port", String.valueOf(feHttpPort));
         feConfMap.put("rpc_port", String.valueOf(feRpcPort));
         feConfMap.put("query_port", String.valueOf(feQueryPort));
+        feConfMap.put("arrow_flight_sql_port", String.valueOf(arrowFlightSqlPort));
         feConfMap.put("edit_log_port", String.valueOf(feEditLogPort));
         feConfMap.put("tablet_create_timeout_second", "10");
         // start fe in "DORIS_HOME/fe/mocked/"
@@ -384,7 +392,7 @@ public abstract class TestWithFeService {
             InterruptedException {
         int feRpcPort = startFEServer(runningDir);
         List<Backend> bes = Lists.newArrayList();
-        System.out.println("start create backend");
+        System.out.println("start create backend, backend num " + backendNum);
         for (int i = 0; i < backendNum; i++) {
             bes.add(createBackend("127.0.0.1", feRpcPort));
         }
@@ -443,11 +451,13 @@ public abstract class TestWithFeService {
         int beThriftPort = findValidPort();
         int beBrpcPort = findValidPort();
         int beHttpPort = findValidPort();
+        int beArrowFlightSqlPort = findValidPort();
 
         // start be
+        MockedBackendFactory.BeThriftService beThriftService = new DefaultBeThriftServiceImpl();
         MockedBackend backend = MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort,
-                beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
-                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
+                beHttpPort, beArrowFlightSqlPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort, beArrowFlightSqlPort),
+                beThriftService, new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 
@@ -458,6 +468,7 @@ public abstract class TestWithFeService {
         diskInfo1.setTotalCapacityB(1000000);
         diskInfo1.setAvailableCapacityB(500000);
         diskInfo1.setDataUsedCapacityB(480000);
+        diskInfo1.setPathHash(be.getId());
         Map<String, DiskInfo> disks = Maps.newHashMap();
         disks.put(diskInfo1.getRootPath(), diskInfo1);
         be.setDisks(ImmutableMap.copyOf(disks));
@@ -465,6 +476,8 @@ public abstract class TestWithFeService {
         be.setBePort(beThriftPort);
         be.setHttpPort(beHttpPort);
         be.setBrpcPort(beBrpcPort);
+        be.setArrowFlightSqlPort(beArrowFlightSqlPort);
+        beThriftService.setBackendInFe(be);
         Env.getCurrentSystemInfo().addBackend(be);
         return be;
     }

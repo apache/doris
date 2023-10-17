@@ -297,6 +297,7 @@ terminal String
     KW_CLUSTERS,
     KW_COLLATE,
     KW_COLLATION,
+    KW_COLOCATE,
     KW_COLUMN,
     KW_COLUMNS,
     KW_COMMENT,
@@ -304,6 +305,7 @@ terminal String
     KW_COMMITTED,
     KW_COMPACT,
     KW_COMPLETE,
+    KW_COMPRESS_TYPE,
     KW_CONFIG,
     KW_CONNECTION,
     KW_CONNECTION_ID,
@@ -527,6 +529,7 @@ terminal String
     KW_QUOTA,
     KW_RANDOM,
     KW_RANGE,
+    KW_RECENT,
     KW_READ,
     KW_REBALANCE,
     KW_RECOVER,
@@ -574,6 +577,7 @@ terminal String
     KW_SNAPSHOT,
     KW_SONAME,
     KW_SPLIT,
+    KW_SQL,
     KW_SQL_BLOCK_RULE,
     KW_START,
     KW_STARTS,    
@@ -591,6 +595,7 @@ terminal String
     KW_SYNC,
     KW_SYSTEM,
     KW_TABLE,
+    KW_TABLE_ID,
     KW_TABLES,
     KW_TABLESAMPLE,
     KW_TABLET,
@@ -738,7 +743,7 @@ nonterminal ArrayList<LiteralExpr> literal_values, args_list;
 nonterminal ArrayList<Expr> func_arg_list;
 nonterminal ArrayList<Expr> expr_pipe_list;
 nonterminal String select_alias, opt_table_alias, lock_alias, opt_alias;
-nonterminal ArrayList<String> ident_list;
+nonterminal ArrayList<String> ident_list, opt_ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
 nonterminal TableSample opt_table_sample, table_sample;
@@ -810,6 +815,7 @@ nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
 nonterminal String opt_job_starts;
 nonterminal String opt_job_ends;
+nonterminal ColocateGroupName colocate_group_name;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -904,8 +910,8 @@ nonterminal GroupByClause group_by_clause, grouping_elements;
 //
 nonterminal String keyword, ident, ident_or_text, variable_name,
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
-        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, time_unit,
-        literal_or_ident;
+        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, opt_file_compress_type,
+        time_unit, literal_or_ident;
 nonterminal PassVar text_or_password;
 
 // sync job
@@ -984,7 +990,6 @@ precedence left KW_OVER;
 precedence left KW_COLLATE;
 precedence left KW_PARTITION;
 precedence left KW_PARTITIONS;
-precedence left ARROW;
 precedence right KW_TEMPORARY;
 precedence right LBRACKET;
 precedence right LBRACE;
@@ -1342,9 +1347,17 @@ alter_stmt ::=
     {:
         RESULT = new AlterCatalogPropertyStmt(catalogName, map);
     :}
+    | KW_ALTER KW_CATALOG ident:catalogName KW_MODIFY KW_COMMENT STRING_LITERAL:comment
+    {:
+        RESULT = new AlterCatalogCommentStmt(catalogName, comment);
+    :}
     | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
+    :}
+    | KW_ALTER KW_COLOCATE KW_GROUP colocate_group_name:colocateGroupName KW_SET LPAREN key_value_map:properties RPAREN
+    {:
+        RESULT = new AlterColocateGroupStmt(colocateGroupName, properties);
     :}
     | KW_ALTER KW_WORKLOAD KW_GROUP ident_or_text:workloadGroupName opt_properties:properties
     {:
@@ -1834,7 +1847,7 @@ create_stmt ::=
         RESULT = new CreateFunctionStmt(type, ifNotExists, isAggregate, functionName, args, returnType, intermediateType, properties);
     :}
     | KW_CREATE opt_var_type:type KW_ALIAS KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
-            KW_WITH KW_PARAMETER LPAREN ident_list:parameters RPAREN KW_AS expr:func
+            KW_WITH KW_PARAMETER LPAREN opt_ident_list:parameters RPAREN KW_AS expr:func
     {:
         RESULT = new CreateFunctionStmt(type, ifNotExists, functionName, args, parameters, func);
     :}
@@ -2433,6 +2446,7 @@ data_desc ::=
     opt_field_term:colSep
     opt_line_term:lineDelimiter
     opt_file_format:fileFormat
+    opt_file_compress_type:fileCompressType
     opt_col_list:colList
     opt_columns_from_path:columnsFromPath
     opt_col_mapping_list:colMappingList
@@ -2442,7 +2456,7 @@ data_desc ::=
     sequence_col_clause:sequenceColName
     opt_properties:properties
     {:
-        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, lineDelimiter, fileFormat,
+        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, lineDelimiter, fileFormat, fileCompressType,
         columnsFromPath, isNeg, colMappingList, preFilterExpr, whereExpr, mergeType, deleteExpr, sequenceColName, properties);
     :}
     | opt_merge_type:mergeType KW_DATA KW_FROM KW_TABLE ident:srcTableName
@@ -2547,6 +2561,13 @@ opt_file_format ::=
     {: RESULT = null; :}
     | KW_FORMAT KW_AS ident_or_text:format
     {: RESULT = format; :}
+    ;
+
+opt_file_compress_type ::=
+    /* Empty */
+    {: RESULT = null; :}
+    | KW_COMPRESS_TYPE KW_AS ident_or_text:compress_type
+    {: RESULT = compress_type; :}
     ;
 
 opt_columns_from_path ::=
@@ -3238,6 +3259,15 @@ opt_partition ::=
         exprs.add(fnExpr);
         RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
     :}
+    | KW_AUTO KW_PARTITION KW_BY KW_RANGE function_name:functionName LPAREN expr_list:l COMMA
+        KW_INTERVAL expr:v ident:u RPAREN LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        Expr fnExpr = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u); 
+        ArrayList<Expr> exprs = new ArrayList<Expr>();
+        exprs.add(fnExpr);
+        RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
+    :}
+
     /* expr list partition */
     | KW_AUTO KW_PARTITION KW_BY KW_LIST LPAREN expr_list:exprs RPAREN
             LPAREN opt_all_partition_desc_list:list RPAREN
@@ -4237,13 +4267,17 @@ show_param ::=
         RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
     :}
     /* show analyze job */
-    | KW_ANALYZE opt_table_name:tbl opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    | KW_ANALYZE opt_table_name:tbl opt_wild_where
     {:
-        RESULT = new ShowAnalyzeStmt(tbl, parser.where, orderByClause, limitClause);
+        RESULT = new ShowAnalyzeStmt(tbl, parser.where, false);
     :}
-    | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where
     {:
-        RESULT = new ShowAnalyzeStmt(jobId, parser.where, orderByClause, limitClause);
+        RESULT = new ShowAnalyzeStmt(jobId, parser.where);
+    :}
+    | KW_AUTO KW_ANALYZE opt_table_name:tbl opt_wild_where
+    {:
+        RESULT = new ShowAnalyzeStmt(tbl, parser.where, true);
     :}
     | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
     {:
@@ -4808,7 +4842,7 @@ insert_stmt ::=
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
     | /* used for group commit */
-    KW_INSERT KW_INTO INTEGER_LITERAL:table_id opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
+    KW_INSERT KW_INTO KW_TABLE_ID LPAREN INTEGER_LITERAL:table_id RPAREN opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
         RESULT = new NativeInsertStmt(table_id, label, cols, source, hints);
     :}
@@ -5629,6 +5663,17 @@ table_name ::=
     {: RESULT = new TableName(ctl, db, tbl); :}
     ;
 
+colocate_group_name ::=
+    ident:group
+    {:
+        RESULT = new ColocateGroupName(null, group);
+    :}
+    | ident:db DOT ident:group
+    {:
+        RESULT = new ColocateGroupName(db, group);
+    :}
+    ;
+
 encryptkey_name ::=
     ident:name
     {:
@@ -5876,6 +5921,14 @@ partition_names ::=
     {:
         RESULT = new PartitionNames(true, Lists.newArrayList(partName));
     :}
+    | KW_PARTITIONS LPAREN STAR RPAREN
+    {:
+        RESULT = new PartitionNames(true);
+    :}
+    | KW_PARTITIONS KW_WITH KW_RECENT INTEGER_LITERAL:count
+    {:
+        RESULT = new PartitionNames(count);
+    :}
     ;
 
 opt_table_sample ::=
@@ -6025,6 +6078,16 @@ ident_list ::=
     :}
     ;
 
+opt_ident_list ::=
+    {:
+        RESULT = Lists.newArrayList();
+    :}
+    | ident_list:list
+    {:
+        RESULT = list;
+    :}
+    ;
+
 with_analysis_properties ::=
     KW_SYNC
     {:
@@ -6074,6 +6137,19 @@ with_analysis_properties ::=
             put("period.cron", cron_expr);
         }};
     :}
+    | KW_FULL
+    {:
+        RESULT = new HashMap<String, String>() {{
+             put(AnalyzeProperties.PROPERTY_FORCE_FULL, "true");
+        }};
+    :}
+    | KW_SQL
+    {:
+        RESULT = new HashMap<String, String>() {{
+             put(AnalyzeProperties.PROPERTY_PARTITION_COLUMN_FROM_SQL, "true");
+        }};
+    :}
+
     ;
 
 opt_with_analysis_properties ::=
@@ -6412,7 +6488,8 @@ type_def_nullable_list ::=
 
 
 func_args_def ::=
-  type_def_list:argTypes
+  {: RESULT = new FunctionArgsDef(Lists.newArrayList(), false); :}
+  | type_def_list:argTypes
   {:
     RESULT = new FunctionArgsDef(argTypes, false);
   :}
@@ -6682,13 +6759,6 @@ non_pred_expr ::=
   | expr_pipe_list:exprs
   {:
     RESULT = new FunctionCallExpr("concat", exprs);
-  :}
-  | expr:e ARROW expr:index
-  {: 
-    ArrayList<Expr> exprs = new ArrayList<>();
-    exprs.add(e);
-    exprs.add(index);
-    RESULT = new FunctionCallExpr("json_extract", new FunctionParams(exprs)); 
   :}
   | cast_expr:c
   {: RESULT = c; :}
@@ -7213,6 +7283,10 @@ admin_stmt ::=
     | KW_ADMIN KW_SET KW_REPLICA KW_STATUS KW_PROPERTIES LPAREN key_value_map:prop RPAREN
     {:
         RESULT = new AdminSetReplicaStatusStmt(prop);
+    :}
+    | KW_ADMIN KW_SET KW_REPLICA KW_VERSION KW_PROPERTIES LPAREN key_value_map:prop RPAREN
+    {:
+        RESULT = new AdminSetReplicaVersionStmt(prop);
     :}
     | KW_ADMIN KW_REPAIR KW_TABLE base_table_ref:table_ref
     {:

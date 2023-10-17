@@ -22,16 +22,24 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundType;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameUnitsType;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
+
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * interface for LogicalWindow and PhysicalWindow
@@ -86,4 +94,30 @@ public interface Window {
         }
     }
 
+    /**
+     *
+     * select rank() over (partition by A, B) as r, sum(x) over(A, C) as s from T;
+     * A is a common partition key for all windowExpressions.
+     * for a common Partition key A, we could push filter A=1 through this window.
+     */
+    default Set<SlotReference> getCommonPartitionKeyFromWindowExpressions() {
+        ImmutableSet.Builder<SlotReference> commonPartitionKeySet = ImmutableSet.builder();
+        Map<Expression, Integer> partitionKeyCount = Maps.newHashMap();
+        for (Expression expr : getWindowExpressions()) {
+            if (expr instanceof Alias && expr.child(0) instanceof WindowExpression) {
+                WindowExpression winExpr = (WindowExpression) expr.child(0);
+                for (Expression partitionKey : winExpr.getPartitionKeys()) {
+                    int count = partitionKeyCount.getOrDefault(partitionKey, 0);
+                    partitionKeyCount.put(partitionKey, count + 1);
+                }
+            }
+        }
+        int winExprCount = getWindowExpressions().size();
+        for (Map.Entry<Expression, Integer> entry : partitionKeyCount.entrySet()) {
+            if (entry.getValue() == winExprCount && entry.getKey() instanceof SlotReference) {
+                commonPartitionKeySet.add((SlotReference) entry.getKey());
+            }
+        }
+        return commonPartitionKeySet.build();
+    }
 }

@@ -35,7 +35,7 @@
 namespace doris {
 namespace io {
 
-class IOContext;
+struct IOContext;
 
 class BrokerFileReader : public FileReader {
 public:

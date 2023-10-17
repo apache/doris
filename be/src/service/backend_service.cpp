@@ -29,6 +29,7 @@
 #include <gen_cpp/Types_types.h>
 #include <sys/types.h>
 #include <thrift/concurrency/ThreadFactory.h>
+#include <thrift/protocol/TDebugProtocol.h>
 #include <time.h>
 
 #include <map>
@@ -222,7 +223,8 @@ int64_t BackendService::get_trash_used_capacity() {
     int64_t result = 0;
 
     std::vector<DataDirInfo> data_dir_infos;
-    StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
+    static_cast<void>(StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos,
+                                                                       false /*do not update */));
 
     // uses excute sql `show trash`, then update backend trash capacity too.
     StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
@@ -236,7 +238,8 @@ int64_t BackendService::get_trash_used_capacity() {
 
 void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {
     std::vector<DataDirInfo> data_dir_infos;
-    StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
+    static_cast<void>(StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos,
+                                                                       false /*do not update */));
 
     // uses excute sql `show trash on <be>`, then update backend trash capacity too.
     StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
@@ -272,7 +275,7 @@ void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParam
     TStatus t_status;
     TUniqueId fragment_instance_id = generate_uuid();
     std::shared_ptr<ScanContext> p_context;
-    _exec_env->external_scan_context_mgr()->create_scan_context(&p_context);
+    static_cast<void>(_exec_env->external_scan_context_mgr()->create_scan_context(&p_context));
     p_context->fragment_instance_id = fragment_instance_id;
     p_context->offset = 0;
     p_context->last_access_time = time(nullptr);
@@ -380,8 +383,9 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
 }
 
 void BackendService::clean_trash() {
-    StorageEngine::instance()->start_trash_sweep(nullptr, true);
-    StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
+    static_cast<void>(StorageEngine::instance()->start_trash_sweep(nullptr, true));
+    static_cast<void>(StorageEngine::instance()->notify_listener(
+            TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE));
 }
 
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
@@ -390,9 +394,15 @@ void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
 
 void BackendService::ingest_binlog(TIngestBinlogResult& result,
                                    const TIngestBinlogRequest& request) {
+    LOG(INFO) << "ingest binlog. request: " << apache::thrift::ThriftDebugString(request);
+
     constexpr uint64_t kMaxTimeoutMs = 1000;
+
     TStatus tstatus;
-    Defer defer {[&result, &tstatus]() { result.__set_status(tstatus); }};
+    Defer defer {[&result, &tstatus]() {
+        result.__set_status(tstatus);
+        LOG(INFO) << "ingest binlog. result: " << apache::thrift::ThriftDebugString(result);
+    }};
 
     auto set_tstatus = [&tstatus](TStatusCode::type code, std::string error_msg) {
         tstatus.__set_status_code(code);
@@ -401,9 +411,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     };
 
     if (!config::enable_feature_binlog) {
-        auto error_msg = "enable feature binlog is false";
-        LOG(WARNING) << error_msg;
-        set_tstatus(TStatusCode::RUNTIME_ERROR, error_msg);
+        set_tstatus(TStatusCode::RUNTIME_ERROR, "enable feature binlog is false");
         return;
     }
 
@@ -545,6 +553,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     }
     RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
     rowset_meta->set_rowset_id(new_rowset_id);
+    rowset_meta->set_tablet_uid(local_tablet->tablet_uid());
 
     // Step 5: get all segment files
     // Step 5.1: get all segment files size
@@ -682,18 +691,18 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             }
         }
 
-        local_tablet->commit_phase_update_delete_bitmap(rowset, pre_rowset_ids, delete_bitmap,
-                                                        segments, txn_id,
-                                                        calc_delete_bitmap_token.get(), nullptr);
-        calc_delete_bitmap_token->wait();
-        calc_delete_bitmap_token->get_delete_bitmap(delete_bitmap);
+        static_cast<void>(local_tablet->commit_phase_update_delete_bitmap(
+                rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
+                calc_delete_bitmap_token.get(), nullptr));
+        static_cast<void>(calc_delete_bitmap_token->wait());
+        static_cast<void>(calc_delete_bitmap_token->get_delete_bitmap(delete_bitmap));
     }
 
     // Step 6.3: commit txn
     Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
             local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
             rowset_meta->txn_id(), rowset_meta->tablet_id(), local_tablet->tablet_uid(),
-            rowset_meta->load_id(), rowset, true);
+            rowset_meta->load_id(), rowset, false);
     if (!commit_txn_status && !commit_txn_status.is<ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST>()) {
         auto err_msg = fmt::format(
                 "failed to commit txn for remote tablet. rowset_id: {}, remote_tablet_id={}, "
@@ -708,7 +717,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     if (local_tablet->enable_unique_key_merge_on_write()) {
         StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
                 partition_id, txn_id, local_tablet_id, local_tablet->tablet_uid(), true,
-                delete_bitmap, pre_rowset_ids);
+                delete_bitmap, pre_rowset_ids, nullptr);
     }
 
     tstatus.__set_status_code(TStatusCode::OK);

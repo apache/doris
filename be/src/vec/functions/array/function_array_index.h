@@ -70,7 +70,7 @@ struct ArrayCountEqual {
     static constexpr void apply(ResultType& current, size_t j) noexcept { ++current; }
 };
 
-template <typename ConcreteAction>
+template <typename ConcreteAction, bool OldVersion = false>
 class FunctionArrayIndex : public IFunction {
 public:
     using ResultType = typename ConcreteAction::ResultType;
@@ -88,19 +88,27 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        // DCHECK(is_array(arguments[0]));
-        return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
+        if constexpr (OldVersion) {
+            return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
+        } else {
+            if (arguments[0]->is_nullable()) {
+                return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
+            } else {
+                return std::make_shared<DataTypeNumber<ResultType>>();
+            }
+        }
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
-        return _execute_non_nullable(block, arguments, result, input_rows_count);
+                        size_t result, size_t input_rows_count) const override {
+        return _execute_dispatch(block, arguments, result, input_rows_count);
     }
 
 private:
     ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const UInt8* nested_null_map,
                               const IColumn& nested_column, const IColumn& right_column,
-                              const UInt8* right_nested_null_map, const UInt8* outer_null_map) {
+                              const UInt8* right_nested_null_map,
+                              const UInt8* outer_null_map) const {
         // check array nested column type and get data
         const auto& str_offs = reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
         const auto& str_chars = reinterpret_cast<const ColumnString&>(nested_column).get_chars();
@@ -159,13 +167,21 @@ private:
             }
             dst_data[row] = res;
         }
-        return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+        if constexpr (OldVersion) {
+            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+        } else {
+            if (outer_null_map == nullptr) {
+                return dst;
+            }
+            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+        }
     }
 
     template <typename NestedColumnType, typename RightColumnType>
     ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const UInt8* nested_null_map,
                               const IColumn& nested_column, const IColumn& right_column,
-                              const UInt8* right_nested_null_map, const UInt8* outer_null_map) {
+                              const UInt8* right_nested_null_map,
+                              const UInt8* outer_null_map) const {
         // check array nested column type and get data
         const auto& nested_data =
                 reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
@@ -215,7 +231,14 @@ private:
             }
             dst_data[row] = res;
         }
-        return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+        if constexpr (OldVersion) {
+            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+        } else {
+            if (outer_null_map == nullptr) {
+                return dst;
+            }
+            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+        }
     }
 
     template <typename NestedColumnType>
@@ -223,7 +246,7 @@ private:
                                        const UInt8* nested_null_map, const IColumn& nested_column,
                                        const IColumn& right_column,
                                        const UInt8* right_nested_null_map,
-                                       const UInt8* outer_null_map) {
+                                       const UInt8* outer_null_map) const {
         if (check_column<NestedColumnType>(right_column)) {
             return _execute_number<NestedColumnType, NestedColumnType>(
                     offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
@@ -232,11 +255,15 @@ private:
         return nullptr;
     }
 
-    Status _execute_non_nullable(Block& block, const ColumnNumbers& arguments, size_t result,
-                                 size_t input_rows_count) {
+    Status _execute_dispatch(Block& block, const ColumnNumbers& arguments, size_t result,
+                             size_t input_rows_count) const {
         // extract array offsets and nested data
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        if (!is_array(remove_nullable(block.get_by_position(arguments[0]).type))) {
+            return Status::InvalidArgument(get_name() + " first argument must be array, but got " +
+                                           block.get_by_position(arguments[0]).type->get_name());
+        }
         const ColumnArray* array_column = nullptr;
         const UInt8* array_null_map = nullptr;
         if (left_column->is_nullable()) {

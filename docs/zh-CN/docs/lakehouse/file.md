@@ -193,3 +193,9 @@ FROM s3(
     "use_path_style" = "true");
 ```    
 
+### 注意事项
+
+1. 如果 `S3 / hdfs` tvf指定的uri匹配不到文件，或者匹配到的所有文件都是空文件，那么 `S3 / hdfs` tvf将会返回空结果集。在这种情况下使用`DESC FUNCTION`查看这个文件的Schema，会得到一列虚假的列`__dummy_col`，可忽略这一列。
+
+2. 如果指定tvf的format为csv，所读文件不为空文件但文件第一行为空，则会提示错误`The first line is empty, can not parse column numbers`, 这因为无法通过该文件的第一行解析出schema。
+

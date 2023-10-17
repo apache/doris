@@ -130,8 +130,8 @@ suite("test_spark_load", "p0") {
 
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     if (enableHdfs()) {
-        def hdfs_txt_file_path1 = uploadToHdfs "spark_load/all_types1.txt"
-        def hdfs_txt_file_path2 = uploadToHdfs "spark_load/all_types2.txt"
+        def hdfs_txt_file_path1 = uploadToHdfs "load_p0/spark_load/all_types1.txt"
+        def hdfs_txt_file_path2 = uploadToHdfs "load_p0/spark_load/all_types2.txt"
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
             sql "DROP TABLE IF EXISTS ${testTable2}"

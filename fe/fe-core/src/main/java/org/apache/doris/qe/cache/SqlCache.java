@@ -55,6 +55,10 @@ public class SqlCache extends Cache {
         return cacheKey;
     }
 
+    public long getLatestTime() {
+        return latestTable.latestTime;
+    }
+
     public long getSumOfPartitionNum() {
         return latestTable.sumOfPartitionNum;
     }
@@ -117,3 +121,4 @@ public class SqlCache extends Cache {
         }
     }
 }
+

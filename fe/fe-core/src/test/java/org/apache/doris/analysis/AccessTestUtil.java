@@ -418,6 +418,10 @@ public class AccessTestUtil {
                     env.getCatalogMgr();
                     minTimes = 0;
                     result = ctlMgr;
+
+                    env.isCheckpointThread();
+                    minTimes = 0;
+                    result = false;
                 }
             };
             return env;

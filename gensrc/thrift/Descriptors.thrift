@@ -60,6 +60,8 @@ struct TSlotDescriptor {
   // materialize them.Used to optmize to read less data and less memory usage
   13: optional bool need_materialize = true
   14: optional bool is_auto_increment = false;
+  // subcolumn path info list for semi structure column(variant)
+  15: optional list<string> column_paths
 }
 
 struct TTupleDescriptor {
@@ -174,6 +176,8 @@ struct TOlapTablePartition {
     9: optional bool is_mutable = true
     // only used in List Partition
     10: optional bool is_default_partition;
+    // only used in load_to_single_tablet
+    11: optional i64 load_tablet_idx
 }
 
 struct TOlapTablePartitionParam {

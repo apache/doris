@@ -83,7 +83,7 @@ public:
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
         _data_dir = std::make_unique<DataDir>(absolute_dir);
-        _data_dir->update_capacity();
+        static_cast<void>(_data_dir->update_capacity());
 
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
@@ -236,11 +236,11 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
     fetch_expired_row_rs_meta(&expired_rs_metas);
 
     for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
     }
 
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
-    _tablet->init();
+    static_cast<void>(_tablet->init());
 
     for (auto ptr : expired_rs_metas) {
         for (auto rs : *ptr) {
@@ -272,12 +272,12 @@ TEST_F(TestTablet, pad_rowset) {
     RowsetSharedPtr rowset3 = make_shared<BetaRowset>(nullptr, "", ptr3);
 
     for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
     }
 
-    _data_dir->init();
+    static_cast<void>(_data_dir->init());
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, _data_dir.get()));
-    _tablet->init();
+    static_cast<void>(_tablet->init());
 
     Version version(5, 5);
     std::vector<RowSetSplits> splits;
@@ -285,7 +285,7 @@ TEST_F(TestTablet, pad_rowset) {
     splits.clear();
 
     PadRowsetAction action(nullptr, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN);
-    action._pad_rowset(_tablet, version);
+    static_cast<void>(action._pad_rowset(_tablet, version));
     ASSERT_TRUE(_tablet->capture_rs_readers(version, &splits).ok());
 }
 
@@ -317,11 +317,11 @@ TEST_F(TestTablet, cooldown_policy) {
     RowsetSharedPtr rowset5 = make_shared<BetaRowset>(nullptr, "", ptr5);
 
     for (auto& rowset : rs_metas) {
-        _tablet_meta->add_rs_meta(rowset);
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
     }
 
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
-    _tablet->init();
+    static_cast<void>(_tablet->init());
     constexpr int64_t storage_policy_id = 10000;
     _tablet->set_storage_policy_id(storage_policy_id);
 

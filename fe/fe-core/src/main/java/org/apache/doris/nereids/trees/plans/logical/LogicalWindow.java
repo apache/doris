@@ -19,11 +19,9 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
@@ -38,14 +36,10 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * logical node to deal with window functions;
@@ -229,32 +223,5 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 partitionLimit, child(0)));
 
         return Optional.ofNullable(window);
-    }
-
-    /**
-     *
-     * select rank() over (partition by A, B) as r, sum(x) over(A, C) as s from T;
-     * A is a common partition key for all windowExpressions.
-     * for a common Partition key A, we could push filter A=1 through this window.
-     */
-    public Set<SlotReference> getCommonPartitionKeyFromWindowExpressions() {
-        ImmutableSet.Builder<SlotReference> commonPartitionKeySet = ImmutableSet.builder();
-        Map<Expression, Integer> partitionKeyCount = Maps.newHashMap();
-        for (Expression expr : windowExpressions) {
-            if (expr instanceof Alias && expr.child(0) instanceof WindowExpression) {
-                WindowExpression winExpr = (WindowExpression) expr.child(0);
-                for (Expression partitionKey : winExpr.getPartitionKeys()) {
-                    int count = partitionKeyCount.getOrDefault(partitionKey, 0);
-                    partitionKeyCount.put(partitionKey, count + 1);
-                }
-            }
-        }
-        int winExprCount = windowExpressions.size();
-        for (Map.Entry<Expression, Integer> entry : partitionKeyCount.entrySet()) {
-            if (entry.getValue() == winExprCount && entry.getKey() instanceof SlotReference) {
-                commonPartitionKeySet.add((SlotReference) entry.getKey());
-            }
-        }
-        return commonPartitionKeySet.build();
     }
 }

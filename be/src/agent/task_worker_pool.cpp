@@ -221,10 +221,10 @@ void TaskWorkerPool::start() {
     CHECK(_thread_model == ThreadModel::MULTI_THREADS || _worker_count == 1);
 
 #ifndef BE_TEST
-    ThreadPoolBuilder(_name)
-            .set_min_threads(_worker_count)
-            .set_max_threads(_worker_count)
-            .build(&_thread_pool);
+    static_cast<void>(ThreadPoolBuilder(_name)
+                              .set_min_threads(_worker_count)
+                              .set_max_threads(_worker_count)
+                              .build(&_thread_pool));
 
     for (int i = 0; i < _worker_count; i++) {
         auto st = _thread_pool->submit_func(_cb);
@@ -663,7 +663,8 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
         request.__isset.disks = true;
 
         std::vector<DataDirInfo> data_dir_infos;
-        StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, true /* update */);
+        static_cast<void>(StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos,
+                                                                           true /* update */));
 
         for (auto& root_path_info : data_dir_infos) {
             TDisk disk;
@@ -720,8 +721,9 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
         request.__isset.tablets = true;
 
         uint64_t report_version = _s_report_version;
-        StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
-                &request.tablets);
+        static_cast<void>(
+                StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
+                        &request.tablets));
         if (report_version < _s_report_version) {
             // TODO llj This can only reduce the possibility for report error, but can't avoid it.
             // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
@@ -1525,17 +1527,21 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
         DorisMetrics::instance()->publish_task_request_total->increment(1);
         VLOG_NOTICE << "get publish version task. signature=" << agent_task_req.signature;
 
-        std::vector<TTabletId> error_tablet_ids;
-        std::vector<TTabletId> succ_tablet_ids;
+        std::set<TTabletId> error_tablet_ids;
+        std::map<TTabletId, TVersion> succ_tablets;
         // partition_id, tablet_id, publish_version
         std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
+        std::map<TTableId, int64_t> table_id_to_num_delta_rows;
         uint32_t retry_time = 0;
         Status status;
         bool is_task_timeout = false;
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
+            succ_tablets.clear();
             error_tablet_ids.clear();
+            table_id_to_num_delta_rows.clear();
             EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids,
-                                                 &succ_tablet_ids, &discontinuous_version_tablets);
+                                                 &succ_tablets, &discontinuous_version_tablets,
+                                                 &table_id_to_num_delta_rows);
             status = StorageEngine::instance()->execute_task(&engine_task);
             if (status.ok()) {
                 break;
@@ -1584,25 +1590,22 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     .tag("transaction_id", publish_version_req.transaction_id)
                     .tag("error_tablets_num", error_tablet_ids.size())
                     .error(status);
-            finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
             if (!config::disable_auto_compaction &&
                 !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
-                for (int i = 0; i < succ_tablet_ids.size(); i++) {
+                for (auto [tablet_id, _] : succ_tablets) {
                     TabletSharedPtr tablet =
-                            StorageEngine::instance()->tablet_manager()->get_tablet(
-                                    succ_tablet_ids[i]);
+                            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
                     if (tablet != nullptr) {
                         tablet->publised_count++;
                         if (tablet->publised_count % 10 == 0) {
-                            StorageEngine::instance()->submit_compaction_task(
-                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
-                            LOG(INFO) << "trigger compaction succ, tabletid:" << succ_tablet_ids[i]
+                            static_cast<void>(StorageEngine::instance()->submit_compaction_task(
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true));
+                            LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
                                       << ", publised:" << tablet->publised_count;
                         }
                     } else {
-                        LOG(WARNING)
-                                << "trigger compaction failed, tabletid:" << succ_tablet_ids[i];
+                        LOG(WARNING) << "trigger compaction failed, tablet_id:" << tablet_id;
                     }
                 }
             }
@@ -1611,7 +1614,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
             LOG_INFO("successfully publish version")
                     .tag("signature", agent_task_req.signature)
                     .tag("transaction_id", publish_version_req.transaction_id)
-                    .tag("tablets_num", succ_tablet_ids.size())
+                    .tag("tablets_num", succ_tablets.size())
                     .tag("cost(s)", cost_second);
         }
 
@@ -1620,8 +1623,10 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_report_version(_s_report_version);
-        finish_task_request.__set_error_tablet_ids(error_tablet_ids);
-
+        finish_task_request.__set_succ_tablets(succ_tablets);
+        finish_task_request.__set_error_tablet_ids(
+                std::vector<TTabletId>(error_tablet_ids.begin(), error_tablet_ids.end()));
+        finish_task_request.__set_table_id_to_delta_num_rows(table_id_to_num_delta_rows);
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }

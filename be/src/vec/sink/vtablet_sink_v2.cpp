@@ -64,7 +64,7 @@
 namespace doris {
 class TExpr;
 
-namespace stream_load {
+namespace vectorized {
 
 VOlapTableSinkV2::VOlapTableSinkV2(ObjectPool* pool, const RowDescriptor& row_desc,
                                    const std::vector<TExpr>& texprs, Status* status)
@@ -84,6 +84,7 @@ Status VOlapTableSinkV2::init(const TDataSink& t_sink) {
     _txn_id = table_sink.txn_id;
     _num_replicas = table_sink.num_replicas;
     _tuple_desc_id = table_sink.tuple_id;
+    _write_file_cache = table_sink.write_file_cache;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
@@ -175,18 +176,8 @@ Status VOlapTableSinkV2::_open_streams(int64_t src_id) {
             return Status::InternalError("Unknown node {} in tablet location", dst_id);
         }
         std::shared_ptr<Streams> streams;
-        if (config::share_load_streams) {
-            streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                    _load_id, src_id, dst_id);
-        } else {
-            int32_t num_streams = std::max(1, config::num_streams_per_sink);
-            streams = std::make_shared<Streams>();
-            LoadStreamStub template_stub {_load_id, _sender_id};
-            for (int32_t i = 0; i < num_streams; i++) {
-                // copy construct, internal tablet schema map will be shared among all stubs
-                streams->emplace_back(new LoadStreamStub {template_stub});
-            }
-        }
+        streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(_load_id, src_id,
+                                                                                 dst_id);
         // get tablet schema from each backend only in the 1st stream
         for (auto& stream : *streams | std::ranges::views::take(1)) {
             const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
@@ -253,7 +244,7 @@ Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, Streams& streams) {
     for (auto& node_id : location->node_ids) {
         streams.emplace_back(_streams_for_node[node_id]->at(_stream_index));
     }
-    _stream_index = (_stream_index + 1) % config::num_streams_per_sink;
+    _stream_index = (_stream_index + 1) % config::num_streams_per_load;
     return Status::OK();
 }
 
@@ -282,7 +273,7 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
-            state, input_block, block, _output_vexpr_ctxs, input_rows, eos, has_filtered_rows));
+            state, input_block, block, _output_vexpr_ctxs, input_rows, has_filtered_rows));
 
     // clear and release the references of columns
     input_block->clear();
@@ -324,15 +315,17 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
                                          int64_t tablet_id, const Rows& rows,
                                          const Streams& streams) {
     DeltaWriterV2* delta_writer = _delta_writer_for_tablet->get_or_create(tablet_id, [&]() {
-        WriteRequest req;
-        req.partition_id = rows.partition_id;
-        req.index_id = rows.index_id;
-        req.tablet_id = tablet_id;
-        req.txn_id = _txn_id;
-        req.load_id = _load_id;
-        req.tuple_desc = _output_tuple_desc;
-        req.is_high_priority = _is_high_priority;
-        req.table_schema_param = _schema.get();
+        WriteRequest req {
+                .tablet_id = tablet_id,
+                .txn_id = _txn_id,
+                .index_id = rows.index_id,
+                .partition_id = rows.partition_id,
+                .load_id = _load_id,
+                .tuple_desc = _output_tuple_desc,
+                .table_schema_param = _schema.get(),
+                .is_high_priority = _is_high_priority,
+                .write_file_cache = _write_file_cache,
+        };
         for (auto& index : _schema->indexes()) {
             if (index->index_id == rows.index_id) {
                 req.slots = &index->slots;
@@ -341,7 +334,7 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
             }
         }
         DeltaWriterV2* delta_writer = nullptr;
-        DeltaWriterV2::open(&req, streams, &delta_writer, _profile);
+        static_cast<void>(DeltaWriterV2::open(&req, streams, &delta_writer, _profile));
         return delta_writer;
     });
     {
@@ -385,7 +378,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            _delta_writer_for_tablet->close();
+            static_cast<void>(_delta_writer_for_tablet->close());
             _delta_writer_for_tablet.reset();
         }
 
@@ -400,7 +393,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             SCOPED_TIMER(_close_load_timer);
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : *streams) {
-                    stream->close_wait();
+                    static_cast<void>(stream->close_wait());
                 }
             }
         }
@@ -433,11 +426,11 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id;
     } else {
-        _cancel(status);
+        static_cast<void>(_cancel(status));
     }
 
     _close_status = status;
-    DataSink::close(state, exec_status);
+    static_cast<void>(DataSink::close(state, exec_status));
     return status;
 }
 
@@ -455,5 +448,5 @@ Status VOlapTableSinkV2::_close_load(const Streams& streams) {
     return Status::OK();
 }
 
-} // namespace stream_load
+} // namespace vectorized
 } // namespace doris

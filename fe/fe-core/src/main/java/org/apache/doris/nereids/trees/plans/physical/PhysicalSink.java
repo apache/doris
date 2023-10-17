@@ -20,21 +20,38 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ImmutableList;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /** abstract physical sink */
 public abstract class PhysicalSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
+
+    protected final List<NamedExpression> outputExprs;
+
     public PhysicalSink(PlanType type,
+            List<NamedExpression> outputExprs,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
             @Nullable PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
         super(type, groupExpression, logicalProperties, physicalProperties, statistics, child);
+        this.outputExprs = ImmutableList.copyOf(Objects.requireNonNull(outputExprs, "outputExprs should not null"));
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return outputExprs.stream()
+                .map(NamedExpression::toSlot)
+                .collect(ImmutableList.toImmutableList());
     }
 }

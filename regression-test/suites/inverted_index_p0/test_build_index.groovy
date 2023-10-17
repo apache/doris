@@ -75,6 +75,22 @@ suite("test_build_index", "inverted_index"){
         return "wait_timeout"
     }
 
+    def wait_for_last_build_index_on_table_running = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
+
+            def last_job_state = alter_res[alter_res.size()-1][7];
+            if (last_job_state == "RUNNING") {
+                logger.info(table_name + " last index job running, state: " + last_job_state + ", detail: " + alter_res)
+                return last_job_state;
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_finish timeout")
+        return "wait_timeout"
+    }
+
     def tableName = "hackernews_1m"
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -138,17 +154,20 @@ suite("test_build_index", "inverted_index"){
 
     sql "sync"
 
+    // ADD INDEX
     sql """ ALTER TABLE ${tableName} ADD INDEX idx_comment (`comment`) USING INVERTED PROPERTIES("parser" = "english") """
 
+    wait_for_latest_op_on_table_finish(tableName, timeout)
+
+    // BUILD INDEX and expect state is RUNNING
     sql """ BUILD INDEX idx_comment ON ${tableName} """
-
-    sleep(1000)
-
+    def state = wait_for_last_build_index_on_table_running(tableName, timeout)
     def result = sql """ SHOW BUILD INDEX WHERE TableName = "${tableName}" ORDER BY JobId """
     assertEquals(result[result.size()-1][1], tableName)
     assertTrue(result[result.size()-1][3].contains("ADD INDEX"))
     assertEquals(result[result.size()-1][7], "RUNNING")
 
+    // CANCEL BUILD INDEX and expect state is CANCELED
     sql """ CANCEL BUILD INDEX ON ${tableName} (${result[result.size()-1][0]}) """
     result = sql """ SHOW BUILD INDEX WHERE TableName = "${tableName}" ORDER BY JobId """
     assertEquals(result[result.size()-1][1], tableName)
@@ -156,11 +175,12 @@ suite("test_build_index", "inverted_index"){
     assertEquals(result[result.size()-1][7], "CANCELLED")
     assertEquals(result[result.size()-1][8], "user cancelled")
 
-
+    // BUILD INDEX and expect state is FINISHED
     sql """ BUILD INDEX idx_comment ON ${tableName}; """
-    def state = wait_for_last_build_index_on_table_finish(tableName, timeout)
+    state = wait_for_last_build_index_on_table_finish(tableName, timeout)
     assertEquals(state, "FINISHED")
 
+    // CANCEL BUILD INDEX in FINISHED state and expect exception
     def success = false;
     try {
         sql """ CANCEL BUILD INDEX ON ${tableName}; """
@@ -169,4 +189,9 @@ suite("test_build_index", "inverted_index"){
         logger.info(" CANCEL BUILD INDEX ON ${tableName} exception: " + ex)
     }
     assertFalse(success)
+
+    // BUILD INDEX again and expect state is FINISHED
+    sql """ BUILD INDEX idx_comment ON ${tableName}; """
+    state = wait_for_last_build_index_on_table_finish(tableName, timeout)
+    assertEquals(state, "FINISHED")
 }

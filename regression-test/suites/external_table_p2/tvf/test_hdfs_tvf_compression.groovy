@@ -30,7 +30,6 @@ suite("test_hdfs_tvf_compression", "p2,external,tvf,external_remote,external_rem
         qt_gz_1 """
         select ${select_field} from HDFS(
             "uri" = "${baseUri}/dt=gzip/000000_0.gz",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
             "column_separator" = '\001',
@@ -40,7 +39,6 @@ suite("test_hdfs_tvf_compression", "p2,external,tvf,external_remote,external_rem
         qt_gz_2 """
         desc function HDFS(
             "uri" = "${baseUri}/dt=gzip/000000_0.gz",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
             "column_separator" = '\001',
@@ -52,7 +50,6 @@ suite("test_hdfs_tvf_compression", "p2,external,tvf,external_remote,external_rem
         select ${select_field} from 
         HDFS(
             "uri" = "${baseUri}/dt=bzip2/000000_0.bz2",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
             "column_separator" = '\001',
@@ -64,7 +61,6 @@ suite("test_hdfs_tvf_compression", "p2,external,tvf,external_remote,external_rem
         select ${select_field} from         
         HDFS(
             "uri" = "${baseUri}/dt=deflate/000000_0_copy_1.deflate",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
             "column_separator" = '\001',
@@ -75,7 +71,6 @@ suite("test_hdfs_tvf_compression", "p2,external,tvf,external_remote,external_rem
         select c7 from         
         HDFS(
             "uri" = "${baseUri}/dt=deflate/000000_0_copy_1.deflate",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
             "column_separator" = '\001',
@@ -88,7 +83,6 @@ suite("test_hdfs_tvf_compression", "p2,external,tvf,external_remote,external_rem
         select ${select_field} from 
         HDFS(
             "uri" = "${baseUri}/dt=plain/000000_0",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
             "column_separator" = '\001',
@@ -99,13 +93,69 @@ suite("test_hdfs_tvf_compression", "p2,external,tvf,external_remote,external_rem
         select c3,c4,c10 from 
         HDFS(
             "uri" = "${baseUri}/dt=plain/000000_0",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
             "column_separator" = '\001',
             "compress_type" = "plain") where c2="abc" order by c3,c4,c10 limit 5;
         """
-        
 
+        // test count(*) push down
+        def test_data_dir = "hdfs://${nameNodeHost}:${hdfsPort}"
+        // parquet
+        sql """set file_split_size=0;"""
+        qt_count_parquet_0 """ 
+        select count(*) from 
+        HDFS(
+            "uri" = "${test_data_dir}/test_data/ckbench_hits.part-00000.snappy.parquet",
+            "format" = "parquet"
+        );
+        """
+
+        sql """set file_split_size=388608;"""
+        qt_count_parquet_1 """ 
+        select count(*) from 
+        HDFS(
+            "uri" = "${test_data_dir}/test_data/ckbench_hits.part-00000.snappy.parquet",
+            "format" = "parquet"
+        );
+        """
+
+        // orc
+        sql """set file_split_size=0;"""
+        qt_count_orc_0 """ 
+        select count(*) from 
+        HDFS(
+            "uri" = "${test_data_dir}/test_data/ckbench_hits.000000_0.orc",
+            "format" = "orc"
+        );
+        """
+
+        sql """set file_split_size=388608;"""
+        qt_count_orc_1 """ 
+        select count(*) from 
+        HDFS(
+            "uri" = "${test_data_dir}/test_data/ckbench_hits.000000_0.orc",
+            "format" = "orc"
+        );
+        """
+        
+        // text
+        sql """set file_split_size=0;"""
+        qt_count_text_0 """ 
+        select count(*) from 
+        HDFS(
+            "uri" = "${test_data_dir}/test_data/tpcds_catalog_returns_data-m-00000.txt",
+            "format" = "csv"
+        );
+        """
+
+        sql """set file_split_size=388608;"""
+        qt_count_text_1 """ 
+        select count(*) from 
+        HDFS(
+            "uri" = "${test_data_dir}/test_data/tpcds_catalog_returns_data-m-00000.txt",
+            "format" = "csv"
+        );
+        """
     }
 }

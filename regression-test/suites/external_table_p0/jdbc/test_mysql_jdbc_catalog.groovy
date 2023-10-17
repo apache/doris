@@ -112,11 +112,6 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
         order_qt_dt """select * from ${dt}; """
         order_qt_dt_null """select * from ${dt_null} order by 1; """
-        order_qt_filter1 """select * from ${ex_tb17} where id = 1; """
-        order_qt_filter2 """select * from ${ex_tb17} where 1=1 order by 1; """
-        order_qt_filter3 """select * from ${ex_tb17} where id = 1 and 1 = 1; """
-        order_qt_date_trunc """ SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05'; """
-        order_qt_money_format """ select k8 from test1 where money_format(k8) = '1.00'; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
@@ -238,8 +233,60 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "jdbc.driver_url" = "${driver_url}",
             "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
         """
-        qt_mysql_view """ select * from  view_catalog.doris_test.mysql_view order by col_1;"""
-        sql """ drop catalog if exists  view_catalog; """
+        qt_mysql_view """ select * from view_catalog.doris_test.mysql_view order by col_1;"""
+        sql """ drop catalog if exists view_catalog; """
+
+        sql """ drop catalog if exists mysql_fun_push_catalog """
+        sql """ CREATE CATALOG mysql_fun_push_catalog PROPERTIES (
+            "type"="jdbc",
+            "jdbc.user"="root",
+            "jdbc.password"="123456",
+            "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+            "jdbc.driver_url" = "${driver_url}",
+            "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
+        """
+
+        sql """switch mysql_fun_push_catalog"""
+        sql """ use ${ex_db_name}"""
+        sql """ admin set frontend config ("enable_func_pushdown" = "true"); """
+        order_qt_filter1 """select * from ${ex_tb17} where id = 1; """
+        order_qt_filter2 """select * from ${ex_tb17} where 1=1 order by 1; """
+        order_qt_filter3 """select * from ${ex_tb17} where id = 1 and 1 = 1; """
+        order_qt_date_trunc """ SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05'; """
+        order_qt_money_format """ select k8 from test1 where money_format(k8) = '1.00'; """
+        explain {
+            sql("select k8 from test1 where money_format(k8) = '1.00';")
+
+            contains "QUERY: SELECT `k8` FROM `doris_test`.`test1`"
+        }
+        explain {
+            sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05';")
+
+            contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt`"
+        }
+        explain {
+            sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05' and timestamp0 > '2022-01-01';")
+
+            contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (timestamp0 > '2022-01-01 00:00:00')"
+        }
+        explain {
+            sql ("select k6, k8 from test1 where nvl(k6, null) = 1;")
+
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(k6, NULL) = 1)"
+        }
+        explain {
+            sql ("select k6, k8 from test1 where nvl(nvl(k6, null),null) = 1;")
+
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(ifnull(k6, NULL), NULL) = 1)"
+        }
+        sql """ admin set frontend config ("enable_func_pushdown" = "false"); """
+        explain {
+            sql ("select k6, k8 from test1 where nvl(k6, null) = 1 and k8 = 1;")
+
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (k8 = 1)"
+        }
+        sql """ admin set frontend config ("enable_func_pushdown" = "true"); """
+        sql """ drop catalog if exists mysql_fun_push_catalog; """
     }
 }
 

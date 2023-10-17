@@ -28,6 +28,8 @@ under the License.
 
 This document describes how to use the  [SELECT INTO OUTFILE](../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE.md)  command to export query results.
 
+`SELECT INTO OUTFILE` is a synchronous command, which means that the operation is completed when the command returns. It also returns a row of results to show the execution result of the export.
+
 ## Examples
 
 ### Export to HDFS

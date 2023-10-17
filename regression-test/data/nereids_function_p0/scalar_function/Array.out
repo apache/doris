@@ -3073,6 +3073,818 @@ char23,char33,varchar13,varchar23,varchar33,string3
 2012-03-11,2012-03-11
 2012-03-12,2012-03-12
 
+-- !sql_l1_distance_Double --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l1_distance_Double_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l1_distance_Float --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l1_distance_Float_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l1_distance_LargeInt --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l1_distance_LargeInt_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l1_distance_BigInt --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l1_distance_BigInt_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l1_distance_SmallInt --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l1_distance_SmallInt_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l1_distance_Integer --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l1_distance_Integer_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l1_distance_TinyInt --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l1_distance_TinyInt_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_Double --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_Double_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_Float --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_Float_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_LargeInt --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_LargeInt_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_BigInt --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_BigInt_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_SmallInt --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_SmallInt_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_Integer --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_Integer_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_TinyInt --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_l2_distance_TinyInt_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_Double --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_Double_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_Float --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_Float_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_LargeInt --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_LargeInt_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_BigInt --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_BigInt_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_SmallInt --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_SmallInt_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_Integer --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_Integer_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_TinyInt --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_cosine_distance_TinyInt_notnull --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+
+-- !sql_inner_product_Double --
+\N
+0.010000000000000002
+0.04000000000000001
+0.09
+0.16000000000000003
+0.25
+0.36
+0.48999999999999994
+0.6400000000000001
+0.81
+1.0
+1.2100000000000002
+1.44
+
+-- !sql_inner_product_Double_notnull --
+0.010000000000000002
+0.04000000000000001
+0.09
+0.16000000000000003
+0.25
+0.36
+0.48999999999999994
+0.6400000000000001
+0.81
+1.0
+1.2100000000000002
+1.44
+
+-- !sql_inner_product_Float --
+\N
+1.0
+100.0
+121.0
+144.0
+16.0
+25.0
+36.0
+4.0
+49.0
+64.0
+81.0
+9.0
+
+-- !sql_inner_product_Float_notnull --
+1.0
+100.0
+121.0
+144.0
+16.0
+25.0
+36.0
+4.0
+49.0
+64.0
+81.0
+9.0
+
+-- !sql_inner_product_LargeInt --
+\N
+1.0
+100.0
+121.0
+144.0
+16.0
+25.0
+36.0
+4.0
+49.0
+64.0
+81.0
+9.0
+
+-- !sql_inner_product_LargeInt_notnull --
+1.0
+100.0
+121.0
+144.0
+16.0
+25.0
+36.0
+4.0
+49.0
+64.0
+81.0
+9.0
+
+-- !sql_inner_product_BigInt --
+\N
+1.0
+100.0
+121.0
+144.0
+16.0
+25.0
+36.0
+4.0
+49.0
+64.0
+81.0
+9.0
+
+-- !sql_inner_product_BigInt_notnull --
+1.0
+100.0
+121.0
+144.0
+16.0
+25.0
+36.0
+4.0
+49.0
+64.0
+81.0
+9.0
+
+-- !sql_inner_product_SmallInt --
+\N
+1.0
+100.0
+121.0
+144.0
+16.0
+25.0
+36.0
+4.0
+49.0
+64.0
+81.0
+9.0
+
+-- !sql_inner_product_SmallInt_notnull --
+1.0
+100.0
+121.0
+144.0
+16.0
+25.0
+36.0
+4.0
+49.0
+64.0
+81.0
+9.0
+
+-- !sql_inner_product_Integer --
+\N
+1.0
+100.0
+121.0
+144.0
+16.0
+25.0
+36.0
+4.0
+49.0
+64.0
+81.0
+9.0
+
+-- !sql_inner_product_Integer_notnull --
+1.0
+100.0
+121.0
+144.0
+16.0
+25.0
+36.0
+4.0
+49.0
+64.0
+81.0
+9.0
+
+-- !sql_inner_product_TinyInt --
+\N
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+1.0
+1.0
+1.0
+1.0
+1.0
+
+-- !sql_inner_product_TinyInt_notnull --
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+0.0
+1.0
+1.0
+1.0
+1.0
+1.0
+
 -- !sql_array_max_Double --
 \N
 0.1
@@ -7773,90 +8585,90 @@ true
 
 -- !sql_array_union_Char --
 \N
-["char11", "char21", "char31"]
-["char11", "char21", "char31"]
-["char11", "char21", "char31"]
-["char11", "char21", "char31"]
-["char12", "char22", "char32"]
-["char12", "char22", "char32"]
-["char12", "char22", "char32"]
-["char12", "char22", "char32"]
+["char12", "char32", "char22"]
+["char12", "char32", "char22"]
+["char12", "char32", "char22"]
+["char12", "char32", "char22"]
 ["char13", "char23", "char33"]
 ["char13", "char23", "char33"]
 ["char13", "char23", "char33"]
 ["char13", "char23", "char33"]
+["char21", "char11", "char31"]
+["char21", "char11", "char31"]
+["char21", "char11", "char31"]
+["char21", "char11", "char31"]
 
 -- !sql_array_union_Char_notnull --
-["char11", "char21", "char31"]
-["char11", "char21", "char31"]
-["char11", "char21", "char31"]
-["char11", "char21", "char31"]
-["char12", "char22", "char32"]
-["char12", "char22", "char32"]
-["char12", "char22", "char32"]
-["char12", "char22", "char32"]
+["char12", "char32", "char22"]
+["char12", "char32", "char22"]
+["char12", "char32", "char22"]
+["char12", "char32", "char22"]
 ["char13", "char23", "char33"]
 ["char13", "char23", "char33"]
 ["char13", "char23", "char33"]
 ["char13", "char23", "char33"]
+["char21", "char11", "char31"]
+["char21", "char11", "char31"]
+["char21", "char11", "char31"]
+["char21", "char11", "char31"]
 
 -- !sql_array_union_Varchar --
 \N
-["char11", "char21", "char31", "varchar11", "varchar21", "varchar31"]
-["char11", "char21", "char31", "varchar11", "varchar21", "varchar31"]
-["char11", "char21", "char31", "varchar11", "varchar21", "varchar31"]
-["char11", "char21", "char31", "varchar11", "varchar21", "varchar31"]
-["char12", "char22", "char32", "varchar12", "varchar22", "varchar32"]
-["char12", "char22", "char32", "varchar12", "varchar22", "varchar32"]
-["char12", "char22", "char32", "varchar12", "varchar22", "varchar32"]
-["char12", "char22", "char32", "varchar12", "varchar22", "varchar32"]
-["char13", "char23", "char33", "varchar13", "varchar23", "varchar33"]
-["char13", "char23", "char33", "varchar13", "varchar23", "varchar33"]
-["char13", "char23", "char33", "varchar13", "varchar23", "varchar33"]
-["char13", "char23", "char33", "varchar13", "varchar23", "varchar33"]
+["varchar11", "varchar31", "char21", "char11", "char31", "varchar21"]
+["varchar11", "varchar31", "char21", "char11", "char31", "varchar21"]
+["varchar11", "varchar31", "char21", "char11", "char31", "varchar21"]
+["varchar11", "varchar31", "char21", "char11", "char31", "varchar21"]
+["varchar22", "char12", "char32", "varchar12", "char22", "varchar32"]
+["varchar22", "char12", "char32", "varchar12", "char22", "varchar32"]
+["varchar22", "char12", "char32", "varchar12", "char22", "varchar32"]
+["varchar22", "char12", "char32", "varchar12", "char22", "varchar32"]
+["varchar23", "char13", "char23", "char33", "varchar13", "varchar33"]
+["varchar23", "char13", "char23", "char33", "varchar13", "varchar33"]
+["varchar23", "char13", "char23", "char33", "varchar13", "varchar33"]
+["varchar23", "char13", "char23", "char33", "varchar13", "varchar33"]
 
 -- !sql_array_union_Varchar_notnull --
-["char11", "char21", "char31", "varchar11", "varchar21", "varchar31"]
-["char11", "char21", "char31", "varchar11", "varchar21", "varchar31"]
-["char11", "char21", "char31", "varchar11", "varchar21", "varchar31"]
-["char11", "char21", "char31", "varchar11", "varchar21", "varchar31"]
-["char12", "char22", "char32", "varchar12", "varchar22", "varchar32"]
-["char12", "char22", "char32", "varchar12", "varchar22", "varchar32"]
-["char12", "char22", "char32", "varchar12", "varchar22", "varchar32"]
-["char12", "char22", "char32", "varchar12", "varchar22", "varchar32"]
-["char13", "char23", "char33", "varchar13", "varchar23", "varchar33"]
-["char13", "char23", "char33", "varchar13", "varchar23", "varchar33"]
-["char13", "char23", "char33", "varchar13", "varchar23", "varchar33"]
-["char13", "char23", "char33", "varchar13", "varchar23", "varchar33"]
+["varchar11", "varchar31", "char21", "char11", "char31", "varchar21"]
+["varchar11", "varchar31", "char21", "char11", "char31", "varchar21"]
+["varchar11", "varchar31", "char21", "char11", "char31", "varchar21"]
+["varchar11", "varchar31", "char21", "char11", "char31", "varchar21"]
+["varchar22", "char12", "char32", "varchar12", "char22", "varchar32"]
+["varchar22", "char12", "char32", "varchar12", "char22", "varchar32"]
+["varchar22", "char12", "char32", "varchar12", "char22", "varchar32"]
+["varchar22", "char12", "char32", "varchar12", "char22", "varchar32"]
+["varchar23", "char13", "char23", "char33", "varchar13", "varchar33"]
+["varchar23", "char13", "char23", "char33", "varchar13", "varchar33"]
+["varchar23", "char13", "char23", "char33", "varchar13", "varchar33"]
+["varchar23", "char13", "char23", "char33", "varchar13", "varchar33"]
 
 -- !sql_array_union_String --
 \N
-["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]
-["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]
-["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]
-["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]
-["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]
-["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]
-["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]
-["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]
-["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]
-["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]
-["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]
-["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]
+["varchar11", "varchar31", "char21", "char31", "string1", "varchar21"]
+["varchar11", "varchar31", "char21", "char31", "string1", "varchar21"]
+["varchar11", "varchar31", "char21", "char31", "string1", "varchar21"]
+["varchar11", "varchar31", "char21", "char31", "string1", "varchar21"]
+["varchar22", "string2", "char32", "varchar12", "char22", "varchar32"]
+["varchar22", "string2", "char32", "varchar12", "char22", "varchar32"]
+["varchar22", "string2", "char32", "varchar12", "char22", "varchar32"]
+["varchar22", "string2", "char32", "varchar12", "char22", "varchar32"]
+["varchar23", "char23", "string3", "char33", "varchar13", "varchar33"]
+["varchar23", "char23", "string3", "char33", "varchar13", "varchar33"]
+["varchar23", "char23", "string3", "char33", "varchar13", "varchar33"]
+["varchar23", "char23", "string3", "char33", "varchar13", "varchar33"]
 
 -- !sql_array_union_String_notnull --
-["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]
-["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]
-["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]
-["char21", "char31", "varchar11", "varchar21", "varchar31", "string1"]
-["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]
-["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]
-["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]
-["char22", "char32", "varchar12", "varchar22", "varchar32", "string2"]
-["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]
-["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]
-["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]
-["char23", "char33", "varchar13", "varchar23", "varchar33", "string3"]
+["varchar11", "varchar31", "char21", "char31", "string1", "varchar21"]
+["varchar11", "varchar31", "char21", "char31", "string1", "varchar21"]
+["varchar11", "varchar31", "char21", "char31", "string1", "varchar21"]
+["varchar11", "varchar31", "char21", "char31", "string1", "varchar21"]
+["varchar22", "string2", "char32", "varchar12", "char22", "varchar32"]
+["varchar22", "string2", "char32", "varchar12", "char22", "varchar32"]
+["varchar22", "string2", "char32", "varchar12", "char22", "varchar32"]
+["varchar22", "string2", "char32", "varchar12", "char22", "varchar32"]
+["varchar23", "char23", "string3", "char33", "varchar13", "varchar33"]
+["varchar23", "char23", "string3", "char33", "varchar13", "varchar33"]
+["varchar23", "char23", "string3", "char33", "varchar13", "varchar33"]
+["varchar23", "char23", "string3", "char33", "varchar13", "varchar33"]
 
 -- !sql_array_union_DatetimeV2 --
 \N
@@ -9713,4 +10525,2495 @@ true
 \N
 \N
 \N
+
+-- !sql_array_map_Double --
+\N
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_Double_notnull --
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_Float --
+\N
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_Float_notnull --
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_LargeInt --
+\N
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_LargeInt_notnull --
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_BigInt --
+\N
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_BigInt_notnull --
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_SmallInt --
+\N
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_SmallInt_notnull --
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_Integer --
+\N
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_Integer_notnull --
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_TinyInt --
+\N
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_TinyInt_notnull --
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_DecimalV3 --
+\N
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+
+-- !sql_array_map_DecimalV3_notnull --
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+[1, 1]
+
+-- !sql_array_exists_Double --
+\N
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[1]
+[1]
+
+-- !sql_array_exists_Double_notnull --
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[1]
+[1]
+
+-- !sql_array_exists_Float --
+\N
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_exists_Float_notnull --
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_exists_LargeInt --
+\N
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_exists_LargeInt_notnull --
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_exists_BigInt --
+\N
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_exists_BigInt_notnull --
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_exists_SmallInt --
+\N
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_exists_SmallInt_notnull --
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_exists_Integer --
+\N
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_exists_Integer_notnull --
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_exists_TinyInt --
+\N
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+
+-- !sql_array_exists_TinyInt_notnull --
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+
+-- !sql_array_exists_DecimalV3 --
+\N
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[1, 1]
+[1, 1]
+
+-- !sql_array_exists_DecimalV3_notnull --
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[1, 1]
+[1, 1]
+
+-- !sql_array_first_index_Double --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+1
+1
+
+-- !sql_array_first_index_Double_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+1
+1
+
+-- !sql_array_first_index_Float --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_first_index_Float_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_first_index_LargeInt --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_first_index_LargeInt_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_first_index_BigInt --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_first_index_BigInt_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_first_index_SmallInt --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_first_index_SmallInt_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_first_index_Integer --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_first_index_Integer_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_first_index_TinyInt --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_array_first_index_TinyInt_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_array_first_index_DecimalV3 --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+1
+1
+
+-- !sql_array_first_index_DecimalV3_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+1
+1
+
+-- !sql_array_count_Double --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+1
+1
+
+-- !sql_array_count_Double_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+1
+1
+
+-- !sql_array_count_Float --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_count_Float_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_count_LargeInt --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_count_LargeInt_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_count_BigInt --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_count_BigInt_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_count_SmallInt --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_count_SmallInt_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_count_Integer --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_count_Integer_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_count_TinyInt --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_array_count_TinyInt_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_array_count_DecimalV3 --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+2
+2
+
+-- !sql_array_count_DecimalV3_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+2
+2
+
+-- !sql_array_map_Double --
+\N
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[1]
+[1]
+
+-- !sql_array_map_Double_notnull --
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[1]
+[1]
+
+-- !sql_array_map_Float --
+\N
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_Float_notnull --
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_LargeInt --
+\N
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_LargeInt_notnull --
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_BigInt --
+\N
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_BigInt_notnull --
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_SmallInt --
+\N
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_SmallInt_notnull --
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_Integer --
+\N
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_Integer_notnull --
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_map_TinyInt --
+\N
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+
+-- !sql_array_map_TinyInt_notnull --
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+
+-- !sql_array_map_DecimalV3 --
+\N
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[1, 1]
+[1, 1]
+
+-- !sql_array_map_DecimalV3_notnull --
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[0, 0]
+[1, 1]
+[1, 1]
+
+-- !sql_array_filter_Double --
+\N
+[1.1]
+[1.2]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+
+-- !sql_array_filter_Double_notnull --
+[1.1]
+[1.2]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+
+-- !sql_array_filter_Float --
+\N
+[10]
+[11]
+[12]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[]
+
+-- !sql_array_filter_Float_notnull --
+[10]
+[11]
+[12]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[]
+
+-- !sql_array_filter_LargeInt --
+\N
+[10]
+[11]
+[12]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[]
+
+-- !sql_array_filter_LargeInt_notnull --
+[10]
+[11]
+[12]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[]
+
+-- !sql_array_filter_BigInt --
+\N
+[10]
+[11]
+[12]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[]
+
+-- !sql_array_filter_BigInt_notnull --
+[10]
+[11]
+[12]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[]
+
+-- !sql_array_filter_SmallInt --
+\N
+[10]
+[11]
+[12]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[]
+
+-- !sql_array_filter_SmallInt_notnull --
+[10]
+[11]
+[12]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[]
+
+-- !sql_array_filter_Integer --
+\N
+[10]
+[11]
+[12]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[]
+
+-- !sql_array_filter_Integer_notnull --
+[10]
+[11]
+[12]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+[]
+
+-- !sql_array_filter_TinyInt --
+\N
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+
+-- !sql_array_filter_TinyInt_notnull --
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+
+-- !sql_array_filter_DecimalV3 --
+\N
+[1.100000000, 1.100000000]
+[1.200000000, 1.200000000]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+
+-- !sql_array_filter_DecimalV3_notnull --
+[1.100000000, 1.100000000]
+[1.200000000, 1.200000000]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+
+-- !sql_array_sortby_Double --
+\N
+[0.1]
+[0.2]
+[0.3]
+[0.4]
+[0.5]
+[0.6]
+[0.7]
+[0.8]
+[0.9]
+[1.1]
+[1.2]
+[1]
+
+-- !sql_array_sortby_Double_notnull --
+[0.1]
+[0.2]
+[0.3]
+[0.4]
+[0.5]
+[0.6]
+[0.7]
+[0.8]
+[0.9]
+[1.1]
+[1.2]
+[1]
+
+-- !sql_array_sortby_Float --
+\N
+[10]
+[11]
+[12]
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+
+-- !sql_array_sortby_Float_notnull --
+[10]
+[11]
+[12]
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+
+-- !sql_array_sortby_LargeInt --
+\N
+[10]
+[11]
+[12]
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+
+-- !sql_array_sortby_LargeInt_notnull --
+[10]
+[11]
+[12]
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+
+-- !sql_array_sortby_BigInt --
+\N
+[10]
+[11]
+[12]
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+
+-- !sql_array_sortby_BigInt_notnull --
+[10]
+[11]
+[12]
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+
+-- !sql_array_sortby_SmallInt --
+\N
+[10]
+[11]
+[12]
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+
+-- !sql_array_sortby_SmallInt_notnull --
+[10]
+[11]
+[12]
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+
+-- !sql_array_sortby_Integer --
+\N
+[10]
+[11]
+[12]
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+
+-- !sql_array_sortby_Integer_notnull --
+[10]
+[11]
+[12]
+[1]
+[2]
+[3]
+[4]
+[5]
+[6]
+[7]
+[8]
+[9]
+
+-- !sql_array_sortby_TinyInt --
+\N
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_sortby_TinyInt_notnull --
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[1]
+[1]
+[1]
+[1]
+[1]
+
+-- !sql_array_sortby_DecimalV3 --
+\N
+[0.100000000, 0.100000000]
+[0.200000000, 0.200000000]
+[0.300000000, 0.300000000]
+[0.400000000, 0.400000000]
+[0.500000000, 0.500000000]
+[0.600000000, 0.600000000]
+[0.700000000, 0.700000000]
+[0.800000000, 0.800000000]
+[0.900000000, 0.900000000]
+[1.000000000, 1.000000000]
+[1.100000000, 1.100000000]
+[1.200000000, 1.200000000]
+
+-- !sql_array_sortby_DecimalV3_notnull --
+[0.100000000, 0.100000000]
+[0.200000000, 0.200000000]
+[0.300000000, 0.300000000]
+[0.400000000, 0.400000000]
+[0.500000000, 0.500000000]
+[0.600000000, 0.600000000]
+[0.700000000, 0.700000000]
+[0.800000000, 0.800000000]
+[0.900000000, 0.900000000]
+[1.000000000, 1.000000000]
+[1.100000000, 1.100000000]
+[1.200000000, 1.200000000]
+
+-- !sql_array_last_index_Double --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+1
+1
+
+-- !sql_array_last_index_Double_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+1
+1
+
+-- !sql_array_last_index_Float --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_last_index_Float_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_last_index_LargeInt --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_last_index_LargeInt_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_last_index_BigInt --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_last_index_BigInt_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_last_index_SmallInt --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_last_index_SmallInt_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_last_index_Integer --
+0
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_last_index_Integer_notnull --
+0
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_array_last_index_TinyInt --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_array_last_index_TinyInt_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_array_last_index_DecimalV3 --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+2
+2
+
+-- !sql_array_last_index_DecimalV3_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+2
+2
+
+-- !sql_array_first_Double --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+1.1
+1.2
+
+-- !sql_array_first_Double_notnull --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+1.1
+1.2
+
+-- !sql_array_first_Float --
+\N
+\N
+10.0
+11.0
+12.0
+2.0
+3.0
+4.0
+5.0
+6.0
+7.0
+8.0
+9.0
+
+-- !sql_array_first_Float_notnull --
+\N
+10.0
+11.0
+12.0
+2.0
+3.0
+4.0
+5.0
+6.0
+7.0
+8.0
+9.0
+
+-- !sql_array_first_LargeInt --
+\N
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_first_LargeInt_notnull --
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_first_BigInt --
+\N
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_first_BigInt_notnull --
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_first_SmallInt --
+\N
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_first_SmallInt_notnull --
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_first_Integer --
+\N
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_first_Integer_notnull --
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_first_TinyInt --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_first_TinyInt_notnull --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_first_DecimalV3 --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+1.100000000
+1.200000000
+
+-- !sql_array_first_DecimalV3_notnull --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+1.100000000
+1.200000000
+
+-- !sql_array_last_Double --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+1.1
+1.2
+
+-- !sql_array_last_Double_notnull --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+1.1
+1.2
+
+-- !sql_array_last_Float --
+\N
+\N
+10.0
+11.0
+12.0
+2.0
+3.0
+4.0
+5.0
+6.0
+7.0
+8.0
+9.0
+
+-- !sql_array_last_Float_notnull --
+\N
+10.0
+11.0
+12.0
+2.0
+3.0
+4.0
+5.0
+6.0
+7.0
+8.0
+9.0
+
+-- !sql_array_last_LargeInt --
+\N
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_last_LargeInt_notnull --
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_last_BigInt --
+\N
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_last_BigInt_notnull --
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_last_SmallInt --
+\N
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_last_SmallInt_notnull --
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_last_Integer --
+\N
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_last_Integer_notnull --
+\N
+10
+11
+12
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !sql_array_last_TinyInt --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_last_TinyInt_notnull --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !sql_array_last_DecimalV3 --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+1.100000000
+1.200000000
+
+-- !sql_array_last_DecimalV3_notnull --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+1.100000000
+1.200000000
+
+-- !sql_view_array_first_index_Double --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+1
+1
+
+-- !sql_view_array_count_Double --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+1
+1
+
+-- !sql_view_array_first_Double --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+1.1
+1.2
+
+-- !sql_view_array_sortby_Double --
+\N
+[0.1]
+[0.2]
+[0.3]
+[0.4]
+[0.5]
+[0.6]
+[0.7]
+[0.8]
+[0.9]
+[1.1]
+[1.2]
+[1]
+
+-- !sql_view_array_filter_Double --
+\N
+[1.1]
+[1.2]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+
+-- !sql_view_array_exists_Double --
+\N
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[1]
+[1]
+
+-- !sql_view_array_last_index_Double --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+1
+1
+
+-- !sql_view_array_last_Double --
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+1.1
+1.2
+
+-- !sql_view_array_map_Double --
+\N
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[0]
+[1]
+[1]
+
+-- !array_apply1 --
+[]
+[]
+
+-- !array_apply2 --
+[2022-12-01 22:23:25.000, 2022-12-01 23:23:25.000]
+[2022-12-02 22:23:25.000, 2022-12-02 23:23:25.000]
+
+-- !array_apply3 --
+\N
+\N
+
+-- !array_apply4 --
+[22.679]
+[]
+
+-- !array_apply5 --
+[22.679, 33.679]
+[23.679, 34.679]
+
+-- !array_apply6 --
+\N
+\N
+
+-- !array_repeat1 --
+["hello", "hello"]
+
+-- !array_repeat1 --
+[123, 123]
+
+-- !array_repeat1 --
+[NULL, NULL]
+
+-- !array_repeat1 --
+[]
 

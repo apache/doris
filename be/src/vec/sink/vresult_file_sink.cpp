@@ -69,7 +69,6 @@ Status VResultFileSink::init(const TDataSink& tsink) {
     CHECK(sink.__isset.storage_backend_type);
     _storage_type = sink.storage_backend_type;
 
-    _name = "VResultFileSink";
     //for impl csv_with_name and csv_with_names_and_types
     _header_type = sink.header_type;
     _header = sink.header;
@@ -131,11 +130,11 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
         // close sender, this is normal path end
         if (_sender) {
             _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
-            _sender->close(final_status);
+            static_cast<void>(_sender->close(final_status));
         }
-        state->exec_env()->result_mgr()->cancel_at_time(
+        static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
                 time(nullptr) + config::result_buffer_cancelled_interval_time,
-                state->fragment_instance_id());
+                state->fragment_instance_id()));
     } else {
         if (final_status.ok()) {
             auto st = _stream_sender->send(state, _output_block.get(), true);

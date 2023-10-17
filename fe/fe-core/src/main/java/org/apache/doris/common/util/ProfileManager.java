@@ -31,6 +31,8 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -70,7 +72,7 @@ public class ProfileManager {
 
         private final RuntimeProfile profile;
         // cache the result of getProfileContent method
-        private volatile String profileContent;
+        private volatile String profileContent = null;
         public Map<String, String> infoStrings = Maps.newHashMap();
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
@@ -79,12 +81,22 @@ public class ProfileManager {
 
         // lazy load profileContent because sometimes profileContent is very large
         public String getProfileContent() {
-            if (profileContent != null) {
-                return profileContent;
-            }
+
             // no need to lock because the possibility of concurrent read is very low
-            profileContent = profile.toString();
+            if (profileContent == null) {
+                // Simple profile will change the structure of the profile.
+                try {
+                    profileContent = profile.getProfileByLevel();
+                } catch (Exception e) {
+                    LOG.warn("profile get error : " + e.toString());
+                }
+            }
             return profileContent;
+        }
+
+        public String getProfileBrief() {
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            return gson.toJson(profile.toBrief());
         }
 
         public double getError() {
@@ -222,6 +234,19 @@ public class ProfileManager {
                 return null;
             }
             return element.getProfileContent();
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    public String getProfileBrief(String queryID) {
+        readLock.lock();
+        try {
+            ProfileElement element = queryIdToProfileMap.get(queryID);
+            if (element == null) {
+                return null;
+            }
+            return element.getProfileBrief();
         } finally {
             readLock.unlock();
         }

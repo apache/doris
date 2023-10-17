@@ -21,10 +21,10 @@
 
 #include "common/status.h"
 #include "exec/tablet_info.h"
+#include "util/bitmap.h"
 #include "vec/core/block.h"
 
-namespace doris {
-namespace stream_load {
+namespace doris::vectorized {
 
 class OlapTabletFinder {
 public:
@@ -37,7 +37,7 @@ public:
     enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
 
     OlapTabletFinder(VOlapTablePartitionParam* vpartition, FindTabletMode mode)
-            : _vpartition(vpartition), _find_tablet_mode(mode) {};
+            : _vpartition(vpartition), _find_tablet_mode(mode), _filter_bitmap(1024) {};
 
     Status find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
                        const VOlapTablePartition** partition, uint32_t& tablet_index,
@@ -63,6 +63,8 @@ public:
         return _num_immutable_partition_filtered_rows;
     }
 
+    Bitmap& filter_bitmap() { return _filter_bitmap; }
+
 private:
     VOlapTablePartitionParam* _vpartition;
     FindTabletMode _find_tablet_mode;
@@ -71,7 +73,7 @@ private:
 
     int64_t _num_filtered_rows = 0;
     int64_t _num_immutable_partition_filtered_rows = 0;
+    Bitmap _filter_bitmap;
 };
 
-} // namespace stream_load
-} // namespace doris
+} // namespace doris::vectorized

@@ -199,8 +199,9 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticsRepository;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.query.QueryStatsUtil;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
@@ -243,6 +244,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -461,7 +463,7 @@ public class ShowExecutor {
                 .listConnection(ctx.getQualifiedUser(), showStmt.isFull());
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {
-            rowSet.add(info.toRow(nowMs, false));
+            rowSet.add(info.toRow(ctx.getConnectionId(), nowMs, false));
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
@@ -682,19 +684,6 @@ public class ShowExecutor {
         ProcNodeInterface procNode = showProcStmt.getNode();
 
         List<List<String>> finalRows = procNode.fetchResult().getRows();
-        // if this is superuser, hide ip and host info form backends info proc
-        if (procNode instanceof BackendsProcDir) {
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
-                // hide host info
-                for (List<String> row : finalRows) {
-                    row.remove(BackendsProcDir.HOSTNAME_INDEX);
-                }
-
-                // mod meta data
-                metaData.removeColumn(BackendsProcDir.HOSTNAME_INDEX);
-            }
-        }
-
         resultSet = new ShowResultSet(metaData, finalRows);
     }
 
@@ -1958,7 +1947,7 @@ public class ShowExecutor {
     private void handleShowExport() throws AnalysisException {
         ShowExportStmt showExportStmt = (ShowExportStmt) stmt;
         Env env = Env.getCurrentEnv();
-        Database db = env.getInternalCatalog().getDbOrAnalysisException(showExportStmt.getDbName());
+        DatabaseIf db = env.getCurrentCatalog().getDbOrAnalysisException(showExportStmt.getDbName());
         long dbId = db.getId();
 
         ExportMgr exportMgr = env.getExportMgr();
@@ -2454,7 +2443,7 @@ public class ShowExecutor {
     private void handleShowTableStats() {
         ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
         TableIf tableIf = showTableStatsStmt.getTable();
-        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
         /*
            HMSExternalTable table will fetch row count from HMS
            or estimate with file size and schema if it's not analyzed.
@@ -2663,9 +2652,16 @@ public class ShowExecutor {
         for (AnalysisInfo analysisInfo : results) {
             List<String> row = new ArrayList<>();
             row.add(String.valueOf(analysisInfo.jobId));
-            row.add(analysisInfo.catalogName);
-            row.add(analysisInfo.dbName);
-            row.add(analysisInfo.tblName);
+            CatalogIf<? extends DatabaseIf<? extends TableIf>> c = StatisticsUtil.findCatalog(analysisInfo.catalogId);
+            row.add(c.getName());
+            Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = c.getDb(analysisInfo.dbId);
+            row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
+            if (databaseIf.isPresent()) {
+                Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
+                row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
+            } else {
+                row.add("DB may get deleted");
+            }
             row.add(analysisInfo.colName);
             row.add(analysisInfo.jobType.toString());
             row.add(analysisInfo.analysisType.toString());
@@ -2675,7 +2671,9 @@ public class ShowExecutor {
                             ZoneId.systemDefault())));
             row.add(analysisInfo.state.toString());
             try {
-                row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+                row.add(showStmt.isAuto()
+                        ? analysisInfo.progress
+                        : Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
             } catch (Exception e) {
                 row.add("N/A");
                 LOG.warn("Failed to get progress for job: {}", analysisInfo, e);

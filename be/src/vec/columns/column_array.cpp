@@ -434,11 +434,6 @@ size_t ColumnArray::allocated_bytes() const {
     return get_data().allocated_bytes() + get_offsets().allocated_bytes();
 }
 
-void ColumnArray::protect() {
-    get_data().protect();
-    get_offsets().protect();
-}
-
 ColumnPtr ColumnArray::convert_to_full_column_if_const() const {
     /// It is possible to have an array with constant data and non-constant offsets.
     /// Example is the result of expression: replicate('hello', [1])
@@ -806,38 +801,6 @@ void ColumnArray::insert_indices_from(const IColumn& src, const int* indices_beg
             ColumnArray::insert_from(src, *x);
         }
     }
-}
-
-Status ColumnArray::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-    auto to = reinterpret_cast<vectorized::ColumnArray*>(col_ptr);
-    auto& to_offsets = to->get_offsets();
-
-    size_t element_size = 0;
-    size_t max_offset = 0;
-    for (size_t i = 0; i < sel_size; ++i) {
-        element_size += size_at(sel[i]);
-        max_offset = std::max(max_offset, offset_at(sel[i]));
-    }
-    if (max_offset > std::numeric_limits<uint16_t>::max()) {
-        return Status::IOError("array elements too large than uint16_t::max");
-    }
-
-    to_offsets.reserve(to_offsets.size() + sel_size);
-    auto nested_sel = std::make_unique<uint16_t[]>(element_size);
-    size_t nested_sel_size = 0;
-    for (size_t i = 0; i < sel_size; ++i) {
-        auto row_off = offset_at(sel[i]);
-        auto row_size = size_at(sel[i]);
-        to_offsets.push_back(to_offsets.back() + row_size);
-        for (auto j = 0; j < row_size; ++j) {
-            nested_sel[nested_sel_size++] = row_off + j;
-        }
-    }
-
-    if (nested_sel_size > 0) {
-        return data->filter_by_selector(nested_sel.get(), nested_sel_size, &to->get_data());
-    }
-    return Status::OK();
 }
 
 ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) const {

@@ -64,6 +64,7 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
+import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -104,6 +105,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     private static final Logger LOG = LogManager.getLogger(RoutineLoadJob.class);
 
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
+    public static final double DEFAULT_MAX_FILTER_RATIO = 1.0;
 
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_BATCH_ROWS = 200000;
@@ -176,6 +178,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // maxErrorNum / (maxBatchRows * 10) = max error rate of routine load job
     // if current error rate is more than max error rate, the job will be paused
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
+    protected double maxFilterRatio = DEFAULT_MAX_FILTER_RATIO;
     protected long execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
     protected int sendBatchParallelism = DEFAULT_SEND_BATCH_PARALLELISM;
     protected boolean loadToSingleTablet = DEFAULT_LOAD_TO_SINGLE_TABLET;
@@ -318,6 +321,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.getMaxErrorNum() != -1) {
             this.maxErrorNum = stmt.getMaxErrorNum();
         }
+        if (stmt.getMaxFilterRatio() != -1) {
+            this.maxFilterRatio = stmt.getMaxFilterRatio();
+        }
         if (stmt.getMaxBatchIntervalS() != -1) {
             this.maxBatchIntervalS = stmt.getMaxBatchIntervalS();
         }
@@ -344,6 +350,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.isPartialUpdate()) {
             this.isPartialUpdate = true;
         }
+        jobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
 
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
@@ -790,18 +797,23 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         this.jobStatistic.currentTotalRows += numOfTotalRows;
         this.jobStatistic.errorRowsAfterResumed = this.jobStatistic.currentErrorRows;
         if (this.jobStatistic.currentTotalRows > maxBatchRows * 10) {
-            if (this.jobStatistic.currentErrorRows > maxErrorNum) {
+            if (this.jobStatistic.currentErrorRows > maxErrorNum
+                    || ((double) this.jobStatistic.currentErrorRows
+                            / this.jobStatistic.currentTotalRows) > maxFilterRatio) {
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                         .add("current_total_rows", this.jobStatistic.currentTotalRows)
                         .add("current_error_rows", this.jobStatistic.currentErrorRows)
                         .add("max_error_num", maxErrorNum)
-                        .add("msg", "current error rows is more than max error num, begin to pause job")
+                        .add("max_filter_ratio", maxFilterRatio)
+                        .add("msg", "current error rows is more than max error rows "
+                            + "or the filter ratio is more than the max, begin to pause job")
                         .build());
                 // if this is a replay thread, the update state should already be replayed by OP_CHANGE_ROUTINE_LOAD_JOB
                 if (!isReplay) {
                     // remove all of task in jobs and change job state to paused
                     updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
-                            "current error rows of job is more than max error num"), isReplay);
+                            "current error rows is more than max error num "
+                            + "or the filter ratio is more than the max"), isReplay);
                 }
             }
 
@@ -810,24 +822,31 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                         .add("current_total_rows", this.jobStatistic.currentTotalRows)
                         .add("current_error_rows", this.jobStatistic.currentErrorRows)
                         .add("max_error_num", maxErrorNum)
+                        .add("max_filter_ratio", maxFilterRatio)
                         .add("msg", "reset current total rows and current error rows "
-                                + "when current total rows is more than base")
+                                + "when current total rows is more than base or the filter ratio is more than the max")
                         .build());
             }
             // reset currentTotalNum and currentErrorNum
             this.jobStatistic.currentErrorRows = 0;
             this.jobStatistic.currentTotalRows = 0;
-        } else if (this.jobStatistic.currentErrorRows > maxErrorNum) {
+        } else if (this.jobStatistic.currentErrorRows > maxErrorNum
+                || (this.jobStatistic.currentTotalRows > 0
+                    && ((double) this.jobStatistic.currentErrorRows
+                            / this.jobStatistic.currentTotalRows) > maxFilterRatio)) {
             LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                     .add("current_total_rows", this.jobStatistic.currentTotalRows)
                     .add("current_error_rows", this.jobStatistic.currentErrorRows)
                     .add("max_error_num", maxErrorNum)
-                    .add("msg", "current error rows is more than max error rows, begin to pause job")
+                    .add("max_filter_ratio", maxFilterRatio)
+                    .add("msg", "current error rows is more than max error rows "
+                            + "or the filter ratio is more than the max, begin to pause job")
                     .build());
             if (!isReplay) {
                 // remove all of task in jobs and change job state to paused
                 updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
-                        "current error rows is more than max error num"), isReplay);
+                        "current error rows is more than max error num "
+                            + "or the filter ratio is more than the max"), isReplay);
             }
             // reset currentTotalNum and currentErrorNum
             this.jobStatistic.currentErrorRows = 0;
@@ -1422,16 +1441,25 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
-    public List<List<String>> getTasksShowInfo() {
+    public List<List<String>> getTasksShowInfo() throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
+        if (null == routineLoadTaskInfoList || routineLoadTaskInfoList.isEmpty()) {
+            return rows;
+        }
+        DatabaseTransactionMgr databaseTransactionMgr = Env.getCurrentEnv().getGlobalTransactionMgr()
+                .getDatabaseTransactionMgr(dbId);
+
         routineLoadTaskInfoList.forEach(entity -> {
-            try {
-                entity.setTxnStatus(Env.getCurrentEnv().getGlobalTransactionMgr().getDatabaseTransactionMgr(dbId)
-                        .getTransactionState(entity.getTxnId()).getTransactionStatus());
+            long txnId = entity.getTxnId();
+            if (RoutineLoadTaskInfo.INIT_TXN_ID == txnId) {
                 rows.add(entity.getTaskShowInfo());
-            } catch (AnalysisException e) {
-                LOG.warn("failed to setTxnStatus db: {}, txnId: {}, err: {}", dbId, entity.getTxnId(), e.getMessage());
+                return;
             }
+            TransactionState transactionState = databaseTransactionMgr.getTransactionState(entity.getTxnId());
+            if (null != transactionState && null != transactionState.getTransactionStatus()) {
+                entity.setTxnStatus(transactionState.getTransactionStatus());
+            }
+            rows.add(entity.getTaskShowInfo());
         });
         return rows;
     }
@@ -1485,6 +1513,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         sb.append("PROPERTIES\n(\n");
         appendProperties(sb, CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, desireTaskConcurrentNum, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, maxErrorNum, false);
+        appendProperties(sb, CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, maxBatchIntervalS, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, maxBatchRows, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, maxBatchSizeBytes, false);
@@ -1565,21 +1594,26 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSql());
         jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
         if (getFormat().equalsIgnoreCase("json")) {
-            jobProperties.put("dataFormat", "json");
+            jobProperties.put(PROPS_FORMAT, "json");
         } else {
-            jobProperties.put("columnSeparator", columnSeparator == null ? "\t" : columnSeparator.toString());
-            jobProperties.put("lineDelimiter", lineDelimiter == null ? "\n" : lineDelimiter.toString());
+            jobProperties.put(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR,
+                    columnSeparator == null ? "\t" : columnSeparator.toString());
+            jobProperties.put(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER,
+                    lineDelimiter == null ? "\n" : lineDelimiter.toString());
         }
         jobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
-        jobProperties.put("maxErrorNum", String.valueOf(maxErrorNum));
-        jobProperties.put("maxBatchIntervalS", String.valueOf(maxBatchIntervalS));
-        jobProperties.put("maxBatchRows", String.valueOf(maxBatchRows));
-        jobProperties.put("maxBatchSizeBytes", String.valueOf(maxBatchSizeBytes));
-        jobProperties.put("currentTaskConcurrentNum", String.valueOf(currentTaskConcurrentNum));
-        jobProperties.put("desireTaskConcurrentNum", String.valueOf(desireTaskConcurrentNum));
-        jobProperties.put("execMemLimit", String.valueOf(execMemLimit));
-        jobProperties.put("mergeType", mergeType.toString());
-        jobProperties.put("deleteCondition", deleteCondition == null ? STAR_STRING : deleteCondition.toSql());
+        jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, String.valueOf(maxErrorNum));
+        jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, String.valueOf(maxBatchIntervalS));
+        jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, String.valueOf(maxBatchRows));
+        jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, String.valueOf(maxBatchSizeBytes));
+        jobProperties.put(CreateRoutineLoadStmt.CURRENT_CONCURRENT_NUMBER_PROPERTY,
+                String.valueOf(currentTaskConcurrentNum));
+        jobProperties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY,
+                String.valueOf(desireTaskConcurrentNum));
+        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(execMemLimit));
+        jobProperties.put(LoadStmt.KEY_IN_PARAM_MERGE_TYPE, mergeType.toString());
+        jobProperties.put(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION,
+                deleteCondition == null ? STAR_STRING : deleteCondition.toSql());
         jobProperties.putAll(this.jobProperties);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);
@@ -1774,6 +1808,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)) {
             this.maxErrorNum = Long.parseLong(
                     jobProperties.remove(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY)) {
+            this.maxFilterRatio = Double.parseDouble(
+                    jobProperties.remove(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)) {

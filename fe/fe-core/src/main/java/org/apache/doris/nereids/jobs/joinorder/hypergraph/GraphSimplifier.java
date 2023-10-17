@@ -24,6 +24,8 @@ import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.stats.JoinEstimation;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -32,6 +34,7 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -39,6 +42,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Stack;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -388,14 +392,44 @@ public class GraphSimplifier {
         return Pair.of(joinStats, edge);
     }
 
+    private Edge processMissedEdges(int edgeIndex1, int edgeIndex2, Edge edge) {
+        List<Edge> edges = Lists.newArrayList(edge);
+        edges.addAll(graph.getEdges().stream()
+                .filter(e -> e.getIndex() != edgeIndex1 && e.getIndex() != edgeIndex2
+                        && LongBitmap.isSubset(e.getReferenceNodes(), edge.getReferenceNodes())
+                        && !LongBitmap.isSubset(e.getReferenceNodes(), edge.getLeftExtendedNodes())
+                        && !LongBitmap.isSubset(e.getReferenceNodes(), edge.getRightExtendedNodes()))
+                .collect(Collectors.toList()));
+        if (edges.size() > 1) {
+            List<Expression> hashConjuncts = new ArrayList<>();
+            List<Expression> otherConjuncts = new ArrayList<>();
+            JoinType joinType = Edge.extractJoinTypeAndConjuncts(edges, hashConjuncts, otherConjuncts);
+            LogicalJoin oldJoin = edge.getJoin();
+            LogicalJoin newJoin = new LogicalJoin<>(joinType, hashConjuncts,
+                    otherConjuncts, oldJoin.getHint(), oldJoin.left(), oldJoin.right());
+            Edge newEdge = Edge.createTempEdge(newJoin);
+            newEdge.setLeftExtendedNodes(edge.getLeftExtendedNodes());
+            newEdge.setRightExtendedNodes(edge.getRightExtendedNodes());
+            return newEdge;
+        } else {
+            return edge;
+        }
+    }
+
     private SimplificationStep orderJoin(Pair<Statistics, Edge> edge1Before2,
-            Pair<Statistics, Edge> edge2Before1, int edgeIndex1, int edgeIndex2) {
+                                         Pair<Statistics, Edge> edge2Before1, int edgeIndex1, int edgeIndex2) {
+        // TODO: Consider miss edges when construct join.
+        // considering
+        //          a
+        //         /  \
+        //        b  - c
+        // when constructing edge_ab before edge_bc. edge_ac should be added on top join
         Cost cost1Before2 = calCost(edge1Before2.second, edge1Before2.first,
                 cacheStats.get(edge1Before2.second.getLeftExtendedNodes()),
                 cacheStats.get(edge1Before2.second.getRightExtendedNodes()));
-        Cost cost2Before1 = calCost(edge2Before1.second, edge1Before2.first,
-                cacheStats.get(edge1Before2.second.getLeftExtendedNodes()),
-                cacheStats.get(edge1Before2.second.getRightExtendedNodes()));
+        Cost cost2Before1 = calCost(edge2Before1.second, edge2Before1.first,
+                cacheStats.get(edge2Before1.second.getLeftExtendedNodes()),
+                cacheStats.get(edge2Before1.second.getRightExtendedNodes()));
         double benefit = Double.MAX_VALUE;
         SimplificationStep step;
         // Choose the plan with smaller cost and make the simplification step to replace the old edge by it.
@@ -475,10 +509,10 @@ public class GraphSimplifier {
                 Edge edge2 = graph.getEdge(j);
                 if (edge1.isSub(edge2)) {
                     Preconditions.checkArgument(circleDetector.tryAddDirectedEdge(i, j),
-                            String.format("Edge %s violates Edge %s", edge1, edge2));
+                            "Edge %s violates Edge %s", edge1, edge2);
                 } else if (edge2.isSub(edge1)) {
                     Preconditions.checkArgument(circleDetector.tryAddDirectedEdge(j, i),
-                            String.format("Edge %s violates Edge %s", edge2, edge1));
+                            "Edge %s violates Edge %s", edge2, edge1);
                 }
             }
         }

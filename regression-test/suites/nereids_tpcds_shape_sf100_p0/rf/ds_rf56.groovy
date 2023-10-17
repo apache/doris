@@ -30,6 +30,8 @@ suite("ds_rf56") {
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_pipeline_engine=true'
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set expand_runtime_filter_by_inner_join=false'
     String stmt = '''
     explain physical plan
     with ss as (
@@ -118,6 +120,5 @@ where i_color in ('powder','green','cyan'))
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.56"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
-    
-     assertEquals("RF3[ca_address_sk->[ss_addr_sk],RF2[i_item_sk->[ss_item_sk],RF1[d_date_sk->[ss_sold_date_sk],RF0[i_item_id->[i_item_id],RF7[ca_address_sk->[cs_bill_addr_sk],RF6[i_item_sk->[cs_item_sk],RF5[d_date_sk->[cs_sold_date_sk],RF4[i_item_id->[i_item_id],RF11[ws_bill_addr_sk->[ca_address_sk],RF10[i_item_sk->[ws_item_sk],RF9[d_date_sk->[ws_sold_date_sk],RF8[i_item_id->[i_item_id]", getRuntimeFilters(plan))
+    assertEquals("RF3[ca_address_sk->[ss_addr_sk],RF2[i_item_sk->[ss_item_sk],RF1[d_date_sk->[ss_sold_date_sk],RF0[i_item_id->[i_item_id],RF7[cs_bill_addr_sk->[ca_address_sk],RF6[i_item_sk->[cs_item_sk],RF5[d_date_sk->[cs_sold_date_sk],RF4[i_item_id->[i_item_id],RF11[ws_bill_addr_sk->[ca_address_sk],RF10[i_item_sk->[ws_item_sk],RF9[d_date_sk->[ws_sold_date_sk],RF8[i_item_id->[i_item_id]", getRuntimeFilters(plan))
 }

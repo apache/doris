@@ -384,6 +384,12 @@ heartbeat_mgr 中处理心跳事件的线程数。
 
 Doris FE 通过 mysql 协议查询连接端口
 
+#### `arrow_flight_sql_port`
+
+默认值：-1
+
+Doris FE 通过 Arrow Flight SQL 协议查询连接端口
+
 #### `frontend_address`
 
 状态:已弃用，不建议使用。
@@ -430,14 +436,6 @@ FE https 使能标志位，false 表示支持 http，true 表示同时支持 htt
 默认值：1024
 
 每个 FE 的最大连接数
-
-#### `max_connection_scheduler_threads_num`
-
-默认值：4096
-
-查询请求调度器中的最大线程数。
-
-目前的策略是，有请求过来，就为其单独申请一个线程进行服务
 
 #### `check_java_version`
 
@@ -1161,7 +1159,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 #### `max_bytes_per_broker_scanner`
 
-默认值：500 * 1024 * 1024 * 1024L  （500G）
+默认值：`500 * 1024 * 1024 * 1024L`  （500G）
 
 是否可以动态配置：true
 
@@ -2776,3 +2774,9 @@ show data （其他用法：HELP SHOW DATA）
 默认值：true
 
 禁止LocalDeployManager删除节点，防止cluster.info文件有误导致节点被删除。
+
+#### `mysqldb_replace_name`
+
+Default: mysql
+
+Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，请修改这个字段，为 doris 内置的 mysql database 更换一个名字

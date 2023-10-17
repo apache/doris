@@ -27,9 +27,9 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
@@ -88,7 +88,7 @@ public class LoadScanProvider {
         ctx.timezone = analyzer.getTimezone();
 
         TFileScanRangeParams params = new TFileScanRangeParams();
-        params.setFormatType(formatType(fileGroupInfo.getFileGroup().getFileFormat(), ""));
+        params.setFormatType(formatType(fileGroupInfo.getFileGroup().getFileFormat()));
         params.setCompressType(fileGroupInfo.getFileGroup().getCompressType());
         params.setStrictMode(fileGroupInfo.isStrictMode());
         if (fileGroupInfo.getFileGroup().getFileFormat() != null
@@ -131,8 +131,8 @@ public class LoadScanProvider {
 
     private String getHeaderType(String formatType) {
         if (formatType != null) {
-            if (formatType.equalsIgnoreCase(FeConstants.csv_with_names) || formatType.equalsIgnoreCase(
-                    FeConstants.csv_with_names_and_types)) {
+            if (formatType.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
+                    || formatType.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
                 return formatType;
             }
         }
@@ -211,7 +211,7 @@ public class LoadScanProvider {
         List<Integer> srcSlotIds = Lists.newArrayList();
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
-                formatType(context.fileGroup.getFileFormat(), ""), fileGroupInfo.getHiddenColumns(),
+                formatType(context.fileGroup.getFileFormat()), fileGroupInfo.getHiddenColumns(),
                 fileGroupInfo.isPartialUpdate());
 
         int columnCountFromPath = 0;
@@ -242,28 +242,16 @@ public class LoadScanProvider {
                 .equalsIgnoreCase(Column.DELETE_SIGN);
     }
 
-    private TFileFormatType formatType(String fileFormat, String path) throws UserException {
-        if (fileFormat != null) {
-            String lowerFileFormat = fileFormat.toLowerCase();
-            if (lowerFileFormat.equals("parquet")) {
-                return TFileFormatType.FORMAT_PARQUET;
-            } else if (lowerFileFormat.equals("orc")) {
-                return TFileFormatType.FORMAT_ORC;
-            } else if (lowerFileFormat.equals("json")) {
-                return TFileFormatType.FORMAT_JSON;
-                // csv/csv_with_name/csv_with_names_and_types treat as csv format
-            } else if (lowerFileFormat.equals(FeConstants.csv) || lowerFileFormat.equals(FeConstants.csv_with_names)
-                    || lowerFileFormat.equals(FeConstants.csv_with_names_and_types)
-                    // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
-                    || lowerFileFormat.equals(FeConstants.text)) {
-                return TFileFormatType.FORMAT_CSV_PLAIN;
-            } else {
-                throw new UserException("Not supported file format: " + fileFormat);
-            }
-        } else {
-            // get file format by the suffix of file
-            return Util.getFileFormatType(path);
+    private TFileFormatType formatType(String fileFormat) throws UserException {
+        if (fileFormat == null) {
+            // get file format by the file path
+            return TFileFormatType.FORMAT_CSV_PLAIN;
         }
+        TFileFormatType formatType = Util.getFileFormatTypeFromName(fileFormat);
+        if (formatType == TFileFormatType.FORMAT_UNKNOWN) {
+            throw new UserException("Not supported file format: " + fileFormat);
+        }
+        return formatType;
     }
 
     public TableIf getTargetTable() {

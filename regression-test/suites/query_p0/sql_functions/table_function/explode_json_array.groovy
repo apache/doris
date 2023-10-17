@@ -45,6 +45,11 @@ suite("explode_json_array") {
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[40, 80]') t2 as d_age 
                         GROUP BY c_age ORDER BY c_age """
 
+    qt_explode_json_array_8_invalid """ SELECT c_age, COUNT(1) FROM ${tableName}
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('["1", 60]') t1 as c_age 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('["b", "c"]') t2 as d_age 
+                        GROUP BY c_age ORDER BY c_age """
+
     qt_explode_json_array9 """ SELECT * FROM ${tableName}
                             LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[]') t1 AS c_age 
                             ORDER BY id, c_age """
@@ -60,4 +65,13 @@ suite("explode_json_array") {
     qt_outer_join_explode_json_array11 """SELECT id, age, e1 FROM (SELECT id, age, e1 FROM (SELECT b.id, a.age FROM
                                         ${tableName} a LEFT JOIN ${tableName} b ON a.id=b.age)T LATERAL VIEW EXPLODE_JSON_ARRAY_JSON('[{"id":1,"name":"John"},{"id":2,"name":"Mary"},{"id":3,"name":"Bob"}]')
                                         TMP AS e1) AS T ORDER BY age, e1"""
+
+    qt_explode_json_array12 """ SELECT c_age, COUNT(1) FROM ${tableName}
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[9223372036854775807,9223372036854775808]') t1 as c_age 
+                        GROUP BY c_age ORDER BY c_age """
+
+    qt_explode_json_array13 """ SELECT c_age, COUNT(1) FROM ${tableName}
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[-92233720368547758071,-92233720368547758081]') t1 as c_age 
+                        GROUP BY c_age ORDER BY c_age """
+
 }

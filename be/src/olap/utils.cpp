@@ -427,14 +427,14 @@ Status read_write_test_file(const std::string& test_file_path) {
     if (access(test_file_path.c_str(), F_OK) == 0) {
         if (remove(test_file_path.c_str()) != 0) {
             char errmsg[64];
-            return Status::Error<IO_ERROR>("fail to access test file. path={}, errno={}, err={}",
-                                           test_file_path, errno, strerror_r(errno, errmsg, 64));
+            return Status::IOError("fail to access test file. path={}, errno={}, err={}",
+                                   test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     } else {
         if (errno != ENOENT) {
             char errmsg[64];
-            return Status::Error<IO_ERROR>("fail to access test file. path={}, errno={}, err={}",
-                                           test_file_path, errno, strerror_r(errno, errmsg, 64));
+            return Status::IOError("fail to access test file. path={}, errno={}, err={}",
+                                   test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     }
 

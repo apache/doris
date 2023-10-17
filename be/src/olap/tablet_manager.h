@@ -73,8 +73,6 @@ public:
     // If `is_drop_table_or_partition` is true, we need to remove all remote rowsets in this tablet.
     Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool is_drop_table_or_partition);
 
-    Status drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
-
     TabletSharedPtr find_best_tablet_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
             const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,

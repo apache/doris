@@ -599,9 +599,11 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     }
 
     // Ignore leading zeros.
+    bool leading_zero = false;
     bool found_value = false;
     while (len > 0 && UNLIKELY(*s == '0')) {
         found_value = true;
+        leading_zero = true;
         ++s;
         --len;
     }
@@ -677,7 +679,9 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
         for (int i = 0; i < len; ++i) {
             const char& c = s[i];
             // keep a rounding precision to round the decimal value
-            if (LIKELY('0' <= c && c <= '9') && LIKELY(type_precision >= precision)) {
+            if (LIKELY('0' <= c && c <= '9') &&
+                ((!leading_zero && LIKELY(type_precision >= precision)) ||
+                 (leading_zero && type_precision > precision))) {
                 found_value = true;
                 // Ignore digits once the type's precision limit is reached. This avoids
                 // overflowing the underlying storage while handling a string like
@@ -711,13 +715,21 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                 }
                 break;
             } else {
+                // jump to here: should handle the wrong character of decimal
                 if (value == 0) {
                     *result = StringParser::PARSE_FAILURE;
                     return 0;
                 }
+                // here to handle
                 *result = StringParser::PARSE_SUCCESS;
-                if (type_scale > scale) {
+                if (type_scale >= scale) {
                     value *= get_scale_multiplier<T>(type_scale - scale);
+                    // here meet non-valid character, should return the value, keep going to meet
+                    // the E/e character because we make right user-given type_precision
+                    // not max number type_precision
+                    if (!is_numeric_ascii(c)) {
+                        return is_negative ? T(-value) : T(value);
+                    }
                 }
             }
         }

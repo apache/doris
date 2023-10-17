@@ -36,11 +36,9 @@ import javax.servlet.http.HttpServletRequest;
 @RequestMapping("/rest/v1")
 public class HelpController {
 
-    private String queryString = null;
-
     @RequestMapping(path = "/help", method = RequestMethod.GET)
     public Object helpSearch(HttpServletRequest request) {
-        this.queryString = request.getParameter("query");
+        String queryString = request.getParameter("query");
         if (Strings.isNullOrEmpty(queryString)) {
             // ATTN: according to Mysql protocol, the default query should be "contents"
             //       when you want to get server side help.
@@ -49,17 +47,17 @@ public class HelpController {
             queryString = queryString.trim();
         }
         Map<String, Object> result = new HashMap<>();
-        appendHelpInfo(result);
+        appendHelpInfo(result, queryString);
         return ResponseEntityBuilder.ok(result);
     }
 
-    private void appendHelpInfo(Map<String, Object> result) {
-        appendExactMatchTopic(result);
-        appendFuzzyMatchTopic(result);
-        appendCategories(result);
+    private void appendHelpInfo(Map<String, Object> result, String queryString) {
+        appendExactMatchTopic(result, queryString);
+        appendFuzzyMatchTopic(result, queryString);
+        appendCategories(result, queryString);
     }
 
-    private void appendExactMatchTopic(Map<String, Object> result) {
+    private void appendExactMatchTopic(Map<String, Object> result, String queryString) {
         HelpModule module = HelpModule.getInstance();
         HelpTopic topic = module.getTopic(queryString);
         if (topic == null) {
@@ -71,7 +69,7 @@ public class HelpController {
         }
     }
 
-    private void appendFuzzyMatchTopic(Map<String, Object> result) {
+    private void appendFuzzyMatchTopic(Map<String, Object> result, String queryString) {
         HelpModule module = HelpModule.getInstance();
         List<String> topics = module.listTopicByKeyword(queryString);
         if (topics.isEmpty()) {
@@ -87,7 +85,7 @@ public class HelpController {
         }
     }
 
-    private void appendCategories(Map<String, Object> result) {
+    private void appendCategories(Map<String, Object> result, String queryString) {
         HelpModule module = HelpModule.getInstance();
         List<String> categories = module.listCategoryByName(queryString);
         if (categories.isEmpty()) {

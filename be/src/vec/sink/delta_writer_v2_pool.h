@@ -55,7 +55,7 @@ namespace doris {
 
 class DeltaWriterV2;
 
-namespace stream_load {
+namespace vectorized {
 
 class DeltaWriterV2Map {
 public:
@@ -107,5 +107,5 @@ private:
     std::unordered_map<UniqueId, std::weak_ptr<DeltaWriterV2Map>> _pool;
 };
 
-} // namespace stream_load
+} // namespace vectorized
 } // namespace doris

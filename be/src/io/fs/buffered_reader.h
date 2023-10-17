@@ -43,7 +43,7 @@ namespace doris {
 namespace io {
 
 class FileSystem;
-class IOContext;
+struct IOContext;
 
 struct PrefetchRange {
     size_t start_offset;
@@ -161,7 +161,7 @@ public:
         for (char* box : _boxes) {
             delete[] box;
         }
-        close();
+        static_cast<void>(close());
     }
 
     Status close() override {

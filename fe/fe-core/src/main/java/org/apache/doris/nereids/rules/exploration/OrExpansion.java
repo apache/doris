@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -115,8 +116,13 @@ public class OrExpansion extends OneExplorationRuleFactory {
                     }
 
                     //4. union all joins and construct LogicalCTEAnchor with CTEs
+                    List<List<SlotReference>> childrenOutputs = joins.stream()
+                            .map(j -> j.getOutput().stream()
+                                    .map(SlotReference.class::cast)
+                                    .collect(ImmutableList.toImmutableList()))
+                            .collect(ImmutableList.toImmutableList());
                     LogicalUnion union = new LogicalUnion(Qualifier.ALL, new ArrayList<>(join.getOutput()),
-                            ImmutableList.of(), false, joins);
+                            childrenOutputs, ImmutableList.of(), false, joins);
                     LogicalCTEAnchor<? extends Plan, ? extends Plan> intermediateAnchor = new LogicalCTEAnchor<>(
                             rightProducer.getCteId(), rightProducer, union);
                     return new LogicalCTEAnchor<Plan, Plan>(leftProducer.getCteId(), leftProducer, intermediateAnchor);

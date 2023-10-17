@@ -45,12 +45,13 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.URL;
 import java.net.URLConnection;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
+import java.util.Objects;
 import java.util.function.LongUnaryOperator;
 import java.util.function.Predicate;
 
@@ -260,7 +261,7 @@ public class Util {
     }
 
     public static int generateSchemaHash() {
-        return Math.abs(new Random().nextInt());
+        return Math.abs(new SecureRandom().nextInt());
     }
 
     /**
@@ -534,26 +535,38 @@ public class Util {
 
 
     @NotNull
-    public static TFileFormatType getFileFormatType(String path) {
+    public static TFileFormatType getFileFormatTypeFromPath(String path) {
         String lowerCasePath = path.toLowerCase();
-        if (lowerCasePath.endsWith(".parquet") || lowerCasePath.endsWith(".parq")) {
+        if (lowerCasePath.contains(".parquet") || lowerCasePath.contains(".parq")) {
             return TFileFormatType.FORMAT_PARQUET;
-        } else if (lowerCasePath.endsWith(".gz")) {
-            return TFileFormatType.FORMAT_CSV_GZ;
-        } else if (lowerCasePath.endsWith(".bz2")) {
-            return TFileFormatType.FORMAT_CSV_BZ2;
-        } else if (lowerCasePath.endsWith(".lz4")) {
-            return TFileFormatType.FORMAT_CSV_LZ4FRAME;
-        } else if (lowerCasePath.endsWith(".lzo")) {
-            return TFileFormatType.FORMAT_CSV_LZOP;
-        } else if (lowerCasePath.endsWith(".lzo_deflate")) {
-            return TFileFormatType.FORMAT_CSV_LZO;
-        } else if (lowerCasePath.endsWith(".deflate")) {
-            return TFileFormatType.FORMAT_CSV_DEFLATE;
-        } else if (lowerCasePath.endsWith(".snappy")) {
-            return TFileFormatType.FORMAT_CSV_SNAPPYBLOCK;
+        } else if (lowerCasePath.contains(".orc")) {
+            return TFileFormatType.FORMAT_ORC;
+        } else if (lowerCasePath.contains(".json")) {
+            return TFileFormatType.FORMAT_JSON;
         } else {
             return TFileFormatType.FORMAT_CSV_PLAIN;
+        }
+    }
+
+    public static TFileFormatType getFileFormatTypeFromName(String formatName) {
+        String lowerFileFormat = Objects.requireNonNull(formatName).toLowerCase();
+        if (lowerFileFormat.equals(FileFormatConstants.FORMAT_PARQUET)) {
+            return TFileFormatType.FORMAT_PARQUET;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ORC)) {
+            return TFileFormatType.FORMAT_ORC;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_JSON)) {
+            return TFileFormatType.FORMAT_JSON;
+            // csv/csv_with_name/csv_with_names_and_types treat as csv format
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV)
+                || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
+                || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)
+                // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
+                || lowerFileFormat.equals(FileFormatConstants.FORMAT_HIVE_TEXT)) {
+            return TFileFormatType.FORMAT_CSV_PLAIN;
+        } else if (lowerFileFormat.equals("wal")) {
+            return TFileFormatType.FORMAT_WAL;
+        } else {
+            return TFileFormatType.FORMAT_UNKNOWN;
         }
     }
 
@@ -585,6 +598,9 @@ public class Util {
     }
 
     public static TFileCompressType getFileCompressType(String compressType) {
+        if (Strings.isNullOrEmpty(compressType)) {
+            return TFileCompressType.UNKNOWN;
+        }
         final String upperCaseType = compressType.toUpperCase();
         return TFileCompressType.valueOf(upperCaseType);
     }

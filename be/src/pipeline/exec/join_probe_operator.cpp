@@ -38,12 +38,10 @@ Status JoinProbeLocalState<DependencyType, Derived>::init(RuntimeState* state,
         RETURN_IF_ERROR(p._output_expr_ctxs[i]->clone(state, _output_expr_ctxs[i]));
     }
 
-    _probe_phase_profile = Base::profile()->create_child("ProbePhase", true, true);
-    _probe_timer = ADD_TIMER(_probe_phase_profile, "ProbeTime");
-    _join_filter_timer = ADD_CHILD_TIMER(_probe_phase_profile, "JoinFilterTimer", "ProbeTime");
-    _build_output_block_timer =
-            ADD_CHILD_TIMER(_probe_phase_profile, "BuildOutputBlock", "ProbeTime");
-    _probe_rows_counter = ADD_COUNTER(_probe_phase_profile, "ProbeRows", TUnit::UNIT);
+    _probe_timer = ADD_TIMER(Base::profile(), "ProbeTime");
+    _join_filter_timer = ADD_TIMER(Base::profile(), "JoinFilterTimer");
+    _build_output_block_timer = ADD_TIMER(Base::profile(), "BuildOutputBlock");
+    _probe_rows_counter = ADD_COUNTER(Base::profile(), "ProbeRows", TUnit::UNIT);
 
     return Status::OK();
 }
@@ -68,9 +66,8 @@ void JoinProbeLocalState<DependencyType, Derived>::_construct_mutable_join_block
         }
     }
     if (p._is_mark_join) {
-        _join_block.replace_by_position(
-                _join_block.columns() - 1,
-                remove_nullable(_join_block.get_by_position(_join_block.columns() - 1).column));
+        DCHECK(!p._is_mark_join ||
+               _join_block.get_by_position(_join_block.columns() - 1).column->is_nullable());
     }
 }
 
@@ -185,7 +182,8 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
                                            ? tnode.nested_loop_join_node.is_mark
                                            : false)
                         : tnode.hash_join_node.__isset.is_mark ? tnode.hash_join_node.is_mark
-                                                               : false) {
+                                                               : false),
+          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
     if (tnode.__isset.hash_join_node) {
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.hash_join_node.vintermediate_tuple_id_list,

@@ -31,6 +31,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/runtime_filter.h"
 #include "runtime/exec_env.h"
@@ -68,8 +69,7 @@ Status RuntimeFilterMgr::get_producer_filter(const int filter_id, IRuntimeFilter
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _producer_map.find(key);
     if (iter == _producer_map.end()) {
-        LOG(WARNING) << "unknown runtime filter: " << key << ", role: PRODUCER";
-        return Status::InvalidArgument("unknown filter");
+        return Status::InvalidArgument("unknown filter: {}, role: PRODUCER", key);
     }
 
     *target = iter->second;
@@ -80,20 +80,17 @@ Status RuntimeFilterMgr::get_consume_filter(const int filter_id, const int node_
                                             IRuntimeFilter** consumer_filter) {
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(filter_id);
-    if (iter == _consumer_map.cend()) {
-        LOG(WARNING) << "unknown runtime filter: " << filter_id << ", role: consumer";
-        return Status::InvalidArgument("unknown filter");
-    }
-
-    for (auto& item : iter->second) {
-        if (item.node_id == node_id) {
-            *consumer_filter = item.filter;
-            return Status::OK();
+    if (iter != _consumer_map.cend()) {
+        for (auto& item : iter->second) {
+            if (item.node_id == node_id) {
+                *consumer_filter = item.filter;
+                return Status::OK();
+            }
         }
     }
 
-    return Status::InvalidArgument(
-            fmt::format("unknown filter, filter_id: {}, node_id: {}", filter_id, node_id));
+    return Status::InvalidArgument("unknown filter, filter_id: {}, node_id: {}, role: CONSUMER",
+                                   filter_id, node_id);
 }
 
 Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
@@ -102,8 +99,7 @@ Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(key);
     if (iter == _consumer_map.end()) {
-        LOG(WARNING) << "unknown runtime filter: " << key << ", role: consumer";
-        return Status::InvalidArgument("unknown filter");
+        return Status::InvalidArgument("unknown filter: {}, role: CONSUMER", key);
     }
     for (auto& holder : iter->second) {
         consumer_filters.emplace_back(holder.filter);
@@ -223,7 +219,8 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
 
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
-    cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, -1, false);
+    static_cast<void>(
+            cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, -1, false));
     _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
     return Status::OK();
 }
@@ -245,7 +242,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
 
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
-    cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options);
+    static_cast<void>(cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options));
     _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
     return Status::OK();
 }
@@ -566,7 +563,7 @@ Status RuntimeFilterMergeController::remove_entity(UniqueId query_id) {
 // auto called while call ~std::shared_ptr<RuntimeFilterMergeControllerEntity>
 void runtime_filter_merge_entity_close(RuntimeFilterMergeController* controller,
                                        RuntimeFilterMergeControllerEntity* entity) {
-    controller->remove_entity(entity->query_id());
+    static_cast<void>(controller->remove_entity(entity->query_id()));
     delete entity;
 }
 

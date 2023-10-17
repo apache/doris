@@ -40,6 +40,7 @@
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "util/hash_util.hpp"
+#include "util/lock.h"
 #include "vec/common/uint128.h"
 
 namespace doris {
@@ -54,22 +55,28 @@ enum CacheType {
     INDEX,
     NORMAL,
     DISPOSABLE,
+    TTL,
 };
 
 struct CacheContext {
-    CacheContext(const IOContext* io_ctx) {
-        if (io_ctx->read_segment_index) {
+    CacheContext(const IOContext* io_context) {
+        if (io_context->is_index_data) {
             cache_type = CacheType::INDEX;
-        } else if (io_ctx->is_disposable) {
+        } else if (io_context->is_disposable) {
             cache_type = CacheType::DISPOSABLE;
+        } else if (io_context->expiration_time != 0) {
+            cache_type = CacheType::TTL;
+            expiration_time = io_context->expiration_time;
         } else {
             cache_type = CacheType::NORMAL;
         }
-        query_id = io_ctx->query_id ? *io_ctx->query_id : TUniqueId();
+        query_id = io_context->query_id ? *io_context->query_id : TUniqueId();
     }
     CacheContext() = default;
     TUniqueId query_id;
     CacheType cache_type;
+    int64_t expiration_time {0};
+    bool is_cold_data {false};
 };
 
 /**
@@ -139,7 +146,10 @@ public:
 
     virtual size_t get_file_segments_num(CacheType type) const = 0;
 
-    static std::string cache_type_to_string(CacheType type);
+    virtual void change_cache_type(const Key& key, size_t offset, CacheType new_type,
+                                   std::lock_guard<doris::Mutex>& cache_lock) = 0;
+
+    static std::string_view cache_type_to_string(CacheType type);
     static CacheType string_to_cache_type(const std::string& str);
 
     IFileCache& operator=(const IFileCache&) = delete;

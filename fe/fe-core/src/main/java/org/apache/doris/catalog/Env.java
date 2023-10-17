@@ -32,6 +32,7 @@ import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
+import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
 import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
@@ -195,6 +196,7 @@ import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.SetPartitionVersionOperationLog;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
+import org.apache.doris.persist.SetReplicaVersionOperationLog;
 import org.apache.doris.persist.SetTableStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
@@ -205,6 +207,7 @@ import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.persist.meta.MetaWriter;
+import org.apache.doris.planner.SingleTabletLoadRecorderMgr;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
@@ -325,6 +328,7 @@ public class Env {
     private LoadManager loadManager;
     private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
+    private SingleTabletLoadRecorderMgr singleTabletLoadRecorderMgr;
     private RoutineLoadManager routineLoadManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
@@ -687,6 +691,7 @@ public class Env {
         this.progressManager = new ProgressManager();
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
                 Config.fetch_stream_load_record_interval_second * 1000L);
+        this.singleTabletLoadRecorderMgr = new SingleTabletLoadRecorderMgr();
         this.loadEtlChecker = new LoadEtlChecker(loadManager);
         this.loadLoadingChecker = new LoadLoadingChecker(loadManager);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
@@ -853,12 +858,10 @@ public class Env {
         while (true) {
             try {
                 if (!lock.tryLock(Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
-                    if (LOG.isDebugEnabled()) {
-                        // to see which thread held this lock for long time.
-                        Thread owner = lock.getOwner();
-                        if (owner != null) {
-                            LOG.debug("catalog lock is held by: {}", Util.dumpThread(owner, 10));
-                        }
+                    // to see which thread held this lock for long time.
+                    Thread owner = lock.getOwner();
+                    if (owner != null) {
+                        LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
                     }
 
                     if (mustLock) {
@@ -1512,8 +1515,6 @@ public class Env {
         loadJobScheduler.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
-        // export task
-        exportMgr.start();
         // Tablet checker and scheduler
         tabletChecker.start();
         tabletScheduler.start();
@@ -1556,6 +1557,7 @@ public class Env {
             cooldownConfHandler.start();
         }
         streamLoadRecordMgr.start();
+        singleTabletLoadRecorderMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         new InternalSchemaInitializer().start();
         if (Config.enable_hms_events_incremental_sync) {
@@ -1613,6 +1615,9 @@ public class Env {
 
         // stop mtmv scheduler
         mtmvJobManager.stop();
+        if (analysisManager != null) {
+            analysisManager.getStatisticsCache().preHeat();
+        }
     }
 
     // Set global variable 'lower_case_table_names' only when the cluster is initialized.
@@ -1658,7 +1663,8 @@ public class Env {
      * frontend log is deleted because of checkpoint.
      */
     private void checkCurrentNodeExist() {
-        if (Config.metadata_failure_recovery.equals("true")) {
+        boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
+        if (metadataFailureRecovery) {
             return;
         }
 
@@ -1955,10 +1961,8 @@ public class Env {
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
         recycleBin.readFields(dis);
-        if (!isCheckpointThread()) {
-            // add tablet in Recycle bin to TabletInvertedIndex
-            recycleBin.addTabletToInvertedIndex();
-        }
+        // add tablet in Recycle bin to TabletInvertedIndex
+        recycleBin.addTabletToInvertedIndex();
         // create DatabaseTransactionMgr for db in recycle bin.
         // these dbs do not exist in `idToDb` of the catalog.
         for (Long dbId : recycleBin.getAllDbIds()) {
@@ -2611,6 +2615,7 @@ public class Env {
         long startTime = System.currentTimeMillis();
         boolean hasLog = false;
         while (true) {
+            long entityStartTime = System.currentTimeMillis();
             Pair<Long, JournalEntity> kv = cursor.next();
             if (kv == null) {
                 break;
@@ -2622,6 +2627,7 @@ public class Env {
             }
             hasLog = true;
             EditLog.loadJournal(this, logId, entity);
+            long loadJournalEndTime = System.currentTimeMillis();
             replayedJournalId.incrementAndGet();
             LOG.debug("journal {} replayed.", replayedJournalId);
             if (feType != FrontendNodeType.MASTER) {
@@ -2630,6 +2636,14 @@ public class Env {
             if (MetricRepo.isInit) {
                 // Metric repo may not init after this replay thread start
                 MetricRepo.COUNTER_EDIT_LOG_READ.increase(1L);
+            }
+
+            long entityCost = System.currentTimeMillis() - entityStartTime;
+            if (entityCost >= 1000) {
+                long loadJournalCost = loadJournalEndTime - entityStartTime;
+                LOG.warn("entityCost:{} loadJournalCost:{} logId:{} replayedJournalId:{} code:{} size:{}",
+                        entityCost, loadJournalCost, logId, replayedJournalId, entity.getOpCode(),
+                        entity.getDataSize());
             }
         }
         long cost = System.currentTimeMillis() - startTime;
@@ -3100,6 +3114,10 @@ public class Env {
             ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
             sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION).append("\" = \"");
             sb.append(replicaAlloc.toCreateStmt()).append("\"");
+
+            // min load replica num
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM).append("\" = \"");
+            sb.append(olapTable.getMinLoadReplicaNum()).append("\"");
 
             // bloom filter
             Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
@@ -3762,6 +3780,10 @@ public class Env {
 
     public StreamLoadRecordMgr getStreamLoadRecordMgr() {
         return streamLoadRecordMgr;
+    }
+
+    public SingleTabletLoadRecorderMgr getSingleTabletLoadRecorderMgr() {
+        return singleTabletLoadRecorderMgr;
     }
 
     public IcebergTableCreationRecordMgr getIcebergTableCreationRecordMgr() {
@@ -4636,6 +4658,7 @@ public class Env {
             tableProperty.modifyTableProperties(properties);
         }
         tableProperty.buildInMemory()
+                .buildMinLoadReplicaNum()
                 .buildStoragePolicy()
                 .buildIsBeingSynced()
                 .buildCompactionPolicy()
@@ -5395,6 +5418,56 @@ public class Env {
         }
     }
 
+    // Set specified replica's version. If replica does not exist, just ignore it.
+    public void setReplicaVersion(AdminSetReplicaVersionStmt stmt) throws MetaNotFoundException {
+        long tabletId = stmt.getTabletId();
+        long backendId = stmt.getBackendId();
+        Long version = stmt.getVersion();
+        Long lastSuccessVersion = stmt.getLastSuccessVersion();
+        Long lastFailedVersion = stmt.getLastFailedVersion();
+        long updateTime = System.currentTimeMillis();
+        setReplicaVersionInternal(tabletId, backendId, version, lastSuccessVersion, lastFailedVersion,
+                updateTime, false);
+    }
+
+    public void replaySetReplicaVersion(SetReplicaVersionOperationLog log) throws MetaNotFoundException {
+        setReplicaVersionInternal(log.getTabletId(), log.getBackendId(), log.getVersion(),
+                log.getLastSuccessVersion(), log.getLastFailedVersion(), log.getUpdateTime(), true);
+    }
+
+    private void setReplicaVersionInternal(long tabletId, long backendId, Long version, Long lastSuccessVersion,
+            Long lastFailedVersion, long updateTime, boolean isReplay)
+            throws MetaNotFoundException {
+        try {
+            TabletMeta meta = tabletInvertedIndex.getTabletMeta(tabletId);
+            if (meta == null) {
+                throw new MetaNotFoundException("tablet does not exist");
+            }
+            Database db = getInternalCatalog().getDbOrMetaException(meta.getDbId());
+            Table table = db.getTableOrMetaException(meta.getTableId());
+            table.writeLockOrMetaException();
+            try {
+                Replica replica = tabletInvertedIndex.getReplica(tabletId, backendId);
+                if (replica == null) {
+                    throw new MetaNotFoundException("replica does not exist on backend, beId=" + backendId);
+                }
+                replica.adminUpdateVersionInfo(version, lastFailedVersion, lastSuccessVersion, updateTime);
+                if (!isReplay) {
+                    SetReplicaVersionOperationLog log = new SetReplicaVersionOperationLog(backendId, tabletId,
+                            version, lastSuccessVersion, lastFailedVersion, updateTime);
+                    getEditLog().logSetReplicaVersion(log);
+                }
+                LOG.info("set replica {} of tablet {} on backend {} as version {}, last success version {}, "
+                        + "last failed version {}, update time {}. is replay: {}", replica.getId(), tabletId,
+                        backendId, version, lastSuccessVersion, lastFailedVersion, updateTime, isReplay);
+            } finally {
+                table.writeUnlock();
+            }
+        } catch (MetaNotFoundException e) {
+            throw new MetaNotFoundException("set replica version failed, tabletId=" + tabletId, e);
+        }
+    }
+
     public void eraseDatabase(long dbId, boolean needEditLog) {
         // remove jobs
         Env.getCurrentEnv().getLoadInstance().removeDbLoadJob(dbId);
@@ -5419,7 +5492,7 @@ public class Env {
             }
         }
 
-        if (!isReplay) {
+        if (!isReplay && !Env.isCheckpointThread()) {
             // drop all replicas
             AgentBatchTask batchTask = new AgentBatchTask();
             for (Partition partition : olapTable.getAllPartitions()) {
@@ -5443,6 +5516,7 @@ public class Env {
             AgentTaskExecutor.submit(batchTask);
         }
 
+        // TODO: does checkpoint need update colocate index ?
         // colocation
         Env.getCurrentColocateIndex().removeTable(olapTable.getId());
     }

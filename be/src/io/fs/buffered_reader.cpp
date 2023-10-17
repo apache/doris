@@ -34,7 +34,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 
 // add bvar to capture the download bytes per second by buffered reader
 bvar::Adder<uint64_t> g_bytes_downloaded("buffered_reader", "bytes_downloaded");
@@ -417,8 +417,8 @@ void PrefetchBuffer::reset_offset(size_t offset) {
     } else {
         _exceed = false;
     }
-    ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
-            [buffer_ptr = shared_from_this()]() { buffer_ptr->prefetch_buffer(); });
+    static_cast<void>(ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
+            [buffer_ptr = shared_from_this()]() { buffer_ptr->prefetch_buffer(); }));
 }
 
 // only this function would run concurrently in another thread
@@ -649,7 +649,7 @@ PrefetchBufferedReader::~PrefetchBufferedReader() {
     std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
                   [](std::shared_ptr<PrefetchBuffer>& buffer) { buffer->_sync_profile = nullptr; });
     /// Better not to call virtual functions in a destructor.
-    _close_internal();
+    static_cast<void>(_close_internal());
 }
 
 Status PrefetchBufferedReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -697,7 +697,7 @@ InMemoryFileReader::InMemoryFileReader(io::FileReaderSPtr reader) : _reader(std:
 }
 
 InMemoryFileReader::~InMemoryFileReader() {
-    _close_internal();
+    static_cast<void>(_close_internal());
 }
 
 Status InMemoryFileReader::close() {

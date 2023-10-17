@@ -719,4 +719,13 @@ suite("test_date_function") {
     assertFalse(res.contains("date_trunc"))
 
     qt_sql """ select date_add("2023-08-17T01:41:18Z", interval 8 hour) """
+
+    qt_sql """
+        SELECT
+            UNIX_TIMESTAMP(a, '%Y-%c-%d %H:%i:%s') AS a,
+            UNIX_TIMESTAMP(a, 'yyyy-MM-dd HH:mm:ss') as b
+        FROM
+           (
+            SELECT FROM_UNIXTIME(UNIX_TIMESTAMP('20230918', '%Y%m%d'), 'yyyy-MM-dd HH:mm:ss') AS `a`
+           )t """
 }

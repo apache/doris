@@ -56,7 +56,7 @@ import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.MVAnalysisTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -420,7 +420,7 @@ public class OlapTable extends Table {
             // Column maybe renamed, rebuild the column name map
             indexMeta.initColumnNameMap();
         }
-        LOG.debug("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
+        LOG.info("after rebuild full schema. table {}, schema size: {}", id, fullSchema.size());
     }
 
     public boolean deleteIndexInfo(String indexName) {
@@ -637,6 +637,10 @@ public class OlapTable extends Table {
         }
 
         return Status.OK;
+    }
+
+    public int getIndexNumber() {
+        return indexIdToMeta.size();
     }
 
     public Map<Long, MaterializedIndexMeta> getIndexIdToMeta() {
@@ -1125,12 +1129,20 @@ public class OlapTable extends Table {
         return new MVAnalysisTask(info);
     }
 
-    @Override
-    public boolean needReAnalyzeTable(TableStats tblStats) {
+    public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
+        if (tblStats == null) {
+            return true;
+        }
         long rowCount = getRowCount();
         // TODO: Do we need to analyze an empty table?
         if (rowCount == 0) {
             return false;
+        }
+        if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
+                .stream()
+                .map(Column::getName)
+                .collect(Collectors.toSet()))) {
+            return true;
         }
         long updateRows = tblStats.updatedRows.get();
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
@@ -1138,18 +1150,26 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public Set<String> findReAnalyzeNeededPartitions() {
-        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(getId());
-        if (tableStats == null) {
-            return getPartitionNames().stream().map(this::getPartition)
+    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
+        TableIf table = this;
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        Set<String> allPartitions = table.getPartitionNames().stream().map(table::getPartition)
                 .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
+        if (tableStats == null) {
+            return table.getBaseSchema().stream().collect(Collectors.toMap(Column::getName, v -> allPartitions));
         }
-        return getPartitionNames().stream()
-            .map(this::getPartition)
-            .filter(Partition::hasData)
-            .filter(partition ->
-                partition.getVisibleVersionTime() >= tableStats.updatedTime).map(Partition::getName)
-            .collect(Collectors.toSet());
+        Map<String, Set<String>> colToPart = new HashMap<>();
+        for (Column col : table.getBaseSchema()) {
+            long lastUpdateTime = tableStats.findColumnLastUpdateTime(col.getName());
+            Set<String> partitions = table.getPartitionNames().stream()
+                    .map(table::getPartition)
+                    .filter(Partition::hasData)
+                    .filter(partition ->
+                            partition.getVisibleVersionTime() >= lastUpdateTime).map(Partition::getName)
+                    .collect(Collectors.toSet());
+            colToPart.put(col.getName(), partitions);
+        }
+        return colToPart;
     }
 
     @Override
@@ -1553,12 +1573,16 @@ public class OlapTable extends Table {
         return oldPartition;
     }
 
-    public long getDataSize() {
+    public long getDataSize(boolean singleReplica) {
         long dataSize = 0;
         for (Partition partition : getAllPartitions()) {
-            dataSize += partition.getDataSize(false);
+            dataSize += partition.getDataSize(singleReplica);
         }
         return dataSize;
+    }
+
+    public long getDataSize() {
+        return getDataSize(false);
     }
 
     public long getRemoteDataSize() {
@@ -1832,6 +1856,36 @@ public class OlapTable extends Table {
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE,
                 Boolean.valueOf(enableLightSchemaChange).toString());
         tableProperty.buildEnableLightSchemaChange();
+    }
+
+    public short getMinLoadReplicaNum() {
+        if (tableProperty != null) {
+            return tableProperty.getMinLoadReplicaNum();
+        }
+
+        return -1;
+    }
+
+    public void setMinLoadReplicaNum(short minLoadReplicaNum) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM,
+                Short.valueOf(minLoadReplicaNum).toString());
+        tableProperty.buildMinLoadReplicaNum();
+    }
+
+    public int getLoadRequiredReplicaNum(long partitionId) {
+        int totalReplicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
+        int minLoadReplicaNum = getMinLoadReplicaNum();
+        if (minLoadReplicaNum > 0) {
+            return Math.min(minLoadReplicaNum, totalReplicaNum);
+        }
+
+        int quorum = totalReplicaNum / 2 + 1;
+        if (Config.min_load_replica_num > 0) {
+            return Math.min(quorum, Config.min_load_replica_num);
+        }
+
+        return quorum;
     }
 
     public void setStoragePolicy(String storagePolicy) throws UserException {
@@ -2312,7 +2366,7 @@ public class OlapTable extends Table {
                 Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
                 meta.parseStmt(analyzer);
             } catch (IOException e) {
-                e.printStackTrace();
+                LOG.info(e);
             }
         }
     }

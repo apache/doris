@@ -50,8 +50,8 @@ SchemaVariablesScanner::~SchemaVariablesScanner() {}
 Status SchemaVariablesScanner::start(RuntimeState* state) {
     TShowVariableRequest var_params;
     // Use db to save type
-    if (_param->db != nullptr) {
-        if (strcmp(_param->db->c_str(), "GLOBAL") == 0) {
+    if (_param->common_param->db != nullptr) {
+        if (strcmp(_param->common_param->db->c_str(), "GLOBAL") == 0) {
             var_params.__set_varType(TVarType::GLOBAL);
         } else {
             var_params.__set_varType(TVarType::SESSION);
@@ -59,11 +59,11 @@ Status SchemaVariablesScanner::start(RuntimeState* state) {
     } else {
         var_params.__set_varType(_type);
     }
-    var_params.__set_threadId(_param->thread_id);
+    var_params.__set_threadId(_param->common_param->thread_id);
 
-    if (nullptr != _param->ip && 0 != _param->port) {
-        RETURN_IF_ERROR(SchemaHelper::show_variables(*(_param->ip), _param->port, var_params,
-                                                     &_var_result));
+    if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
+        RETURN_IF_ERROR(SchemaHelper::show_variables(
+                *(_param->common_param->ip), _param->common_param->port, var_params, &_var_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
@@ -98,7 +98,7 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
             datas[idx] = strs + idx;
             ++idx;
         }
-        fill_dest_column_for_range(block, 0, datas);
+        static_cast<void>(fill_dest_column_for_range(block, 0, datas));
     }
     // value
     {
@@ -109,7 +109,7 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
             datas[idx] = strs + idx;
             ++idx;
         }
-        fill_dest_column_for_range(block, 1, datas);
+        static_cast<void>(fill_dest_column_for_range(block, 1, datas));
     }
     return Status::OK();
 }

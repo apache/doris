@@ -24,17 +24,19 @@ import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.BrokerMgr;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -77,10 +79,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(LABEL)
             .add(PARALLELISM)
-            .add(LoadStmt.EXEC_MEM_LIMIT)
-            .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
-            .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
             .add(PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR)
@@ -119,7 +118,9 @@ public class ExportCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // get tblName
-        TableName tblName = getTableName(ctx);
+        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, this.nameParts);
+        TableName tblName = new TableName(qualifiedTableName.get(0), qualifiedTableName.get(1),
+                qualifiedTableName.get(2));
 
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tblName.getDb(), tblName.getTbl(),
@@ -141,9 +142,9 @@ public class ExportCommand extends Command implements ForwardWithSync {
     private void checkAllParameters(ConnectContext ctx, TableName tblName, Map<String, String> fileProperties)
             throws UserException {
         checkPropertyKey(fileProperties);
-        checkPartitions(ctx.getEnv(), tblName);
+        checkPartitions(ctx, tblName);
         checkBrokerDesc(ctx);
-        checkFileProperties(fileProperties, tblName);
+        checkFileProperties(ctx, fileProperties, tblName);
     }
 
     // check property key
@@ -156,24 +157,28 @@ public class ExportCommand extends Command implements ForwardWithSync {
     }
 
     // check partitions specified by user are belonged to the table.
-    private void checkPartitions(Env env, TableName tblName) throws AnalysisException, UserException {
+    private void checkPartitions(ConnectContext ctx, TableName tblName) throws AnalysisException, UserException {
         if (this.partitionsNames.isEmpty()) {
             return;
         }
+
+        CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl());
+        // As for external table, we do not support export PARTITION
+        if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog.getType())) {
+            throw new AnalysisException("Table[" + tblName.getTbl() + "] is EXTERNAL TABLE type, "
+                    + "do not support export PARTITION.");
+        }
+
+        DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
+        Table table = (Table) db.getTableOrAnalysisException(tblName.getTbl());
 
         if (this.partitionsNames.size() > Config.maximum_number_of_export_partitions) {
             throw new AnalysisException("The partitions number of this export job is larger than the maximum number"
                     + " of partitions allowed by an export job");
         }
 
-        Database db = env.getInternalCatalog().getDbOrAnalysisException(tblName.getDb());
-        Table table = db.getTableOrAnalysisException(tblName.getTbl());
         table.readLock();
         try {
-            // check table
-            if (!table.isPartitioned()) {
-                throw new AnalysisException("Table[" + tblName.getTbl() + "] is not partitioned.");
-            }
             Table.TableType tblType = table.getType();
             switch (tblType) {
                 case MYSQL:
@@ -181,15 +186,23 @@ public class ExportCommand extends Command implements ForwardWithSync {
                 case JDBC:
                 case OLAP:
                     break;
+                case VIEW: // We support export view, so we do not need to check partition here.
+                    if (this.partitionsNames.size() > 0) {
+                        throw new AnalysisException("Table[" + tblName.getTbl() + "] is VIEW type, "
+                                + "do not support export PARTITION.");
+                    }
+                    return;
                 case BROKER:
                 case SCHEMA:
                 case INLINE_VIEW:
-                case VIEW:
                 default:
                     throw new AnalysisException("Table[" + tblName.getTbl() + "] is "
                             + tblType + " type, do not support EXPORT.");
             }
-
+            // check table
+            if (!table.isPartitioned()) {
+                throw new AnalysisException("Table[" + tblName.getTbl() + "] is not partitioned.");
+            }
             for (String partitionName : this.partitionsNames) {
                 Partition partition = table.getPartition(partitionName);
                 if (partition == null) {
@@ -220,12 +233,15 @@ public class ExportCommand extends Command implements ForwardWithSync {
     private ExportJob generateExportJob(ConnectContext ctx, Map<String, String> fileProperties, TableName tblName)
             throws UserException {
         ExportJob exportJob = new ExportJob();
-        // set export job
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tblName.getDb());
+        // set export job and check catalog/db/table
+        CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl());
+        DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
+        TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
+
         exportJob.setDbId(db.getId());
         exportJob.setTableName(tblName);
-        exportJob.setExportTable(db.getTableOrDdlException(tblName.getTbl()));
-        exportJob.setTableId(db.getTableOrDdlException(tblName.getTbl()).getId());
+        exportJob.setExportTable(table);
+        exportJob.setTableId(table.getId());
 
         // set partitions
         exportJob.setPartitionNames(this.partitionsNames);
@@ -285,30 +301,22 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setQualifiedUser(ctx.getQualifiedUser());
         exportJob.setUserIdentity(ctx.getCurrentUserIdentity());
 
-        Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
-                ConnectContext.get().getSessionVariable());
-        exportJob.setSessionVariables(optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable()));
-        exportJob.setTimeoutSecond(optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable())
-                .getQueryTimeoutS());
+        // Must copy session variable, because session variable may be changed during export job running.
+        SessionVariable clonedSessionVariable = VariableMgr.cloneSessionVariable(Optional.ofNullable(
+                ConnectContext.get().getSessionVariable()).orElse(VariableMgr.getDefaultSessionVariable()));
+        exportJob.setSessionVariables(clonedSessionVariable);
+        exportJob.setTimeoutSecond(clonedSessionVariable.getQueryTimeoutS());
 
         // exportJob generate outfile sql
-        exportJob.generateOutfileLogicalPlans(this.nameParts);
+        exportJob.generateOutfileLogicalPlans(RelationUtil.getQualifierName(ctx, this.nameParts));
         return exportJob;
     }
 
-    private TableName getTableName(ConnectContext ctx) throws UserException {
-        // get tblName
-        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, this.nameParts);
-        TableName tblName = new TableName(qualifiedTableName.get(0), qualifiedTableName.get(1),
-                qualifiedTableName.get(2));
-        Util.prohibitExternalCatalog(tblName.getCtl(), this.getClass().getSimpleName());
-        return tblName;
-    }
-
-    private void checkFileProperties(Map<String, String> fileProperties, TableName tblName) throws UserException {
+    private void checkFileProperties(ConnectContext ctx, Map<String, String> fileProperties, TableName tblName)
+            throws UserException {
         // check user specified columns
         if (fileProperties.containsKey(LoadStmt.KEY_IN_PARAM_COLUMNS)) {
-            checkColumns(fileProperties.get(LoadStmt.KEY_IN_PARAM_COLUMNS), tblName);
+            checkColumns(ctx, fileProperties.get(LoadStmt.KEY_IN_PARAM_COLUMNS), tblName);
         }
 
         // check user specified label
@@ -317,12 +325,18 @@ public class ExportCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private void checkColumns(String columns, TableName tblName) throws AnalysisException, UserException {
+    private void checkColumns(ConnectContext ctx, String columns, TableName tblName)
+            throws AnalysisException, UserException {
         if (columns.isEmpty()) {
             throw new AnalysisException("columns can not be empty");
         }
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tblName.getDb());
-        Table table = db.getTableOrDdlException(tblName.getTbl());
+
+        CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl());
+        DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
+        TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
+
+        // As for external table
+        // their base schemas are equals to full schemas
         List<String> tableColumns = table.getBaseSchema().stream().map(column -> column.getName())
                 .collect(Collectors.toList());
         Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
@@ -337,6 +351,10 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
     public Map<String, String> getFileProperties() {
         return this.fileProperties;
+    }
+
+    public List<String> getNameParts() {
+        return this.nameParts;
     }
 
     @Override

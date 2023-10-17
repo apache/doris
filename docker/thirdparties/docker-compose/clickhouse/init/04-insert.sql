@@ -39,3 +39,6 @@ INSERT INTO doris_test.json VALUES ('1','{"a": 1, "b": { "c": 2, "d": [1, 2, 3] 
 INSERT INTO doris_test.final_test Values (1, 'first');
 INSERT INTO doris_test.final_test Values (1, 'second');
 
+INSERT INTO doris_test.ts values (1,1694438743);
+
+

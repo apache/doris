@@ -35,11 +35,15 @@
 #include "common/status.h"
 #include "gutil/stringprintf.h"
 #include "olap/olap_common.h"
+#include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 namespace vectorized {
 class Block;
+class PathInData;
+class IDataType;
 } // namespace vectorized
 
 struct OlapTableIndexSchema;
@@ -61,8 +65,12 @@ public:
 
     int32_t unique_id() const { return _unique_id; }
     void set_unique_id(int32_t id) { _unique_id = id; }
-    std::string name() const { return _col_name; }
-    void set_name(std::string col_name) { _col_name = col_name; }
+    const std::string& name() const { return _col_name; }
+    const std::string& name_lower_case() const { return _col_name_lower_case; }
+    void set_name(std::string col_name) {
+        _col_name = col_name;
+        _col_name_lower_case = to_lower(_col_name);
+    }
     FieldType type() const { return _type; }
     void set_type(FieldType type) { _type = type; }
     bool is_key() const { return _is_key; }
@@ -83,11 +91,17 @@ public:
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     size_t length() const { return _length; }
+    void set_length(size_t length) { _length = length; }
+    void set_default_value(const std::string& default_value) {
+        _default_value = default_value;
+        _has_default_value = true;
+    }
     size_t index_length() const { return _index_length; }
     void set_index_length(size_t index_length) { _index_length = index_length; }
     void set_is_key(bool is_key) { _is_key = is_key; }
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
     void set_has_default_value(bool has) { _has_default_value = has; }
+    void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function_union(
             vectorized::DataTypePtr type) const;
@@ -105,6 +119,7 @@ public:
 
     uint32_t get_subtype_count() const { return _sub_column_count; }
     const TabletColumn& get_sub_column(uint32_t i) const { return _sub_columns[i]; }
+    const std::vector<TabletColumn>& get_sub_columns() const { return _sub_columns; }
 
     friend bool operator==(const TabletColumn& a, const TabletColumn& b);
     friend bool operator!=(const TabletColumn& a, const TabletColumn& b);
@@ -117,10 +132,17 @@ public:
     bool is_row_store_column() const;
     std::string get_aggregation_name() const { return _aggregation_name; }
     bool get_result_is_nullable() const { return _result_is_nullable; }
+    const vectorized::PathInData& path_info() const { return _column_path; }
+    // If it is an extracted column from variant column
+    bool is_extracted_column() const { return !_column_path.empty() && _parent_col_unique_id > 0; };
+    int32_t parent_unique_id() const { return _parent_col_unique_id; }
+    void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
+    std::shared_ptr<const vectorized::IDataType> get_vec_type() const;
 
 private:
-    int32_t _unique_id;
+    int32_t _unique_id = -1;
     std::string _col_name;
+    std::string _col_name_lower_case;
     FieldType _type;
     bool _is_key = false;
     FieldAggregationMethod _aggregation;
@@ -141,12 +163,12 @@ private:
 
     bool _has_bitmap_index = false;
     bool _visible = true;
-
-    TabletColumn* _parent = nullptr;
+    int32_t _parent_col_unique_id = -1;
     std::vector<TabletColumn> _sub_columns;
     uint32_t _sub_column_count = 0;
 
     bool _result_is_nullable = false;
+    vectorized::PathInData _column_path;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -199,13 +221,14 @@ private:
 
 class TabletSchema {
 public:
+    enum ColumnType { NORMAL = 0, DROPPED = 1, VARIANT = 2 };
     // TODO(yingchun): better to make constructor as private to avoid
     // manually init members incorrectly, and define a new function like
     // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
     TabletSchema() = default;
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
-    void append_column(TabletColumn column, bool is_dropped_column = false);
+    void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
     void append_index(TabletIndex index);
     void remove_index(int64_t index_id);
     // Must make sure the row column is always the last column
@@ -213,20 +236,22 @@ public:
     void copy_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
     int64_t mem_size() const { return _mem_size; }
-
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
+    int32_t field_index(const vectorized::PathInData& path) const;
     int32_t field_index(int32_t col_unique_id) const;
     const TabletColumn& column(size_t ordinal) const;
     const TabletColumn& column(const std::string& field_name) const;
     Status have_column(const std::string& field_name) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     const std::vector<TabletColumn>& columns() const;
+    std::vector<TabletColumn>& mutable_columns();
     size_t num_columns() const { return _num_columns; }
     size_t num_key_columns() const { return _num_key_columns; }
     size_t num_null_columns() const { return _num_null_columns; }
     size_t num_short_key_columns() const { return _num_short_key_columns; }
     size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
+    size_t num_variant_columns() const { return _num_variant_columns; };
     KeysType keys_type() const { return _keys_type; }
     SortType sort_type() const { return _sort_type; }
     size_t sort_col_num() const { return _sort_col_num; }
@@ -290,7 +315,7 @@ public:
     // 7. insert value  4, 5
     // Then the read schema should be ColA, ColB, ColB' because the delete predicate need ColB to remove related data.
     // Because they have same name, so that the dropped column should not be added to the map, only with unique id.
-    void merge_dropped_columns(std::shared_ptr<TabletSchema> src_schema);
+    void merge_dropped_columns(const TabletSchema& src_schema);
 
     bool is_dropped_column(const TabletColumn& col) const;
 
@@ -305,20 +330,28 @@ public:
         str += "]";
         return str;
     }
-    vectorized::Block create_missing_columns_block();
-    vectorized::Block create_update_columns_block();
-    void set_partial_update_info(bool is_partial_update,
-                                 const std::set<string>& partial_update_input_columns);
-    bool is_partial_update() const { return _is_partial_update; }
-    size_t partial_input_column_size() const { return _partial_update_input_columns.size(); }
-    bool is_column_missing(size_t cid) const;
-    bool can_insert_new_rows_in_partial_update() const {
-        return _can_insert_new_rows_in_partial_update;
+
+    // Dump [(name, type, is_nullable), ...]
+    string dump_structure() const {
+        string str = "[";
+        for (auto p : _field_name_to_index) {
+            if (str.size() > 1) {
+                str += ", ";
+            }
+            str += "(";
+            str += p.first;
+            str += ", ";
+            str += TabletColumn::get_string_by_field_type(_cols[p.second].type());
+            str += ", ";
+            str += "is_nullable:";
+            str += (_cols[p.second].is_nullable() ? "true" : "false");
+            str += ")";
+        }
+        str += "]";
+        return str;
     }
-    void set_is_strict_mode(bool is_strict_mode) { _is_strict_mode = is_strict_mode; }
-    bool is_strict_mode() const { return _is_strict_mode; }
-    std::vector<uint32_t> get_missing_cids() { return _missing_cids; }
-    std::vector<uint32_t> get_update_cids() { return _update_cids; }
+
+    vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -331,7 +364,10 @@ private:
     std::vector<TabletIndex> _indexes;
     std::unordered_map<std::string, int32_t> _field_name_to_index;
     std::unordered_map<int32_t, int32_t> _field_id_to_index;
+    std::unordered_map<vectorized::PathInData, int32_t, vectorized::PathInData::Hash>
+            _field_path_to_index;
     size_t _num_columns = 0;
+    size_t _num_variant_columns = 0;
     size_t _num_key_columns = 0;
     size_t _num_null_columns = 0;
     size_t _num_short_key_columns = 0;
@@ -353,15 +389,6 @@ private:
     int64_t _mem_size = 0;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
-
-    bool _is_partial_update;
-    std::set<std::string> _partial_update_input_columns;
-    std::vector<uint32_t> _missing_cids;
-    std::vector<uint32_t> _update_cids;
-    // if key not exist in old rowset, use default value or null value for the unmentioned cols
-    // to generate a new row, only available in non-strict mode
-    bool _can_insert_new_rows_in_partial_update = true;
-    bool _is_strict_mode = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

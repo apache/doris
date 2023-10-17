@@ -66,6 +66,10 @@ public class ColocateGroupSchema implements Writable {
         return replicaAlloc;
     }
 
+    public void setReplicaAlloc(ReplicaAllocation replicaAlloc) {
+        this.replicaAlloc = replicaAlloc;
+    }
+
     public List<Type> getDistributionColTypes() {
         return distributionColTypes;
     }

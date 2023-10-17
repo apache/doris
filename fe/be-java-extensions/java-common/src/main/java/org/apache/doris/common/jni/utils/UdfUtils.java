@@ -23,9 +23,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.exception.InternalException;
-import org.apache.doris.thrift.TPrimitiveType;
 
-import com.google.common.collect.Sets;
 import com.vesoft.nebula.client.graph.data.DateTimeWrapper;
 import com.vesoft.nebula.client.graph.data.DateWrapper;
 import com.vesoft.nebula.client.graph.data.ValueWrapper;
@@ -35,8 +33,6 @@ import sun.misc.Unsafe;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.lang.reflect.Field;
-import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -67,166 +63,6 @@ public class UdfUtils {
                 });
         BYTE_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(byte[].class);
         INT_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(int[].class);
-    }
-
-    // Data types that are supported as return or argument types in Java UDFs.
-    public enum JavaUdfDataType {
-        INVALID_TYPE("INVALID_TYPE", TPrimitiveType.INVALID_TYPE, 0),
-        BOOLEAN("BOOLEAN", TPrimitiveType.BOOLEAN, 1),
-        TINYINT("TINYINT", TPrimitiveType.TINYINT, 1),
-        SMALLINT("SMALLINT", TPrimitiveType.SMALLINT, 2),
-        INT("INT", TPrimitiveType.INT, 4),
-        BIGINT("BIGINT", TPrimitiveType.BIGINT, 8),
-        FLOAT("FLOAT", TPrimitiveType.FLOAT, 4),
-        DOUBLE("DOUBLE", TPrimitiveType.DOUBLE, 8),
-        CHAR("CHAR", TPrimitiveType.CHAR, 0),
-        VARCHAR("VARCHAR", TPrimitiveType.VARCHAR, 0),
-        STRING("STRING", TPrimitiveType.STRING, 0),
-        DATE("DATE", TPrimitiveType.DATE, 8),
-        DATETIME("DATETIME", TPrimitiveType.DATETIME, 8),
-        LARGEINT("LARGEINT", TPrimitiveType.LARGEINT, 16),
-        DECIMALV2("DECIMALV2", TPrimitiveType.DECIMALV2, 16),
-        DATEV2("DATEV2", TPrimitiveType.DATEV2, 4),
-        DATETIMEV2("DATETIMEV2", TPrimitiveType.DATETIMEV2, 8),
-        DECIMAL32("DECIMAL32", TPrimitiveType.DECIMAL32, 4),
-        DECIMAL64("DECIMAL64", TPrimitiveType.DECIMAL64, 8),
-        DECIMAL128("DECIMAL128", TPrimitiveType.DECIMAL128I, 16),
-        ARRAY_TYPE("ARRAY_TYPE", TPrimitiveType.ARRAY, 0),
-        MAP_TYPE("MAP_TYPE", TPrimitiveType.MAP, 0);
-
-        private final String description;
-        private final TPrimitiveType thriftType;
-        private final int len;
-        private int precision;
-        private int scale;
-        private Type itemType;
-        private Type keyType;
-        private Type valueType;
-        private int keyScale;
-        private int valueScale;
-
-        JavaUdfDataType(String description, TPrimitiveType thriftType, int len) {
-            this.description = description;
-            this.thriftType = thriftType;
-            this.len = len;
-        }
-
-        @Override
-        public String toString() {
-            return description;
-        }
-
-        public TPrimitiveType getPrimitiveType() {
-            return thriftType;
-        }
-
-        public int getLen() {
-            return len;
-        }
-
-        public static Set<JavaUdfDataType> getCandidateTypes(Class<?> c) {
-            if (c == boolean.class || c == Boolean.class) {
-                return Sets.newHashSet(JavaUdfDataType.BOOLEAN);
-            } else if (c == byte.class || c == Byte.class) {
-                return Sets.newHashSet(JavaUdfDataType.TINYINT);
-            } else if (c == short.class || c == Short.class) {
-                return Sets.newHashSet(JavaUdfDataType.SMALLINT);
-            } else if (c == int.class || c == Integer.class) {
-                return Sets.newHashSet(JavaUdfDataType.INT);
-            } else if (c == long.class || c == Long.class) {
-                return Sets.newHashSet(JavaUdfDataType.BIGINT);
-            } else if (c == float.class || c == Float.class) {
-                return Sets.newHashSet(JavaUdfDataType.FLOAT);
-            } else if (c == double.class || c == Double.class) {
-                return Sets.newHashSet(JavaUdfDataType.DOUBLE);
-            } else if (c == char.class || c == Character.class) {
-                return Sets.newHashSet(JavaUdfDataType.CHAR);
-            } else if (c == String.class) {
-                return Sets.newHashSet(JavaUdfDataType.STRING);
-            } else if (Type.DATE_SUPPORTED_JAVA_TYPE.contains(c)) {
-                return Sets.newHashSet(JavaUdfDataType.DATE, JavaUdfDataType.DATEV2);
-            } else if (Type.DATETIME_SUPPORTED_JAVA_TYPE.contains(c)) {
-                return Sets.newHashSet(JavaUdfDataType.DATETIME, JavaUdfDataType.DATETIMEV2);
-            } else if (c == BigInteger.class) {
-                return Sets.newHashSet(JavaUdfDataType.LARGEINT);
-            } else if (c == BigDecimal.class) {
-                return Sets.newHashSet(JavaUdfDataType.DECIMALV2, JavaUdfDataType.DECIMAL32, JavaUdfDataType.DECIMAL64,
-                        JavaUdfDataType.DECIMAL128);
-            } else if (c == java.util.ArrayList.class) {
-                return Sets.newHashSet(JavaUdfDataType.ARRAY_TYPE);
-            } else if (c == java.util.HashMap.class) {
-                return Sets.newHashSet(JavaUdfDataType.MAP_TYPE);
-            }
-            return Sets.newHashSet(JavaUdfDataType.INVALID_TYPE);
-        }
-
-        public static boolean isSupported(Type t) {
-            for (JavaUdfDataType javaType : JavaUdfDataType.values()) {
-                if (javaType == JavaUdfDataType.INVALID_TYPE) {
-                    continue;
-                }
-                if (javaType.getPrimitiveType() == t.getPrimitiveType().toThrift()) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        public int getPrecision() {
-            return precision;
-        }
-
-        public void setPrecision(int precision) {
-            this.precision = precision;
-        }
-
-        public int getScale() {
-            return this.thriftType == TPrimitiveType.DECIMALV2 ? 9 : scale;
-        }
-
-        public void setScale(int scale) {
-            this.scale = scale;
-        }
-
-        public Type getItemType() {
-            return itemType;
-        }
-
-        public void setItemType(Type type) {
-            this.itemType = type;
-        }
-
-        public Type getKeyType() {
-            return keyType;
-        }
-
-        public Type getValueType() {
-            return valueType;
-        }
-
-        public void setKeyType(Type type) {
-            this.keyType = type;
-        }
-
-        public void setValueType(Type type) {
-            this.valueType = type;
-        }
-
-        public void setKeyScale(int scale) {
-            this.keyScale = scale;
-        }
-
-        public void setValueScale(int scale) {
-            this.valueScale = scale;
-        }
-
-        public int getKeyScale() {
-            return keyScale;
-        }
-
-        public int getValueScale() {
-            return valueScale;
-        }
     }
 
     public static void copyMemory(
@@ -282,7 +118,8 @@ public class UdfUtils {
         Object[] res = javaTypes.stream().filter(
                 t -> t.getPrimitiveType() == retType.getPrimitiveType().toThrift()).toArray();
 
-        JavaUdfDataType result = res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0];
+        JavaUdfDataType result = new JavaUdfDataType(
+                res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0]);
         if (retType.isDecimalV3() || retType.isDatetimeV2()) {
             result.setPrecision(retType.getPrecision());
             result.setScale(((ScalarType) retType).getScalarScale());
@@ -313,9 +150,10 @@ public class UdfUtils {
      * Sets the argument types of a Java UDF or UDAF. Returns true if the argument types specified
      * in the UDF are compatible with the argument types of the evaluate() function loaded
      * from the associated JAR file.
+     * @throws InternalException
      */
     public static Pair<Boolean, JavaUdfDataType[]> setArgTypes(Type[] parameterTypes, Class<?>[] udfArgTypes,
-            boolean isUdaf) {
+            boolean isUdaf) throws InternalException {
         JavaUdfDataType[] inputArgTypes = new JavaUdfDataType[parameterTypes.length];
         int firstPos = isUdaf ? 1 : 0;
         for (int i = 0; i < parameterTypes.length; ++i) {
@@ -323,7 +161,8 @@ public class UdfUtils {
             int finalI = i;
             Object[] res = javaTypes.stream().filter(
                     t -> t.getPrimitiveType() == parameterTypes[finalI].getPrimitiveType().toThrift()).toArray();
-            inputArgTypes[i] = res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0];
+            inputArgTypes[i] = new JavaUdfDataType(
+                    res.length == 0 ? javaTypes.iterator().next() : (JavaUdfDataType) res[0]);
             if (parameterTypes[finalI].isDecimalV3() || parameterTypes[finalI].isDatetimeV2()) {
                 inputArgTypes[i].setPrecision(parameterTypes[finalI].getPrecision());
                 inputArgTypes[i].setScale(((ScalarType) parameterTypes[finalI]).getScalarScale());

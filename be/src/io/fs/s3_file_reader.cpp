@@ -39,7 +39,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 bvar::Adder<uint64_t> s3_file_reader_read_counter("s3_file_reader", "read_at");
 bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
 bvar::Adder<uint64_t> s3_bytes_read_total("s3_file_reader", "bytes_read");
@@ -60,7 +60,7 @@ S3FileReader::S3FileReader(size_t file_size, std::string key, std::shared_ptr<S3
 }
 
 S3FileReader::~S3FileReader() {
-    close();
+    static_cast<void>(close());
     s3_file_being_read << -1;
 }
 

@@ -15,16 +15,17 @@ PhysicalResultSink
 ------------------------PhysicalDistribute
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
+------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
-------------------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_sales]
---------------------------------------PhysicalDistribute
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
+------------------------------------PhysicalProject
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk))otherCondition=()
 ----------------------------------------PhysicalProject
-------------------------------------------filter(((i_category IN ('Jewelry', 'Shoes', 'Electronics') AND i_class IN ('semi-precious', 'athletic', 'portable')) OR (i_category IN ('Men', 'Music', 'Women') AND i_class IN ('accessories', 'rock', 'maternity'))))
---------------------------------------------PhysicalOlapScan[item]
+------------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalProject
+--------------------------------------------filter(((i_category IN ('Electronics', 'Jewelry', 'Shoes') AND i_class IN ('athletic', 'portable', 'semi-precious')) OR (i_category IN ('Men', 'Music', 'Women') AND i_class IN ('accessories', 'maternity', 'rock'))))
+----------------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_year = 1999))

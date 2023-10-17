@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/string_ref.h"
@@ -82,7 +83,6 @@ public:
 
     std::string get_name() const override;
     const char* get_family_name() const override { return "Struct"; }
-    TypeIndex get_data_type() const override { return TypeIndex::Struct; }
     bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
@@ -130,17 +130,25 @@ public:
     void append_data_by_selector(MutableColumnPtr& res, const Selector& selector) const override {
         return append_data_by_selector_impl<ColumnStruct>(res, selector);
     }
-    void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "replace_column_data not implemented";
+    void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
+        DCHECK(size() > self_row);
+        const auto& r = assert_cast<const ColumnStruct&>(rhs);
+
+        for (size_t idx = 0; idx < columns.size(); ++idx) {
+            columns[idx]->replace_column_data(r.get_column(idx), row, self_row);
+        }
     }
+
     void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "replace_column_data_default not implemented";
+        DCHECK(size() > self_row);
+        for (size_t idx = 0; idx < columns.size(); ++idx) {
+            columns[idx]->replace_column_data_default(self_row);
+        }
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
@@ -151,12 +159,10 @@ public:
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
     }
-    void get_extremes(Field& min, Field& max) const override;
     void reserve(size_t n) override;
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
-    void protect() override;
     void for_each_subcolumn(ColumnCallback callback) override;
     bool structure_equals(const IColumn& rhs) const override;
 

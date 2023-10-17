@@ -208,5 +208,4 @@ suite('complex_insert') {
     sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
     sql 'sync'
     qt_mv 'select * from agg_have_dup_base'
-
 }

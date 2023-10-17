@@ -1,0 +1,17 @@
+drop database if exists issue_4241;
+()
+create database issue_4241;
+()
+use issue_4241
+CREATE VIEW test_view AS SELECT NULL AS k UNION ALL SELECT NULL AS k;
+()
+EXPLAIN SELECT v1.k FROM test_view v1 LEFT JOIN test_view v2 ON v1.k = v2.k;
+([''], [''], [''], [''], [''], ['         NULL'], ['         NULL'], ['         NULL'], ['         NULL'], ['     constant exprs: '], ['     constant exprs: '], ['    EXCHANGE ID: 03'], ['    UNPARTITIONED'], ['  0:UNION'], ['  1:UNION'], ['  2:HASH JOIN'], ['  PARTITION: UNPARTITIONED'], ['  PARTITION: UNPARTITIONED'], ['  RESULT SINK'], ['  STREAM DATA SINK'], ['  |  '], ['  |    '], ['  |  colocate: false, reason: Src column hash been transformed by expr'], ['  |  equal join conjunct: <slot 0> NULL NULL = <slot 2> NULL NULL'], ['  |  hash predicates:'], ['  |  join op: LEFT OUTER JOIN (BROADCAST)'], ['  |----3:EXCHANGE'], [' OUTPUT EXPRS:'], [' OUTPUT EXPRS:<slot 0> NULL NULL'], ['PLAN FRAGMENT 0'], ['PLAN FRAGMENT 1'])#IGNORE CHECK
+EXPLAIN WITH test_view (k) AS ( SELECT NULL AS k UNION ALL SELECT NULL AS k ) SELECT v1.k FROM test_view v1 LEFT JOIN test_view v2 ON v1.k = v2.k;
+([''], [''], [''], [''], [''], ['         NULL'], ['         NULL'], ['         NULL'], ['         NULL'], ['     constant exprs: '], ['     constant exprs: '], ['    EXCHANGE ID: 03'], ['    UNPARTITIONED'], ['  0:UNION'], ['  1:UNION'], ['  2:HASH JOIN'], ['  PARTITION: UNPARTITIONED'], ['  PARTITION: UNPARTITIONED'], ['  RESULT SINK'], ['  STREAM DATA SINK'], ['  |  '], ['  |    '], ['  |  colocate: false, reason: Src column hash been transformed by expr'], ['  |  equal join conjunct: <slot 0> NULL NULL = <slot 2> NULL NULL'], ['  |  hash predicates:'], ['  |  join op: LEFT OUTER JOIN (BROADCAST)'], ['  |----3:EXCHANGE'], [' OUTPUT EXPRS:'], [' OUTPUT EXPRS:<slot 0> NULL NULL'], ['PLAN FRAGMENT 0'], ['PLAN FRAGMENT 1'])#IGNORE CHECK
+SELECT v1.k FROM test_view v1 LEFT JOIN test_view v2 ON v1.k = v2.k;
+(['None'], ['None'])
+WITH test_view (k) AS ( SELECT NULL AS k UNION ALL SELECT NULL AS k ) SELECT v1.k FROM test_view v1 LEFT JOIN test_view v2 ON v1.k = v2.k;
+(['None'], ['None'])
+drop database issue_4241;
+()

@@ -83,7 +83,7 @@ DeltaWriter::~DeltaWriter() {
     }
 
     // cancel and wait all memtables in flush queue to be finished
-    _memtable_writer->cancel();
+    static_cast<void>(_memtable_writer->cancel());
 
     if (_rowset_builder.tablet() != nullptr) {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
@@ -99,6 +99,7 @@ Status DeltaWriter::init() {
     RETURN_IF_ERROR(_rowset_builder.init());
     RETURN_IF_ERROR(
             _memtable_writer->init(_rowset_builder.rowset_writer(), _rowset_builder.tablet_schema(),
+                                   _rowset_builder.get_partial_update_info(),
                                    _rowset_builder.tablet()->enable_unique_key_merge_on_write()));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;

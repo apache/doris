@@ -31,8 +31,8 @@ template <typename DependencyType, typename Derived>
 class JoinProbeLocalState : public PipelineXLocalState<DependencyType> {
 public:
     using Base = PipelineXLocalState<DependencyType>;
-    virtual Status init(RuntimeState* state, LocalStateInfo& info) override;
-    virtual Status close(RuntimeState* state) override;
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status close(RuntimeState* state) override;
     virtual void add_tuple_is_null_column(vectorized::Block* block) = 0;
 
 protected:
@@ -42,7 +42,7 @@ protected:
             : Base(state, parent),
               _child_block(vectorized::Block::create_unique()),
               _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
-    virtual ~JoinProbeLocalState() = default;
+    ~JoinProbeLocalState() override = default;
     void _construct_mutable_join_block();
     Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block,
                                bool keep_origin = true);
@@ -53,7 +53,6 @@ protected:
     vectorized::MutableColumnPtr _tuple_is_null_left_flag_column;
     vectorized::MutableColumnPtr _tuple_is_null_right_flag_column;
 
-    RuntimeProfile* _probe_phase_profile;
     RuntimeProfile::Counter* _probe_timer;
     RuntimeProfile::Counter* _probe_rows_counter;
     RuntimeProfile::Counter* _join_filter_timer;
@@ -68,7 +67,7 @@ class JoinProbeOperatorX : public StatefulOperatorX<LocalStateType> {
 public:
     using Base = StatefulOperatorX<LocalStateType>;
     JoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state) override;
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status open(doris::RuntimeState* state) override;
     [[nodiscard]] const RowDescriptor& row_desc() override { return *_output_row_desc; }
@@ -85,8 +84,10 @@ public:
 
     Status set_child(OperatorXPtr child) override {
         if (OperatorX<LocalStateType>::_child_x) {
+            // when there already (probe) child, others is build child.
             set_build_side_child(child);
         } else {
+            // first child which is probe side is in this pipeline
             OperatorX<LocalStateType>::_child_x = std::move(child);
         }
         return Status::OK();
@@ -112,6 +113,7 @@ protected:
     // output expr
     vectorized::VExprContextSPtrs _output_expr_ctxs;
     OperatorXPtr _build_side_child;
+    const bool _short_circuit_for_null_in_build_side;
 };
 
 } // namespace pipeline

@@ -18,31 +18,35 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.external.TVFScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
+import org.apache.doris.proto.Types.PStructField;
 import org.apache.doris.proto.Types.PTypeDesc;
 import org.apache.doris.proto.Types.PTypeNode;
 import org.apache.doris.qe.ConnectContext;
@@ -67,6 +71,7 @@ import org.apache.doris.thrift.TTextSerdeType;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -80,8 +85,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -89,42 +92,24 @@ import java.util.stream.Collectors;
  */
 public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
-    protected static String DEFAULT_COLUMN_SEPARATOR = ",";
-    protected static final String DEFAULT_LINE_DELIMITER = "\n";
-    public static final String FORMAT = "format";
-    public static final String COLUMN_SEPARATOR = "column_separator";
-    public static final String LINE_DELIMITER = "line_delimiter";
-    protected static final String JSON_ROOT = "json_root";
-    protected static final String JSON_PATHS = "jsonpaths";
-    protected static final String STRIP_OUTER_ARRAY = "strip_outer_array";
-    protected static final String READ_JSON_BY_LINE = "read_json_by_line";
-    protected static final String NUM_AS_STRING = "num_as_string";
-    protected static final String FUZZY_PARSE = "fuzzy_parse";
-    protected static final String TRIM_DOUBLE_QUOTES = "trim_double_quotes";
-    protected static final String SKIP_LINES = "skip_lines";
-    protected static final String CSV_SCHEMA = "csv_schema";
-    protected static final String COMPRESS_TYPE = "compress_type";
-    public static final String PATH_PARTITION_KEYS = "path_partition_keys";
-    // decimal(p,s)
-    private static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");
-    // datetime(p)
-    private static final Pattern DATETIME_TYPE_PATTERN = Pattern.compile("datetime\\((\\d+)\\)");
+
+    public static final String PROP_TABLE_ID = "table_id";
 
     protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
-            .add(FORMAT)
-            .add(JSON_ROOT)
-            .add(JSON_PATHS)
-            .add(STRIP_OUTER_ARRAY)
-            .add(READ_JSON_BY_LINE)
-            .add(NUM_AS_STRING)
-            .add(FUZZY_PARSE)
-            .add(COLUMN_SEPARATOR)
-            .add(LINE_DELIMITER)
-            .add(TRIM_DOUBLE_QUOTES)
-            .add(SKIP_LINES)
-            .add(CSV_SCHEMA)
-            .add(COMPRESS_TYPE)
-            .add(PATH_PARTITION_KEYS)
+            .add(FileFormatConstants.PROP_FORMAT)
+            .add(FileFormatConstants.PROP_JSON_ROOT)
+            .add(FileFormatConstants.PROP_JSON_PATHS)
+            .add(FileFormatConstants.PROP_STRIP_OUTER_ARRAY)
+            .add(FileFormatConstants.PROP_READ_JSON_BY_LINE)
+            .add(FileFormatConstants.PROP_NUM_AS_STRING)
+            .add(FileFormatConstants.PROP_FUZZY_PARSE)
+            .add(FileFormatConstants.PROP_COLUMN_SEPARATOR)
+            .add(FileFormatConstants.PROP_LINE_DELIMITER)
+            .add(FileFormatConstants.PROP_TRIM_DOUBLE_QUOTES)
+            .add(FileFormatConstants.PROP_SKIP_LINES)
+            .add(FileFormatConstants.PROP_CSV_SCHEMA)
+            .add(FileFormatConstants.PROP_COMPRESS_TYPE)
+            .add(FileFormatConstants.PROP_PATH_PARTITION_KEYS)
             .build();
 
     // Columns got from file and path(if has)
@@ -136,17 +121,16 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private List<String> pathPartitionKeys;
 
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-    protected Map<String, String> locationProperties;
+    protected Map<String, String> locationProperties = Maps.newHashMap();
     protected String filePath;
 
-
-    private TFileFormatType fileFormatType;
+    protected TFileFormatType fileFormatType;
     private TFileCompressType compressionType;
     private String headerType = "";
 
     private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
-    private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
-    private String lineDelimiter = DEFAULT_LINE_DELIMITER;
+    private String columnSeparator = FileFormatConstants.DEFAULT_COLUMN_SEPARATOR;
+    private String lineDelimiter = FileFormatConstants.DEFAULT_LINE_DELIMITER;
     private String jsonRoot = "";
     private String jsonPaths = "";
     private boolean stripOuterArray;
@@ -155,6 +139,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private boolean fuzzyParse;
     private boolean trimDoubleQuotes;
     private int skipLines;
+    private long tableId;
 
     public abstract TFileType getTFileType();
 
@@ -174,20 +159,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return locationProperties;
     }
 
-    public List<Column> getCsvSchema() {
-        return csvSchema;
-    }
-
-    public String getFsName() {
-        TFileType fileType = getTFileType();
-        if (fileType == TFileType.FILE_HDFS) {
-            return locationProperties.get(HdfsResource.HADOOP_FS_NAME);
-        } else if (fileType == TFileType.FILE_S3) {
-            return locationProperties.get(S3Properties.ENDPOINT);
-        }
-        return "";
-    }
-
     public List<String> getPathPartitionKeys() {
         return pathPartitionKeys;
     }
@@ -202,24 +173,29 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
-    //The keys in the passed validParams map need to be lowercase.
-    protected void parseProperties(Map<String, String> validParams) throws AnalysisException {
-        String formatString = validParams.getOrDefault(FORMAT, "");
+    //The keys in properties map need to be lowercase.
+    protected Map<String, String> parseCommonProperties(Map<String, String> properties) throws AnalysisException {
+        // Copy the properties, because we will remove the key from properties.
+        Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        copiedProps.putAll(properties);
+
+        String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
+        String defaultColumnSeparator = FileFormatConstants.DEFAULT_COLUMN_SEPARATOR;
         switch (formatString) {
             case "csv":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
                 break;
             case "hive_text":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
-                this.DEFAULT_COLUMN_SEPARATOR = "\001";
+                defaultColumnSeparator = FileFormatConstants.DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR;
                 this.textSerdeType = TTextSerdeType.HIVE_TEXT_SERDE;
                 break;
             case "csv_with_names":
-                this.headerType = FeConstants.csv_with_names;
+                this.headerType = FileFormatConstants.FORMAT_CSV_WITH_NAMES;
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
                 break;
             case "csv_with_names_and_types":
-                this.headerType = FeConstants.csv_with_names_and_types;
+                this.headerType = FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES;
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
                 break;
             case "parquet":
@@ -234,106 +210,69 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             case "avro":
                 this.fileFormatType = TFileFormatType.FORMAT_AVRO;
                 break;
+            case "wal":
+                this.fileFormatType = TFileFormatType.FORMAT_WAL;
+                break;
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
 
-        columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
-        lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
-        jsonRoot = validParams.getOrDefault(JSON_ROOT, "");
-        jsonPaths = validParams.getOrDefault(JSON_PATHS, "");
-        readJsonByLine = Boolean.valueOf(validParams.get(READ_JSON_BY_LINE)).booleanValue();
-        stripOuterArray = Boolean.valueOf(validParams.get(STRIP_OUTER_ARRAY)).booleanValue();
-        numAsString = Boolean.valueOf(validParams.get(NUM_AS_STRING)).booleanValue();
-        fuzzyParse = Boolean.valueOf(validParams.get(FUZZY_PARSE)).booleanValue();
-        trimDoubleQuotes = Boolean.valueOf(validParams.get(TRIM_DOUBLE_QUOTES)).booleanValue();
-        skipLines = Integer.valueOf(validParams.getOrDefault(SKIP_LINES, "0")).intValue();
+        tableId = Long.valueOf(getOrDefaultAndRemove(copiedProps, PROP_TABLE_ID, "-1"));
+        columnSeparator = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_COLUMN_SEPARATOR,
+                defaultColumnSeparator);
+        if (Strings.isNullOrEmpty(columnSeparator)) {
+            throw new AnalysisException("column_separator can not be empty.");
+        }
+        columnSeparator = Separator.convertSeparator(columnSeparator);
+
+        lineDelimiter = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_LINE_DELIMITER,
+                FileFormatConstants.DEFAULT_LINE_DELIMITER);
+        if (Strings.isNullOrEmpty(lineDelimiter)) {
+            throw new AnalysisException("line_delimiter can not be empty.");
+        }
+        lineDelimiter = Separator.convertSeparator(lineDelimiter);
+
+        jsonRoot = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_JSON_ROOT, "");
+        jsonPaths = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_JSON_PATHS, "");
+        readJsonByLine = Boolean.valueOf(
+                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_READ_JSON_BY_LINE, "")).booleanValue();
+        stripOuterArray = Boolean.valueOf(
+                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_STRIP_OUTER_ARRAY, "")).booleanValue();
+        numAsString = Boolean.valueOf(
+                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_NUM_AS_STRING, "")).booleanValue();
+        fuzzyParse = Boolean.valueOf(
+                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FUZZY_PARSE, "")).booleanValue();
+        trimDoubleQuotes = Boolean.valueOf(
+                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_TRIM_DOUBLE_QUOTES, "")).booleanValue();
+        skipLines = Integer.valueOf(
+                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_SKIP_LINES, "0")).intValue();
+
+        String compressTypeStr = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_COMPRESS_TYPE, "UNKNOWN");
         try {
-            compressionType = Util.getFileCompressType(validParams.getOrDefault(COMPRESS_TYPE, "UNKNOWN"));
+            compressionType = Util.getFileCompressType(compressTypeStr);
         } catch (IllegalArgumentException e) {
-            throw new AnalysisException("Compress type : " + validParams.get(COMPRESS_TYPE) + " is not supported.");
+            throw new AnalysisException("Compress type : " +  compressTypeStr + " is not supported.");
         }
-        if (formatString.equals("csv") || formatString.equals("csv_with_names")
-                || formatString.equals("csv_with_names_and_types")) {
-            parseCsvSchema(csvSchema, validParams);
+        if (FileFormatUtils.isCsv(formatString)) {
+            FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
+                    FileFormatConstants.PROP_CSV_SCHEMA, ""));
+            LOG.debug("get csv schema: {}", csvSchema);
         }
-        pathPartitionKeys = Optional.ofNullable(validParams.get(PATH_PARTITION_KEYS))
-                .map(str ->
-                        Arrays.stream(str.split(","))
-                                .map(String::trim)
-                                .collect(Collectors.toList()))
+
+        pathPartitionKeys = Optional.ofNullable(
+                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
+                .map(str -> Arrays.stream(str.split(","))
+                        .map(String::trim)
+                        .collect(Collectors.toList()))
                 .orElse(Lists.newArrayList());
+
+        return copiedProps;
     }
 
-    // public for unit test
-    public static void parseCsvSchema(List<Column> csvSchema, Map<String, String> validParams)
-            throws AnalysisException {
-        String csvSchemaStr = validParams.get(CSV_SCHEMA);
-        if (Strings.isNullOrEmpty(csvSchemaStr)) {
-            return;
-        }
-        // the schema str is like: "k1:int;k2:bigint;k3:varchar(20);k4:datetime(6)"
-        String[] schemaStrs = csvSchemaStr.split(";");
-        try {
-            for (String schemaStr : schemaStrs) {
-                String[] kv = schemaStr.replace(" ", "").split(":");
-                if (kv.length != 2) {
-                    throw new AnalysisException("invalid csv schema: " + csvSchemaStr);
-                }
-                Column column = null;
-                String name = kv[0].toLowerCase();
-                FeNameFormat.checkColumnName(name);
-                String type = kv[1].toLowerCase();
-                if (type.equals("tinyint")) {
-                    column = new Column(name, PrimitiveType.TINYINT, true);
-                } else if (type.equals("smallint")) {
-                    column = new Column(name, PrimitiveType.SMALLINT, true);
-                } else if (type.equals("int")) {
-                    column = new Column(name, PrimitiveType.INT, true);
-                } else if (type.equals("bigint")) {
-                    column = new Column(name, PrimitiveType.BIGINT, true);
-                } else if (type.equals("largeint")) {
-                    column = new Column(name, PrimitiveType.LARGEINT, true);
-                } else if (type.equals("float")) {
-                    column = new Column(name, PrimitiveType.FLOAT, true);
-                } else if (type.equals("double")) {
-                    column = new Column(name, PrimitiveType.DOUBLE, true);
-                } else if (type.startsWith("decimal")) {
-                    // regex decimal(p, s)
-                    Matcher matcher = DECIMAL_TYPE_PATTERN.matcher(type);
-                    if (!matcher.find()) {
-                        throw new AnalysisException("invalid decimal type: " + type);
-                    }
-                    int precision = Integer.parseInt(matcher.group(1));
-                    int scale = Integer.parseInt(matcher.group(2));
-                    column = new Column(name, ScalarType.createDecimalV3Type(precision, scale), false, null, true, null,
-                            "");
-                } else if (type.equals("date")) {
-                    column = new Column(name, ScalarType.createDateType(), false, null, true, null, "");
-                } else if (type.startsWith("datetime")) {
-                    int scale = 0;
-                    if (!type.equals("datetime")) {
-                        // regex datetime(s)
-                        Matcher matcher = DATETIME_TYPE_PATTERN.matcher(type);
-                        if (!matcher.find()) {
-                            throw new AnalysisException("invalid datetime type: " + type);
-                        }
-                        scale = Integer.parseInt(matcher.group(1));
-                    }
-                    column = new Column(name, ScalarType.createDatetimeV2Type(scale), false, null, true, null, "");
-                } else if (type.equals("string")) {
-                    column = new Column(name, PrimitiveType.STRING, true);
-                } else if (type.equals("boolean")) {
-                    column = new Column(name, PrimitiveType.BOOLEAN, true);
-                } else {
-                    throw new AnalysisException("unsupported column type: " + type);
-                }
-                csvSchema.add(column);
-            }
-            LOG.debug("get csv schema: {}", csvSchema);
-        } catch (Exception e) {
-            throw new AnalysisException("invalid csv schema: " + e.getMessage());
-        }
+    protected String getOrDefaultAndRemove(Map<String, String> props, String key, String defaultValue) {
+        String value = props.getOrDefault(key, defaultValue);
+        props.remove(key);
+        return value;
     }
 
     public List<TBrokerFileStatus> getFileStatuses() {
@@ -368,11 +307,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
-        if (FeConstants.runningUnitTest) {
-            return Lists.newArrayList();
-        }
         if (!csvSchema.isEmpty()) {
             return csvSchema;
+        }
+        if (FeConstants.runningUnitTest) {
+            Object mockedUtObj = FeConstants.unitTestConstant;
+            if (mockedUtObj instanceof List) {
+                return ((List<Column>) mockedUtObj);
+            }
+            return new ArrayList<>();
         }
         if (this.columns != null) {
             return columns;
@@ -384,25 +327,44 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("No Alive backends");
         }
 
+        if (this.fileFormatType == TFileFormatType.FORMAT_WAL) {
+            List<Column> fileColumns = new ArrayList<>();
+            Table table = Env.getCurrentInternalCatalog().getTableByTableId(tableId);
+            List<Column> tableColumns = table.getBaseSchema(false);
+            for (int i = 1; i <= tableColumns.size(); i++) {
+                fileColumns.add(new Column("c" + i, tableColumns.get(i - 1).getDataType(), true));
+            }
+            Column deleteSignColumn = ((OlapTable) table).getDeleteSignColumn();
+            if (deleteSignColumn != null) {
+                fileColumns.add(new Column("c" + (tableColumns.size() + 1), deleteSignColumn.getDataType(), true));
+            }
+            return fileColumns;
+        }
+
         TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
             PFetchTableSchemaRequest request = getFetchTableStructureRequest();
-            Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
-                    .fetchTableStructureAsync(address, request);
+            InternalService.PFetchTableSchemaResult result = null;
 
-            InternalService.PFetchTableSchemaResult result = future.get();
-            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-            String errMsg;
-            if (code != TStatusCode.OK) {
-                if (!result.getStatus().getErrorMsgsList().isEmpty()) {
-                    errMsg = result.getStatus().getErrorMsgsList().get(0);
-                } else {
-                    errMsg = "fetchTableStructureAsync failed. backend address: "
-                            + address.getHostname() + ":" + address.getPort();
+            // `request == null` means we don't need to get schemas from BE,
+            // and we fill a dummy col for this table.
+            if (request != null) {
+                Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
+                        .fetchTableStructureAsync(address, request);
+
+                result = future.get();
+                TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+                String errMsg;
+                if (code != TStatusCode.OK) {
+                    if (!result.getStatus().getErrorMsgsList().isEmpty()) {
+                        errMsg = result.getStatus().getErrorMsgsList().get(0);
+                    } else {
+                        errMsg = "fetchTableStructureAsync failed. backend address: "
+                                + address.getHostname() + ":" + address.getPort();
+                    }
+                    throw new AnalysisException(errMsg);
                 }
-                throw new AnalysisException(errMsg);
             }
-
             fillColumns(result);
         } catch (RpcException e) {
             throw new AnalysisException("fetchTableStructureResult rpc exception", e);
@@ -460,7 +422,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             ArrayList<StructField> fields = new ArrayList<>();
             for (int i = 0; i < typeNodes.get(start).getStructFieldsCount(); ++i) {
                 Pair<Type, Integer> fieldType = getColumnType(typeNodes, start + parsedNodes);
-                fields.add(new StructField(typeNodes.get(start).getStructFields(i).getName(), fieldType.key()));
+                PStructField structField = typeNodes.get(start).getStructFields(i);
+                fields.add(new StructField(structField.getName(), fieldType.key(), structField.getComment(),
+                                            structField.getContainsNull()));
                 parsedNodes += fieldType.value();
             }
             type = new StructType(fields);
@@ -472,10 +436,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return Pair.of(type, parsedNodes);
     }
 
-    private void fillColumns(InternalService.PFetchTableSchemaResult result)
-            throws AnalysisException {
-        if (result.getColumnNums() == 0) {
-            throw new AnalysisException("The amount of column is 0");
+    private void fillColumns(InternalService.PFetchTableSchemaResult result) {
+        // `result == null` means we don't need to get schemas from BE,
+        // and we fill a dummy col for this table.
+        if (result == null) {
+            columns.add(new Column("__dummy_col", ScalarType.createStringType(), true));
+            return;
         }
         // add fetched file columns
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
@@ -491,7 +457,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
-    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws AnalysisException, TException {
+    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws TException {
         // set TFileScanRangeParams
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatType);
@@ -516,14 +482,19 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            if (fileStatus.isIsDir()) {
+            if (fileStatus.isIsDir() || fileStatus.size == 0) {
                 continue;
             }
             firstFile = fileStatus;
             break;
         }
+
+        // `firstFile == null` means:
+        // 1. No matching file path exists
+        // 2. All matched files have a size of 0
+        // For these two situations, we don't need to get schema from BE
         if (firstFile == null) {
-            throw new AnalysisException("Can not get first file, please check uri.");
+            return null;
         }
 
         // set TFileRangeDesc
@@ -544,5 +515,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
     }
 }
+
 
 

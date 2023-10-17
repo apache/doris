@@ -23,9 +23,11 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
@@ -42,6 +45,8 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -65,6 +70,10 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     public RequestPropertyDeriver(JobContext context) {
         this.requestPropertyFromParent = context.getRequiredProperties();
+    }
+
+    public RequestPropertyDeriver(PhysicalProperties requestPropertyFromParent) {
+        this.requestPropertyFromParent = requestPropertyFromParent;
     }
 
     /**
@@ -156,8 +165,14 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (JoinUtils.couldShuffle(hashJoin)) {
             addShuffleJoinRequestProperty(hashJoin);
         }
+
         // for broadcast join
-        if (JoinUtils.couldBroadcast(hashJoin)) {
+        double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
+        double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
+        double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
+        double datasize = hashJoin.getGroupExpression().get().child(1).getStatistics().computeSize();
+        double rowCount = hashJoin.getGroupExpression().get().child(1).getStatistics().getRowCount();
+        if (JoinUtils.couldBroadcast(hashJoin) && rowCount <= rowsLimit && datasize <= memLimit * brMemlimit) {
             addBroadcastJoinRequestProperty();
         }
         return null;
@@ -191,12 +206,17 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         // intersect and except need do distinct, so we must do distribution on it.
         DistributionSpec distributionRequestFromParent = requestPropertyFromParent.getDistributionSpec();
         if (distributionRequestFromParent instanceof DistributionSpecHash) {
+            // shuffle according to parent require
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
             addRequestPropertyToChildren(createHashRequestAccordingToParent(
                     setOperation, distributionSpecHash, context));
         } else {
-            addRequestPropertyToChildren(setOperation.children().stream()
-                    .map(Plan::getOutputExprIds)
+            // shuffle all column
+            // TODO: for wide table, may be we should add a upper limit of shuffle columns
+            addRequestPropertyToChildren(setOperation.getRegularChildrenOutputs().stream()
+                    .map(childOutputs -> childOutputs.stream()
+                            .map(SlotReference::getExprId)
+                            .collect(ImmutableList.toImmutableList()))
                     .map(l -> PhysicalProperties.createHash(l, ShuffleType.EXECUTION_BUCKETED))
                     .collect(Collectors.toList()));
         }
@@ -223,7 +243,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         } else {
             // current be could not run const expr on appropriate node,
             // so if we have constant exprs on union, the output of union always any
-            // then any request on children is useless.
+            // then any other request on children is useless.
             for (int i = context.arity(); i > 0; --i) {
                 requiredPropertyList.add(PhysicalProperties.ANY);
             }
@@ -243,17 +263,32 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     @Override
+    public Void visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, PlanContext context) {
+        if (partitionTopN.getPhase().isTwoPhaseLocal()) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            Preconditions.checkState(partitionTopN.getPhase().isTwoPhaseGlobal()
+                            || partitionTopN.getPhase().isOnePhaseGlobal(),
+                    "partition topn phase is not two phase global or one phase global");
+            PhysicalProperties properties = PhysicalProperties.createHash(partitionTopN.getPartitionKeys(),
+                    ShuffleType.REQUIRE);
+            addRequestPropertyToChildren(properties);
+        }
+        return null;
+    }
+
+    @Override
     public Void visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, PlanContext context) {
         addRequestPropertyToChildren(PhysicalProperties.GATHER);
         return null;
     }
 
     private List<PhysicalProperties> createHashRequestAccordingToParent(
-            Plan plan, DistributionSpecHash distributionRequestFromParent, PlanContext context) {
+            SetOperation setOperation, DistributionSpecHash distributionRequestFromParent, PlanContext context) {
         List<PhysicalProperties> requiredPropertyList =
                 Lists.newArrayListWithCapacity(context.arity());
         int[] outputOffsets = new int[distributionRequestFromParent.getOrderedShuffledColumns().size()];
-        List<Slot> setOperationOutputs = plan.getOutput();
+        List<NamedExpression> setOperationOutputs = setOperation.getOutputs();
         // get the offset of bucketed columns of set operation
         for (int i = 0; i < setOperationOutputs.size(); i++) {
             int offset = distributionRequestFromParent.getExprIdToEquivalenceSet()
@@ -264,13 +299,13 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         }
         // use the offset to generate children's request
         for (int i = 0; i < context.arity(); i++) {
-            List<Slot> childOutput = plan.child(i).getOutput();
-            List<ExprId> childRequest = Lists.newArrayList();
+            List<SlotReference> childOutput = setOperation.getRegularChildOutput(i);
+            ImmutableList.Builder<ExprId> childRequest = ImmutableList.builder();
             for (int offset : outputOffsets) {
                 childRequest.add(childOutput.get(offset).getExprId());
             }
             requiredPropertyList.add(PhysicalProperties.createHash(
-                    childRequest, distributionRequestFromParent.getShuffleType()));
+                    childRequest.build(), distributionRequestFromParent.getShuffleType()));
         }
         return requiredPropertyList;
     }

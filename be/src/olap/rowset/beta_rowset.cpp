@@ -130,7 +130,8 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
     io::FileReaderOptions reader_options {
             .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
                                                     : io::FileCachePolicy::NO_CACHE,
-            .is_doris_table = true};
+            .is_doris_table = true,
+    };
     auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema, reader_options,
                                        segment);
     if (!s.ok()) {
@@ -179,7 +180,8 @@ Status BetaRowset::remove() {
                     LOG(WARNING) << st.to_string();
                     success = false;
                 } else {
-                    segment_v2::InvertedIndexSearcherCache::instance()->erase(inverted_index_file);
+                    static_cast<void>(segment_v2::InvertedIndexSearcherCache::instance()->erase(
+                            inverted_index_file));
                 }
             }
         }
@@ -236,7 +238,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                     InvertedIndexDescriptor::get_index_file_name(dst_path, index_id);
             bool need_to_link = true;
             if (_schema->skip_write_index_on_load()) {
-                local_fs->exists(inverted_index_src_file_path, &need_to_link);
+                static_cast<void>(local_fs->exists(inverted_index_src_file_path, &need_to_link));
                 if (!need_to_link) {
                     LOG(INFO) << "skip create hard link to not existed file="
                               << inverted_index_src_file_path;

@@ -4,23 +4,24 @@ PhysicalResultSink
 --PhysicalTopN
 ----PhysicalDistribute
 ------PhysicalTopN
---------filter((if((inv_before > 0), (cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)), NULL) <= 1.5)(if((inv_before > 0), (cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)), NULL) >= cast((2.000000 / 3.0) as DOUBLE)))
+--------filter((if((inv_before > 0), (cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)), NULL) <= 1.5) and (if((inv_before > 0), (cast(inv_after as DOUBLE) / cast(inv_before as DOUBLE)), NULL) >= cast((2.000000 / 3.0) as DOUBLE)))
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)
---------------------hashJoin[INNER_JOIN](inventory.inv_date_sk = date_dim.d_date_sk)
-----------------------hashJoin[INNER_JOIN](item.i_item_sk = inventory.inv_item_sk)
-------------------------PhysicalOlapScan[inventory]
+------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk))otherCondition=()
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk))otherCondition=()
+------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = inventory.inv_item_sk))otherCondition=()
+--------------------------PhysicalOlapScan[inventory]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((item.i_current_price <= 1.49) and (item.i_current_price >= 0.99))
+--------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter((item.i_current_price <= 1.49)(item.i_current_price >= 0.99))
-------------------------------PhysicalOlapScan[item]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------filter((date_dim.d_date >= 2002-01-28)(date_dim.d_date <= 2002-03-29))
-----------------------------PhysicalOlapScan[date_dim]
+----------------------------filter((date_dim.d_date <= '2002-03-29') and (date_dim.d_date >= '2002-01-28'))
+------------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[warehouse]

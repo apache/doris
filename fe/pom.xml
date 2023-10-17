@@ -233,18 +233,21 @@ under the License.
         <log4j-1.2.version>2.18.0</log4j-1.2.version>
         <slf4j.version>2.0.6</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
-        <netty-all.version>4.1.94.Final</netty-all.version>
+        <!--Netty 4.1.94 is not compatible with arrow flight.-->
+        <netty-all.version>4.1.96.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
-        <grpc.version>1.30.0</grpc.version>
-        <check.freamework.version>3.32.0</check.freamework.version>
-        <protobuf.version>3.21.12</protobuf.version>
+        <!-- NOTE: Using grpc-java whose version is newer than 1.34.0 will break the build on CentOS 6 due to the obsolete GLIBC -->
+        <grpc-java.version>1.34.0</grpc-java.version>
+        <grpc.version>1.58.0</grpc.version>
+        <check.freamework.version>3.38.0</check.freamework.version>
+        <protobuf.version>3.24.3</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
-        <protoc.artifact.version>3.21.9</protoc.artifact.version>
+        <protoc.artifact.version>3.24.3</protoc.artifact.version>
         <protoc.artifact>com.google.protobuf:protoc:${protoc.artifact.version}</protoc.artifact>
-        <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</grpc.java.artifact>
+        <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc-java.version}</grpc.java.artifact>
         <protoparser.version>3.1.5</protoparser.version>
         <snappy-java.version>1.1.10.1</snappy-java.version>
         <automaton.version>1.11-8</automaton.version>
@@ -266,6 +269,7 @@ under the License.
         <spark.version>2.4.6</spark.version>
         <hive.version>3.1.3</hive.version>
         <hive.common.version>2.3.9</hive.common.version>
+        <nimbusds.version>9.35</nimbusds.version>
         <mapreduce.client.version>2.10.1</mapreduce.client.version>
         <calcite.version>1.33.0</calcite.version>
         <avatica.version>1.22.0</avatica.version>
@@ -274,9 +278,9 @@ under the License.
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.1.0</iceberg.version>
         <delta.version>3.0.0rc1</delta.version>
-        <maxcompute.version>0.43.3-public</maxcompute.version>
-        <arrow.version>9.0.0</arrow.version>
-        <avro.version>1.11.1</avro.version>
+        <maxcompute.version>0.45.2-public</maxcompute.version>
+        <avro.version>1.11.2</avro.version>
+        <arrow.version>13.0.0</arrow.version>
         <!-- hudi -->
         <hudi.version>0.13.1</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
@@ -309,10 +313,17 @@ under the License.
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
+        <immutables.version>2.9.3</immutables.version>
         <vesoft.client.version>3.0.0</vesoft.client.version>
+        <!--todo waiting release-->
+        <quartz.version>2.3.2</quartz.version>
         <!-- paimon -->
         <paimon.version>0.4.0-incubating</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
+        <trino.parser.version>395</trino.parser.version>
+        <!-- arrow flight sql -->
+        <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
+        <flatbuffers.version>1.12.0</flatbuffers.version>
     </properties>
     <profiles>
         <profile>
@@ -334,9 +345,10 @@ under the License.
                     <url>https://repository.apache.org/content/repositories/snapshots/</url>
                 </repository>
                 <!-- for java-cup -->
+                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
                 <repository>
-                    <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
                 </repository>
             </repositories>
             <pluginRepositories>
@@ -345,15 +357,26 @@ under the License.
                     <url>https://repo.maven.apache.org/maven2</url>
                 </pluginRepository>
                 <!-- for cup-maven-plugin -->
+                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
                 <pluginRepository>
-                    <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
     </profiles>
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.quartz-scheduler</groupId>
+                <artifactId>quartz</artifactId>
+                <version>${quartz.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.nimbusds</groupId>
+                <artifactId>nimbus-jose-jwt</artifactId>
+                <version>${nimbusds.version}</version>
+            </dependency>
             <dependency>
                 <groupId>com.amazonaws</groupId>
                 <artifactId>aws-java-sdk-bundle</artifactId>
@@ -859,11 +882,6 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
-                <artifactId>grpc-netty-shaded</artifactId>
-                <version>${grpc.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
                 <artifactId>grpc-protobuf</artifactId>
                 <version>${grpc.version}</version>
             </dependency>
@@ -1138,6 +1156,11 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-distcp</artifactId>
+                <version>${hadoop.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-common</artifactId>
                 <version>${hadoop.version}</version>
                 <exclusions>
@@ -1209,7 +1232,11 @@ under the License.
                 <artifactId>avro</artifactId>
                 <version>${avro.version}</version>
             </dependency>
-
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro-ipc</artifactId>
+                <version>${avro.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
             <dependency>
                 <groupId>org.apache.hudi</groupId>
@@ -1425,6 +1452,78 @@ under the License.
                 <groupId>com.vesoft</groupId>
                 <artifactId>client</artifactId>
                 <version>${vesoft.client.version}</version>
+            </dependency>
+            <!-- trino-parser The version of antlr-runtime in trino parser is need to be consistent with doris,
+            when upgrade trino-parser antlr-runtime version, should take care of trino-parser doris.-->
+            <dependency>
+                <groupId>io.trino</groupId>
+                <artifactId>trino-parser</artifactId>
+                <version>${trino.parser.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-netty</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-core</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-context</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-tcnative-boringssl-static</artifactId>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-api</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.flatbuffers</groupId>
+                <artifactId>flatbuffers-java</artifactId>
+                <version>${flatbuffers.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-vector</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-memory-netty</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>flight-core</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>flight-sql</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-memory-core</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-jdbc</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.immutables</groupId>
+                <artifactId>value</artifactId>
+                <version>${immutables.version}</version>
+                <scope>provided</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>

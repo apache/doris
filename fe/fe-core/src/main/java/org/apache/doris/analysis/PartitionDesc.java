@@ -46,7 +46,9 @@ public class PartitionDesc {
     protected boolean isAutoCreatePartitions;
     protected PartitionType type;
     public static final ImmutableSet<String> RANGE_PARTITION_FUNCTIONS = new ImmutableSortedSet.Builder<String>(
-            String.CASE_INSENSITIVE_ORDER).add("date_trunc").add("date_ceil").add("date_floor")
+            String.CASE_INSENSITIVE_ORDER).add("date_trunc").add("date_ceil").add("date_floor").add("second_floor")
+            .add("minute_floor").add("hour_floor").add("day_floor").add("month_floor").add("year_floor")
+            .add("second_ceil").add("minute_ceil").add("hour_ceil").add("day_ceil").add("month_ceil").add("year_ceil")
             .build();
 
     public PartitionDesc() {}
@@ -198,9 +200,10 @@ public class PartitionDesc {
                     }
                     if (this instanceof RangePartitionDesc && partitionExprs != null) {
                         if (partitionExprs.get(0) instanceof FunctionCallExpr) {
-                            if (!columnDef.getType().isDatetime() && !columnDef.getType().isDatetimeV2()) {
+                            if (!columnDef.getType().isDateType()) {
                                 throw new AnalysisException(
-                                        "auto create partition function expr need datetime/datetimev2 type. "
+                                        "Auto range partition needs Date/DateV2/"
+                                                + "Datetime/DatetimeV2 column as partition column"
                                                 + partitionExprs.get(0).toSql());
                             }
                         }

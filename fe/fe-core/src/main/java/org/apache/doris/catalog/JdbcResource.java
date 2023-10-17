@@ -228,9 +228,9 @@ public class JdbcResource extends Resource {
             return "";
         }
         String fullDriverUrl = getFullDriverUrl(driverPath);
-        InputStream inputStream = null;
-        try {
-            inputStream = Util.getInputStreamFromUrl(fullDriverUrl, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
+
+        try (InputStream inputStream =
+                 Util.getInputStreamFromUrl(fullDriverUrl, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS)) {
             MessageDigest digest = MessageDigest.getInstance("MD5");
             byte[] buf = new byte[4096];
             int bytesRead = 0;

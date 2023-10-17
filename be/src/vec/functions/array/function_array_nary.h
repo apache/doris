@@ -59,7 +59,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         ColumnPtr res_ptr;
         ColumnArrayExecutionDatas datas(arguments.size());
         std::vector<bool> col_const(arguments.size());

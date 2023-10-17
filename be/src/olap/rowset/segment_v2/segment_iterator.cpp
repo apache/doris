@@ -375,11 +375,12 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
         if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
                                                           &_column_iterators[cid]));
-            ColumnIteratorOptions iter_opts;
-            iter_opts.stats = _opts.stats;
-            iter_opts.use_page_cache = _opts.use_page_cache;
-            iter_opts.file_reader = _file_reader.get();
-            iter_opts.io_ctx = _opts.io_ctx;
+            ColumnIteratorOptions iter_opts {
+                    .use_page_cache = _opts.use_page_cache,
+                    .file_reader = _file_reader.get(),
+                    .stats = _opts.stats,
+                    .io_ctx = _opts.io_ctx,
+            };
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -610,13 +611,13 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(
         } else {
             _column_predicate_info->query_op = expr->fn().name.function_name;
         }
-        // get child condition result in compound condtions
+        // get child condition result in compound conditions
         auto pred_result_sign = _gen_predicate_result_sign(_column_predicate_info.get());
         _column_predicate_info.reset(new ColumnPredicateInfo());
         if (_rowid_result_for_index.count(pred_result_sign) > 0 &&
             _rowid_result_for_index[pred_result_sign].first) {
-            auto apply_reuslt = _rowid_result_for_index[pred_result_sign].second;
-            _pred_except_leafnode_of_andnode_evaluate_result.push_back(apply_reuslt);
+            auto apply_result = _rowid_result_for_index[pred_result_sign].second;
+            _pred_except_leafnode_of_andnode_evaluate_result.push_back(apply_result);
         }
     } else if (node_type == TExprNodeType::COMPOUND_PRED) {
         auto function_name = expr->fn().name.function_name;
@@ -631,21 +632,21 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
     auto size = _pred_except_leafnode_of_andnode_evaluate_result.size();
     if (function_name == "and") {
         if (size < 2) {
-            return Status::InternalError("execute and logic compute error.");
+            return Status::Uninitialized("execute and logic compute error.");
         }
         _pred_except_leafnode_of_andnode_evaluate_result.at(size - 2) &=
                 _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
         _pred_except_leafnode_of_andnode_evaluate_result.pop_back();
     } else if (function_name == "or") {
         if (size < 2) {
-            return Status::InternalError("execute or logic compute error.");
+            return Status::Uninitialized("execute or logic compute error.");
         }
         _pred_except_leafnode_of_andnode_evaluate_result.at(size - 2) |=
                 _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
         _pred_except_leafnode_of_andnode_evaluate_result.pop_back();
     } else if (function_name == "not") {
         if (size < 1) {
-            return Status::InternalError("execute not logic compute error.");
+            return Status::Uninitialized("execute not logic compute error.");
         }
         roaring::Roaring tmp = _row_bitmap;
         tmp -= _pred_except_leafnode_of_andnode_evaluate_result.at(size - 1);
@@ -655,9 +656,18 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
 }
 
 bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
+    // no compound predicates push down, so no need to filter
+    if (_col_preds_except_leafnode_of_andnode.size() == 0) {
+        return false;
+    }
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
         if (_not_apply_index_pred.count(pred->column_id()) ||
             (!_check_apply_by_bitmap_index(pred) && !_check_apply_by_inverted_index(pred, true))) {
+            return false;
+        }
+        // all predicates are evaluated by index, then true, else false
+        std::string pred_result_sign = _gen_predicate_result_sign(pred);
+        if (_rowid_result_for_index.count(pred_result_sign) == 0) {
             return false;
         }
     }
@@ -1040,14 +1050,15 @@ Status SegmentIterator::_init_return_column_iterators() {
         if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
                                                           &_column_iterators[cid]));
-            ColumnIteratorOptions iter_opts;
-            iter_opts.stats = _opts.stats;
-            iter_opts.use_page_cache = _opts.use_page_cache;
-            iter_opts.file_reader = _file_reader.get();
-            iter_opts.io_ctx = _opts.io_ctx;
-            // If the col is predicate column, then should read the last page to check
-            // if the column is full dict encoding
-            iter_opts.is_predicate_column = tmp_is_pred_column[cid];
+            ColumnIteratorOptions iter_opts {
+                    .use_page_cache = _opts.use_page_cache,
+                    // If the col is predicate column, then should read the last page to check
+                    // if the column is full dict encoding
+                    .is_predicate_column = tmp_is_pred_column[cid],
+                    .file_reader = _file_reader.get(),
+                    .stats = _opts.stats,
+                    .io_ctx = _opts.io_ctx,
+            };
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -1394,6 +1405,8 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     // If common expr pushdown exists, and expr column is not contained in lazy materialization columns,
     // add to second read column, which will be read after lazy materialization
     if (_schema->column_ids().size() > pred_column_ids.size()) {
+        // pred_column_ids maybe empty, so that could not set _lazy_materialization_read = true here
+        // has to check there is at least one predicate column
         for (auto cid : _schema->column_ids()) {
             if (!_is_pred_column[cid]) {
                 if (_is_need_vec_eval || _is_need_short_eval) {
@@ -1438,11 +1451,15 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                 auto cid = _schema->column_id(i);
                 if (pred_id_set.find(cid) != pred_id_set.end()) {
                     _first_read_column_ids.push_back(cid);
-                } else if (non_pred_set.find(cid) != non_pred_set.end()) {
-                    _first_read_column_ids.push_back(cid);
-                    // when _lazy_materialization_read = false, non-predicate column should also be filtered by sel idx, so we regard it as pred columns
-                    _is_pred_column[cid] = true;
                 }
+                // In the past, if schema columns > pred columns, the _lazy_materialization_read maybe == false, but
+                // we make sure using _lazy_materialization_read= true now, so these logic may never happens. I comment
+                // these lines and we could delete them in the future to make the code more clear.
+                // else if (non_pred_set.find(cid) != non_pred_set.end()) {
+                //    _first_read_column_ids.push_back(cid);
+                //    // when _lazy_materialization_read = false, non-predicate column should also be filtered by sel idx, so we regard it as pred columns
+                //    _is_pred_column[cid] = true;
+                // }
             }
         } else if (_is_need_expr_eval) {
             DCHECK(!_is_need_vec_eval && !_is_need_short_eval);
@@ -1555,8 +1572,6 @@ void SegmentIterator::_init_current_block(
                 current_columns[cid]->set_date_type();
             } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                 current_columns[cid]->set_datetime_type();
-            } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
-                current_columns[cid]->set_decimalv2_type();
             }
             current_columns[cid]->reserve(_opts.block_row_max);
         }
@@ -1578,26 +1593,19 @@ void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
 Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
                                                bool set_block_rowid) {
     SCOPED_RAW_TIMER(&_opts.stats->first_read_ns);
+
     do {
-        uint32_t range_from;
-        uint32_t range_to;
+        uint32_t range_from = 0;
+        uint32_t range_to = 0;
         bool has_next_range =
                 _range_iter->next_range(nrows_read_limit - nrows_read, &range_from, &range_to);
         if (!has_next_range) {
             break;
         }
-        if (_cur_rowid == 0 || _cur_rowid != range_from) {
-            _cur_rowid = range_from;
-            _opts.stats->block_first_read_seek_num += 1;
-            if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
-                SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
-            }
-            RETURN_IF_ERROR(_seek_columns(_first_read_column_ids, _cur_rowid));
-        }
+
         size_t rows_to_read = range_to - range_from;
-        RETURN_IF_ERROR(
-                _read_columns(_first_read_column_ids, _current_return_columns, rows_to_read));
-        _cur_rowid += rows_to_read;
+        _cur_rowid = range_to;
+
         if (set_block_rowid) {
             // Here use std::iota is better performance than for-loop, maybe for-loop is not vectorized
             auto start = _block_rowids.data() + nrows_read;
@@ -1609,8 +1617,26 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         }
 
         _split_row_ranges.emplace_back(std::pair {range_from, range_to});
-        // if _opts.read_orderby_key_reverse is true, only read one range for fast reverse purpose
     } while (nrows_read < nrows_read_limit && !_opts.read_orderby_key_reverse);
+
+    for (auto cid : _first_read_column_ids) {
+        auto& column = _current_return_columns[cid];
+        if (_prune_column(cid, column, true, nrows_read)) {
+            continue;
+        }
+        for (auto& range : _split_row_ranges) {
+            size_t nrows = range.second - range.first;
+
+            RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
+            size_t rows_read = nrows;
+            RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
+            if (rows_read != nrows) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("nrows({}) != rows_read({})", nrows,
+                                                                rows_read);
+            }
+        }
+    }
+
     return Status::OK();
 }
 

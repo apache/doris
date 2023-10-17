@@ -187,6 +187,10 @@ public class OperationType {
     public static final short OP_ADD_GLOBAL_FUNCTION = 132;
     public static final short OP_DROP_GLOBAL_FUNCTION = 133;
 
+    // modify database/table/tablet/replica meta
+    public static final short OP_SET_REPLICA_VERSION = 141;
+    public static final short OP_COLOCATE_MOD_REPLICA_ALLOC = 142;
+
     // routine load 200
     public static final short OP_CREATE_ROUTINE_LOAD_JOB = 200;
     public static final short OP_CHANGE_ROUTINE_LOAD_JOB = 201;
@@ -333,6 +337,12 @@ public class OperationType {
 
     public static final short OP_UPDATE_TABLE_STATS = 455;
 
+    public static final short OP_PERSIST_AUTO_JOB = 456;
+
+    public static final short OP_DELETE_TABLE_STATS = 457;
+
+    public static final short OP_ALTER_CATALOG_COMMENT = 458;
+
     /**
      * Get opcode name by op code.
      **/
@@ -354,4 +364,5 @@ public class OperationType {
         }
         return "Not Found";
     }
+
 }

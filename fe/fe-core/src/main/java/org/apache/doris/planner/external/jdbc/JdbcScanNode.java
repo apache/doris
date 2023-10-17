@@ -19,6 +19,8 @@ package org.apache.doris.planner.external.jdbc;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -78,7 +80,7 @@ public class JdbcScanNode extends ExternalScanNode {
             tbl = (JdbcTable) (desc.getTable());
         }
         jdbcType = tbl.getJdbcTableType();
-        tableName = JdbcTable.databaseProperName(jdbcType, tbl.getJdbcTable());
+        tableName = tbl.getProperRealFullTableName(jdbcType);
     }
 
     @Override
@@ -113,7 +115,7 @@ public class JdbcScanNode extends ExternalScanNode {
                 break;
             }
         }
-        //clean conjusts cause graph sannnode no need conjuncts
+        // clean conjusts cause graph sannnode no need conjuncts
         conjuncts = Lists.newArrayList();
     }
 
@@ -128,24 +130,37 @@ public class JdbcScanNode extends ExternalScanNode {
         for (SlotRef slotRef : slotRefs) {
             SlotRef slotRef1 = (SlotRef) slotRef.clone();
             slotRef1.setTblName(null);
-            slotRef1.setLabel(JdbcTable.databaseProperName(jdbcType, slotRef1.getColumnName()));
+            slotRef1.setLabel(JdbcTable.properNameWithRealName(jdbcType, slotRef1.getColumnName()));
             sMap.put(slotRef, slotRef1);
         }
 
         ArrayList<Expr> conjunctsList = Expr.cloneList(conjuncts, sMap);
+        List<String> errors = Lists.newArrayList();
+        List<Expr> pushDownConjuncts = collectConjunctsToPushDown(conjunctsList, errors);
+
+        for (Expr individualConjunct : pushDownConjuncts) {
+            String filter = conjunctExprToString(jdbcType, individualConjunct);
+            filters.add(filter);
+            conjuncts.remove(individualConjunct);
+        }
+    }
+
+    private List<Expr> collectConjunctsToPushDown(List<Expr> conjunctsList, List<String> errors) {
+        List<Expr> pushDownConjuncts = new ArrayList<>();
         for (Expr p : conjunctsList) {
             if (shouldPushDownConjunct(jdbcType, p)) {
-                String filter = conjunctExprToString(jdbcType, p);
-                if (filter.equals("TRUE")) {
-                    filter = "1 = 1";
+                List<Expr> individualConjuncts = p.getConjuncts();
+                for (Expr individualConjunct : individualConjuncts) {
+                    Expr newp = JdbcFunctionPushDownRule.processFunctions(jdbcType, individualConjunct, errors);
+                    if (!errors.isEmpty()) {
+                        errors.clear();
+                        continue;
+                    }
+                    pushDownConjuncts.add(newp);
                 }
-                if (JdbcFunctionPushDownRule.isUnsupportedFunctions(jdbcType, filter)) {
-                    continue;
-                }
-                filters.add(filter);
-                conjuncts.remove(p);
             }
         }
+        return pushDownConjuncts;
     }
 
     private void createJdbcColumns() {
@@ -220,6 +235,10 @@ public class JdbcScanNode extends ExternalScanNode {
             return output.toString();
         }
         output.append(prefix).append("QUERY: ").append(getJdbcQueryStr()).append("\n");
+        if (!conjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        }
         return output.toString();
     }
 
@@ -278,7 +297,7 @@ public class JdbcScanNode extends ExternalScanNode {
     @Override
     public int getNumInstances() {
         return ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
-            ? ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() : 1;
+                ? ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() : 1;
     }
 
     @Override
@@ -288,52 +307,77 @@ public class JdbcScanNode extends ExternalScanNode {
                 tbl.getId(), -1L);
     }
 
-    // Now some database have different function call like doris, now doris do not
-    // push down the function call except MYSQL
-    public static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
-        if (!tableType.equals(TOdbcTableType.MYSQL)) {
-            List<FunctionCallExpr> fnExprList = Lists.newArrayList();
-            expr.collect(FunctionCallExpr.class, fnExprList);
-            if (!fnExprList.isEmpty()) {
+    private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
+        if (containsFunctionCallExpr(expr)) {
+            if (tableType.equals(TOdbcTableType.MYSQL) || tableType.equals(TOdbcTableType.CLICKHOUSE)) {
+                return Config.enable_func_pushdown;
+            } else {
                 return false;
             }
+        } else {
+            return true;
         }
-        return Config.enable_func_pushdown;
+    }
+
+    private static boolean containsFunctionCallExpr(Expr expr) {
+        List<FunctionCallExpr> fnExprList = Lists.newArrayList();
+        expr.collect(FunctionCallExpr.class, fnExprList);
+        return !fnExprList.isEmpty();
     }
 
     public static String conjunctExprToString(TOdbcTableType tableType, Expr expr) {
-        if (tableType.equals(TOdbcTableType.ORACLE) && expr.contains(DateLiteral.class)
-                && (expr instanceof BinaryPredicate)) {
-            ArrayList<Expr> children = expr.getChildren();
-            // k1 OP '2022-12-10 20:55:59'  changTo ---> k1 OP to_date('{}','yyyy-mm-dd hh24:mi:ss')
-            // oracle datetime push down is different: https://github.com/apache/doris/discussions/15069
-            if (children.get(1).isConstant() && (children.get(1).getType().equals(Type.DATETIME) || children
-                    .get(1).getType().equals(Type.DATETIMEV2))) {
-                String filter = children.get(0).toMySql();
-                filter += ((BinaryPredicate) expr).getOp().toString();
-                filter += "to_date('" + children.get(1).getStringValue() + "','yyyy-mm-dd hh24:mi:ss')";
-                return filter;
+        if (expr instanceof CompoundPredicate) {
+            StringBuilder result = new StringBuilder();
+            CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
+            for (Expr child : compoundPredicate.getChildren()) {
+                result.append(conjunctExprToString(tableType, child));
+                result.append(" ").append(compoundPredicate.getOp().toString()).append(" ");
             }
-        }
-        if ((tableType.equals(TOdbcTableType.TRINO) || tableType.equals(TOdbcTableType.PRESTO))
-                && expr.contains(DateLiteral.class) && (expr instanceof BinaryPredicate)) {
-            ArrayList<Expr> children = expr.getChildren();
-            if (children.get(1).isConstant() && (children.get(1).getType().isDate()) || children
-                    .get(1).getType().isDateV2()) {
-                String filter = children.get(0).toMySql();
-                filter += ((BinaryPredicate) expr).getOp().toString();
-                filter += "date '" + children.get(1).getStringValue() + "'";
-                return filter;
-            }
-            if (children.get(1).isConstant() && (children.get(1).getType().isDatetime() || children
-                    .get(1).getType().isDatetimeV2())) {
-                String filter = children.get(0).toMySql();
-                filter += ((BinaryPredicate) expr).getOp().toString();
-                filter += "timestamp '" + children.get(1).getStringValue() + "'";
-                return filter;
-            }
+            // Remove the last operator
+            result.setLength(result.length() - compoundPredicate.getOp().toString().length() - 2);
+            return result.toString();
         }
 
+        if (expr.contains(DateLiteral.class) && expr instanceof BinaryPredicate) {
+            ArrayList<Expr> children = expr.getChildren();
+            String filter = children.get(0).toMySql();
+            filter += " " + ((BinaryPredicate) expr).getOp().toString() + " ";
+
+            if (tableType.equals(TOdbcTableType.ORACLE)) {
+                filter += handleOracleDateFormat(children.get(1));
+            } else if (tableType.equals(TOdbcTableType.TRINO) || tableType.equals(TOdbcTableType.PRESTO)) {
+                filter += handleTrinoDateFormat(children.get(1));
+            } else {
+                filter += children.get(1).toMySql();
+            }
+
+            return filter;
+        }
+
+        // only for old planner
+        if (expr.contains(BoolLiteral.class) && "1".equals(expr.getStringValue()) && expr.getChildren().isEmpty()) {
+            return "1 = 1";
+        }
+
+        return expr.toMySql();
+    }
+
+    private static String handleOracleDateFormat(Expr expr) {
+        if (expr.isConstant()
+                && (expr.getType().equals(Type.DATETIME) || expr.getType().equals(Type.DATETIMEV2))) {
+            return "to_date('" + expr.getStringValue() + "', 'yyyy-mm-dd hh24:mi:ss')";
+        }
+        return expr.toMySql();
+    }
+
+    private static String handleTrinoDateFormat(Expr expr) {
+        if (expr.isConstant()) {
+            if (expr.getType().isDate() || expr.getType().isDateV2()) {
+                return "date '" + expr.getStringValue() + "'";
+            } else if (expr.getType().isDatetime() || expr.getType().isDatetimeV2()) {
+                return "timestamp '" + expr.getStringValue() + "'";
+            }
+        }
         return expr.toMySql();
     }
 }

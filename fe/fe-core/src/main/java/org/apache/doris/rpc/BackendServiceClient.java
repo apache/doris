@@ -31,7 +31,7 @@ import io.grpc.ForwardingClientCall;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
-import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.NettyChannelBuilder;
 import io.opentelemetry.context.Context;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -98,6 +98,11 @@ public class BackendServiceClient {
 
     public InternalService.PFetchDataResult fetchDataSync(InternalService.PFetchDataRequest request) {
         return blockingStub.fetchData(request);
+    }
+
+    public Future<InternalService.PFetchArrowFlightSchemaResult> fetchArrowFlightSchema(
+            InternalService.PFetchArrowFlightSchemaRequest request) {
+        return stub.fetchArrowFlightSchema(request);
     }
 
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(

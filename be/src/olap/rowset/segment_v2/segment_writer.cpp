@@ -30,6 +30,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
+#include "common/status.h"
 #include "gutil/port.h"
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
@@ -332,9 +333,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     }
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
+    DCHECK(_opts.rowset_ctx->partial_update_info);
     // find missing column cids
-    std::vector<uint32_t> missing_cids = _tablet_schema->get_missing_cids();
-    std::vector<uint32_t> including_cids = _tablet_schema->get_update_cids();
+    std::vector<uint32_t> missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
+    std::vector<uint32_t> including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
 
     // create full block and fill with input columns
     auto full_block = _tablet_schema->create_block();
@@ -420,7 +422,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         auto st = _tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
                                           _mow_context->max_version, segment_caches, &rowset);
         if (st.is<KEY_NOT_FOUND>()) {
-            if (_tablet_schema->is_strict_mode()) {
+            if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
                 ++num_rows_filtered;
                 // delete the invalid newly inserted row
                 _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
@@ -428,7 +430,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                  segment_pos);
             }
 
-            if (!_tablet_schema->can_insert_new_rows_in_partial_update()) {
+            if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
                 return Status::InternalError(
                         "the unmentioned columns should have default value or be nullable for "
                         "newly inserted rows in non-strict mode partial update");
@@ -491,7 +493,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     }
 
     // convert missing columns and send to column writer
-    auto cids_missing = _tablet_schema->get_missing_cids();
+    auto cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, row_pos, num_rows,
                                                                    cids_missing);
     for (auto cid : cids_missing) {
@@ -544,8 +546,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                                            bool has_default_or_nullable,
                                            const size_t& segment_start_pos) {
     // create old value columns
-    auto old_value_block = _tablet_schema->create_missing_columns_block();
-    std::vector<uint32_t> cids_missing = _tablet_schema->get_missing_cids();
+    std::vector<uint32_t> cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
+    auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
     CHECK(cids_missing.size() == old_value_block.columns());
     auto mutable_old_columns = old_value_block.mutate_columns();
     bool has_row_column = _tablet_schema->store_row_column();
@@ -585,22 +587,40 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     auto mutable_default_value_columns = default_value_block.mutate_columns();
-    if (has_default_or_nullable) {
+
+    const vectorized::Int8* delete_sign_column_data = nullptr;
+    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
+                old_value_block.try_get_by_name(DELETE_SIGN);
+        delete_sign_column != nullptr && _tablet_schema->has_sequence_col()) {
+        auto& delete_sign_col =
+                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
+        delete_sign_column_data = delete_sign_col.get_data().data();
+    }
+
+    if (has_default_or_nullable || delete_sign_column_data != nullptr) {
         for (auto i = 0; i < cids_missing.size(); ++i) {
             const auto& column = _tablet_schema->column(cids_missing[i]);
             if (column.has_default_value()) {
                 auto default_value = _tablet_schema->column(cids_missing[i]).default_value();
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
-                old_value_block.get_by_position(i).type->from_string(
-                        rb, mutable_default_value_columns[i].get());
+                static_cast<void>(old_value_block.get_by_position(i).type->from_string(
+                        rb, mutable_default_value_columns[i].get()));
             }
         }
     }
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
-        if (use_default_or_null_flag[idx]) {
+        // `use_default_or_null_flag[idx] == true` doesn't mean that we should read values from the old row
+        // for the missing columns. For example, if a table has sequence column, the rows with DELETE_SIGN column
+        // marked will not be marked in delete bitmap(see https://github.com/apache/doris/pull/24011), so it will
+        // be found in Tablet::lookup_row_key() and `use_default_or_null_flag[idx]` will be false. But we should not
+        // read values from old rows for missing values in this occasion. So we should read the DELETE_SIGN column
+        // to check if a row REALLY exists in the table.
+        if (use_default_or_null_flag[idx] ||
+            (delete_sign_column_data != nullptr &&
+             delete_sign_column_data[read_index[idx + segment_start_pos]] != 0)) {
             for (auto i = 0; i < cids_missing.size(); ++i) {
                 // if the column has default value, fiil it with default value
                 // otherwise, if the column is nullable, fill it with null value
@@ -633,7 +653,10 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
 
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
-    if (_tablet_schema->is_partial_update() && _opts.write_type == DataWriteType::TYPE_DIRECT) {
+    if (_opts.rowset_ctx->partial_update_info &&
+        _opts.rowset_ctx->partial_update_info->is_partial_update &&
+        _opts.write_type == DataWriteType::TYPE_DIRECT &&
+        !_opts.rowset_ctx->is_transient_rowset_writer) {
         RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
         return Status::OK();
     }

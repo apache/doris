@@ -16,6 +16,8 @@
 // under the License.
 
 #pragma once
+#include <concurrentqueue.h>
+
 #include <condition_variable>
 #include <queue>
 
@@ -29,6 +31,13 @@ class RuntimeState;
 class RuntimeProfile;
 class TDataSink;
 class TExpr;
+
+namespace pipeline {
+class AsyncWriterDependency;
+class WriteDependency;
+class FinishDependency;
+
+} // namespace pipeline
 
 namespace vectorized {
 class Block;
@@ -48,9 +57,10 @@ class AsyncResultWriter : public ResultWriter {
 public:
     AsyncResultWriter(const VExprContextSPtrs& output_expr_ctxs);
 
-    Status close() override { return Status::OK(); }
+    void set_dependency(pipeline::AsyncWriterDependency* dep,
+                        pipeline::FinishDependency* finish_dep);
 
-    void force_close();
+    void force_close(Status s);
 
     virtual bool in_transaction() { return false; }
 
@@ -62,12 +72,14 @@ public:
 
     virtual Status open(RuntimeState* state, RuntimeProfile* profile) = 0;
 
-    Status write(std::unique_ptr<Block> block) { return append_block(*block); }
+    Status write(std::unique_ptr<Block>& block) { return append_block(*block); }
 
     bool can_write() {
         std::lock_guard l(_m);
-        return _data_queue.size() < QUEUE_SIZE || !_writer_status.ok() || _eos;
+        return _data_queue_is_available() || _is_finished();
     }
+
+    pipeline::WriteDependency* write_blocked_by();
 
     [[nodiscard]] bool is_pending_finish() const { return !_writer_thread_closed; }
 
@@ -76,25 +88,40 @@ public:
     // sink the block date to date queue
     Status sink(Block* block, bool eos);
 
-    std::unique_ptr<Block> get_block_from_queue();
-
     // Add the IO thread task process block() to thread pool to dispose the IO
     void start_writer(RuntimeState* state, RuntimeProfile* profile);
+
+    Status get_writer_status() { return _writer_status; }
 
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
     const VExprContextSPtrs& _vec_output_expr_ctxs;
 
+    std::unique_ptr<Block> _get_free_block(Block*, int rows);
+
+    void _return_free_block(std::unique_ptr<Block>);
+
 private:
+    [[nodiscard]] bool _data_queue_is_available() const { return _data_queue.size() < QUEUE_SIZE; }
+    [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
+
+    std::unique_ptr<Block> _get_block_from_queue();
+    void _return_block_to_queue(std::unique_ptr<Block>);
+
     static constexpr auto QUEUE_SIZE = 3;
     std::mutex _m;
     std::condition_variable _cv;
     std::deque<std::unique_ptr<Block>> _data_queue;
     Status _writer_status = Status::OK();
     bool _eos = false;
-    bool _force_close = false;
     bool _need_normal_close = true;
     bool _writer_thread_closed = false;
+
+    // Used by pipelineX
+    pipeline::AsyncWriterDependency* _dependency;
+    pipeline::FinishDependency* _finish_dependency;
+
+    moodycamel::ConcurrentQueue<std::unique_ptr<Block>> _free_blocks;
 };
 
 } // namespace vectorized

@@ -28,343 +28,92 @@ under the License.
 
 ## Introduction to statistics information
 
-In SQL databases, the quality of the query optimizer has a significant impact on system performance. The optimizer needs to estimate the query cost according to the statistics information, especially in the equal-value query scenario, it is very important to estimate the cardinality accurately, which can help the optimizer to select the optimal query plan, thereby improving the query performance.
+Collecting statistics helps the optimizer understand data distribution characteristics. When performing Cost-Based Optimization (CBO), the optimizer utilizes these statistics to calculate the selectivity of predicates and estimate the cost of each execution plan. This enables the selection of more efficient plans, significantly improving query performance.
 
-When executing a query, an insufficiently optimized execution plan and an optimized execution plan can result in a large difference in execution time, which can be several times greater. Therefore, it is very important for the SQL query optimizer to collect and analyze statistics so that the optimizer can accurately evaluate the cost of different execution plans and select the best one.
+Currently, the collected column-level information includes:
 
-The Doris query optimizer uses statistics to determine the most efficient execution plan for a query. Statistics maintained by Doris include table-level statistics and column-level statistics.
+| Information      | Description              |
+| :--------------- | :------------------------ |
+| `row_count`      | Total number of rows     |
+| `data_size`      | Total data size          |
+| `avg_size_byte`  | Average length of values |
+| `ndv`            | Number of distinct values |
+| `min`            | Minimum value            |
+| `max`            | Maximum value            |
+| `null_count`     | Number of null values    |
 
-Table Statistics:
+## Collecting Statistics
 
-| Information         | Description                                                        |
-| :------------------ | :----------------------------------------------------------------- |
-| `row_count`         | Number of rows in the table                                        |
-| `data_size`         | Table size (in bytes)                                              |
-| `update_rows`       | The number of rows updated after collecting statistics information |
-| `healthy`           | The health of the table                                            |
-| `update_time`       | The time of the latest update                                      |
-| `last_analyze_time` | The time when the last statistics information was collected        |
+### Using the ANALYZE Statement
 
-> Table Health: Indicates the health of the table statistics. When it `update_rows` is greater than or equal to `row_count`, the health degree is 0; when it `update_rows` is less than `row_count`, the health degree is `100 * (1 - update_rows/ row_count)`.
+Doris supports users in triggering the collection and updating of statistics by submitting the ANALYZE statement.
 
-Column Statistics:
-
-| Information     | Description                           |
-| :-------------- | :------------------------------------ |
-| `row_count`     | Total number of rows for the column   |
-| `data_size`     | Total degree of the column in bytes   |
-| `avg_size_byte` | Average degree of the column in bytes |
-| `ndv`           | Column num distinct value             |
-| `min`           | Column Minimum                        |
-| `max`           | Column Max Value                      |
-| `null_count`    | Number of columns null                |
-
-## Collect statistics
-
-### Manual collection
-
-The user triggers a manual collection job through a statement `ANALYZE` to collect statistics for the specified table or column based on the supplied parameters.
-
-Column statistics collection syntax:
+Syntax:
 
 ```SQL
 ANALYZE < TABLE | DATABASE table_name | db_name >
-    [ PARTITIONS (partition_name [, ...]) ]
+    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT ] ]
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ]]
+    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH SQL ] ]
     [ PROPERTIES ("key" = "value", ...) ];
 ```
 
-Explanation:
+Where:
 
-- Table_name: The target table for the specified. It can be a `db_name.table_name` form.
-- partition_name: The specified target partitions（for hive external table only）。Must be partitions exist in `table_name`. Multiple partition names are separated by commas. e.g. (nation=US/city=Washington)
-- Column_name: The specified target column. Must be `table_name` a column that exists in. Multiple column names are separated by commas.
-- Sync: Synchronizes the collection of statistics. Return after collection. If not specified, it will be executed asynchronously and the job ID will be returned.
-- Incremental: Incrementally gather statistics.
-- Period: Collect statistics periodically. The unit is seconds, and when specified, the appropriate statistics are collected periodically.
-- Sample percent | rows: Sample collection statistics. You can specify a sampling ratio or the number of rows to sample.
+- `table_name`: Specifies the target table. It can be in the `db_name.table_name` format.
+- `partition_name`: The specified target partitions（for hive external table only）。Must be partitions exist in `table_name`. Multiple partition names are separated by commas. e.g. for single level partition: PARTITIONS(`event_date=20230706`), for multi level partition: PARTITIONS(`nation=US/city=Washington`). PARTITIONS(*) specifies all partitions, PARTITIONS WITH RECENT 30 specifies the latest 30 partitions.
+- `column_name`: Specifies the target column. It must be an existing column in `table_name`, and multiple column names are separated by commas.
+- `sync`: Collect statistics synchronously. Returns upon completion. If not specified, it executes asynchronously and returns a task ID.
+- `sample percent | rows`: Collect statistics using sampling. You can specify either the sampling percentage or the number of sampled rows.
+- `sql`: Collect statistics for external partition column with sql. By default, it uses meta data for partition columns, which is faster but may inaccurate for row count and size. Using sql could collect the accurate stats.
 
-- Properties: used to configure statistics job. Currently, only the following configuration items are supported
-  - `"sync" = "true"`: Equivalent `with sync`
-  - `"incremental" = "true"`: Equivalent `with incremental`
-  - `"sample.percent" = "50"`: Equivalent `with percent 50`
-  - `"sample.rows" = "1000"`: Equivalent `with rows 1000`
-  - `"num.buckets" = "10"`: Equivalent `with buckets 10`
-  - `"period.seconds" = "300"`: Equivalent `with period 300`
+### Automatic Statistics Collection
 
-Next, we will use a table `stats_test.example_tbl` as an example to explain how to collect statistics. `stats_test.example_tbl` The structure is as follows:
+Users can enable this feature by setting the FE configuration option `enable_full_auto_analyze = true`. Once enabled, statistics on qualifying tables and columns will be automatically collected during specified time intervals. Users can specify the automatic collection time period by setting the `full_auto_analyze_start_time` (default is 00:00:00) and `full_auto_analyze_end_time` (default is 02:00:00) parameters.
 
-| Column Name     | Type        | AggregationType | Comment                 |
-| --------------- | ----------- | --------------- | ----------------------- |
-| user_id         | LARGEINT    |                 | User ID                 |
-| imp_date        | DATEV2      |                 | Data import date        |
-| city            | VARCHAR(20) |                 | User city               |
-| age             | SMALLINT    |                 | User age                |
-| sex             | TINYINT     |                 | User gender             |
-| last_visit_date | DATETIME    | REPLACE         | User last visit time    |
-| cost            | BIGINT      | SUM             | User total cost         |
-| max_dwell_time  | INT         | MAX             | User maximum dwell time |
-| min_dwell_time  | INT         | MIN             | User minimum dwell time |
+This feature collects statistics only for tables and columns that either have no statistics or have outdated statistics. When more than 20% of the data in a table is updated (this value can be configured using the `table_stats_health_threshold` parameter with a default of 80), Doris considers the statistics for that table to be outdated.
 
-Connect Doris:
+For tables with a large amount of data (default is 5GiB), Doris will automatically use sampling to collect statistics, reducing the impact on the system and completing the collection job as quickly as possible. Users can adjust this behavior by setting the `huge_table_lower_bound_size_in_bytes` FE parameter. If you want to collect statistics for all tables in full, you can set the `enable_auto_sample` FE parameter to false. For tables with data size greater than `huge_table_lower_bound_size_in_bytes`, Doris ensures that the collection interval is not less than 12 hours (this time can be controlled using the `huge_table_auto_analyze_interval_in_millis` FE parameter).
 
-````Bash
-mysql -uroot -P9030 -h192.168.xxx.xxx```
+The default sample size for automatic sampling is 200,000 rows, but the actual sample size may be larger due to implementation reasons. If you want to sample more rows to obtain more accurate data distribution information, you can configure the `auto_analyze_job_record_count` FE parameter.
 
-Create a data table:
+### Task Management
 
-```SQL
-mysql> CREATE DATABASE IF NOT EXISTS stats_test;
+#### Viewing Analyze Tasks
 
-mysql> CREATE TABLE IF NOT EXISTS stats_test.example_tbl (
-        `user_id` LARGEINT NOT NULL,        `date` DATEV2 NOT NULL,        `city` VARCHAR(20),        `age` SMALLINT,        `sex` TINYINT,        `last_visit_date` DATETIME REPLACE,        `cost` BIGINT SUM,        `max_dwell_time` INT MAX,        `min_dwell_time` INT MIN    ) ENGINE=OLAP    AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)    PARTITION BY LIST(`date`)    (        PARTITION `p_201701` VALUES IN ("2017-10-01"),        PARTITION `p_201702` VALUES IN ("2017-10-02"),        PARTITION `p_201703` VALUES IN ("2017-10-03")    )    DISTRIBUTED BY HASH(`user_id`) BUCKETS 1    PROPERTIES (        "replication_num" = "1"    );
-````
+You can use `SHOW ANALYZE` to view information about statistics collection tasks.
 
-Import data:
-
-```SQL
-mysql> INSERT INTO stats_test.example_tbl (`user_id`, `date`, `city`, `age`,
-                                    `sex`, `last_visit_date`, `cost`,                                    `max_dwell_time`, `min_dwell_time`)    VALUES (10000, "2017-10-01", "Beijing", 20, 0, "2017-10-01 07:00:00", 15, 2, 2),        (10000, "2017-10-01", "Beijing", 20, 0, "2017-10-01 06:00:00", 20, 10, 10),        (10001, "2017-10-01", "Beijing", 30, 1, "2017-10-01 17:05:45", 2, 22, 22),        (10002, "2017-10-02", "Shanghai", 20, 1, "2017-10-02 12:59:12", 200, 5, 5),        (10003, "2017-10-02", "Guangzhou", 32, 0, "2017-10-02 11:20:00", 30, 11, 11),        (10004, "2017-10-01", "Shenzhen", 35, 0, "2017-10-01 10:00:15", 100, 3, 3),        (10004, "2017-10-03", "Shenzhen", 35, 0, "2017-10-03 10:20:22", 11, 6, 6);
-```
-
-To view data results:
-
-```SQL
-mysql> SELECT * FROM stats_test.example_tbl;
-+---------+------------+-----------+------+------+---------------------+------+----------------+----------------+
-| user_id | date       | city      | age  | sex  | last_visit_date     | cost | max_dwell_time | min_dwell_time |
-+---------+------------+-----------+------+------+---------------------+------+----------------+----------------+
-| 10004   | 2017-10-03 | Shenzhen  |   35 |    0 | 2017-10-03 10:20:22 |   11 |              6 |              6 |
-| 10000   | 2017-10-01 | Beijing   |   20 |    0 | 2017-10-01 06:00:00 |   35 |             10 |              2 |
-| 10001   | 2017-10-01 | Beijing   |   30 |    1 | 2017-10-01 17:05:45 |    2 |             22 |             22 |
-| 10004   | 2017-10-01 | Shenzhen  |   35 |    0 | 2017-10-01 10:00:15 |  100 |              3 |              3 |
-| 10002   | 2017-10-02 | Shanghai  |   20 |    1 | 2017-10-02 12:59:12 |  200 |              5 |              5 |
-| 10003   | 2017-10-02 | Guangzhou |   32 |    0 | 2017-10-02 11:20:00 |   30 |             11 |             11 |
-+---------+------------+-----------+------+------+---------------------+------+----------------+----------------+
-```
-
-#### Full collection
-
-##### Collect column statistic
-
-Column statistics mainly include the number of rows, the maximum value, the minimum value, and the number of NULL values of a column, which are collected through `ANALYZE TABLE` statements.
-
-When executing SQL statements, the optimizer will, in most cases, only use statistics for some of the columns (for example, `WHERE` the columns that appear in the, `JOIN`, `ORDER BY`, `GROUP BY` clauses). If a table has many columns, collecting statistics for all columns can be expensive. To reduce overhead, you can collect statistics for specific columns only for use by the optimizer.
-
-Example:
-
-- Collect `example_tbl` statistics for all columns of a table, using the following syntax:
-
-```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl;
-+--------+
-| job_id |
-+--------+
-| 51730  |
-+--------+
-```
-
-- Collect `example_tbl` statistics for table `city` `age` `sex` columns, using the following syntax:
-
-```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex);
-+--------+
-| job_id |
-+--------+
-| 51808  |
-+--------+
-```
-
-#### Incremental collection
-
-For partitioned tables, incremental collection can be used to improve the speed of statistics collection if partitions are added or deleted after full collection.
-
-When using incremental collection, the system automatically checks for new or deleted partitions. There are three situations:
-
-- For newly added partitions, the statistics of the newly added partitions are collected and merged/summarized with the historical statistics.
-- Refresh historical statistics for deleted partitions.
-- No new/deleted partition. Do not do anything.
-
-Incremental collection is appropriate for tables with monotonic non-decreasing columns such as time columns as partitions, or tables where historical partition data is not updated.
-
-Notice：
-
-- When using incremental collection, you must ensure that the statistics information of table inventory is available (that is, other historical partition data does not change). Otherwise, the statistics information will be inaccurate.
-
-Example:
-
-- Incrementally collect `example_tbl` statistics for a table, using the following syntax:
-
-```SQL
--- use with incremental
-mysql> ANALYZE TABLE stats_test.example_tbl WITH INCREMENTAL;
-+--------+
-| job_id |
-+--------+
-| 51910  |
-+--------+
-
--- configure incremental
-mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("incremental" = "true");
-+--------+
-| job_id |
-+--------+
-| 51910  |
-+--------+
-```
-
-- Incrementally collect `example_tbl` statistics for table `city` `age` `sex` columns, using the following syntax:
-
-```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) WITH INCREMENTAL;
-+--------+
-| job_id |
-+--------+
-| 51988  |
-+--------+
-```
-
-#### Sampling collection
-
-When the amount of table data is large, the system may take time to collect statistics. You can use sampling collection to speed up the collection of statistics. Specify the proportion of sampling or the number of rows to be sampled according to the actual situation.
-
-Example:
-
-- Sampling collects `example_tbl` statistics from a table, using the following syntax:
-
-```SQL
--- use with sample rows
-mysql> ANALYZE TABLE stats_test.example_tbl WITH SAMPLE ROWS 5;
-+--------+
-| job_id |
-+--------+
-| 52120  |
-+--------+
-
--- use with sample percent
-mysql> ANALYZE TABLE stats_test.example_tbl WITH SAMPLE PERCENT 50;
-+--------+
-| job_id |
-+--------+
-| 52201  |
-+--------+
-
--- configure sample.row
-mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sample.rows" = "5");
-+--------+
-| job_id |
-+--------+
-| 52279  |
-+--------+
-
--- configure sample.percent
-mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sample.percent" = "50");
-+--------+
-| job_id |
-+--------+
-| 52282  |
-+--------+
-```
-
-#### Synchronous collection
-
-Generally, after executing `ANALYZE` the statement, the system will start an asynchronous job to collect statistics and return the statistics job ID immediately. If you want to wait for the statistics collection to finish and return, you can use synchronous collection.
-
-Example:
-
-- Sampling collects `example_tbl` statistics from a table, using the following syntax:
-
-```SQL
--- use with sync
-mysql> ANALYZE TABLE stats_test.example_tbl WITH SYNC;
-
--- configure sync
-mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sync" = "true");
-```
-
-### Automatic collection
-
-Automatic collection means that the system will automatically generate a job to collect statistics when the user specifies `PERIOD` `AUTO` keywords or performs related configuration when executing `ANALYZE` a statement.
-
-#### Periodic collection
-
-Periodic collection means that the corresponding statistics of a table are re-collected at a certain time interval.
-
-Example:
-
-- Collect `example_tbl` statistics for a table periodically (every other day), using the following syntax:
-
-```SQL
--- use with period
-mysql> ANALYZE TABLE stats_test.example_tbl WITH PERIOD 86400;
-+--------+
-| job_id |
-+--------+
-| 52409  |
-+--------+
-
--- configure period.seconds
-mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("period.seconds" = "86400");
-+--------+
-| job_id |
-+--------+
-| 52535  |
-+--------+
-```
-
-### Manage job
-
-#### View statistics job
-
-Collect information for the job by `SHOW ANALYZE` viewing the statistics.
-
-The syntax is as follows:
+Syntax:
 
 ```SQL
 SHOW ANALYZE < table_name | job_id >
     [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
 ```
 
-Explanation:
+- `table_name`: Specifies the table for which you want to view statistics collection tasks. It can be in the form of `db_name.table_name`. If not specified, it returns information for all statistics collection tasks.
+- `job_id`: The job ID of the statistics information task returned when executing `ANALYZE`. If not specified, it returns information for all statistics collection tasks.
 
-- Table_name: The table name. After it is specified, the statistics job information corresponding to the table can be viewed. It can be a `db_name.table_name` form. Return all statistics job information if not specified.
-- Job_ID: The statistics job ID `ANALYZE`. The value returned when the asynchronous collection of statistics is performed. Return all statistics job information if not specified.
+Output:
 
-Currently `SHOW ANALYZE`, 11 columns are output, as follows:
+| Column Name           | Description    |
+| :-------------------- | :------------- |
+| `job_id`              | Job ID         |
+| `catalog_name`        | Catalog Name   |
+| `db_name`             | Database Name  |
+| `tbl_name`            | Table Name     |
+| `col_name`            | Column Name    |
+| `job_type`            | Job Type       |
+| `analysis_type`       | Analysis Type  |
+| `message`             | Task Message   |
+| `last_exec_time_in_ms`| Last Execution Time |
+| `state`               | Task State     |
+| `schedule_type`       | Schedule Type  |
 
-| Column Name            | Description         |
-| :--------------------- | :------------------ |
-| `job_id`               | statistics job ID   |
-| `catalog_name`         | Catalog name        |
-| `db_name`              | Database name       |
-| `tbl_name`             | Variable name       |
-| `col_name`             | Column name         |
-| `job_type`             | job type            |
-| `analysis_type`        | statistics type     |
-| `message`              | job information     |
-| `last_exec_time_in_ms` | Last execution time |
-| `state`                | job state           |
-| `schedule_type`        | Scheduling method   |
 
-> In the system, the statistics job contains multiple subtasks, each of which collects a separate column of statistics.
-
-Example:
-
-- View statistics job information with ID `20038`, using the following syntax:
-
-```SQL
-mysql> SHOW ANALYZE 20038 
-+--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
-| job_id | catalog_name | db_name              | tbl_name | col_name              | job_type | analysis_type | message | last_exec_time_in_ms | state    | schedule_type |
-+--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
-| 20038  | internal     | default_cluster:test | t3       | [col4,col2,col3,col1] | MANUAL   | FUNDAMENTALS  |         | 2023-06-01 17:22:15  | FINISHED | ONCE          |
-+--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
+You can use `SHOW ANALYZE TASK STATUS [job_id]` to check the completion status of collecting statistics for each column.
 
 ```
-
-```
-mysql> show analyze task status  20038 ;
+mysql> show analyze task status 20038;
 +---------+----------+---------+----------------------+----------+
 | task_id | col_name | message | last_exec_time_in_ms | state    |
 +---------+----------+---------+----------------------+----------+
@@ -373,304 +122,158 @@ mysql> show analyze task status  20038 ;
 | 20041   | col3     |         | 2023-06-01 17:22:15  | FINISHED |
 | 20042   | col1     |         | 2023-06-01 17:22:15  | FINISHED |
 +---------+----------+---------+----------------------+----------+
-
 ```
 
-- View all statistics job information, and return the first 3 pieces of information in descending order of the last completion time, using the following syntax:
+#### Terminating Analyze Tasks
 
-```SQL
-mysql> SHOW ANALYZE WHERE state = "FINISHED" ORDER BY last_exec_time_in_ms DESC LIMIT 3;
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| job_id | catalog_name | db_name                    | tbl_name    | col_name        | job_type | analysis_type | message | last_exec_time_in_ms | state    | schedule_type |
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| 68603  | internal     | default_cluster:stats_test | example_tbl | age             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | sex             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | last_visit_date | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-```
+You can terminate running statistics collection tasks using `KILL ANALYZE`.
 
-#### Terminate the statistics job
-
-To `KILL ANALYZE` terminate a running statistics job.
-
-The syntax is as follows:
+Syntax:
 
 ```SQL
 KILL ANALYZE job_id;
 ```
 
-Explanation:
-
-- Job_ID: Statistics job ID. The value returned when an asynchronous collection of statistics is performed `ANALYZE`, which can also be obtained by a `SHOW ANALYZE` statement.
+- `job_id`: The job ID of the statistics information task. It is returned when executing `ANALYZE`, or you can obtain it using the `SHOW ANALYZE` statement.
 
 Example:
 
-- Stop the statistics job whose ID is the 52357.
+- Terminating statistics collection task with job ID 52357.
 
 ```SQL
 mysql> KILL ANALYZE 52357;
 ```
 
-## View statistics
+#### Viewing Statistics Information
 
-### Table statistics
+#### Table Statistics Information
 
-> Temporarily unavailable.
+You can use `SHOW TABLE STATS` to view an overview of statistics collection for a table.
 
-To `SHOW TABLE STATS` view information such as the total number of rows in the table and the health of the statistics.
-
-The syntax is as follows:
+Syntax:
 
 ```SQL
-SHOW TABLE STATS table_name [ PARTITION (partition_name) ];
+SHOW TABLE STATS table_name;
 ```
 
-Explanation:
+- `table_name`: The name of the table for which you want to view statistics collection information. It can be in the form of `db_name.table_name`.
 
-- Table_name: The table to which the data is imported. It can be a `db_name.table_name` form.
-- Partition_name: The specified target partition. Must be `table_name` a partition that exists in. Only one partition can be specified.
+Output:
 
-Currently `SHOW TABLE STATS`, 6 columns are output, as follows:
+| Column Name      | Description                            |
+| :--------------- | :------------------------------------- |
+| `row_count`      | Number of rows (may not be the exact count at the time of execution) |
+| `method`         | Collection method (FULL/SAMPLE)        |
+| `type`           | Type of statistics data                 |
+| `updated_time`   | Last update time                       |
+| `columns`        | Columns for which statistics were collected |
+| `trigger`        | Trigger method for statistics collection (Auto/User) |
 
-| Column Name       | Description                                         |
-| :---------------- | :-------------------------------------------------- |
-| row_count         | Number of rows                                      |
-| update_rows       | Number of rows updated                              |
-| data_size         | Data size. Unit: bytes                              |
-| healthy           | Health                                              |
-| update_time       | Update time                                         |
-| last_analyze_time | Time when statistics information was last collected |
 
-Example:
+#### Viewing Column Statistics Information
 
-- To view `example_tbl` statistics for a table, use the following syntax:
+You can use `SHOW COLUMN [cached] STATS` to view information about the number of distinct values and NULLs in columns.
+
+Syntax:
 
 ```SQL
-mysql> SHOW TABLE STATS stats_test.example_tbl;
-+-----------+-------------+---------+-----------+---------------------+---------------------+
-| row_count | update_rows | healthy | data_size | update_time         | last_analyze_time   |
-+-----------+-------------+---------+-----------+---------------------+---------------------+
-| 8         | 0           | 100     | 6999      | 2023-04-08 15:40:47 | 2023-04-08 17:43:28 |
-+-----------+-------------+---------+-----------+---------------------+---------------------+
+SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ];
 ```
 
-- To view `example_tbl` statistics for a table `p_201701` partition, use the following syntax:
+- `cached`: Displays statistics information from the current FE memory cache.
+- `table_name`: The name of the table for which you want to view column statistics information. It can be in the form of `db_name.table_name`.
+- `column_name`: The specific column(s) you want to view statistics for. It must be a column that exists in `table_name`, and multiple column names can be separated by commas.
 
-```SQL
-mysql> SHOW TABLE STATS stats_test.example_tbl PARTITION (p_201701);
-+-----------+-------------+---------+-----------+---------------------+---------------------+
-| row_count | update_rows | healthy | data_size | update_time         | last_analyze_time   |
-+-----------+-------------+---------+-----------+---------------------+---------------------+
-| 4         | 0           | 100     | 2805      | 2023-04-08 11:48:02 | 2023-04-08 17:43:27 |
-+-----------+-------------+---------+-----------+---------------------+---------------------+
-```
+#### Modifying Statistics Information
 
-### View Column Statistics
-
-`SHOW COLUMN STATS` To view information such as the number of different values and `NULL` the number of columns.
-
-The syntax is as follows:
-
-```SQL
-SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
-```
-
-Explanation:
-
-- cached: Cached means to show statistics in current FE memory cache.
-- Table_name: The target table for collecting statistics. It can be a `db_name.table_name` form.
-- Column_name: Specified destination column. `table_name` Must be a column that exists in. Multiple column names are separated by commas.
-- Partition_name: The specified target partition `table_name` must exist in. Only one partition can be specified.
-
-Currently `SHOW COLUMN STATS`, 10 columns are output, as follows:
-
-| Column Name     | Explain                               |
-| :-------------- | :------------------------------------ |
-| `column_name`   | Column name                           |
-| `count`         | Total number of rows for the column   |
-| `ndv`           | Number of distinct values             |
-| `num_null`      | The number of null values             |
-| `data_size`     | Total degree of the column in bytes   |
-| `avg_size_byte` | Average degree of the column in bytes |
-| `min`           | Column Minimum                        |
-| `max`           | Column Max Value                      |
-
-Example:
-
-- To view `example_tbl` statistics for all columns of a table, use the following syntax:
-
-```SQL
-mysql> SHOW COLUMN STATS stats_test.example_tbl;
-+-----------------+-------+------+----------+-------------------+-------------------+-----------------------+-----------------------+
-| column_name     | count | ndv  | num_null | data_size         | avg_size_byte     | min                   | max                   |
-+-----------------+-------+------+----------+-------------------+-------------------+-----------------------+-----------------------+
-| date            | 6.0   | 3.0  | 0.0      | 28.0              | 4.0               | '2017-10-01'          | '2017-10-03'          |
-| cost            | 6.0   | 6.0  | 0.0      | 56.0              | 8.0               | 2                     | 200                   |
-| min_dwell_time  | 6.0   | 6.0  | 0.0      | 28.0              | 4.0               | 2                     | 22                    |
-| city            | 6.0   | 4.0  | 0.0      | 54.0              | 7.0               | 'Beijing'             | 'Shenzhen'            |
-| user_id         | 6.0   | 5.0  | 0.0      | 112.0             | 16.0              | 10000                 | 10004                 |
-| sex             | 6.0   | 2.0  | 0.0      | 7.0               | 1.0               | 0                     | 1                     |
-| max_dwell_time  | 6.0   | 6.0  | 0.0      | 28.0              | 4.0               | 3                     | 22                    |
-| last_visit_date | 6.0   | 6.0  | 0.0      | 112.0             | 16.0              | '2017-10-01 06:00:00' | '2017-10-03 10:20:22' |
-| age             | 6.0   | 4.0  | 0.0      | 14.0              | 2.0               | 20                    | 35                    |
-+-----------------+-------+------+----------+-------------------+-------------------+-----------------------+-----------------------+
-```
-
-- To view `example_tbl` statistics for a table `p_201701` partition, use the following syntax:
-
-```SQL
-mysql> SHOW COLUMN STATS stats_test.example_tbl PARTITION (p_201701);
-+-----------------+-------+------+----------+--------------------+-------------------+-----------------------+-----------------------+
-| column_name     | count | ndv  | num_null | data_size          | avg_size_byte     | min                   | max                   |
-+-----------------+-------+------+----------+--------------------+-------------------+-----------------------+-----------------------+
-| date            | 3.0   | 1.0  | 0.0      | 16.0               | 4.0               | '2017-10-01'          | '2017-10-01'          |
-| cost            | 3.0   | 3.0  | 0.0      | 32.0               | 8.0               | 2                     | 100                   |
-| min_dwell_time  | 3.0   | 3.0  | 0.0      | 16.0               | 4.0               | 2                     | 22                    |
-| city            | 3.0   | 2.0  | 0.0      | 29.0               | 7.0               | 'Beijing'             | 'Shenzhen'            |
-| user_id         | 3.0   | 3.0  | 0.0      | 64.0               | 16.0              | 10000                 | 10004                 |
-| sex             | 3.0   | 2.0  | 0.0      | 4.0                | 1.0               | 0                     | 1                     |
-| max_dwell_time  | 3.0   | 3.0  | 0.0      | 16.0               | 4.0               | 3                     | 22                    |
-| last_visit_date | 3.0   | 3.0  | 0.0      | 64.0               | 16.0              | '2017-10-01 06:00:00' | '2017-10-01 17:05:45' |
-| age             | 3.0   | 3.0  | 0.0      | 8.0                | 2.0               | 20                    | 35                    |
-+-----------------+-------+------+----------+--------------------+-------------------+-----------------------+-----------------------+
-```
-
-- To view `example_tbl` statistics for a table `city` `age` `sex` column, use the following syntax:
-
-```SQL
-mysql> SHOW COLUMN STATS stats_test.example_tbl(city, age, sex);
-+-------------+-------+------+----------+-------------------+-------------------+-----------+------------+
-| column_name | count | ndv  | num_null | data_size         | avg_size_byte     | min       | max        |
-+-------------+-------+------+----------+-------------------+-------------------+-----------+------------+
-| city        | 6.0   | 4.0  | 0.0      | 54.0              | 7.0               | 'Beijing' | 'Shenzhen' |
-| sex         | 6.0   | 2.0  | 0.0      | 7.0               | 1.0               | 0         | 1          |
-| age         | 6.0   | 4.0  | 0.0      | 14.0              | 2.0               | 20        | 35         |
-+-------------+-------+------+----------+-------------------+-------------------+-----------+------------+
-```
-
-- To view `example_tbl` statistics for a table `p_201701` partition `city` `age` `sex` column, use the following syntax:
-
-```SQL
-mysql> SHOW COLUMN STATS stats_test.example_tbl(city, age, sex) PARTITION (p_201701);
-+-------------+-------+------+----------+--------------------+-------------------+-----------+------------+
-| column_name | count | ndv  | num_null | data_size          | avg_size_byte     | min       | max        |
-+-------------+-------+------+----------+--------------------+-------------------+-----------+------------+
-| city        | 3.0   | 2.0  | 0.0      | 29.0               | 7.0               | 'Beijing' | 'Shenzhen' |
-| sex         | 3.0   | 2.0  | 0.0      | 4.0                | 1.0               | 0         | 1          |
-| age         | 3.0   | 3.0  | 0.0      | 8.0                | 2.0               | 20        | 35         |
-+-------------+-------+------+----------+--------------------+-------------------+-----------+------------+
-```
-
-## Modify the statistics
-
-Users can modify the statistics information through statements `ALTER`, and modify the corresponding statistics information of the column according to the provided parameters.
+Users can adjust statistics information using the `ALTER` statement.
 
 ```SQL
 ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_value', ...) [ PARTITION (partition_name) ];
 ```
 
-Explanation:
+- `table_name`: The name of the table for which you want to modify statistics information. It can be in the form of `db_name.table_name`.
+- `column_name`: The specific column for which you want to modify statistics information. It must be a column that exists in `table_name`, and you can modify statistics information for one column at a time.
+- `stat_name` and `stat_value`: The corresponding statistics information name and its value. Multiple statistics can be modified, separated by commas. You can modify statistics such as `row_count`, `ndv`, `num_nulls`, `min_value`, `max_value`, and `data_size`.
 
-- Table_name: The table to which the statistics are dropped. It can be a `db_name.table_name` form.
-- Column_name: Specified target column. `table_name` Must be a column that exists in. Statistics can only be modified one column at a time.
-- Stat _ name and stat _ value: The corresponding stat name and the value of the stat info. Multiple stats are comma separated. Statistics that can be modified include `row_count`, `ndv`, `num_nulls` `min_value` `max_value`, and `data_size`.
-- Partition_name: specifies the target partition. Must be a partition existing in `table_name`. Multiple partitions are separated by commas.
+#### Delete Statistics
 
-Example:
+Users can delete statistics using the `DROP` statement, which allows them to specify the table, partition, or column for which they want to delete statistics based on the provided parameters. When deleted, both column statistics and column histogram information are removed.
 
-- To modify `example_tbl` table `age` column `row_count` statistics, use the following syntax:
-
-```SQL
-mysql> ALTER TABLE stats_test.example_tbl MODIFY COLUMN age SET STATS ('row_count'='6001215');
-mysql> SHOW COLUMN STATS stats_test.example_tbl(age);
-+-------------+-----------+------+----------+-----------+---------------+------+------+
-| column_name | count     | ndv  | num_null | data_size | avg_size_byte | min  | max  |
-+-------------+-----------+------+----------+-----------+---------------+------+------+
-| age         | 6001215.0 | 0.0  | 0.0      | 0.0       | 0.0           | N/A  | N/A  |
-+-------------+-----------+------+----------+-----------+---------------+------+------+
-```
-
-- Modify `example_tbl` table `age` columns `row_count`, `num_nulls`, `data_size` statistics, using the following syntax:
-
-```SQL
-mysql> ALTER TABLE stats_test.example_tbl MODIFY COLUMN age SET STATS ('row_count'='6001215', 'num_nulls'='2023', 'data_size'='600121522');
-mysql> SHOW COLUMN STATS stats_test.example_tbl(age);
-+-------------+-----------+------+----------+-----------+---------------+------+------+
-| column_name | count     | ndv  | num_null | data_size | avg_size_byte | min  | max  |
-+-------------+-----------+------+----------+-----------+---------------+------+------+
-| age         | 6001215.0 | 0.0  | 2023.0   | 600121522 | 0.0           | N/A  | N/A  |
-+-------------+-----------+------+----------+-----------+---------------+------+------+
-```
-
-## Delete statistics
-
-The user deletes the statistics for the specified table, partition, or column based on the supplied parameters through the delete statistics statement `DROP`.
-
-Grammar
+Syntax:
 
 ```SQL
 DROP [ EXPIRED ] STATS [ table_name [ (column_name [, ...]) ] ];
 ```
 
-Explanation:
+#### Delete Analyze Job
 
-- Table_name: The table to which you want to delete the statistics. It can be a `db_name.table_name` form.
-- Column_name: The specified target column. Must be `table_name` a column that exists in. Multiple column names are separated by commas.
-- Expired: statistics cleanup. Table cannot be specified. Invalid statistics and out-of-date statistics jobs information in the system will be deleted.
-
-Example:
-
-- Clean up statistics, using the following syntax:
-
-```SQL
-mysql> DROP EXPIRED STATS;
-```
-
-- To delete `example_tbl` statistics for a table, use the following syntax:
-
-```SQL
-mysql> DROP STATS stats_test.example_tbl;
-```
-
-- To delete `example_tbl` statistics for a table `city`, `age` `sex` column, use the following syntax:
-
-```SQL
-mysql> DROP STATS stats_test.example_tbl(city, age, sex);
-```
-
-## Delete Analyze Job
-
-User can delete automatic/periodic Analyze jobs based on job ID.
+Used to delete automatic/periodic Analyze jobs based on the job ID.
 
 ```sql
 DROP ANALYZE JOB [JOB_ID]
 ```
 
-## Full auto analyze
+### View Automatic Collection Task Execution Status
 
-User could use option `enable_full_auto_analyze` to determine if enable full auto analyze, if enabled Doris would analyze all databases automatically except for some internal databases (information_db and etc.) and ignore the `AUTO`/`PERIOD` jobs. By default it's `true`.
+This command is used to check the completion status of automatic collection tasks after enabling automatic collection functionality.
 
-## Other ANALYZE configuration item
+```sql
+SHOW AUTO ANALYZE [table_name]
+    [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
+```
 
+Automatic collection tasks do not support viewing the completion status and failure reasons for each column individually. By default, it only retains the status of the last 20,000 completed automatic collection tasks.
 
-| conf                                                                                                                                                                                                                                                                                                           | comment                                                                                                                                                                                                                                                                                             | default value                  |
-|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------|
-| statistics_sql_parallel_exec_instance_num                                                                                                                                                                                                                                                                      | Control the number of concurrent instances/pipeline tasks on the BE side for each statistics collection SQL.                                                                                                                                                                                        | 1                              |
-| statistics_sql_mem_limit_in_bytes                                                                                                                                                                                                                                                                              | Control the amount of BE memory that each statistics SQL can occupy.                                                                                                                                                                                                                                | 2L * 1024 * 1024 * 1024 (2GiB) |
-| statistics_simultaneously_running_task_num                                                                                                                                                                                                                                                                     | The number of concurrent AnalyzeTasks that can be executed.                                                                                                                                                                                                                                         | 10                             |
-| analyze_task_timeout_in_minutes                         | Execution time limit for AnalyzeTask, timeout task would be cancelled                                                                                                                                                                                                                               | 2hours                         |
-|stats_cache_size|The actual memory size taken by stats cache highly depends on characteristics of data, since on the different dataset and scenarios the max/min literal's average size would be highly different. Besides, JVM version etc. also has influence on it, though not much as data itself. Here I would give the mem size taken by stats cache with 100000 items.Each item's avg length of max/min literal is 32, and the avg column name length is 16, stats cache takes total 61.2777404785MiB mem. It's strongly discourage analyzing a column with a very large STRING value in the column, since it would cause FE OOM. | 100000                        |
+## Configuration Options
 
-## Q&A
+| fe conf option                                                    | comment                                                                                                                                                                                                                                                                                             | default value                  |
+|---------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------|
+| statistics_sql_parallel_exec_instance_num               | Controls the number of concurrent instances/pipeline tasks for each statistics collection SQL on the BE side.                                                                                                                                                                                                                                                           | 1                              |
+| statistics_sql_mem_limit_in_bytes                       | Controls the amount of BE memory that each statistics collection SQL can use.                                                                                                                                                                                                                                                                                 | 2L * 1024 * 1024 * 1024 (2GiB) |
+| statistics_simultaneously_running_task_num              | After submitting asynchronous jobs using `ANALYZE TABLE[DATABASE]`, this parameter limits the number of columns that can be analyzed simultaneously. All asynchronous tasks are collectively constrained by this parameter.                                                                                                                                                                                                                                  | 5                              |
+| analyze_task_timeout_in_minutes                         | Timeout for AnalyzeTask execution.                                                                                                                                                                                                                                                                                   | 12 hours                       |
+| stats_cache_size| The actual memory usage of statistics cache depends heavily on the characteristics of the data because the average size of maximum/minimum values and the number of buckets in histograms can vary greatly in different datasets and scenarios. Additionally, factors like JVM versions can also affect it. Below is the memory size occupied by statistics cache with 100,000 items. The average length of maximum/minimum values per item is 32, the average length of column names is 16, and the statistics cache occupies a total of 61.2777404785MiB of memory. It is strongly discouraged to analyze columns with very large string values as this may lead to FE memory overflow. | 100000                        |
+|full_auto_analyze_start_time|Start time for automatic statistics collection|00:00:00|
+|full_auto_analyze_end_time|End time for automatic statistics collection|02:00:00|
+|enable_auto_sample|Enable automatic sampling for large tables. When enabled, statistics will be automatically collected through sampling for tables larger than the `huge_table_lower_bound_size_in_bytes` threshold.| false|
+|auto_analyze_job_record_count|Controls the persistence of records for automatically triggered statistics collection jobs.|20000|
+|huge_table_default_sample_rows|Defines the number of sample rows for large tables when automatic sampling is enabled.|4194304|
+|huge_table_lower_bound_size_in_bytes|Defines the lower size threshold for large tables. When `enable_auto_sample` is enabled, statistics will be automatically collected through sampling for tables larger than this value.|5368 709120|
+|huge_table_auto_analyze_interval_in_millis|Controls the minimum time interval for automatic ANALYZE on large tables. Within this interval, tables larger than `huge_table_lower_bound_size_in_bytes` will only be analyzed once.|43200000|
+|table_stats_health_threshold|Takes a value between 0-100. When the data update volume reaches (100 - table_stats_health_threshold)% since the last statistics collection operation, the statistics for the table are considered outdated.|80|
 
-### ANALYZE WITH SYNC Execution Failure: Failed to analyze following columns...
+|Session Variable|Description|Default Value|
+|---|---|---|
+|full_auto_analyze_start_time|Start time for automatic statistics collection|00:00:00|
+|full_auto_analyze_end_time|End time for automatic statistics collection|02:00:00|
+|enable_full_auto_analyze|Enable automatic collection functionality|true|
 
-The execution time of SQL is controlled by the query_timeout session variable, which has a default value of 300 seconds. Statements like ANALYZE DATABASE/TABLE usually take a longer time to execute and can easily exceed this time limit, leading to cancellation. It is recommended to increase the value of query_timeout based on the amount of data in the ANALYZE object.
+Please note that when both FE configuration and global session variables are configured for the same parameter, the value of the global session variable takes precedence.
+
+## Usage Recommendations
+
+Based on our testing, on tables with data size (i.e., actual storage space) below 128GiB, there is usually no need to modify the default configuration settings unless it is necessary to avoid resource contention during peak business hours by adjusting the execution time of the automatic collection feature.
+
+Depending on the cluster configuration, automatic collection tasks typically consume around 20% of CPU resources. Therefore, users should adjust the execution time of the automatic collection feature to avoid resource contention during peak business hours, depending on their specific business needs.
+
+Since ANALYZE is a resource-intensive operation, it is best to avoid executing such operations during peak business hours to prevent disruption to the business. Additionally, in cases of high cluster load, ANALYZE operations are more likely to fail. Furthermore, it is advisable to avoid performing full ANALYZE on the entire database or table. Typically, it is sufficient to perform ANALYZE on columns that are frequently used as predicate conditions, in JOIN conditions, as aggregation fields, or as ID fields. If a user's SQL queries involve a large number of such operations and the table has no statistics or very outdated statistics, we recommend:
+
+* Performing ANALYZE on the columns involved in complex queries before submitting the complex query, as poorly planned complex queries can consume a significant amount of system resources and may lead to resource exhaustion or timeouts.
+* If you have configured periodic data import routines for Doris, it is recommended to execute ANALYZE after the data import is complete to ensure that subsequent query planning can use the most up-to-date statistics. You can automate this setting using Doris's existing job scheduling framework.
+* When significant changes occur in the table's data, such as creating a new table and completing data import, it is recommended to run ANALYZE on the corresponding table.
+
+## Common Issues
+
+### ANALYZE WITH SYNC Execution Failed: Failed to analyze following columns...
+
+The SQL execution time is controlled by the `query_timeout` session variable, which has a default value of 300 seconds. Statements like `ANALYZE DATABASE/TABLE` often take longer, easily exceeding this time limit and being canceled. It is recommended to increase the value of `query_timeout` based on the data volume of the ANALYZE object.
 
 ### ANALYZE Submission Error: Stats table not available...
 
-When executing ANALYZE, statistical data is written to the internal table __internal_schema.column_statistics. FE checks the tablet status of this table before executing ANALYZE, and if any unavailable tablet is found, the task is rejected. If this error occurs, please check the status of the BE cluster.
+When ANALYZE is executed, statistics data is written to the internal table `__internal_schema.column_statistics`. FE checks the tablet status of this table before executing ANALYZE. If there are unavailable tablets, the task is rejected. Please check the BE cluster status if this error occurs.
 
-### ANALYZE Failure for Large Tables
+### Failure of ANALYZE on Large Tables
 
-Due to the strict resource limitations for ANALYZE, the ANALYZE operation for large tables might experience timeouts or exceed the memory limit of BE. In such cases, it's recommended to use ANALYZE ... WITH SAMPLE.... Additionally, for scenarios involving dynamic partitioned tables, it's highly recommended to use ANALYZE ... WITH INCREMENTAL.... This statement processes only the partitions with updated data incrementally, avoiding redundant computations and improving efficiency.
+Due to resource limitations, ANALYZE on some large tables may timeout or exceed BE memory limits. In such cases, it is recommended to use `ANALYZE ... WITH SAMPLE...`. 
+

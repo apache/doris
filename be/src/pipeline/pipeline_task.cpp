@@ -122,6 +122,9 @@ void PipelineTask::_init_profile() {
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
+    _wait_bf_counts = ADD_COUNTER(_task_profile, "WaitBfTimes", TUnit::UNIT);
+    _wait_dependency_counts = ADD_COUNTER(_task_profile, "WaitDenpendencyTimes", TUnit::UNIT);
+    _pending_finish_counts = ADD_COUNTER(_task_profile, "PendingFinishTimes", TUnit::UNIT);
 
     _begin_execute_timer = ADD_TIMER(_task_profile, "Task1BeginExecuteTime");
     _eos_timer = ADD_TIMER(_task_profile, "Task2EosTime");
@@ -208,14 +211,29 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
     _task_queue = task_queue;
 }
 
+void PipelineTask::yield() {
+    int64_t time_spent = 0;
+    Defer defer {[&]() {
+        time_spent = time_spent * _core_num / _total_query_thread_num;
+        _task_queue->update_statistics(this, time_spent);
+    }};
+    SCOPED_RAW_TIMER(&time_spent);
+    usleep(THREAD_TIME_SLICE_US);
+}
+
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
+
+    // todo(wb) use a more lightweight timer
+    RuntimeProfile::Counter tmp_timer(TUnit::TIME_NS);
+
     Defer defer {[&]() {
         if (_task_queue) {
+            time_spent = tmp_timer.value();
             _task_queue->update_statistics(this, time_spent);
         }
     }};
@@ -223,7 +241,7 @@ Status PipelineTask::execute(bool* eos) {
     *eos = false;
     if (!_opened) {
         {
-            SCOPED_RAW_TIMER(&time_spent);
+            SCOPED_CPU_TIMER(&tmp_timer);
             auto st = _open();
             if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_RF);
@@ -258,12 +276,12 @@ Status PipelineTask::execute(bool* eos) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
         }
-        if (time_spent > THREAD_TIME_SLICE) {
+        if (tmp_timer.value() > THREAD_TIME_SLICE) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
         // TODO llj: Pipeline entity should_yield
-        SCOPED_RAW_TIMER(&time_spent);
+        SCOPED_CPU_TIMER(&tmp_timer);
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
 
@@ -278,9 +296,6 @@ Status PipelineTask::execute(bool* eos) {
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             auto status = _sink->sink(_state, block, _data_state);
-            if (status.is<ErrorCode::NEED_SEND_AGAIN>()) {
-                status = _sink->sink(_state, block, _data_state);
-            }
             if (UNLIKELY(!status.ok() || block->rows() == 0)) {
                 if (_fragment_context->is_group_commit()) {
                     auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block);
@@ -316,7 +331,7 @@ Status PipelineTask::finalize() {
     return _sink->finalize(_state);
 }
 
-Status PipelineTask::try_close() {
+Status PipelineTask::try_close(Status exec_status) {
     if (_try_close_flag) {
         return Status::OK();
     }
@@ -326,7 +341,7 @@ Status PipelineTask::try_close() {
     return status1.ok() ? status2 : status1;
 }
 
-Status PipelineTask::close() {
+Status PipelineTask::close(Status exec_status) {
     int64_t close_ns = 0;
     Defer defer {[&]() {
         if (_task_queue) {
@@ -385,6 +400,11 @@ void PipelineTask::set_state(PipelineTaskState state) {
             COUNTER_UPDATE(_block_by_sink_counts, 1);
         } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
             _wait_bf_watcher.start();
+            COUNTER_UPDATE(_wait_bf_counts, 1);
+        } else if (state == PipelineTaskState::BLOCKED_FOR_DEPENDENCY) {
+            COUNTER_UPDATE(_wait_dependency_counts, 1);
+        } else if (state == PipelineTaskState::PENDING_FINISH) {
+            COUNTER_UPDATE(_pending_finish_counts, 1);
         }
     }
 
@@ -432,6 +452,9 @@ std::string PipelineTask::debug_string() {
 }
 
 taskgroup::TaskGroupPipelineTaskEntity* PipelineTask::get_task_group_entity() const {
+    if (_is_empty_task) {
+        return _empty_group_entity;
+    }
     return _fragment_context->get_task_group_entity();
 }
 

@@ -23,6 +23,7 @@
 #include <stddef.h>
 
 #include <ostream>
+#include <vector>
 
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/scan_operator.h"
@@ -54,30 +55,35 @@ PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState
     _sink->get_dependency(_downstream_dependency);
 }
 
-Status PipelineXTask::prepare(RuntimeState* state) {
+Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams& local_params,
+                              const TDataSink& tsink) {
     DCHECK(_sink);
-    DCHECK(_cur_state == PipelineTaskState::NOT_READY);
+    DCHECK(_cur_state == PipelineTaskState::NOT_READY) << get_state_name(_cur_state);
     _init_profile();
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_prepare_timer);
 
-    _task_profile->add_info_string("Sink",
-                                   fmt::format("{}(dst_id={})", _sink->get_name(), _sink->id()));
-    fmt::memory_buffer operator_ids_str;
-    for (size_t i = 0; i < _operators.size(); i++) {
-        if (i == 0) {
-            fmt::format_to(
-                    operator_ids_str,
-                    fmt::format("[{}(node_id={})", _operators[i]->get_name(), _operators[i]->id()));
-        } else {
-            fmt::format_to(operator_ids_str,
-                           fmt::format(", {}(node_id={})", _operators[i]->get_name(),
-                                       _operators[i]->id()));
-        }
+    {
+        // set sink local state
+        LocalSinkStateInfo info {_parent_profile, local_params.sender_id,
+                                 get_downstream_dependency(), tsink};
+        RETURN_IF_ERROR(_sink->setup_local_state(state, info));
     }
-    fmt::format_to(operator_ids_str, "]");
-    _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
+
+    std::vector<TScanRangeParams> no_scan_ranges;
+    auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
+                                         _operators.front()->id(), no_scan_ranges);
+
+    for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
+        auto& deps = get_upstream_dependency(_operators[op_idx]->id());
+        LocalStateInfo info {
+                op_idx == _operators.size() - 1
+                        ? _parent_profile
+                        : state->get_local_state(_operators[op_idx + 1]->id())->profile(),
+                scan_ranges, deps};
+        RETURN_IF_ERROR(_operators[op_idx]->setup_local_state(state, info));
+    }
 
     _block = doris::vectorized::Block::create_unique();
 
@@ -85,6 +91,46 @@ Status PipelineXTask::prepare(RuntimeState* state) {
     set_state(PipelineTaskState::RUNNABLE);
     _prepared = true;
     return Status::OK();
+}
+
+void PipelineXTask::_init_profile() {
+    std::stringstream ss;
+    ss << "PipelineTask"
+       << " (index=" << _index << ")";
+    auto* task_profile = new RuntimeProfile(ss.str());
+    _parent_profile->add_child(task_profile, true, nullptr);
+    _task_profile.reset(task_profile);
+    _task_cpu_timer = ADD_TIMER(_task_profile, "TaskCpuTime");
+
+    static const char* exec_time = "ExecuteTime";
+    _exec_timer = ADD_TIMER(_task_profile, exec_time);
+    _prepare_timer = ADD_CHILD_TIMER(_task_profile, "PrepareTime", exec_time);
+    _open_timer = ADD_CHILD_TIMER(_task_profile, "OpenTime", exec_time);
+    _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
+    _get_block_counter = ADD_COUNTER(_task_profile, "GetBlockCounter", TUnit::UNIT);
+    _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
+    _finalize_timer = ADD_CHILD_TIMER(_task_profile, "FinalizeTime", exec_time);
+    _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
+
+    _wait_bf_timer = ADD_TIMER(_task_profile, "WaitBfTime");
+    _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
+
+    _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
+    _block_by_source_counts = ADD_COUNTER(_task_profile, "NumBlockedBySrcTimes", TUnit::UNIT);
+    _block_by_sink_counts = ADD_COUNTER(_task_profile, "NumBlockedBySinkTimes", TUnit::UNIT);
+    _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
+    _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
+    _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
+
+    _wait_bf_counts = ADD_COUNTER(_task_profile, "WaitBfTimes", TUnit::UNIT);
+    _wait_dependency_counts = ADD_COUNTER(_task_profile, "WaitDenpendencyTimes", TUnit::UNIT);
+    _pending_finish_counts = ADD_COUNTER(_task_profile, "PendingFinishTimes", TUnit::UNIT);
+}
+
+void PipelineXTask::_fresh_profile_counter() {
+    COUNTER_SET(_wait_bf_timer, (int64_t)_wait_bf_watcher.elapsed_time());
+    COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
+    COUNTER_SET(_wait_worker_timer, (int64_t)_wait_worker_watcher.elapsed_time());
 }
 
 Status PipelineXTask::_open() {
@@ -197,17 +243,17 @@ Status PipelineXTask::finalize() {
     return _sink->finalize(_state);
 }
 
-Status PipelineXTask::try_close() {
+Status PipelineXTask::try_close(Status exec_status) {
     if (_try_close_flag) {
         return Status::OK();
     }
     _try_close_flag = true;
-    Status status1 = _sink->try_close(_state);
+    Status status1 = _sink->try_close(_state, exec_status);
     Status status2 = _source->try_close(_state);
     return status1.ok() ? status2 : status1;
 }
 
-Status PipelineXTask::close() {
+Status PipelineXTask::close(Status exec_status) {
     int64_t close_ns = 0;
     Defer defer {[&]() {
         if (_task_queue) {
@@ -217,7 +263,7 @@ Status PipelineXTask::close() {
     Status s;
     {
         SCOPED_RAW_TIMER(&close_ns);
-        s = _sink->close(_state);
+        s = _sink->close(_state, exec_status);
         for (auto& op : _operators) {
             auto tem = op->close(_state);
             if (!tem.ok() && s.ok()) {
@@ -255,19 +301,10 @@ std::string PipelineXTask::debug_string() {
         fmt::format_to(
                 debug_string_buffer, "\n{}",
                 _opened ? _operators[i]->debug_string(_state, i) : _operators[i]->debug_string(i));
-        std::stringstream profile_ss;
-        _operators[i]->get_runtime_profile()->pretty_print(&profile_ss, std::string(i * 2, ' '));
-        fmt::format_to(debug_string_buffer, "\n{}", profile_ss.str());
     }
     fmt::format_to(debug_string_buffer, "\n{}",
                    _opened ? _sink->debug_string(_state, _operators.size())
                            : _sink->debug_string(_operators.size()));
-    {
-        std::stringstream profile_ss;
-        _sink->get_runtime_profile()->pretty_print(&profile_ss,
-                                                   std::string(_operators.size() * 2, ' '));
-        fmt::format_to(debug_string_buffer, "\n{}", profile_ss.str());
-    }
     return fmt::to_string(debug_string_buffer);
 }
 

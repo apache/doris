@@ -178,6 +178,8 @@ public class ScalarType extends Type {
                 return createStringType();
             case JSONB:
                 return createJsonbType();
+            case VARIANT:
+                return createVariantType();
             case STRING:
                 return createStringType();
             case HLL:
@@ -247,6 +249,8 @@ public class ScalarType extends Type {
                 return createVarcharType();
             case "JSON":
                 return createJsonbType();
+            case "VARIANT":
+                return createVariantType();
             case "STRING":
             case "TEXT":
                 return createStringType();
@@ -509,6 +513,13 @@ public class ScalarType extends Type {
         return type;
     }
 
+    public static ScalarType createVariantType() {
+        // length checked in analysis
+        ScalarType type = new ScalarType(PrimitiveType.VARIANT);
+        type.len = MAX_STRING_LENGTH;
+        return type;
+    }
+
     public static ScalarType createVarchar(int len) {
         // length checked in analysis
         ScalarType type = new ScalarType(PrimitiveType.VARCHAR);
@@ -558,6 +569,8 @@ public class ScalarType extends Type {
             return "TEXT";
         } else if (type == PrimitiveType.JSONB) {
             return "JSON";
+        } else if (type == PrimitiveType.VARIANT) {
+            return "VARIANT";
         }
         return type.toString();
     }
@@ -679,7 +692,8 @@ public class ScalarType extends Type {
             case CHAR:
             case HLL:
             case STRING:
-            case JSONB: {
+            case JSONB:
+            case VARIANT: {
                 scalarType.setLen(getLength());
                 break;
             }
@@ -1052,24 +1066,9 @@ public class ScalarType extends Type {
             return createVarcharType(Math.max(t1.len, t2.len));
         }
 
-        if (t1.isDecimalV2() && t2.isDate()
-                || t1.isDate() && t2.isDecimalV2()) {
-            return INVALID;
-        }
-
-        if ((t1.isDecimalV2() && t2.isDateV2())
-                || (t1.isDateV2() && t2.isDecimalV2())) {
-            return INVALID;
-        }
-
-        if ((t1.isDecimalV3() && t2.isDate())
-                || (t1.isDate() && t2.isDecimalV3())) {
-            return INVALID;
-        }
-
-        if ((t1.isDecimalV3() && t2.isDateV2())
-                || (t1.isDateV2() && t2.isDecimalV3())) {
-            return INVALID;
+        if (((t1.isDecimalV3() || t1.isDecimalV2()) && (t2.isDateV2() || t2.isDate()))
+                || ((t2.isDecimalV3() || t2.isDecimalV2()) && (t1.isDateV2() || t1.isDate()))) {
+            return Type.DOUBLE;
         }
 
         if (t1.isDecimalV2() && t2.isDecimalV2()) {

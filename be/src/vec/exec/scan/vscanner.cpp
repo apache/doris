@@ -62,12 +62,6 @@ Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts
 }
 
 Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
-    // debug case failure, to be removed
-    if (state->enable_profile()) {
-        LOG(WARNING) << "debug case failure " << print_id(state->query_id()) << " "
-                     << (_parent ? _parent->get_name() : _local_state->get_name())
-                     << ": VScanner::get_block";
-    }
     // only empty block should be here
     DCHECK(block->rows() == 0);
     // scanner running time

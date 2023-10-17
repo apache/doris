@@ -22,6 +22,7 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <limits>
 
 #include "common/status.h"
 #include "rapidjson/stringbuffer.h"
@@ -36,6 +37,8 @@ namespace doris::vectorized {
 
 std::string ParsedData::true_value = "true";
 std::string ParsedData::false_value = "false";
+auto max_value = std::numeric_limits<int64_t>::max(); //9223372036854775807
+auto min_value = std::numeric_limits<int64_t>::min(); //-9223372036854775808
 
 int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& document) {
     int size = document.GetArray().Size();
@@ -47,6 +50,24 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
         for (auto& v : document.GetArray()) {
             if (v.IsInt64()) {
                 _backup_int[i] = v.GetInt64();
+                _data[i] = &_backup_int[i];
+            } else if (v.IsUint64()) {
+                auto value = v.GetUint64();
+                if (value > max_value) {
+                    _backup_int[i] = max_value;
+                } else {
+                    _backup_int[i] = value;
+                }
+                _data[i] = &_backup_int[i];
+            } else if (v.IsDouble()) {
+                auto value = v.GetDouble();
+                if (value > max_value) {
+                    _backup_int[i] = max_value;
+                } else if (value < min_value) {
+                    _backup_int[i] = min_value;
+                } else {
+                    _backup_int[i] = value;
+                }
                 _data[i] = &_backup_int[i];
             } else {
                 _data[i] = nullptr;
@@ -194,7 +215,7 @@ Status VExplodeJsonArrayTableFunction::process_close() {
 }
 
 void VExplodeJsonArrayTableFunction::get_value(MutableColumnPtr& column) {
-    if (current_empty()) {
+    if (current_empty() || _parsed_data.get_value(_type, _cur_offset, true) == nullptr) {
         column->insert_default();
     } else {
         column->insert_data((char*)_parsed_data.get_value(_type, _cur_offset, true),

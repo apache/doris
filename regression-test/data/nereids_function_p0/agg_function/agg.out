@@ -265,7 +265,7 @@
 
 -- !sql_avg_Double_gb --
 \N
-0.4
+0.39999999999999997
 1.0
 
 -- !sql_avg_Double --
@@ -291,7 +291,7 @@
 
 -- !sql_avg_Double_agg_phase_3 --
 0	\N
-7	0.39999999999999997
+7	0.4
 5	1.0
 
 -- !sql_avg_Double_agg_phase_4 --
@@ -401,7 +401,7 @@
 10.2
 
 -- !sql_avg_weighted_TinyInt_Double --
-8.333333333333334
+8.333333333333332
 
 -- !sql_avg_weighted_TinyInt_Double_agg_phase_1 --
 0	\N
@@ -419,7 +419,7 @@
 1	12.0
 
 -- !sql_avg_weighted_TinyInt_Double_agg_phase_2 --
-12	8.333333333333332
+12	8.333333333333334
 
 -- !sql_avg_weighted_TinyInt_Double_agg_phase_3 --
 0	\N
@@ -431,10 +431,10 @@
 
 -- !sql_avg_weighted_TinyInt_Double_gb_notnull --
 5.0
-10.2
+10.200000000000001
 
 -- !sql_avg_weighted_TinyInt_Double_notnull --
-8.333333333333332
+8.333333333333334
 
 -- !sql_avg_weighted_TinyInt_Double_agg_phase_1_notnull --
 1	1.0
@@ -459,15 +459,15 @@
 5	10.2
 
 -- !sql_avg_weighted_TinyInt_Double_agg_phase_4_notnull --
-12	8.333333333333334
+12	8.333333333333332
 
 -- !sql_avg_weighted_SmallInt_Double_gb --
 \N
-5.0
+4.999999999999999
 10.2
 
 -- !sql_avg_weighted_SmallInt_Double --
-8.333333333333332
+8.333333333333334
 
 -- !sql_avg_weighted_SmallInt_Double_agg_phase_1 --
 0	\N
@@ -490,17 +490,17 @@
 -- !sql_avg_weighted_SmallInt_Double_agg_phase_3 --
 0	\N
 7	5.0
-5	10.199999999999998
+5	10.2
 
 -- !sql_avg_weighted_SmallInt_Double_agg_phase_4 --
-12	8.333333333333332
+12	8.333333333333334
 
 -- !sql_avg_weighted_SmallInt_Double_gb_notnull --
 5.0
 10.2
 
 -- !sql_avg_weighted_SmallInt_Double_notnull --
-8.333333333333332
+8.333333333333334
 
 -- !sql_avg_weighted_SmallInt_Double_agg_phase_1_notnull --
 1	1.0
@@ -517,19 +517,19 @@
 1	12.0
 
 -- !sql_avg_weighted_SmallInt_Double_agg_phase_2_notnull --
-12	8.333333333333334
+12	8.333333333333332
 
 -- !sql_avg_weighted_SmallInt_Double_agg_phase_3_notnull --
 0	\N
-7	4.999999999999999
+7	5.0
 5	10.2
 
 -- !sql_avg_weighted_SmallInt_Double_agg_phase_4_notnull --
-12	8.333333333333334
+12	8.333333333333332
 
 -- !sql_avg_weighted_Integer_Double_gb --
 \N
-5.0
+4.999999999999999
 10.2
 
 -- !sql_avg_weighted_Integer_Double --
@@ -591,7 +591,7 @@
 5	10.199999999999998
 
 -- !sql_avg_weighted_Integer_Double_agg_phase_4_notnull --
-12	8.333333333333334
+12	8.333333333333332
 
 -- !sql_avg_weighted_BigInt_Double_gb --
 \N
@@ -617,7 +617,7 @@
 1	12.0
 
 -- !sql_avg_weighted_BigInt_Double_agg_phase_2 --
-12	8.333333333333334
+12	8.333333333333332
 
 -- !sql_avg_weighted_BigInt_Double_agg_phase_3 --
 0	\N
@@ -628,7 +628,7 @@
 12	8.333333333333334
 
 -- !sql_avg_weighted_BigInt_Double_gb_notnull --
-5.0
+5.000000000000001
 10.2
 
 -- !sql_avg_weighted_BigInt_Double_notnull --
@@ -653,7 +653,7 @@
 
 -- !sql_avg_weighted_BigInt_Double_agg_phase_3_notnull --
 0	\N
-7	5.0
+7	4.999999999999999
 5	10.2
 
 -- !sql_avg_weighted_BigInt_Double_agg_phase_4_notnull --
@@ -661,11 +661,11 @@
 
 -- !sql_avg_weighted_Float_Double_gb --
 \N
-0.5000000045235667
+0.5000000045235669
 1.0200000143051147
 
 -- !sql_avg_weighted_Float_Double --
-0.8333333441271232
+0.833333344127123
 
 -- !sql_avg_weighted_Float_Double_agg_phase_1 --
 0	\N
@@ -683,7 +683,7 @@
 1	1.2000000476837158
 
 -- !sql_avg_weighted_Float_Double_agg_phase_2 --
-12	0.833333344127123
+12	0.8333333441271231
 
 -- !sql_avg_weighted_Float_Double_agg_phase_3 --
 0	\N
@@ -691,14 +691,14 @@
 5	1.0200000143051147
 
 -- !sql_avg_weighted_Float_Double_agg_phase_4 --
-12	0.8333333441271231
+12	0.8333333441271233
 
 -- !sql_avg_weighted_Float_Double_gb_notnull --
-0.5000000045235667
-1.0200000143051149
+0.5000000045235666
+1.0200000143051147
 
 -- !sql_avg_weighted_Float_Double_notnull --
-0.8333333441271231
+0.8333333441271233
 
 -- !sql_avg_weighted_Float_Double_agg_phase_1_notnull --
 1	0.10000000149011612
@@ -723,7 +723,7 @@
 5	1.0200000143051147
 
 -- !sql_avg_weighted_Float_Double_agg_phase_4_notnull --
-12	0.8333333441271231
+12	0.833333344127123
 
 -- !sql_avg_weighted_Double_Double_gb --
 \N
@@ -731,7 +731,7 @@
 1.02
 
 -- !sql_avg_weighted_Double_Double --
-0.8333333333333335
+0.8333333333333333
 
 -- !sql_avg_weighted_Double_Double_agg_phase_1 --
 0	\N
@@ -749,22 +749,22 @@
 1	1.2
 
 -- !sql_avg_weighted_Double_Double_agg_phase_2 --
-12	0.8333333333333333
+12	0.8333333333333334
 
 -- !sql_avg_weighted_Double_Double_agg_phase_3 --
 0	\N
-7	0.49999999999999994
-5	1.02
+7	0.5000000000000001
+5	1.0199999999999998
 
 -- !sql_avg_weighted_Double_Double_agg_phase_4 --
-12	0.8333333333333334
+12	0.8333333333333333
 
 -- !sql_avg_weighted_Double_Double_gb_notnull --
 0.5
-1.02
+1.0199999999999998
 
 -- !sql_avg_weighted_Double_Double_notnull --
-0.8333333333333333
+0.8333333333333335
 
 -- !sql_avg_weighted_Double_Double_agg_phase_1_notnull --
 1	0.10000000000000002
@@ -781,7 +781,7 @@
 1	1.2
 
 -- !sql_avg_weighted_Double_Double_agg_phase_2_notnull --
-12	0.8333333333333334
+12	0.8333333333333333
 
 -- !sql_avg_weighted_Double_Double_agg_phase_3_notnull --
 0	\N
@@ -789,15 +789,15 @@
 5	1.02
 
 -- !sql_avg_weighted_Double_Double_agg_phase_4_notnull --
-12	0.8333333333333333
+12	0.8333333333333335
 
 -- !sql_avg_weighted_DecimalV2_Double_gb --
 \N
-0.49999999999999994
+0.5000000000000001
 1.02
 
 -- !sql_avg_weighted_DecimalV2_Double --
-0.8333333333333333
+0.8333333333333334
 
 -- !sql_avg_weighted_DecimalV2_Double_agg_phase_1 --
 0	\N
@@ -815,22 +815,22 @@
 1	1.2
 
 -- !sql_avg_weighted_DecimalV2_Double_agg_phase_2 --
-12	0.8333333333333334
+12	0.8333333333333335
 
 -- !sql_avg_weighted_DecimalV2_Double_agg_phase_3 --
 0	\N
-7	0.49999999999999983
+7	0.5000000000000001
 5	1.02
 
 -- !sql_avg_weighted_DecimalV2_Double_agg_phase_4 --
-12	0.8333333333333333
+12	0.8333333333333334
 
 -- !sql_avg_weighted_DecimalV2_Double_gb_notnull --
 0.5
 1.02
 
 -- !sql_avg_weighted_DecimalV2_Double_notnull --
-0.8333333333333335
+0.8333333333333333
 
 -- !sql_avg_weighted_DecimalV2_Double_agg_phase_1_notnull --
 1	0.10000000000000002
@@ -847,11 +847,11 @@
 1	1.2
 
 -- !sql_avg_weighted_DecimalV2_Double_agg_phase_2_notnull --
-12	0.8333333333333333
+12	0.8333333333333334
 
 -- !sql_avg_weighted_DecimalV2_Double_agg_phase_3_notnull --
 0	\N
-7	0.5
+7	0.5000000000000001
 5	1.02
 
 -- !sql_avg_weighted_DecimalV2_Double_agg_phase_4_notnull --
@@ -1318,6 +1318,11 @@
 
 -- !sql_count_agg_phase_4_notnull --
 12	13
+
+-- !sql_count_array_gb --
+0
+7
+5
 
 -- !sql_count_AnyData_gb --
 0
@@ -3276,7 +3281,7 @@ true
 
 -- !sql_stddev_TinyInt_gb --
 \N
-2.0
+1.9999999999999998
 1.4142135623730951
 
 -- !sql_stddev_TinyInt --
@@ -3302,14 +3307,14 @@ true
 
 -- !sql_stddev_TinyInt_agg_phase_3 --
 0	\N
-7	1.9999999999999998
+7	2.0
 5	1.4142135623730951
 
 -- !sql_stddev_TinyInt_agg_phase_4 --
 12	3.452052529534663
 
 -- !sql_stddev_TinyInt_gb_notnull --
-2.0
+1.9999999999999998
 1.4142135623730951
 
 -- !sql_stddev_TinyInt_notnull --
@@ -3334,7 +3339,7 @@ true
 
 -- !sql_stddev_TinyInt_agg_phase_3_notnull --
 0	\N
-7	2.0
+7	1.9999999999999998
 5	1.4142135623730951
 
 -- !sql_stddev_TinyInt_agg_phase_4_notnull --
@@ -3342,7 +3347,7 @@ true
 
 -- !sql_stddev_SmallInt_gb --
 \N
-2.0
+1.9999999999999998
 1.4142135623730951
 
 -- !sql_stddev_SmallInt --
@@ -3379,7 +3384,7 @@ true
 1.4142135623730951
 
 -- !sql_stddev_SmallInt_notnull --
-3.452052529534664
+3.452052529534663
 
 -- !sql_stddev_SmallInt_agg_phase_1_notnull --
 1	0.0
@@ -3400,7 +3405,7 @@ true
 
 -- !sql_stddev_SmallInt_agg_phase_3_notnull --
 0	\N
-7	1.9999999999999998
+7	2.0
 5	1.4142135623730951
 
 -- !sql_stddev_SmallInt_agg_phase_4_notnull --
@@ -3408,8 +3413,8 @@ true
 
 -- !sql_stddev_Integer_gb --
 \N
-2.0
-1.4142135623730951
+1.9999999999999998
+1.414213562373095
 
 -- !sql_stddev_Integer --
 3.452052529534664
@@ -3434,7 +3439,7 @@ true
 
 -- !sql_stddev_Integer_agg_phase_3 --
 0	\N
-7	2.0
+7	1.9999999999999998
 5	1.4142135623730951
 
 -- !sql_stddev_Integer_agg_phase_4 --
@@ -3445,7 +3450,7 @@ true
 1.4142135623730951
 
 -- !sql_stddev_Integer_notnull --
-3.452052529534664
+3.452052529534663
 
 -- !sql_stddev_Integer_agg_phase_1_notnull --
 1	0.0
@@ -3474,11 +3479,11 @@ true
 
 -- !sql_stddev_BigInt_gb --
 \N
-1.9999999999999998
+2.0
 1.4142135623730951
 
 -- !sql_stddev_BigInt --
-3.452052529534663
+3.452052529534664
 
 -- !sql_stddev_BigInt_agg_phase_1 --
 0	\N
@@ -3577,7 +3582,7 @@ true
 0.1414213730960499
 
 -- !sql_stddev_Float_notnull --
-0.3452052585470727
+0.3452052585470726
 
 -- !sql_stddev_Float_agg_phase_1_notnull --
 1	0.0
@@ -3602,11 +3607,11 @@ true
 5	0.1414213730960499
 
 -- !sql_stddev_Float_agg_phase_4_notnull --
-12	0.3452052585470726
+12	0.34520525854707257
 
 -- !sql_stddev_Double_gb --
 \N
-0.2
+0.19999999999999998
 0.1414213562373095
 
 -- !sql_stddev_Double --
@@ -3628,18 +3633,18 @@ true
 1	0.0
 
 -- !sql_stddev_Double_agg_phase_2 --
-12	0.3452052529534663
+12	0.34520525295346627
 
 -- !sql_stddev_Double_agg_phase_3 --
 0	\N
-7	0.19999999999999998
+7	0.19999999999999996
 5	0.1414213562373095
 
 -- !sql_stddev_Double_agg_phase_4 --
 12	0.3452052529534663
 
 -- !sql_stddev_Double_gb_notnull --
-0.19999999999999996
+0.19999999999999998
 0.1414213562373095
 
 -- !sql_stddev_Double_notnull --
@@ -3660,7 +3665,7 @@ true
 1	0.0
 
 -- !sql_stddev_Double_agg_phase_2_notnull --
-12	0.3452052529534663
+12	0.34520525295346627
 
 -- !sql_stddev_Double_agg_phase_3_notnull --
 0	\N
@@ -3691,19 +3696,19 @@ true
 1	0.0
 
 -- !sql_stddev_DecimalV2_agg_phase_2 --
-12	0.3452052529534663
+12	0.34520525295346627
 
 -- !sql_stddev_DecimalV2_agg_phase_3 --
 0	\N
 7	0.19999999999999996
-5	0.14142135623730948
+5	0.1414213562373095
 
 -- !sql_stddev_DecimalV2_agg_phase_4 --
 12	0.3452052529534663
 
 -- !sql_stddev_DecimalV2_gb_notnull --
 0.19999999999999998
-0.14142135623730948
+0.1414213562373095
 
 -- !sql_stddev_DecimalV2_agg_phase_1_notnull --
 1	0.0
@@ -3720,7 +3725,7 @@ true
 1	0.0
 
 -- !sql_stddev_DecimalV2_agg_phase_2_notnull --
-12	0.3452052529534663
+12	0.34520525295346627
 
 -- !sql_stddev_DecimalV2_agg_phase_3_notnull --
 0	\N
@@ -3732,7 +3737,7 @@ true
 
 -- !sql_stddev_samp_TinyInt_gb --
 \N
-2.160246899469287
+2.1602468994692865
 1.5811388300841898
 
 -- !sql_stddev_samp_TinyInt --
@@ -3765,11 +3770,11 @@ true
 12	3.605551275463989
 
 -- !sql_stddev_samp_TinyInt_gb_notnull --
-2.160246899469287
+2.1602468994692865
 1.5811388300841898
 
 -- !sql_stddev_samp_TinyInt_notnull --
-3.6055512754639896
+3.605551275463989
 
 -- !sql_stddev_samp_TinyInt_agg_phase_1_notnull --
 1	\N
@@ -3790,8 +3795,8 @@ true
 
 -- !sql_stddev_samp_TinyInt_agg_phase_3_notnull --
 0	\N
-7	2.1602468994692865
-5	1.5811388300841893
+7	2.160246899469287
+5	1.5811388300841898
 
 -- !sql_stddev_samp_TinyInt_agg_phase_4_notnull --
 12	3.605551275463989
@@ -3824,18 +3829,18 @@ true
 
 -- !sql_stddev_samp_SmallInt_agg_phase_3 --
 0	\N
-7	2.160246899469287
+7	2.1602468994692865
 5	1.5811388300841898
 
 -- !sql_stddev_samp_SmallInt_agg_phase_4 --
 12	3.605551275463989
 
 -- !sql_stddev_samp_SmallInt_gb_notnull --
-2.160246899469287
+2.1602468994692865
 1.5811388300841898
 
 -- !sql_stddev_samp_SmallInt_notnull --
-3.6055512754639896
+3.605551275463989
 
 -- !sql_stddev_samp_SmallInt_agg_phase_1_notnull --
 1	\N
@@ -3864,11 +3869,11 @@ true
 
 -- !sql_stddev_samp_Integer_gb --
 \N
-2.160246899469287
+2.1602468994692865
 1.5811388300841898
 
 -- !sql_stddev_samp_Integer --
-3.6055512754639896
+3.605551275463989
 
 -- !sql_stddev_samp_Integer_agg_phase_1 --
 0	\N
@@ -3890,14 +3895,14 @@ true
 
 -- !sql_stddev_samp_Integer_agg_phase_3 --
 0	\N
-7	2.1602468994692865
-5	1.5811388300841893
+7	2.160246899469287
+5	1.5811388300841898
 
 -- !sql_stddev_samp_Integer_agg_phase_4 --
 12	3.605551275463989
 
 -- !sql_stddev_samp_Integer_gb_notnull --
-2.160246899469287
+2.1602468994692865
 1.5811388300841898
 
 -- !sql_stddev_samp_Integer_notnull --
@@ -3922,7 +3927,7 @@ true
 
 -- !sql_stddev_samp_Integer_agg_phase_3_notnull --
 0	\N
-7	2.160246899469287
+7	2.1602468994692865
 5	1.5811388300841898
 
 -- !sql_stddev_samp_Integer_agg_phase_4_notnull --
@@ -3930,8 +3935,8 @@ true
 
 -- !sql_stddev_samp_BigInt_gb --
 \N
-2.160246899469287
-1.5811388300841898
+2.1602468994692865
+1.5811388300841893
 
 -- !sql_stddev_samp_BigInt --
 3.605551275463989
@@ -3957,7 +3962,7 @@ true
 -- !sql_stddev_samp_BigInt_agg_phase_3 --
 0	\N
 7	2.160246899469287
-5	1.5811388300841898
+5	1.58113883008419
 
 -- !sql_stddev_samp_BigInt_agg_phase_4 --
 12	3.605551275463989
@@ -3967,7 +3972,7 @@ true
 1.5811388300841898
 
 -- !sql_stddev_samp_BigInt_notnull --
-3.6055512754639896
+3.605551275463989
 
 -- !sql_stddev_samp_BigInt_agg_phase_1_notnull --
 1	\N
@@ -3989,7 +3994,7 @@ true
 -- !sql_stddev_samp_BigInt_agg_phase_3_notnull --
 0	\N
 7	2.160246899469287
-5	1.58113883008419
+5	1.5811388300841898
 
 -- !sql_stddev_samp_BigInt_agg_phase_4_notnull --
 12	3.605551275463989
@@ -4022,14 +4027,14 @@ true
 
 -- !sql_stddev_samp_Float_agg_phase_3 --
 0	\N
-7	0.2160246891421743
-5	0.15811390185706373
+7	0.21602468914217424
+5	0.15811390185706375
 
 -- !sql_stddev_samp_Float_agg_phase_4 --
-12	0.3605551333887302
+12	0.36055513338873013
 
 -- !sql_stddev_samp_Float_gb_notnull --
-0.21602468914217424
+0.2160246891421743
 0.15811390185706375
 
 -- !sql_stddev_samp_Float_notnull --
@@ -4063,7 +4068,7 @@ true
 -- !sql_stddev_samp_Double_gb --
 \N
 0.21602468994692867
-0.15811388300841894
+0.15811388300841897
 
 -- !sql_stddev_samp_Double --
 0.36055512754639896
@@ -4088,15 +4093,15 @@ true
 
 -- !sql_stddev_samp_Double_agg_phase_3 --
 0	\N
-7	0.21602468994692864
-5	0.15811388300841892
+7	0.21602468994692867
+5	0.15811388300841894
 
 -- !sql_stddev_samp_Double_agg_phase_4 --
 12	0.36055512754639896
 
 -- !sql_stddev_samp_Double_gb_notnull --
-0.21602468994692867
-0.15811388300841894
+0.21602468994692864
+0.15811388300841897
 
 -- !sql_stddev_samp_Double_notnull --
 0.36055512754639896
@@ -4120,8 +4125,8 @@ true
 
 -- !sql_stddev_samp_Double_agg_phase_3_notnull --
 0	\N
-7	0.21602468994692867
-5	0.15811388300841897
+7	0.21602468994692864
+5	0.15811388300841894
 
 -- !sql_stddev_samp_Double_agg_phase_4_notnull --
 12	0.36055512754639896
@@ -4167,12 +4172,12 @@ true
 1	\N
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_2_notnull --
-12	0.36055512754639896
+12	0.3605551275463989
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_3_notnull --
 0	\N
-7	0.21602468994692867
-5	0.15811388300841897
+7	0.21602468994692864
+5	0.15811388300841894
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_4_notnull --
 12	0.36055512754639896
@@ -4465,7 +4470,7 @@ true
 5.0
 
 -- !sql_sum_Double --
-7.800000000000001
+7.8
 
 -- !sql_sum_Double_agg_phase_1 --
 0	\N
@@ -4487,14 +4492,14 @@ true
 
 -- !sql_sum_Double_agg_phase_3 --
 0	\N
-7	2.8000000000000007
+7	2.8
 5	5.0
 
 -- !sql_sum_Double_agg_phase_4 --
 12	7.8
 
 -- !sql_sum_Double_gb_notnull --
-2.8
+2.8000000000000003
 5.0
 
 -- !sql_sum_Double_notnull --
@@ -4515,7 +4520,7 @@ true
 1	1.2
 
 -- !sql_sum_Double_agg_phase_2_notnull --
-12	7.8
+12	7.800000000000001
 
 -- !sql_sum_Double_agg_phase_3_notnull --
 0	\N
@@ -4923,11 +4928,11 @@ true
 
 -- !sql_variance_TinyInt_gb --
 \N
-4.0
-2.0
+3.9999999999999996
+2.0000000000000004
 
 -- !sql_variance_TinyInt --
-11.91666666666667
+11.916666666666666
 
 -- !sql_variance_TinyInt_agg_phase_1 --
 0	\N
@@ -4956,8 +4961,8 @@ true
 12	11.916666666666666
 
 -- !sql_variance_TinyInt_gb_notnull --
-3.9999999999999996
-2.0000000000000004
+4.0
+2.0
 
 -- !sql_variance_TinyInt_notnull --
 11.916666666666666
@@ -4989,11 +4994,11 @@ true
 
 -- !sql_variance_SmallInt_gb --
 \N
-4.0
+3.9999999999999996
 2.0
 
 -- !sql_variance_SmallInt --
-11.91666666666667
+11.916666666666666
 
 -- !sql_variance_SmallInt_agg_phase_1 --
 0	\N
@@ -5015,18 +5020,18 @@ true
 
 -- !sql_variance_SmallInt_agg_phase_3 --
 0	\N
-7	4.0
+7	3.9999999999999996
 5	2.0
 
 -- !sql_variance_SmallInt_agg_phase_4 --
 12	11.916666666666666
 
 -- !sql_variance_SmallInt_gb_notnull --
-3.9999999999999996
-2.0000000000000004
+4.0
+2.0
 
 -- !sql_variance_SmallInt_notnull --
-11.916666666666666
+11.91666666666667
 
 -- !sql_variance_SmallInt_agg_phase_1_notnull --
 1	0.0
@@ -5047,7 +5052,7 @@ true
 
 -- !sql_variance_SmallInt_agg_phase_3_notnull --
 0	\N
-7	4.000000000000001
+7	3.9999999999999996
 5	2.0
 
 -- !sql_variance_SmallInt_agg_phase_4_notnull --
@@ -5056,7 +5061,7 @@ true
 -- !sql_variance_Integer_gb --
 \N
 4.0
-2.0
+2.0000000000000004
 
 -- !sql_variance_Integer --
 11.916666666666666
@@ -5081,18 +5086,18 @@ true
 
 -- !sql_variance_Integer_agg_phase_3 --
 0	\N
-7	3.9999999999999996
-5	2.0
+7	4.0
+5	2.000000000000001
 
 -- !sql_variance_Integer_agg_phase_4 --
 12	11.916666666666666
 
 -- !sql_variance_Integer_gb_notnull --
 3.9999999999999996
-2.0000000000000004
+2.0
 
 -- !sql_variance_Integer_notnull --
-11.91666666666667
+11.916666666666666
 
 -- !sql_variance_Integer_agg_phase_1_notnull --
 1	0.0
@@ -5113,7 +5118,7 @@ true
 
 -- !sql_variance_Integer_agg_phase_3_notnull --
 0	\N
-7	3.9999999999999996
+7	4.0
 5	2.0
 
 -- !sql_variance_Integer_agg_phase_4_notnull --
@@ -5147,7 +5152,7 @@ true
 
 -- !sql_variance_BigInt_agg_phase_3 --
 0	\N
-7	4.0
+7	4.000000000000001
 5	2.0
 
 -- !sql_variance_BigInt_agg_phase_4 --
@@ -5155,10 +5160,10 @@ true
 
 -- !sql_variance_BigInt_gb_notnull --
 3.9999999999999996
-2.0000000000000004
+2.0
 
 -- !sql_variance_BigInt_notnull --
-11.91666666666667
+11.916666666666666
 
 -- !sql_variance_BigInt_agg_phase_1_notnull --
 1	0.0
@@ -5179,16 +5184,16 @@ true
 
 -- !sql_variance_BigInt_agg_phase_3_notnull --
 0	\N
-7	3.9999999999999996
-5	1.9999999999999993
+7	4.0
+5	2.0
 
 -- !sql_variance_BigInt_agg_phase_4_notnull --
 12	11.916666666666666
 
 -- !sql_variance_Float_gb --
 \N
-0.03999999970197688
-0.02000000476837215
+0.039999999701976874
+0.020000004768372152
 
 -- !sql_variance_Float --
 0.11916667052855125
@@ -5213,14 +5218,14 @@ true
 
 -- !sql_variance_Float_agg_phase_3 --
 0	\N
-7	0.039999999701976874
+7	0.03999999970197688
 5	0.020000004768372152
 
 -- !sql_variance_Float_agg_phase_4 --
 12	0.11916667052855125
 
 -- !sql_variance_Float_gb_notnull --
-0.03999999970197688
+0.039999999701976874
 0.020000004768372152
 
 -- !sql_variance_Float_notnull --
@@ -5245,19 +5250,19 @@ true
 
 -- !sql_variance_Float_agg_phase_3_notnull --
 0	\N
-7	0.03999999970197688
+7	0.039999999701976874
 5	0.020000004768372152
 
 -- !sql_variance_Float_agg_phase_4_notnull --
-12	0.11916667052855125
+12	0.11916667052855123
 
 -- !sql_variance_Double_gb --
 \N
 0.039999999999999994
-0.019999999999999993
+0.019999999999999997
 
 -- !sql_variance_Double --
-0.11916666666666666
+0.11916666666666668
 
 -- !sql_variance_Double_agg_phase_1 --
 0	\N
@@ -5279,18 +5284,18 @@ true
 
 -- !sql_variance_Double_agg_phase_3 --
 0	\N
-7	0.039999999999999994
-5	0.019999999999999997
+7	0.03999999999999999
+5	0.019999999999999993
 
 -- !sql_variance_Double_agg_phase_4 --
-12	0.11916666666666668
+12	0.11916666666666666
 
 -- !sql_variance_Double_gb_notnull --
 0.039999999999999994
-0.02
+0.019999999999999997
 
 -- !sql_variance_Double_notnull --
-0.11916666666666666
+0.1191666666666667
 
 -- !sql_variance_Double_agg_phase_1_notnull --
 1	0.0
@@ -5307,15 +5312,15 @@ true
 1	0.0
 
 -- !sql_variance_Double_agg_phase_2_notnull --
-12	0.11916666666666668
+12	0.11916666666666666
 
 -- !sql_variance_Double_agg_phase_3_notnull --
 0	\N
-7	0.03999999999999999
+7	0.039999999999999994
 5	0.019999999999999997
 
 -- !sql_variance_Double_agg_phase_4_notnull --
-12	0.11916666666666666
+12	0.11916666666666664
 
 -- !sql_variance_DecimalV2_gb --
 \N
@@ -5341,19 +5346,19 @@ true
 1	0.0
 
 -- !sql_variance_DecimalV2_agg_phase_2 --
-12	0.11916666666666668
+12	0.11916666666666666
 
 -- !sql_variance_DecimalV2_agg_phase_3 --
 0	\N
-7	0.03999999999999999
-5	0.019999999999999993
+7	0.039999999999999994
+5	0.02
 
 -- !sql_variance_DecimalV2_agg_phase_4 --
 12	0.11916666666666668
 
 -- !sql_variance_DecimalV2_gb_notnull --
-0.04
-0.019999999999999997
+0.039999999999999994
+0.01999999999999999
 
 -- !sql_variance_DecimalV2_notnull --
 0.11916666666666666
@@ -5377,8 +5382,8 @@ true
 
 -- !sql_variance_DecimalV2_agg_phase_3_notnull --
 0	\N
-7	0.03999999999999999
-5	0.01999999999999999
+7	0.039999999999999994
+5	0.02
 
 -- !sql_variance_DecimalV2_agg_phase_4_notnull --
 12	0.11916666666666666
@@ -5386,7 +5391,7 @@ true
 -- !sql_variance_samp_TinyInt_gb --
 \N
 4.666666666666667
-2.5000000000000004
+2.5
 
 -- !sql_variance_samp_TinyInt --
 13.0
@@ -5419,7 +5424,7 @@ true
 
 -- !sql_variance_samp_TinyInt_gb_notnull --
 4.666666666666667
-2.5000000000000004
+2.5
 
 -- !sql_variance_samp_TinyInt_notnull --
 13.0
@@ -5443,7 +5448,7 @@ true
 
 -- !sql_variance_samp_TinyInt_agg_phase_3_notnull --
 0	\N
-7	4.666666666666666
+7	4.666666666666668
 5	2.5
 
 -- !sql_variance_samp_TinyInt_agg_phase_4_notnull --
@@ -5452,10 +5457,10 @@ true
 -- !sql_variance_samp_SmallInt_gb --
 \N
 4.666666666666667
-2.5
+2.5000000000000004
 
 -- !sql_variance_samp_SmallInt --
-13.000000000000002
+13.0
 
 -- !sql_variance_samp_SmallInt_agg_phase_1 --
 0	\N
@@ -5484,11 +5489,11 @@ true
 12	13.0
 
 -- !sql_variance_samp_SmallInt_gb_notnull --
-4.666666666666667
-2.5
+4.666666666666666
+2.499999999999999
 
 -- !sql_variance_samp_SmallInt_notnull --
-13.0
+13.000000000000002
 
 -- !sql_variance_samp_SmallInt_agg_phase_1_notnull --
 1	\N
@@ -5509,7 +5514,7 @@ true
 
 -- !sql_variance_samp_SmallInt_agg_phase_3_notnull --
 0	\N
-7	4.666666666666668
+7	4.666666666666667
 5	2.5
 
 -- !sql_variance_samp_SmallInt_agg_phase_4_notnull --
@@ -5543,14 +5548,14 @@ true
 
 -- !sql_variance_samp_Integer_agg_phase_3 --
 0	\N
-7	4.666666666666666
-5	2.499999999999999
+7	4.666666666666667
+5	2.5
 
 -- !sql_variance_samp_Integer_agg_phase_4 --
 12	13.0
 
 -- !sql_variance_samp_Integer_gb_notnull --
-4.666666666666666
+4.666666666666667
 2.5000000000000004
 
 -- !sql_variance_samp_Integer_notnull --
@@ -5575,7 +5580,7 @@ true
 
 -- !sql_variance_samp_Integer_agg_phase_3_notnull --
 0	\N
-7	4.666666666666667
+7	4.666666666666666
 5	2.5
 
 -- !sql_variance_samp_Integer_agg_phase_4_notnull --
@@ -5609,7 +5614,7 @@ true
 
 -- !sql_variance_samp_BigInt_agg_phase_3 --
 0	\N
-7	4.666666666666665
+7	4.666666666666667
 5	2.5
 
 -- !sql_variance_samp_BigInt_agg_phase_4 --
@@ -5617,7 +5622,7 @@ true
 
 -- !sql_variance_samp_BigInt_gb_notnull --
 4.666666666666667
-2.5000000000000004
+2.5
 
 -- !sql_variance_samp_BigInt_notnull --
 13.0
@@ -5641,7 +5646,7 @@ true
 
 -- !sql_variance_samp_BigInt_agg_phase_3_notnull --
 0	\N
-7	4.666666666666667
+7	4.666666666666666
 5	2.5
 
 -- !sql_variance_samp_BigInt_agg_phase_4_notnull --
@@ -5649,11 +5654,11 @@ true
 
 -- !sql_variance_samp_Float_gb --
 \N
-0.04666666631897303
+0.04666666631897304
 0.025000005960465192
 
 -- !sql_variance_samp_Float --
-0.13000000421296504
+0.130000004212965
 
 -- !sql_variance_samp_Float_agg_phase_1 --
 0	\N
@@ -5675,14 +5680,14 @@ true
 
 -- !sql_variance_samp_Float_agg_phase_3 --
 0	\N
-7	0.04666666631897302
+7	0.04666666631897303
 5	0.02500000596046519
 
 -- !sql_variance_samp_Float_agg_phase_4 --
 12	0.130000004212965
 
 -- !sql_variance_samp_Float_gb_notnull --
-0.04666666631897302
+0.04666666631897303
 0.02500000596046519
 
 -- !sql_variance_samp_Float_notnull --
@@ -5707,7 +5712,7 @@ true
 
 -- !sql_variance_samp_Float_agg_phase_3_notnull --
 0	\N
-7	0.04666666631897303
+7	0.04666666631897302
 5	0.02500000596046519
 
 -- !sql_variance_samp_Float_agg_phase_4_notnull --
@@ -5716,7 +5721,7 @@ true
 -- !sql_variance_samp_Double_gb --
 \N
 0.04666666666666666
-0.02499999999999999
+0.024999999999999988
 
 -- !sql_variance_samp_Double --
 0.13
@@ -5741,8 +5746,8 @@ true
 
 -- !sql_variance_samp_Double_agg_phase_3 --
 0	\N
-7	0.046666666666666655
-5	0.025
+7	0.04666666666666666
+5	0.024999999999999984
 
 -- !sql_variance_samp_Double_agg_phase_4 --
 12	0.13
@@ -5773,8 +5778,8 @@ true
 
 -- !sql_variance_samp_Double_agg_phase_3_notnull --
 0	\N
-7	0.04666666666666666
-5	0.025
+7	0.046666666666666655
+5	0.024999999999999988
 
 -- !sql_variance_samp_Double_agg_phase_4_notnull --
 12	0.13
@@ -5800,7 +5805,7 @@ true
 -- !sql_variance_samp_DecimalV2_agg_phase_3 --
 0	\N
 7	0.04666666666666666
-5	0.025
+5	0.02499999999999999
 
 -- !sql_variance_samp_DecimalV2_agg_phase_4 --
 12	0.13
@@ -5824,7 +5829,7 @@ true
 
 -- !sql_variance_samp_DecimalV2_agg_phase_3_notnull --
 0	\N
-7	0.04666666666666666
+7	0.046666666666666655
 5	0.024999999999999988
 
 -- !sql_variance_samp_DecimalV2_agg_phase_4_notnull --

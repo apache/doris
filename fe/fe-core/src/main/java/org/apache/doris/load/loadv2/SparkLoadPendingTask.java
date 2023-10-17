@@ -105,6 +105,16 @@ public class SparkLoadPendingTask extends LoadTask {
         this.transactionId = loadTaskCallback.getTransactionId();
         this.sparkLoadAppHandle = loadTaskCallback.getHandle();
         this.failMsg = new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL);
+        toLowCaseForFileGroups();
+    }
+
+    void toLowCaseForFileGroups() {
+        aggKeyToBrokerFileGroups.values().forEach(fgs -> {
+            fgs.forEach(fg -> {
+                fg.getColumnExprList()
+                        .forEach(expr -> expr.setColumnName(expr.getColumnName().toLowerCase(Locale.ROOT)));
+            });
+        });
     }
 
     @Override

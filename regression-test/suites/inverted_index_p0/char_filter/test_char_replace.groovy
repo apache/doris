@@ -34,9 +34,9 @@ suite("test_char_replace") {
 		`a` text NULL,
         `b` string NULL,
         `c` string NULL,
-        INDEX a_idx(`a`) USING INVERTED PROPERTIES("parser" = "unicode") COMMENT '',
-		INDEX b_idx(`b`) USING INVERTED PROPERTIES("parser" = "unicode", "char_filter_type" = "char_replace", "char_filter_pattern" = "._", "char_filter_replacement" = " ") COMMENT '',
-        INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser" = "unicode", "char_filter_type" = "char_replace", "char_filter_pattern" = "._") COMMENT ''
+        INDEX a_idx(`a`) USING INVERTED PROPERTIES("parser" = "unicode", "support_phrase" = "true") COMMENT '',
+		INDEX b_idx(`b`) USING INVERTED PROPERTIES("parser" = "unicode", "support_phrase" = "true", "char_filter_type" = "char_replace", "char_filter_pattern" = "._", "char_filter_replacement" = " ") COMMENT '',
+        INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser" = "unicode", "support_phrase" = "true", "char_filter_type" = "char_replace", "char_filter_pattern" = "._") COMMENT ''
 	) ENGINE=OLAP
 	DUPLICATE KEY(`id`)
 	COMMENT 'OLAP'
@@ -79,4 +79,25 @@ suite("test_char_replace") {
     qt_sql "SELECT count() FROM ${indexTblName} where c match 'jpg'";
     qt_sql "SELECT count() FROM ${indexTblName} where c match '1'";
     qt_sql "SELECT count() FROM ${indexTblName} where c match '0'";
+
+    qt_sql "SELECT count() FROM ${indexTblName} where a match_any 'hm_bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where a match_all 'hm_bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where a match_phrase 'hm_bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where a match_any 'hm bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where a match_all 'hm bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where a match_phrase 'hm bg'";
+
+    qt_sql "SELECT count() FROM ${indexTblName} where b match_any 'hm_bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where b match_all 'hm_bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where b match_phrase 'hm_bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where b match_any 'hm bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where b match_all 'hm bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where b match_phrase 'hm bg'";
+
+    qt_sql "SELECT count() FROM ${indexTblName} where c match_any 'hm_bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where c match_all 'hm_bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where c match_phrase 'hm_bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where c match_any 'hm bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where c match_all 'hm bg'";
+    qt_sql "SELECT count() FROM ${indexTblName} where c match_phrase 'hm bg'";
 }

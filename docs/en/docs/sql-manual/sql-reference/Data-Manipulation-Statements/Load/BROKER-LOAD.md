@@ -67,6 +67,7 @@ WITH BROKER broker_name
   [COLUMNS TERMINATED BY "column_separator"]
   [LINES TERMINATED BY "line_delimiter"]
   [FORMAT AS "file_type"]
+  [COMPRESS_TYPE AS "compress_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
   [SET (column_mapping)]
@@ -104,6 +105,9 @@ WITH BROKER broker_name
   - `FORMAT AS`
 
     Specifies the file type, CSV, PARQUET and ORC formats are supported. Default is CSV.
+
+  - `COMPRESS_TYPE AS`
+    Specifies the file compress type, GZ/LZO/BZ2/LZ4FRAME/DEFLATE/LZOP
 
   - `column list`
 
@@ -194,7 +198,7 @@ WITH BROKER broker_name
     
   - `load_to_single_tablet`
   
-    Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. The number of tasks for the job depends on the overall concurrency. This parameter can only be set when loading data into the OLAP table with random partition.
+    Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. The number of tasks for the job depends on the overall concurrency. This parameter can only be set when loading data into the OLAP table with random bucketing.
     
   - <version since="dev" type="inline"> priority </version>
     
@@ -265,6 +269,7 @@ WITH BROKER broker_name
    (
        "username" = "",
        "password" = "",
+       "fs.defaultFS" = "hdfs://my_ha",
        "dfs.nameservices" = "my_ha",
        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",

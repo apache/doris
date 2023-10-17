@@ -17,6 +17,7 @@
 
 #include "olap/push_handler.h"
 
+#include <fmt/core.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/MasterService_types.h>
@@ -25,6 +26,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
 
 #include <algorithm>
 #include <iostream>
@@ -84,7 +86,7 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
     Status res = Status::OK();
     _request = request;
 
-    DescriptorTbl::create(&_pool, _request.desc_tbl, &_desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&_pool, _request.desc_tbl, &_desc_tbl));
 
     res = _do_streaming_ingestion(tablet, request, push_type, tablet_info_vec);
 
@@ -93,7 +95,8 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
             TTabletInfo tablet_info;
             tablet_info.tablet_id = tablet->tablet_id();
             tablet_info.schema_hash = tablet->schema_hash();
-            StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info);
+            static_cast<void>(
+                    StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info));
             tablet_info_vec->push_back(tablet_info);
         }
         LOG(INFO) << "process realtime push successfully. "
@@ -138,6 +141,33 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         DeletePredicatePB del_pred;
         TabletSchema tablet_schema;
         tablet_schema.copy_from(*tablet->tablet_schema());
+        for (const auto& delete_cond : request.delete_conditions) {
+            if (!delete_cond.__isset.column_unique_id) {
+                LOG(WARNING) << "column=" << delete_cond.column_name
+                             << " in predicate does not have uid, table id="
+                             << tablet_schema.table_id();
+                // TODO(tsy): make it fail here after FE forbidding hard-link-schema-change
+                continue;
+            }
+            if (tablet_schema.field_index(delete_cond.column_unique_id) == -1) {
+                const auto& err_msg =
+                        fmt::format("column id={} does not exists, table id={}",
+                                    delete_cond.column_unique_id, tablet_schema.table_id());
+                LOG(WARNING) << err_msg;
+                DCHECK(false);
+                return Status::Aborted(err_msg);
+            }
+            if (tablet_schema.column_by_uid(delete_cond.column_unique_id).name() !=
+                delete_cond.column_name) {
+                const auto& err_msg = fmt::format(
+                        "colum name={} does not belongs to column uid={}, which column name={}",
+                        delete_cond.column_name, delete_cond.column_unique_id,
+                        tablet_schema.column_by_uid(delete_cond.column_unique_id).name());
+                LOG(WARNING) << err_msg;
+                DCHECK(false);
+                return Status::Aborted(err_msg);
+            }
+        }
         if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
             tablet_schema.clear_columns();
             for (const auto& column_desc : request.columns_desc) {
@@ -276,7 +306,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
                     if (reader->eof()) {
                         break;
                     }
-                    if (!(res = rowset_writer->add_block(&block))) {
+                    if (!(res = rowset_writer->add_block(&block)).ok()) {
                         LOG(WARNING) << "fail to attach block to rowset_writer. "
                                      << "res=" << res << ", tablet=" << cur_tablet->full_name()
                                      << ", read_rows=" << num_rows;
@@ -287,16 +317,20 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             }
 
             reader->print_profile();
-            reader->close();
+            static_cast<void>(reader->close());
         }
 
-        if (!rowset_writer->flush().ok()) {
+        if (!res.ok()) {
+            break;
+        }
+
+        if (!(res = rowset_writer->flush()).ok()) {
             LOG(WARNING) << "failed to finalize writer";
             break;
         }
-        *cur_rowset = rowset_writer->build();
-        if (*cur_rowset == nullptr) {
-            res = Status::Error<MEM_ALLOC_FAILED>("fail to build rowset");
+
+        if (!(res = rowset_writer->build(*cur_rowset)).ok()) {
+            LOG(WARNING) << "failed to build rowset";
             break;
         }
 
@@ -630,8 +664,8 @@ Status PushBrokerReader::_get_next_reader() {
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
         std::unordered_map<std::string, vectorized::VExprContextSPtr> missing_columns;
-        _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
-        _cur_reader->set_fill_columns(partition_columns, missing_columns);
+        static_cast<void>(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
+        static_cast<void>(_cur_reader->set_fill_columns(partition_columns, missing_columns));
         break;
     }
     default:

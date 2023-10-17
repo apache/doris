@@ -37,6 +37,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "data_type_time.h"
+#include "gen_cpp/segment_v2.pb.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
@@ -103,7 +104,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
     }
 
     if ((is_nullable || col_desc.is_nullable()) && nested) {
-        return std::make_shared<DataTypeNullable>(nested);
+        return make_nullable(nested);
     }
     return nested;
 }
@@ -152,6 +153,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_DOUBLE:
         nested = std::make_shared<vectorized::DataTypeFloat64>();
         break;
+    case TYPE_VARIANT:
+        return std::make_shared<vectorized::DataTypeObject>("", true);
     case TYPE_STRING:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -220,9 +223,6 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
         break;
     }
-    case TYPE_VARIANT:
-        // ColumnObject always none nullable
-        return std::make_shared<vectorized::DataTypeObject>("json", true);
     case INVALID_TYPE:
     default:
         throw Exception(ErrorCode::INTERNAL_ERROR, "invalid PrimitiveType: {}", (int)col_desc.type);
@@ -230,7 +230,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     }
 
     if (nested && is_nullable) {
-        return std::make_shared<vectorized::DataTypeNullable>(nested);
+        return make_nullable(nested);
     }
     return nested;
 }
@@ -286,6 +286,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::String:
         nested = std::make_shared<vectorized::DataTypeString>();
         break;
+    case TypeIndex::VARIANT:
+        return std::make_shared<vectorized::DataTypeObject>("", true);
     case TypeIndex::Decimal32:
         nested = std::make_shared<DataTypeDecimal<Decimal32>>(BeConsts::MAX_DECIMAL32_PRECISION, 0);
         break;
@@ -322,7 +324,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     }
 
     if (nested && is_nullable) {
-        return std::make_shared<vectorized::DataTypeNullable>(nested);
+        return make_nullable(nested);
     }
     return nested;
 }
@@ -372,6 +374,8 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_STRING:
         result = std::make_shared<vectorized::DataTypeString>();
         break;
+    case FieldType::OLAP_FIELD_TYPE_VARIANT:
+        return std::make_shared<vectorized::DataTypeObject>("", true);
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         result = std::make_shared<vectorized::DataTypeJsonb>();
         break;
@@ -442,6 +446,8 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::STRING:
         nested = std::make_shared<DataTypeString>();
         break;
+    case PGenericType::VARIANT:
+        return std::make_shared<DataTypeObject>("", true);
     case PGenericType::JSONB:
         nested = std::make_shared<DataTypeJsonb>();
         break;
@@ -506,10 +512,6 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
         break;
     }
-    case PGenericType::VARIANT: {
-        nested = std::make_shared<DataTypeObject>("object", true);
-        break;
-    }
     case PGenericType::QUANTILE_STATE: {
         nested = std::make_shared<DataTypeQuantileState>();
         break;
@@ -535,7 +537,42 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     }
 
     if (nested && pcolumn.is_nullable() > 0) {
-        return std::make_shared<vectorized::DataTypeNullable>(nested);
+        return make_nullable(nested);
+    }
+    return nested;
+}
+
+DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pcolumn) {
+    DataTypePtr nested = nullptr;
+    if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_ARRAY)) {
+        // Item subcolumn and length subcolumn
+        DCHECK_GE(pcolumn.children_columns().size(), 2) << pcolumn.DebugString();
+        nested = std::make_shared<DataTypeArray>(create_data_type(pcolumn.children_columns(0)));
+    } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_MAP)) {
+        DCHECK_GE(pcolumn.children_columns().size(), 2) << pcolumn.DebugString();
+        nested = std::make_shared<vectorized::DataTypeMap>(
+                create_data_type(pcolumn.children_columns(0)),
+                create_data_type(pcolumn.children_columns(1)));
+    } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_STRUCT)) {
+        DCHECK_GE(pcolumn.children_columns().size(), 1);
+        size_t col_size = pcolumn.children_columns().size();
+        DataTypes dataTypes;
+        Strings names;
+        dataTypes.reserve(col_size);
+        names.reserve(col_size);
+        for (size_t i = 0; i < col_size; i++) {
+            dataTypes.push_back(create_data_type(pcolumn.children_columns(i)));
+            names.push_back("");
+        }
+        nested = std::make_shared<DataTypeStruct>(dataTypes, names);
+    } else {
+        // TODO add precision and frac
+        nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),
+                                             pcolumn.precision(), pcolumn.frac());
+    }
+
+    if (pcolumn.is_nullable() && nested) {
+        return make_nullable(nested);
     }
     return nested;
 }
@@ -623,7 +660,7 @@ DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool 
     }
 
     if (nested && is_nullable) {
-        return std::make_shared<vectorized::DataTypeNullable>(nested);
+        return make_nullable(nested);
     }
     return nested;
 }

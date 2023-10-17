@@ -77,7 +77,7 @@ Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(_s_collations[i].name, strlen(_s_collations[i].name));
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 0, datas);
+        static_cast<void>(fill_dest_column_for_range(block, 0, datas));
     }
     // charset
     {
@@ -86,7 +86,7 @@ Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(_s_collations[i].charset, strlen(_s_collations[i].charset));
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 1, datas);
+        static_cast<void>(fill_dest_column_for_range(block, 1, datas));
     }
     // id
     {
@@ -95,7 +95,7 @@ Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i] = _s_collations[i].id;
             datas[i] = srcs + i;
         }
-        fill_dest_column_for_range(block, 2, datas);
+        static_cast<void>(fill_dest_column_for_range(block, 2, datas));
     }
     // is_default
     {
@@ -104,7 +104,7 @@ Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(_s_collations[i].is_default, strlen(_s_collations[i].is_default));
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 3, datas);
+        static_cast<void>(fill_dest_column_for_range(block, 3, datas));
     }
     // IS_COMPILED
     {
@@ -113,7 +113,7 @@ Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(_s_collations[i].is_compile, strlen(_s_collations[i].is_compile));
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 4, datas);
+        static_cast<void>(fill_dest_column_for_range(block, 4, datas));
     }
     // sortlen
     {
@@ -122,7 +122,7 @@ Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i] = _s_collations[i].sortlen;
             datas[i] = srcs + i;
         }
-        fill_dest_column_for_range(block, 5, datas);
+        static_cast<void>(fill_dest_column_for_range(block, 5, datas));
     }
     return Status::OK();
 }

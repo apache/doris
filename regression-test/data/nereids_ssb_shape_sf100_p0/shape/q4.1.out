@@ -8,27 +8,28 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](lineorder.lo_orderdate = dates.d_datekey)
-------------------hashJoin[INNER_JOIN](lineorder.lo_partkey = part.p_partkey)
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](lineorder.lo_custkey = customer.c_custkey)
---------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN](lineorder.lo_suppkey = supplier.s_suppkey)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[lineorder]
-------------------------------PhysicalDistribute
+----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey))otherCondition=()
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_partkey = part.p_partkey))otherCondition=()
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_custkey = customer.c_custkey))otherCondition=()
+----------------------------PhysicalDistribute
+------------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey))otherCondition=()
 --------------------------------PhysicalProject
-----------------------------------filter((supplier.s_region = 'AMERICA'))
-------------------------------------PhysicalOlapScan[supplier]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------filter((customer.c_region = 'AMERICA'))
---------------------------------PhysicalOlapScan[customer]
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------filter(p_mfgr IN ('MFGR#2', 'MFGR#1'))
---------------------------PhysicalOlapScan[part]
+----------------------------------PhysicalOlapScan[lineorder]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((supplier.s_region = 'AMERICA'))
+--------------------------------------PhysicalOlapScan[supplier]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((customer.c_region = 'AMERICA'))
+----------------------------------PhysicalOlapScan[customer]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter(p_mfgr IN ('MFGR#1', 'MFGR#2'))
+----------------------------PhysicalOlapScan[part]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[dates]

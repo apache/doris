@@ -687,4 +687,1061 @@ STORED AS PARQUET
 LOCATION
   '/user/doris/preinstalled_data/test_different_column_orders/parquet';
 
+CREATE TABLE `parquet_partition_table`(
+  `l_orderkey` int,
+  `l_partkey` int,
+  `l_suppkey` int,
+  `l_linenumber` int,
+  `l_quantity` decimal(12,2),
+  `l_extendedprice` decimal(12,2),
+  `l_discount` decimal(12,2),
+  `l_tax` decimal(12,2),
+  `l_returnflag` string,
+  `l_linestatus` string,
+  `l_shipdate` date,
+  `l_commitdate` date,
+  `l_receiptdate` date,
+  `l_shipinstruct` string,
+  `l_shipmode` string,
+  `l_comment` string)
+partitioned by (nation string, city string)
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/parquet_partition_table'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
+
+msck repair table parquet_partition_table;
+
+
+CREATE EXTERNAL TABLE `parquet_delta_binary_packed`(
+  bitwidth0 bigint,
+  bitwidth1 bigint,
+  bitwidth2 bigint,
+  bitwidth3 bigint,
+  bitwidth4 bigint,
+  bitwidth5 bigint,
+  bitwidth6 bigint,
+  bitwidth7 bigint,
+  bitwidth8 bigint,
+  bitwidth9 bigint,
+  bitwidth10 bigint,
+  bitwidth11 bigint,
+  bitwidth12 bigint,
+  bitwidth13 bigint,
+  bitwidth14 bigint,
+  bitwidth15 bigint,
+  bitwidth16 bigint,
+  bitwidth17 bigint,
+  bitwidth18 bigint,
+  bitwidth19 bigint,
+  bitwidth20 bigint,
+  bitwidth21 bigint,
+  bitwidth22 bigint,
+  bitwidth23 bigint,
+  bitwidth24 bigint,
+  bitwidth25 bigint,
+  bitwidth26 bigint,
+  bitwidth27 bigint,
+  bitwidth28 bigint,
+  bitwidth29 bigint,
+  bitwidth30 bigint,
+  bitwidth31 bigint,
+  bitwidth32 bigint,
+  bitwidth33 bigint,
+  bitwidth34 bigint,
+  bitwidth35 bigint,
+  bitwidth36 bigint,
+  bitwidth37 bigint,
+  bitwidth38 bigint,
+  bitwidth39 bigint,
+  bitwidth40 bigint,
+  bitwidth41 bigint,
+  bitwidth42 bigint,
+  bitwidth43 bigint,
+  bitwidth44 bigint,
+  bitwidth45 bigint,
+  bitwidth46 bigint,
+  bitwidth47 bigint,
+  bitwidth48 bigint,
+  bitwidth49 bigint,
+  bitwidth50 bigint,
+  bitwidth51 bigint,
+  bitwidth52 bigint,
+  bitwidth53 bigint,
+  bitwidth54 bigint,
+  bitwidth55 bigint,
+  bitwidth56 bigint,
+  bitwidth57 bigint,
+  bitwidth58 bigint,
+  bitwidth59 bigint,
+  bitwidth60 bigint,
+  bitwidth61 bigint,
+  bitwidth62 bigint,
+  bitwidth63 bigint,
+  bitwidth64 bigint,
+  int_value  int
+  )
+STORED AS parquet
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/parquet_delta_binary_packed'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
+
+msck repair table parquet_delta_binary_packed;
+
+CREATE TABLE `parquet_alltypes_tiny_pages`(
+  bool_col boolean,
+  tinyint_col int,
+  smallint_col  int,
+  int_col int,
+  bigint_col bigint,
+  float_col float,
+  double_col double,
+  id int,
+  date_string_col string,
+  string_col string,
+  timestamp_col timestamp,
+  year int,
+  month int
+  )
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/parquet_alltypes_tiny_pages'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1661955829');
+
+msck repair table parquet_alltypes_tiny_pages;
+
+
+CREATE EXTERNAL TABLE IF NOT EXISTS `orc_all_types_partition`(
+  `tinyint_col` tinyint,
+  `smallint_col` smallint,
+  `int_col` int,
+  `bigint_col` bigint,
+  `boolean_col` boolean,
+  `float_col` float,
+  `double_col` double,
+  `string_col` string,
+  `binary_col` binary,
+  `timestamp_col` timestamp,
+  `decimal_col` decimal(12,4),
+  `char_col` char(50),
+  `varchar_col` varchar(50),
+  `date_col` date,
+  `list_double_col` array<double>,
+  `list_string_col` array<string>)
+PARTITIONED BY (
+  `p1_col` string,
+  `p2_col` string)
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.orc.OrcSerde'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/orc_table/orc_all_types_partition';
+
+msck repair table orc_all_types_partition;
+
+CREATE external TABLE `csv_partition_table`(
+  `k1` string COMMENT 'k1',
+  `k2` string COMMENT 'k2',
+  `k3` string COMMENT 'k3',
+  `k4` string COMMENT 'k4',
+  `k5` string COMMENT 'k5',
+  `k6` string COMMENT 'k6',
+  `k7` string COMMENT 'k7',
+  `k8` string COMMENT 'k8',
+  `k9` string COMMENT 'k9',
+  `k10` string COMMENT 'k10',
+  `k11` string COMMENT 'k11',
+  `k12` string COMMENT 'k12',
+  `k13` string COMMENT 'k13',
+  `k14` string COMMENT 'k14',
+  `k15` string COMMENT 'k15')
+PARTITIONED BY (
+  `dt` string)
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe'
+WITH SERDEPROPERTIES (
+  'field.delim'='|',
+  'serialization.format'='|')
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.mapred.TextInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/csv/csv_partition_table/'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1669304897');
+
+msck repair table csv_partition_table;
+
+CREATE TABLE `parquet_all_types`(
+    `t_null_string` string,
+    `t_null_varchar` varchar(65535),
+    `t_null_char` char(10),
+    `t_null_decimal_precision_2` decimal(2,1),
+    `t_null_decimal_precision_4` decimal(4,2),
+    `t_null_decimal_precision_8` decimal(8,4),
+    `t_null_decimal_precision_17` decimal(17,8),
+    `t_null_decimal_precision_18` decimal(18,8),
+    `t_null_decimal_precision_38` decimal(38,16),
+    `t_empty_string` string,
+    `t_string` string,
+    `t_empty_varchar` varchar(65535),
+    `t_varchar` varchar(65535),
+    `t_varchar_max_length` varchar(65535),
+    `t_char` char(10),
+    `t_int` int,
+    `t_bigint` bigint,
+    `t_float` float,
+    `t_double` double,
+    `t_boolean_true` boolean,
+    `t_boolean_false` boolean,
+    `t_decimal_precision_2` decimal(2,1),
+    `t_decimal_precision_4` decimal(4,2),
+    `t_decimal_precision_8` decimal(8,4),
+    `t_decimal_precision_17` decimal(17,8),
+    `t_decimal_precision_18` decimal(18,8),
+    `t_decimal_precision_38` decimal(38,16),
+    `t_binary` binary,
+    `t_map_string` map<string,string>,
+    `t_map_varchar` map<varchar(65535),varchar(65535)>,
+    `t_map_char` map<char(10),char(10)>,
+    `t_map_int` map<int,int>,
+    `t_map_bigint` map<bigint,bigint>,
+    `t_map_float` map<float,float>,
+    `t_map_double` map<double,double>,
+    `t_map_boolean` map<boolean,boolean>,
+    `t_map_decimal_precision_2` map<decimal(2,1),decimal(2,1)>,
+    `t_map_decimal_precision_4` map<decimal(4,2),decimal(4,2)>,
+    `t_map_decimal_precision_8` map<decimal(8,4),decimal(8,4)>,
+    `t_map_decimal_precision_17` map<decimal(17,8),decimal(17,8)>,
+    `t_map_decimal_precision_18` map<decimal(18,8),decimal(18,8)>,
+    `t_map_decimal_precision_38` map<decimal(38,16),decimal(38,16)>,
+    `t_array_string` array<string>,
+    `t_array_int` array<int>,
+    `t_array_bigint` array<bigint>,
+    `t_array_float` array<float>,
+    `t_array_double` array<double>,
+    `t_array_boolean` array<boolean>,
+    `t_array_varchar` array<varchar(65535)>,
+    `t_array_char` array<char(10)>,
+    `t_array_decimal_precision_2` array<decimal(2,1)>,
+    `t_array_decimal_precision_4` array<decimal(4,2)>,
+    `t_array_decimal_precision_8` array<decimal(8,4)>,
+    `t_array_decimal_precision_17` array<decimal(17,8)>,
+    `t_array_decimal_precision_18` array<decimal(18,8)>,
+    `t_array_decimal_precision_38` array<decimal(38,16)>,
+    `t_struct_bigint` struct<s_bigint:bigint>,
+    `t_complex` map<string,array<struct<s_int:int>>>,
+    `t_struct_nested` struct<struct_field:array<string>>,
+    `t_struct_null` struct<struct_field_null:string,struct_field_null2:string>,
+    `t_struct_non_nulls_after_nulls` struct<struct_non_nulls_after_nulls1:int,struct_non_nulls_after_nulls2:string>,
+    `t_nested_struct_non_nulls_after_nulls` struct<struct_field1:int,struct_field2:string,strict_field3:struct<nested_struct_field1:int,nested_struct_field2:string>>,
+    `t_map_null_value` map<string,string>,
+    `t_array_string_starting_with_nulls` array<string>,
+    `t_array_string_with_nulls_in_between` array<string>,
+    `t_array_string_ending_with_nulls` array<string>,
+    `t_array_string_all_nulls` array<string>
+) ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/parquet_all_types'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1681213018');
+
+msck repair table parquet_all_types;
+
+CREATE TABLE IF NOT EXISTS `avro_all_types`(
+`t_null_string` string,
+`t_null_varchar` varchar(65535),
+`t_null_char` char(10),
+`t_null_array_int` array<int>,
+`t_null_decimal_precision_2` decimal(2,1),
+`t_null_decimal_precision_4` decimal(4,2),
+`t_null_decimal_precision_8` decimal(8,4),
+`t_null_decimal_precision_17` decimal(17,8),
+`t_null_decimal_precision_18` decimal(18,8),
+`t_null_decimal_precision_38` decimal(38,16),
+`t_empty_string` string,
+`t_string` string,
+`t_empty_varchar` varchar(65535),
+`t_varchar` varchar(65535),
+`t_varchar_max_length` varchar(65535),
+`t_char` char(10),
+`t_int` int,
+`t_bigint` bigint,
+`t_float` float,
+`t_double` double,
+`t_boolean_true` boolean,
+`t_boolean_false` boolean,
+`t_date` date,
+`t_timestamp` timestamp,
+`t_decimal_precision_2` decimal(2,1),
+`t_decimal_precision_4` decimal(4,2),
+`t_decimal_precision_8` decimal(8,4),
+`t_decimal_precision_17` decimal(17,8),
+`t_decimal_precision_18` decimal(18,8),
+`t_decimal_precision_38` decimal(38,16),
+`t_binary` binary,
+`t_map_string` map<string,string>,
+`t_array_empty` array<string>,
+`t_array_string` array<string>,
+`t_array_int` array<int>,
+`t_array_bigint` array<bigint>,
+`t_array_float` array<float>,
+`t_array_double` array<double>,
+`t_array_boolean` array<boolean>,
+`t_array_varchar` array<varchar(65535)>,
+`t_array_char` array<char(10)>,
+`t_array_date` array<date>,
+`t_array_timestamp` array<timestamp>,
+`t_array_decimal_precision_2` array<decimal(2,1)>,
+`t_array_decimal_precision_4` array<decimal(4,2)>,
+`t_array_decimal_precision_8` array<decimal(8,4)>,
+`t_array_decimal_precision_17` array<decimal(17,8)>,
+`t_array_decimal_precision_18` array<decimal(18,8)>,
+`t_array_decimal_precision_38` array<decimal(38,16)>,
+`t_struct_bigint` struct<s_bigint:bigint>,
+`t_complex` map<string,array<struct<s_int:int>>>,
+`t_struct_nested` struct<struct_field:array<string>>,
+`t_struct_null` struct<struct_field_null:string,struct_field_null2:string>,
+`t_struct_non_nulls_after_nulls` struct<struct_non_nulls_after_nulls1:int,struct_non_nulls_after_nulls2:string>,
+`t_array_string_starting_with_nulls` array<string>,
+`t_array_string_with_nulls_in_between` array<string>,
+`t_array_string_ending_with_nulls` array<string>,
+`t_array_string_all_nulls` array<string>
+)
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.avro.AvroContainerOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/avro/avro_all_types';
+
+msck repair table avro_all_types;
+
+
+CREATE TABLE IF NOT EXISTS `orc_all_types_t`(
+`t_null_string` string,
+`t_null_varchar` varchar(65535),
+`t_null_char` char(10),
+`t_null_array_int` array<int>,
+`t_null_decimal_precision_2` decimal(2,1),
+`t_null_decimal_precision_4` decimal(4,2),
+`t_null_decimal_precision_8` decimal(8,4),
+`t_null_decimal_precision_17` decimal(17,8),
+`t_null_decimal_precision_18` decimal(18,8),
+`t_null_decimal_precision_38` decimal(38,16),
+`t_empty_string` string,
+`t_string` string,
+`t_empty_varchar` varchar(65535),
+`t_varchar` varchar(65535),
+`t_varchar_max_length` varchar(65535),
+`t_char` char(10),
+`t_tinyint` tinyint,
+`t_smallint` smallint,
+`t_int` int,
+`t_bigint` bigint,
+`t_float` float,
+`t_double` double,
+`t_boolean_true` boolean,
+`t_boolean_false` boolean,
+`t_date` date,
+`t_timestamp` timestamp,
+`t_decimal_precision_2` decimal(2,1),
+`t_decimal_precision_4` decimal(4,2),
+`t_decimal_precision_8` decimal(8,4),
+`t_decimal_precision_17` decimal(17,8),
+`t_decimal_precision_18` decimal(18,8),
+`t_decimal_precision_38` decimal(38,16),
+`t_binary` binary,
+`t_map_string` map<string,string>,
+`t_map_tinyint` map<tinyint,tinyint>,
+`t_map_varchar` map<varchar(65535),varchar(65535)>,
+`t_map_char` map<char(10),char(10)>,
+`t_map_smallint` map<smallint,smallint>,
+`t_map_int` map<int,int>,
+`t_map_bigint` map<bigint,bigint>,
+`t_map_float` map<float,float>,
+`t_map_double` map<double,double>,
+`t_map_boolean` map<boolean,boolean>,
+`t_map_date` map<date,date>,
+`t_map_timestamp` map<timestamp,timestamp>,
+`t_map_decimal_precision_2` map<decimal(2,1),decimal(2,1)>,
+`t_map_decimal_precision_4` map<decimal(4,2),decimal(4,2)>,
+`t_map_decimal_precision_8` map<decimal(8,4),decimal(8,4)>,
+`t_map_decimal_precision_17` map<decimal(17,8),decimal(17,8)>,
+`t_map_decimal_precision_18` map<decimal(18,8),decimal(18,8)>,
+`t_map_decimal_precision_38` map<decimal(38,16),decimal(38,16)>,
+`t_array_empty` array<string>,
+`t_array_string` array<string>,
+`t_array_tinyint` array<tinyint>,
+`t_array_smallint` array<smallint>,
+`t_array_int` array<int>,
+`t_array_bigint` array<bigint>,
+`t_array_float` array<float>,
+`t_array_double` array<double>,
+`t_array_boolean` array<boolean>,
+`t_array_varchar` array<varchar(65535)>,
+`t_array_char` array<char(10)>,
+`t_array_date` array<date>,
+`t_array_timestamp` array<timestamp>,
+`t_array_decimal_precision_2` array<decimal(2,1)>,
+`t_array_decimal_precision_4` array<decimal(4,2)>,
+`t_array_decimal_precision_8` array<decimal(8,4)>,
+`t_array_decimal_precision_17` array<decimal(17,8)>,
+`t_array_decimal_precision_18` array<decimal(18,8)>,
+`t_array_decimal_precision_38` array<decimal(38,16)>,
+`t_struct_bigint` struct<s_bigint:bigint>,
+`t_complex` map<string,array<struct<s_int:int>>>,
+`t_struct_nested` struct<struct_field:array<string>>,
+`t_struct_null` struct<struct_field_null:string,struct_field_null2:string>,
+`t_struct_non_nulls_after_nulls` struct<struct_non_nulls_after_nulls1:int,struct_non_nulls_after_nulls2:string>,
+`t_nested_struct_non_nulls_after_nulls` struct<struct_field1:int,struct_field2:string,strict_field3:struct<nested_struct_field1:int,nested_struct_field2:string>>,
+`t_map_null_value` map<string,string>,
+`t_array_string_starting_with_nulls` array<string>,
+`t_array_string_with_nulls_in_between` array<string>,
+`t_array_string_ending_with_nulls` array<string>,
+`t_array_string_all_nulls` array<string>
+)
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.orc.OrcSerde'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/orc_table/orc_all_types';
+
+msck repair table orc_all_types_t;
+
+CREATE TABLE IF NOT EXISTS `json_all_types`(
+`t_null_string` string,
+`t_null_varchar` varchar(65535),
+`t_null_char` char(10),
+`t_null_decimal_precision_2` decimal(2,1),
+`t_null_decimal_precision_4` decimal(4,2),
+`t_null_decimal_precision_8` decimal(8,4),
+`t_null_decimal_precision_17` decimal(17,8),
+`t_null_decimal_precision_18` decimal(18,8),
+`t_null_decimal_precision_38` decimal(38,16),
+`t_empty_string` string,
+`t_string` string,
+`t_empty_varchar` varchar(65535),
+`t_varchar` varchar(65535),
+`t_varchar_max_length` varchar(65535),
+`t_char` char(10),
+`t_tinyint` tinyint,
+`t_smallint` smallint,
+`t_int` int,
+`t_bigint` bigint,
+`t_float` float,
+`t_double` double,
+`t_boolean_true` boolean,
+`t_boolean_false` boolean,
+`t_date` date,
+`t_timestamp` timestamp,
+`t_decimal_precision_2` decimal(2,1),
+`t_decimal_precision_4` decimal(4,2),
+`t_decimal_precision_8` decimal(8,4),
+`t_decimal_precision_17` decimal(17,8),
+`t_decimal_precision_18` decimal(18,8)
+)
+ROW FORMAT SERDE
+  'org.apache.hive.hcatalog.data.JsonSerDe'
+STORED AS TEXTFILE
+LOCATION
+  '/user/doris/preinstalled_data/json/json_all_types';
+
+msck repair table json_all_types;
+
+
+CREATE TABLE IF NOT EXISTS `csv_all_types`(
+`t_empty_string` string,
+`t_string` string
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+STORED AS TEXTFILE
+LOCATION
+  '/user/doris/preinstalled_data/csv/csv_all_types';
+
+msck repair table csv_all_types;
+
+CREATE TABLE IF NOT EXISTS `text_all_types`(
+`t_null_string` string,
+`t_null_varchar` varchar(65535),
+`t_null_char` char(10),
+`t_null_decimal_precision_2` decimal(2,1),
+`t_null_decimal_precision_4` decimal(4,2),
+`t_null_decimal_precision_8` decimal(8,4),
+`t_null_decimal_precision_17` decimal(17,8),
+`t_null_decimal_precision_18` decimal(18,8),
+`t_null_decimal_precision_38` decimal(38,16),
+`t_empty_string` string,
+`t_string` string,
+`t_empty_varchar` varchar(65535),
+`t_varchar` varchar(65535),
+`t_varchar_max_length` varchar(65535),
+`t_char` char(10),
+`t_tinyint` tinyint,
+`t_smallint` smallint,
+`t_int` int,
+`t_bigint` bigint,
+`t_float` float,
+`t_double` double,
+`t_boolean_true` boolean,
+`t_boolean_false` boolean,
+`t_date` date,
+`t_timestamp` timestamp,
+`t_decimal_precision_2` decimal(2,1),
+`t_decimal_precision_4` decimal(4,2),
+`t_decimal_precision_8` decimal(8,4),
+`t_decimal_precision_17` decimal(17,8),
+`t_decimal_precision_18` decimal(18,8),
+`t_decimal_precision_38` decimal(38,16),
+`t_binary` binary
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t'
+STORED AS TEXTFILE
+LOCATION
+  '/user/doris/preinstalled_data/text/text_all_types';
+
+msck repair table text_all_types;
+
+
+CREATE TABLE IF NOT EXISTS `sequence_all_types`(
+`t_null_string` string,
+`t_null_varchar` varchar(65535),
+`t_null_char` char(10),
+`t_null_array_int` array<int>,
+`t_null_decimal_precision_2` decimal(2,1),
+`t_null_decimal_precision_4` decimal(4,2),
+`t_null_decimal_precision_8` decimal(8,4),
+`t_null_decimal_precision_17` decimal(17,8),
+`t_null_decimal_precision_18` decimal(18,8),
+`t_null_decimal_precision_38` decimal(38,16),
+`t_empty_string` string,
+`t_string` string,
+`t_empty_varchar` varchar(65535),
+`t_varchar` varchar(65535),
+`t_varchar_max_length` varchar(65535),
+`t_char` char(10),
+`t_tinyint` tinyint,
+`t_smallint` smallint,
+`t_int` int,
+`t_bigint` bigint,
+`t_float` float,
+`t_double` double,
+`t_boolean_true` boolean,
+`t_boolean_false` boolean,
+`t_date` date,
+`t_timestamp` timestamp,
+`t_decimal_precision_2` decimal(2,1),
+`t_decimal_precision_4` decimal(4,2),
+`t_decimal_precision_8` decimal(8,4),
+`t_decimal_precision_17` decimal(17,8),
+`t_decimal_precision_18` decimal(18,8),
+`t_decimal_precision_38` decimal(38,16),
+`t_binary` binary,
+`t_map_string` map<string,string>,
+`t_map_tinyint` map<tinyint,tinyint>,
+`t_map_varchar` map<varchar(65535),varchar(65535)>,
+`t_map_char` map<char(10),char(10)>,
+`t_map_smallint` map<smallint,smallint>,
+`t_map_int` map<int,int>,
+`t_map_bigint` map<bigint,bigint>,
+`t_map_float` map<float,float>,
+`t_map_double` map<double,double>,
+`t_map_boolean` map<boolean,boolean>,
+`t_map_date` map<date,date>,
+`t_map_timestamp` map<timestamp,timestamp>,
+`t_map_decimal_precision_2` map<decimal(2,1),decimal(2,1)>,
+`t_map_decimal_precision_4` map<decimal(4,2),decimal(4,2)>,
+`t_map_decimal_precision_8` map<decimal(8,4),decimal(8,4)>,
+`t_map_decimal_precision_17` map<decimal(17,8),decimal(17,8)>,
+`t_map_decimal_precision_18` map<decimal(18,8),decimal(18,8)>,
+`t_map_decimal_precision_38` map<decimal(38,16),decimal(38,16)>,
+`t_array_empty` array<string>,
+`t_array_string` array<string>,
+`t_array_tinyint` array<tinyint>,
+`t_array_smallint` array<smallint>,
+`t_array_int` array<int>,
+`t_array_bigint` array<bigint>,
+`t_array_float` array<float>,
+`t_array_double` array<double>,
+`t_array_boolean` array<boolean>,
+`t_array_varchar` array<varchar(65535)>,
+`t_array_char` array<char(10)>,
+`t_array_date` array<date>,
+`t_array_timestamp` array<timestamp>,
+`t_array_decimal_precision_2` array<decimal(2,1)>,
+`t_array_decimal_precision_4` array<decimal(4,2)>,
+`t_array_decimal_precision_8` array<decimal(8,4)>,
+`t_array_decimal_precision_17` array<decimal(17,8)>,
+`t_array_decimal_precision_18` array<decimal(18,8)>,
+`t_array_decimal_precision_38` array<decimal(38,16)>,
+`t_struct_bigint` struct<s_bigint:bigint>,
+`t_complex` map<string,array<struct<s_int:int>>>,
+`t_struct_nested` struct<struct_field:array<string>>,
+`t_struct_null` struct<struct_field_null:string,struct_field_null2:string>,
+`t_struct_non_nulls_after_nulls` struct<struct_non_nulls_after_nulls1:int,struct_non_nulls_after_nulls2:string>,
+`t_nested_struct_non_nulls_after_nulls` struct<struct_field1:int,struct_field2:string,strict_field3:struct<nested_struct_field1:int,nested_struct_field2:string>>,
+`t_map_null_value` map<string,string>,
+`t_array_string_starting_with_nulls` array<string>,
+`t_array_string_with_nulls_in_between` array<string>,
+`t_array_string_ending_with_nulls` array<string>,
+`t_array_string_all_nulls` array<string>
+)
+STORED AS SEQUENCEFILE
+LOCATION
+  '/user/doris/preinstalled_data/sequence/sequence_all_types';
+
+msck repair table sequence_all_types;
+
+CREATE TABLE `parquet_gzip_all_types`(
+`t_null_string` string,
+`t_null_varchar` varchar(65535),
+`t_null_char` char(10),
+`t_null_decimal_precision_2` decimal(2,1),
+`t_null_decimal_precision_4` decimal(4,2),
+`t_null_decimal_precision_8` decimal(8,4),
+`t_null_decimal_precision_17` decimal(17,8),
+`t_null_decimal_precision_18` decimal(18,8),
+`t_null_decimal_precision_38` decimal(38,16),
+`t_empty_string` string,
+`t_string` string,
+`t_empty_varchar` varchar(65535),
+`t_varchar` varchar(65535),
+`t_varchar_max_length` varchar(65535),
+`t_char` char(10),
+`t_int` int,
+`t_bigint` bigint,
+`t_float` float,
+`t_double` double,
+`t_boolean_true` boolean,
+`t_boolean_false` boolean,
+`t_decimal_precision_2` decimal(2,1),
+`t_decimal_precision_4` decimal(4,2),
+`t_decimal_precision_8` decimal(8,4),
+`t_decimal_precision_17` decimal(17,8),
+`t_decimal_precision_18` decimal(18,8),
+`t_decimal_precision_38` decimal(38,16),
+`t_binary` binary,
+`t_map_string` map<string,string>,
+`t_map_varchar` map<varchar(65535),varchar(65535)>,
+`t_map_char` map<char(10),char(10)>,
+`t_map_int` map<int,int>,
+`t_map_bigint` map<bigint,bigint>,
+`t_map_float` map<float,float>,
+`t_map_double` map<double,double>,
+`t_map_boolean` map<boolean,boolean>,
+`t_map_decimal_precision_2` map<decimal(2,1),decimal(2,1)>,
+`t_map_decimal_precision_4` map<decimal(4,2),decimal(4,2)>,
+`t_map_decimal_precision_8` map<decimal(8,4),decimal(8,4)>,
+`t_map_decimal_precision_17` map<decimal(17,8),decimal(17,8)>,
+`t_map_decimal_precision_18` map<decimal(18,8),decimal(18,8)>,
+`t_map_decimal_precision_38` map<decimal(38,16),decimal(38,16)>,
+`t_array_string` array<string>,
+`t_array_int` array<int>,
+`t_array_bigint` array<bigint>,
+`t_array_float` array<float>,
+`t_array_double` array<double>,
+`t_array_boolean` array<boolean>,
+`t_array_varchar` array<varchar(65535)>,
+`t_array_char` array<char(10)>,
+`t_array_decimal_precision_2` array<decimal(2,1)>,
+`t_array_decimal_precision_4` array<decimal(4,2)>,
+`t_array_decimal_precision_8` array<decimal(8,4)>,
+`t_array_decimal_precision_17` array<decimal(17,8)>,
+`t_array_decimal_precision_18` array<decimal(18,8)>,
+`t_array_decimal_precision_38` array<decimal(38,16)>,
+`t_struct_bigint` struct<s_bigint:bigint>,
+`t_complex` map<string,array<struct<s_int:int>>>,
+`t_struct_nested` struct<struct_field:array<string>>,
+`t_struct_null` struct<struct_field_null:string,struct_field_null2:string>,
+`t_struct_non_nulls_after_nulls` struct<struct_non_nulls_after_nulls1:int,struct_non_nulls_after_nulls2:string>,
+`t_nested_struct_non_nulls_after_nulls` struct<struct_field1:int,struct_field2:string,strict_field3:struct<nested_struct_field1:int,nested_struct_field2:string>>,
+`t_map_null_value` map<string,string>,
+`t_array_string_starting_with_nulls` array<string>,
+`t_array_string_with_nulls_in_between` array<string>,
+`t_array_string_ending_with_nulls` array<string>,
+`t_array_string_all_nulls` array<string>
+) ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/parquet_gzip_all_types'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1681213018',
+  "parquet.compression"="GZIP");
+
+msck repair table parquet_gzip_all_types;
+
+CREATE TABLE `rcbinary_all_types`(
+`t_null_string` string,
+`t_null_varchar` varchar(65535),
+`t_null_char` char(10),
+`t_null_array_int` array<int>,
+`t_null_decimal_precision_2` decimal(2,1),
+`t_null_decimal_precision_4` decimal(4,2),
+`t_null_decimal_precision_8` decimal(8,4),
+`t_null_decimal_precision_17` decimal(17,8),
+`t_null_decimal_precision_18` decimal(18,8),
+`t_null_decimal_precision_38` decimal(38,16),
+`t_empty_string` string,
+`t_string` string,
+`t_varchar` varchar(65535),
+`t_varchar_max_length` varchar(65535),
+`t_char` char(10),
+`t_tinyint` tinyint,
+`t_smallint` smallint,
+`t_int` int,
+`t_bigint` bigint,
+`t_float` float,
+`t_double` double,
+`t_boolean_true` boolean,
+`t_boolean_false` boolean,
+`t_date` date,
+`t_timestamp` timestamp,
+`t_decimal_precision_2` decimal(2,1),
+`t_decimal_precision_4` decimal(4,2),
+`t_decimal_precision_8` decimal(8,4),
+`t_decimal_precision_17` decimal(17,8),
+`t_decimal_precision_18` decimal(18,8),
+`t_decimal_precision_38` decimal(38,16),
+`t_binary` binary,
+`t_map_string` map<string,string>,
+`t_map_tinyint` map<tinyint,tinyint>,
+`t_map_varchar` map<varchar(65535),varchar(65535)>,
+`t_map_char` map<char(10),char(10)>,
+`t_map_smallint` map<smallint,smallint>,
+`t_map_int` map<int,int>,
+`t_map_bigint` map<bigint,bigint>,
+`t_map_float` map<float,float>,
+`t_map_double` map<double,double>,
+`t_map_boolean` map<boolean,boolean>,
+`t_map_date` map<date,date>,
+`t_map_timestamp` map<timestamp,timestamp>,
+`t_map_decimal_precision_2` map<decimal(2,1),decimal(2,1)>,
+`t_map_decimal_precision_4` map<decimal(4,2),decimal(4,2)>,
+`t_map_decimal_precision_8` map<decimal(8,4),decimal(8,4)>,
+`t_map_decimal_precision_17` map<decimal(17,8),decimal(17,8)>,
+`t_map_decimal_precision_18` map<decimal(18,8),decimal(18,8)>,
+`t_map_decimal_precision_38` map<decimal(38,16),decimal(38,16)>,
+`t_array_empty` array<string>,
+`t_array_string` array<string>,
+`t_array_tinyint` array<tinyint>,
+`t_array_smallint` array<smallint>,
+`t_array_int` array<int>,
+`t_array_bigint` array<bigint>,
+`t_array_float` array<float>,
+`t_array_double` array<double>,
+`t_array_boolean` array<boolean>,
+`t_array_varchar` array<varchar(65535)>,
+`t_array_char` array<char(10)>,
+`t_array_date` array<date>,
+`t_array_timestamp` array<timestamp>,
+`t_array_decimal_precision_2` array<decimal(2,1)>,
+`t_array_decimal_precision_4` array<decimal(4,2)>,
+`t_array_decimal_precision_8` array<decimal(8,4)>,
+`t_array_decimal_precision_17` array<decimal(17,8)>,
+`t_array_decimal_precision_18` array<decimal(18,8)>,
+`t_array_decimal_precision_38` array<decimal(38,16)>,
+`t_struct_bigint` struct<s_bigint:bigint>,
+`t_complex` map<string,array<struct<s_int:int>>>,
+`t_struct_nested` struct<struct_field:array<string>>,
+`t_struct_null` struct<struct_field_null:string,struct_field_null2:string>,
+`t_struct_non_nulls_after_nulls` struct<struct_non_nulls_after_nulls1:int,struct_non_nulls_after_nulls2:string>,
+`t_nested_struct_non_nulls_after_nulls` struct<struct_field1:int,struct_field2:string,strict_field3:struct<nested_struct_field1:int,nested_struct_field2:string>>,
+`t_map_null_value` map<string,string>,
+`t_array_string_starting_with_nulls` array<string>,
+`t_array_string_with_nulls_in_between` array<string>,
+`t_array_string_ending_with_nulls` array<string>,
+`t_array_string_all_nulls` array<string>
+)
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe'
+STORED AS RCFILE
+LOCATION
+  '/user/doris/preinstalled_data/rcbinary/rcbinary_all_types';
+
+msck repair table rcbinary_all_types;
+
+CREATE TABLE `bloom_parquet_table`(
+`t_null_string` string,
+`t_null_varchar` varchar(65535),
+`t_null_char` char(10),
+`t_null_decimal_precision_2` decimal(2,1),
+`t_null_decimal_precision_4` decimal(4,2),
+`t_null_decimal_precision_8` decimal(8,4),
+`t_null_decimal_precision_17` decimal(17,8),
+`t_null_decimal_precision_18` decimal(18,8),
+`t_null_decimal_precision_38` decimal(38,16),
+`t_empty_string` string,
+`t_string` string,
+`t_empty_varchar` varchar(65535),
+`t_varchar` varchar(65535),
+`t_varchar_max_length` varchar(65535),
+`t_char` char(10),
+`t_int` int,
+`t_bigint` bigint,
+`t_float` float,
+`t_double` double,
+`t_boolean_true` boolean,
+`t_boolean_false` boolean,
+`t_decimal_precision_2` decimal(2,1),
+`t_decimal_precision_4` decimal(4,2),
+`t_decimal_precision_8` decimal(8,4),
+`t_decimal_precision_17` decimal(17,8),
+`t_decimal_precision_18` decimal(18,8),
+`t_decimal_precision_38` decimal(38,16),
+`t_binary` binary,
+`t_array_string` array<string>,
+`t_array_int` array<int>,
+`t_array_bigint` array<bigint>,
+`t_array_float` array<float>,
+`t_array_double` array<double>,
+`t_array_boolean` array<boolean>,
+`t_array_varchar` array<varchar(65535)>,
+`t_array_char` array<char(10)>,
+`t_array_decimal_precision_2` array<decimal(2,1)>,
+`t_array_decimal_precision_4` array<decimal(4,2)>,
+`t_array_decimal_precision_8` array<decimal(8,4)>,
+`t_array_decimal_precision_17` array<decimal(17,8)>,
+`t_array_decimal_precision_18` array<decimal(18,8)>,
+`t_array_decimal_precision_38` array<decimal(38,16)>,
+`t_struct_bigint` struct<s_bigint:bigint>,
+`t_struct_nested` struct<struct_field:array<string>>,
+`t_struct_null` struct<struct_field_null:string,struct_field_null2:string>,
+`t_struct_non_nulls_after_nulls` struct<struct_non_nulls_after_nulls1:int,struct_non_nulls_after_nulls2:string>,
+`t_nested_struct_non_nulls_after_nulls` struct<struct_field1:int,struct_field2:string,strict_field3:struct<nested_struct_field1:int,nested_struct_field2:string>>,
+`t_array_string_starting_with_nulls` array<string>,
+`t_array_string_with_nulls_in_between` array<string>,
+`t_array_string_ending_with_nulls` array<string>,
+`t_array_string_all_nulls` array<string>
+) ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/bloom_parquet_table'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1681213018',
+  'parquet.bloom.filter.columns'='t_int',
+  'parquet.bloom.filter.fpp'='0.05');
+
+msck repair table bloom_parquet_table;
+
+
+CREATE TABLE `bloom_orc_table`(
+`t_null_string` string,
+`t_null_varchar` varchar(65535),
+`t_null_char` char(10),
+`t_null_array_int` array<int>,
+`t_null_decimal_precision_2` decimal(2,1),
+`t_null_decimal_precision_4` decimal(4,2),
+`t_null_decimal_precision_8` decimal(8,4),
+`t_null_decimal_precision_17` decimal(17,8),
+`t_null_decimal_precision_18` decimal(18,8),
+`t_null_decimal_precision_38` decimal(38,16),
+`t_empty_string` string,
+`t_string` string,
+`t_empty_varchar` varchar(65535),
+`t_varchar` varchar(65535),
+`t_varchar_max_length` varchar(65535),
+`t_char` char(10),
+`t_tinyint` tinyint,
+`t_smallint` smallint,
+`t_int` int,
+`t_bigint` bigint,
+`t_float` float,
+`t_double` double,
+`t_boolean_true` boolean,
+`t_boolean_false` boolean,
+`t_date` date,
+`t_timestamp` timestamp,
+`t_decimal_precision_2` decimal(2,1),
+`t_decimal_precision_4` decimal(4,2),
+`t_decimal_precision_8` decimal(8,4),
+`t_decimal_precision_17` decimal(17,8),
+`t_decimal_precision_18` decimal(18,8),
+`t_decimal_precision_38` decimal(38,16),
+`t_binary` binary,
+`t_map_string` map<string,string>,
+`t_map_tinyint` map<tinyint,tinyint>,
+`t_map_varchar` map<varchar(65535),varchar(65535)>,
+`t_map_char` map<char(10),char(10)>,
+`t_map_smallint` map<smallint,smallint>,
+`t_map_int` map<int,int>,
+`t_map_bigint` map<bigint,bigint>,
+`t_map_float` map<float,float>,
+`t_map_double` map<double,double>,
+`t_map_boolean` map<boolean,boolean>,
+`t_map_date` map<date,date>,
+`t_map_timestamp` map<timestamp,timestamp>,
+`t_map_decimal_precision_2` map<decimal(2,1),decimal(2,1)>,
+`t_map_decimal_precision_4` map<decimal(4,2),decimal(4,2)>,
+`t_map_decimal_precision_8` map<decimal(8,4),decimal(8,4)>,
+`t_map_decimal_precision_17` map<decimal(17,8),decimal(17,8)>,
+`t_map_decimal_precision_18` map<decimal(18,8),decimal(18,8)>,
+`t_map_decimal_precision_38` map<decimal(38,16),decimal(38,16)>,
+`t_array_empty` array<string>,
+`t_array_string` array<string>,
+`t_array_tinyint` array<tinyint>,
+`t_array_smallint` array<smallint>,
+`t_array_int` array<int>,
+`t_array_bigint` array<bigint>,
+`t_array_float` array<float>,
+`t_array_double` array<double>,
+`t_array_boolean` array<boolean>,
+`t_array_varchar` array<varchar(65535)>,
+`t_array_char` array<char(10)>,
+`t_array_date` array<date>,
+`t_array_timestamp` array<timestamp>,
+`t_array_decimal_precision_2` array<decimal(2,1)>,
+`t_array_decimal_precision_4` array<decimal(4,2)>,
+`t_array_decimal_precision_8` array<decimal(8,4)>,
+`t_array_decimal_precision_17` array<decimal(17,8)>,
+`t_array_decimal_precision_18` array<decimal(18,8)>,
+`t_array_decimal_precision_38` array<decimal(38,16)>,
+`t_struct_bigint` struct<s_bigint:bigint>,
+`t_complex` map<string,array<struct<s_int:int>>>,
+`t_struct_nested` struct<struct_field:array<string>>,
+`t_struct_null` struct<struct_field_null:string,struct_field_null2:string>,
+`t_struct_non_nulls_after_nulls` struct<struct_non_nulls_after_nulls1:int,struct_non_nulls_after_nulls2:string>,
+`t_nested_struct_non_nulls_after_nulls` struct<struct_field1:int,struct_field2:string,strict_field3:struct<nested_struct_field1:int,nested_struct_field2:string>>,
+`t_map_null_value` map<string,string>,
+`t_array_string_starting_with_nulls` array<string>,
+`t_array_string_with_nulls_in_between` array<string>,
+`t_array_string_ending_with_nulls` array<string>,
+`t_array_string_all_nulls` array<string>
+)
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.orc.OrcSerde'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/orc_table/bloom_orc_table'
+TBLPROPERTIES (
+  'transient_lastDdlTime'='1681213018',
+  'orc.bloom.filter.columns'='t_int',
+  'orc.bloom.filter.fpp'='0.05');
+
+msck repair table bloom_orc_table;
+
+
+CREATE TABLE `orc_predicate_table`(
+`column_primitive_integer` int,
+`column1_struct` struct<field0:bigint,field1:bigint>,
+`column_primitive_bigint` bigint
+)
+ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.orc.OrcSerde'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/orc_table/orc_predicate_table';
+
+msck repair table orc_predicate_table;
+
+
+CREATE TABLE `parquet_predicate_table`(
+`column_primitive_integer` int,
+`column1_struct` struct<field0:bigint,field1:bigint>,
+`column_primitive_bigint` bigint
+) ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/parquet_predicate_table';
+
+msck repair table parquet_predicate_table;
+
+CREATE TABLE `only_null`(
+`x` int
+) ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/only_null';
+
+msck repair table only_null;
+
+
+CREATE TABLE `parquet_timestamp_millis`(
+test timestamp
+) ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/parquet_timestamp_millis';
+
+msck repair table parquet_timestamp_millis;
+
+
+CREATE TABLE `parquet_timestamp_micros`(
+test timestamp
+) ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/parquet_timestamp_micros';
+
+msck repair table parquet_timestamp_micros;
+
+CREATE TABLE `parquet_timestamp_nanos`(
+test timestamp
+) ROW FORMAT SERDE
+  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+STORED AS INPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+OUTPUTFORMAT
+  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+LOCATION
+  '/user/doris/preinstalled_data/parquet_table/parquet_timestamp_nanos';
+
+msck repair table parquet_timestamp_nanos;
+
+
 show tables;

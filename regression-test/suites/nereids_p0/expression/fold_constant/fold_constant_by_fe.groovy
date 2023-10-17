@@ -124,9 +124,11 @@ suite("test_fold_constant_by_fe") {
         res = sql "explain select date_trunc('${date}', 'year'), date_trunc('${date}', 'month'), date_trunc('${date}', 'day')"
         res = res.split('VUNION')[1]
         assertFalse(res.contains("date_trunc"))
+        assertFalse(res.contains("cast"))
         res = sql "explain select date_trunc('${date}', 'hour'), date_trunc('${date}', 'minute'), date_trunc('${date}', 'second')"
         res = res.split('VUNION')[1]
         assertFalse(res.contains("date_trunc"))
+        assertFalse(res.contains("cast"))
     }
 
     for (date in test_date) {

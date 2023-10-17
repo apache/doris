@@ -20,10 +20,13 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+
+import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Optional;
@@ -33,26 +36,29 @@ import java.util.Optional;
  */
 public class LogicalIntersect extends LogicalSetOperation {
 
-    public LogicalIntersect(Qualifier qualifier, List<Plan> inputs) {
-        super(PlanType.LOGICAL_INTERSECT, qualifier, inputs);
+    public LogicalIntersect(Qualifier qualifier, List<Plan> children) {
+        super(PlanType.LOGICAL_INTERSECT, qualifier, children);
     }
 
     public LogicalIntersect(Qualifier qualifier, List<NamedExpression> outputs,
-                            List<Plan> inputs) {
-        super(PlanType.LOGICAL_INTERSECT, qualifier, outputs, inputs);
+            List<List<SlotReference>> childrenOutputs, List<Plan> children) {
+        super(PlanType.LOGICAL_INTERSECT, qualifier, outputs, childrenOutputs, children);
     }
 
     public LogicalIntersect(Qualifier qualifier, List<NamedExpression> outputs,
-                         Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-                         List<Plan> inputs) {
-        super(PlanType.LOGICAL_INTERSECT, qualifier, outputs, groupExpression, logicalProperties, inputs);
+            List<List<SlotReference>> childrenOutputs,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            List<Plan> children) {
+        super(PlanType.LOGICAL_INTERSECT, qualifier, outputs, childrenOutputs,
+                groupExpression, logicalProperties, children);
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalIntersect",
                 "qualifier", qualifier,
-                "outputs", outputs);
+                "outputs", outputs,
+                "regularChildrenOutputs", regularChildrenOutputs);
     }
 
     @Override
@@ -62,24 +68,34 @@ public class LogicalIntersect extends LogicalSetOperation {
 
     @Override
     public LogicalIntersect withChildren(List<Plan> children) {
-        return new LogicalIntersect(qualifier, outputs, children);
+        return new LogicalIntersect(qualifier, outputs, regularChildrenOutputs, children);
+    }
+
+    @Override
+    public LogicalIntersect withChildrenAndTheirOutputs(List<Plan> children,
+            List<List<SlotReference>> childrenOutputs) {
+        Preconditions.checkArgument(children.size() == childrenOutputs.size(),
+                "children size %s is not equals with children outputs size %s",
+                children.size(), childrenOutputs.size());
+        return new LogicalIntersect(qualifier, outputs, childrenOutputs, children);
     }
 
     @Override
     public LogicalIntersect withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalIntersect(qualifier, outputs, groupExpression,
+        return new LogicalIntersect(qualifier, outputs, regularChildrenOutputs, groupExpression,
                 Optional.of(getLogicalProperties()), children);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalIntersect(qualifier, outputs, groupExpression, logicalProperties, children);
+        return new LogicalIntersect(qualifier, outputs, regularChildrenOutputs,
+                groupExpression, logicalProperties, children);
     }
 
     @Override
     public LogicalIntersect withNewOutputs(List<NamedExpression> newOutputs) {
-        return new LogicalIntersect(qualifier, newOutputs,
+        return new LogicalIntersect(qualifier, newOutputs, regularChildrenOutputs,
                 Optional.empty(), Optional.empty(), children);
     }
 }

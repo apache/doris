@@ -26,13 +26,14 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.HMSAnalysisTask;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -57,6 +58,7 @@ import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
@@ -109,6 +111,9 @@ public class HMSExternalTable extends ExternalTable {
 
     // No as precise as row count in TableStats, but better than none.
     private long estimatedRowCount = -1;
+
+    // record the partition update time when enable hms event listener
+    protected volatile long partitionUpdateTime;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG, DELTALAKE
@@ -266,11 +271,6 @@ public class HMSExternalTable extends ExternalTable {
 
     @Override
     public long getCreateTime() {
-        return 0;
-    }
-
-    @Override
-    public long getUpdateTime() {
         return 0;
     }
 
@@ -435,7 +435,7 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public long estimatedRowCount() {
         try {
-            TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
+            TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
             if (tableStats != null) {
                 long rowCount = tableStats.rowCount;
                 LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
@@ -627,6 +627,53 @@ public class HMSExternalTable extends ExternalTable {
         } else {
             builder.setMaxValue(Double.MAX_VALUE);
         }
+    }
+
+    public void setPartitionUpdateTime(long updateTime) {
+        this.partitionUpdateTime = updateTime;
+    }
+
+    @Override
+    // get the max value of `schemaUpdateTime` and `partitionUpdateTime`
+    // partitionUpdateTime will be refreshed after processing partition events with hms event listener enabled
+    public long getUpdateTime() {
+        return Math.max(this.schemaUpdateTime, this.partitionUpdateTime);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        estimatedRowCount = -1;
+    }
+
+    @Override
+    public List<Long> getChunkSizes() {
+        HiveMetaStoreCache.HivePartitionValues partitionValues = StatisticsUtil.getPartitionValuesForTable(this);
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions
+                = StatisticsUtil.getFilesForPartitions(this, partitionValues, 0);
+        List<Long> result = Lists.newArrayList();
+        for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
+            for (HiveMetaStoreCache.HiveFileStatus file : files.getFiles()) {
+                result.add(file.getLength());
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public long getDataSize(boolean singleReplica) {
+        long totalSize = StatisticsUtil.getTotalSizeFromHMS(this);
+        // Usually, we can get total size from HMS parameter.
+        if (totalSize > 0) {
+            return totalSize;
+        }
+        // If not found the size in HMS, calculate it by sum all files' size in table.
+        List<Long> chunkSizes = getChunkSizes();
+        long total = 0;
+        for (long size : chunkSizes) {
+            total += size;
+        }
+        return total;
     }
 }
 
