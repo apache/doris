@@ -32,8 +32,8 @@ suite("test_hdfs_tvf") {
             format = "csv"
             qt_csv_all_types """ select * from HDFS(
                         "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
+                        "column_separator" = ",",
                         "format" = "${format}") order by c1; """
 
 
@@ -41,15 +41,14 @@ suite("test_hdfs_tvf") {
             format = "csv"
             qt_csv_student """ select cast(c1 as INT) as id, c2 as name, c3 as age from HDFS(
                         "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
+                        "column_separator" = ",",
                         "format" = "${format}") order by id; """
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/array_malformat.csv"
             format = "csv"
             qt_csv_array_malformat """ select * from HDFS(
                                         "uri" = "${uri}",
-                                        "fs.defaultFS"= "${defaultFS}",
                                         "hadoop.username" = "${hdfsUserName}",
                                         "format" = "${format}",
                                         "column_separator" = "|") order by c1; """
@@ -57,7 +56,6 @@ suite("test_hdfs_tvf") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/array_normal.csv"
             format = "csv"
             qt_csv_array_normal """ select * from HDFS("uri" = "${uri}",
-                                    "fs.defaultFS"= "${defaultFS}",
                                     "hadoop.username" = "${hdfsUserName}",
                                     "format" = "${format}",
                                     "column_separator" = "|") order by c1; """
@@ -67,9 +65,9 @@ suite("test_hdfs_tvf") {
             format = "csv"
             qt_csv_with_compress_type """ select * from HDFS(
                         "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
+                        "column_separator" = ",",
                         "compress_type" = "GZ") order by c1; """
 
             // test csv format infer compress type
@@ -77,8 +75,8 @@ suite("test_hdfs_tvf") {
             format = "csv"
             qt_csv_infer_compress_type """ select * from HDFS(
                         "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
+                        "column_separator" = ",",
                         "format" = "${format}") order by c1; """
 
             // test csv_with_names file format
@@ -86,8 +84,8 @@ suite("test_hdfs_tvf") {
             format = "csv_with_names"
             qt_csv_names """ select cast(id as INT) as id, name, age from HDFS(
                             "uri" = "${uri}",
-                            "fs.defaultFS"= "${defaultFS}",
                             "hadoop.username" = "${hdfsUserName}",
+                            "column_separator" = ",",
                             "format" = "${format}") order by id; """
 
             // test csv_with_names_and_types file format
@@ -95,8 +93,8 @@ suite("test_hdfs_tvf") {
             format = "csv_with_names_and_types"
             qt_csv_names_types """ select cast(id as INT) as id, name, age from HDFS(
                                     "uri" = "${uri}",
-                                    "fs.defaultFS"= "${defaultFS}",
                                     "hadoop.username" = "${hdfsUserName}",
+                                    "column_separator" = ",",
                                     "format" = "${format}") order by id; """
 
 
@@ -105,7 +103,6 @@ suite("test_hdfs_tvf") {
             format = "parquet"
             qt_parquet """ select * from HDFS(
                             "uri" = "${uri}",
-                            "fs.defaultFS"= "${defaultFS}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}") order by s_suppkey limit 20; """
 
@@ -114,7 +111,6 @@ suite("test_hdfs_tvf") {
             format = "orc"
             qt_orc """ select * from HDFS(
                             "uri" = "${uri}",
-                            "fs.defaultFS"= "${defaultFS}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}") order by p_partkey limit 20; """
 
@@ -124,7 +120,6 @@ suite("test_hdfs_tvf") {
             format = "json"
             qt_json """ select * from HDFS(
                         "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
                         "strip_outer_array" = "false",
@@ -135,7 +130,6 @@ suite("test_hdfs_tvf") {
             format = "json"
             qt_json_limit1 """ select * from HDFS(
                         "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
                         "strip_outer_array" = "false",
@@ -145,7 +139,6 @@ suite("test_hdfs_tvf") {
             format = "json"
             qt_json_limit2 """ select * from HDFS(
                         "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
                         "strip_outer_array" = "true",
@@ -154,7 +147,6 @@ suite("test_hdfs_tvf") {
             format = "json"
             qt_json_limit3 """ select * from HDFS(
                         "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
                         "strip_outer_array" = "false",
@@ -163,7 +155,6 @@ suite("test_hdfs_tvf") {
             format = "json"
             qt_json_limit4 """ select * from HDFS(
                         "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
                         "strip_outer_array" = "false",
@@ -175,7 +166,6 @@ suite("test_hdfs_tvf") {
             format = "json"
             qt_json_root """ select cast(id as INT) as id, city, cast(code as INT) as code from HDFS(
                         "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
                         "strip_outer_array" = "false",
@@ -187,7 +177,6 @@ suite("test_hdfs_tvf") {
             format = "json"
             qt_json_paths """ select cast(id as INT) as id, cast(code as INT) as code from HDFS(
                         "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
                         "strip_outer_array" = "false",
@@ -199,7 +188,6 @@ suite("test_hdfs_tvf") {
             format = "json"
             qt_one_array """ select cast(id as INT) as id, city, cast(code as INT) as code from HDFS(
                             "uri" = "${uri}",
-                            "fs.defaultFS"= "${defaultFS}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}",
                             "strip_outer_array" = "true",
@@ -211,7 +199,6 @@ suite("test_hdfs_tvf") {
             format = "json"
             qt_cast """ select cast(id as INT) as id, city, cast(code as INT) as code from HDFS(
                         "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
                         "strip_outer_array" = "false",
@@ -240,7 +227,6 @@ suite("test_hdfs_tvf") {
                     select cast (id as INT) as id, city, cast (code as INT) as code
                     from HDFS(
                         "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
                         "strip_outer_array" = "false",
@@ -256,7 +242,6 @@ suite("test_hdfs_tvf") {
             format = "parquet"
             qt_desc """ desc function HDFS(
                             "uri" = "${uri}",
-                            "fs.defaultFS"= "${defaultFS}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}"); """
         } finally {
