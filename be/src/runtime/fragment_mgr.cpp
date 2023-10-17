@@ -961,7 +961,6 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
 #endif
 }
 
-
 bool FragmentMgr::is_pipeline_fragment(const TUniqueId& id) {
     std::unique_lock<std::mutex> state_lock(_lock);
     if (_pipeline_map.contains(id)) {
