@@ -151,36 +151,8 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
                         "format" = "${format}");
                         """
 
-        def tvf_res = sql """ select * from HDFS(
-                        "uri" = "${outfile_url}0.parquet",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "${format}");
-                        """
-
-        def hive_res = hive_docker """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
+        qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
             
-        logger.info("The result of tvf select:  " + tvf_res.toString());
-        logger.info("The result of hive select: " + hive_res.toString());
-
-        for (int row = 0; row < 8; ++row) {
-            for (int j = 0; j < 3; ++j) {
-                if (j == 2) {
-                    if (null != hive_res[row][j]) {
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"s_id\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"s_name\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"s_address\":", "")
-                    }
-                    if (null != tvf_res[row][j]) {
-                        tvf_res[row][j] = handle_doris_space_and_NULL(tvf_res[row][j])
-                    }
-                    logger.info("tvf array string:  " + tvf_res[row][j])
-                    logger.info("hive array string: " + hive_res[row][j])
-                    assertEquals(tvf_res[row][j], hive_res[row][j])
-                    continue;
-                }
-                assertEquals(tvf_res[row][j], hive_res[row][j])
-            }
-        }
     } finally {
     }
 
@@ -217,31 +189,8 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
                         "format" = "${format}");
                         """
 
-        def tvf_res = sql """ select * from HDFS(
-                        "uri" = "${outfile_url}0.parquet",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "${format}");
-                        """
+        qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
 
-        def hive_res = hive_docker """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
-            
-        logger.info("The result of tvf select:  " + tvf_res.toString());
-        logger.info("The result of hive select: " + hive_res.toString());
-
-        for (int row = 0; row < 7; ++row) {
-            for (int j = 0; j < 3; ++j) {
-                if (j == 2) {
-                    if (null != tvf_res[row][j]) {
-                        tvf_res[row][j] = handle_doris_space_and_NULL(tvf_res[row][j])
-                    }
-                    logger.info("tvf map string:  " + tvf_res[row][j])
-                    logger.info("hive map string: " + hive_res[row][j])
-                    assertEquals(tvf_res[row][j], hive_res[row][j])
-                    continue;
-                }
-                assertEquals(tvf_res[row][j], hive_res[row][j])
-            }
-        }
     } finally {
     }
 
@@ -280,31 +229,8 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
                         "format" = "${format}");
                         """
 
-        def tvf_res = sql """ select * from HDFS(
-                        "uri" = "${outfile_url}0.parquet",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "${format}");
-                        """
+        qt_hive_docker_03 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
 
-        def hive_res = hive_docker """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
-
-        logger.info("The result of tvf select:  " + tvf_res.toString());
-        logger.info("The result of hive select: " + hive_res.toString());
-
-        for (int row = 0; row < 7; ++row) {
-            for (int j = 0; j < 3; ++j) {
-                if (j == 2) {
-                    if (null != tvf_res[row][j]) {
-                        tvf_res[row][j] = handle_doris_space_and_NULL(tvf_res[row][j])
-                    }
-                    logger.info("tvf array string:  " + tvf_res[row][j])
-                    logger.info("hive array string: " + hive_res[row][j])
-                    assertEquals(tvf_res[row][j], hive_res[row][j])
-                    continue;
-                }
-                assertEquals(tvf_res[row][j], hive_res[row][j])
-            }
-        }
     } finally {
     }
 
@@ -348,49 +274,8 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
                         "format" = "${format}");
                         """
 
-        def tvf_res = sql """ select * from HDFS(
-                        "uri" = "${outfile_url}0.parquet",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "${format}");
-                        """
+        qt_hive_docker_04 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
 
-        def hive_res = hive_docker """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
-
-        logger.info("The result of tvf select:  " + tvf_res.toString());
-        logger.info("The result of hive select: " + hive_res.toString());
-
-        for (int row = 0; row < 8; ++row) {
-            for (int j = 0; j < 3; ++j) {
-                if (j == 2) {
-                    if (null != hive_res[row][j]) {
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"user_id\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"date\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"datetime\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"city\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"age\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"sex\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"bool_col\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"int_col\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"bigint_col\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"largeint_col\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"float_col\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"double_col\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"char_col\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("\"decimal_col\":", "")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("true", "1")
-                        hive_res[row][j] = hive_res[row][j].replaceAll("false", "0")
-                    }
-                    if (null != tvf_res[row][j]) {
-                        tvf_res[row][j] = handle_doris_space_and_NULL(tvf_res[row][j])
-                    }
-                    logger.info("tvf  struct string: " + tvf_res[row][j])
-                    logger.info("hive struct string: " + hive_res[row][j])
-                    assertEquals(tvf_res[row][j], hive_res[row][j])
-                    continue;
-                }
-                assertEquals(tvf_res[row][j], hive_res[row][j])
-            }
-        }
     } finally {
     }
 

@@ -143,16 +143,8 @@ suite("test_hive_read_parquet", "external,hive,external_docker") {
                     "hadoop.username" = "${hdfsUserName}",
                     "format" = "${format}");
                     """
-        def tvf_res = sql """ select * from HDFS(
-                    "uri" = "${outfile_url}0.parquet",
-                    "hadoop.username" = "${hdfsUserName}",
-                    "format" = "${format}");
-                    """
-        def hive_res = hive_docker """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
-        
-        logger.info("The result of tvf select: " + tvf_res.toString());
-        logger.info("The result of hive select: " + hive_res.toString());
-        assertEquals(tvf_res, hive_res)
+
+        qt_hive_docker_01 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
 
     } finally {
     }
@@ -273,26 +265,8 @@ suite("test_hive_read_parquet", "external,hive,external_docker") {
                     "format" = "${format}");
                     """
 
-        def tvf_res = sql """ select * from HDFS(
-                    "uri" = "${outfile_url}0.parquet",
-                    "hadoop.username" = "${hdfsUserName}",
-                    "format" = "${format}");
-                    """
-        def hive_res = hive_docker """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
+        qt_hive_docker_02 """ SELECT * FROM ${hive_database}.${hive_table} ORDER BY user_id;"""
         
-        logger.info("The result of tvf select: " + tvf_res.toString());
-        logger.info("The result of hive select: " + hive_res.toString());
-
-        for (int row = 0; row < 4; ++row) {
-            for (int j = 0; j < 27; ++j) {
-                // There are some problem when type is float in test framework
-                if (j == 15) {
-                    continue;
-                }
-                assertEquals(tvf_res[row][j], hive_res[row][j])
-            }
-        }
-
     } finally {
     }
 }
