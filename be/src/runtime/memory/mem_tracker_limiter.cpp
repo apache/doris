@@ -165,12 +165,14 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
 }
 
 void MemTrackerLimiter::make_type_snapshots(std::vector<MemTracker::Snapshot>* snapshots,
-                                            MemTrackerLimiter::Type type) {
+                                            MemTrackerLimiter::Type type, bool with_child) {
     if (type == Type::GLOBAL) {
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[0].group_lock);
         for (auto tracker : mem_tracker_limiter_pool[0].trackers) {
             (*snapshots).emplace_back(tracker->make_snapshot());
-            MemTracker::make_group_snapshot(snapshots, tracker->group_num(), tracker->label());
+            if (with_child) {
+                MemTracker::make_group_snapshot(snapshots, tracker->group_num(), tracker->label());
+            }
         }
     } else {
         for (unsigned i = 1; i < mem_tracker_limiter_pool.size(); ++i) {
@@ -178,8 +180,10 @@ void MemTrackerLimiter::make_type_snapshots(std::vector<MemTracker::Snapshot>* s
             for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
                 if (tracker->type() == type) {
                     (*snapshots).emplace_back(tracker->make_snapshot());
-                    MemTracker::make_group_snapshot(snapshots, tracker->group_num(),
-                                                    tracker->label());
+                    if (with_child) {
+                        MemTracker::make_group_snapshot(snapshots, tracker->group_num(),
+                                                        tracker->label());
+                    }
                 }
             }
         }
@@ -257,7 +261,8 @@ std::string MemTrackerLimiter::log_process_usage_str() {
     detail += "\nProcess Memory Summary:\n    " + MemTrackerLimiter::process_mem_log_str();
     std::vector<MemTracker::Snapshot> snapshots;
     MemTrackerLimiter::make_process_snapshots(&snapshots);
-    MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
+    MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL, true);
+    MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::COMPACTION, false);
     MemTrackerLimiter::make_top_consumption_snapshots(&snapshots, 15);
 
     // Add additional tracker printed when memory exceeds limit.

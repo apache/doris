@@ -104,6 +104,8 @@ private:
 protected:
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    // the mem tracker for process block
+    std::shared_ptr<MemTracker> _process_block_mem_tracker;
 
     TabletSharedPtr _tablet;
 

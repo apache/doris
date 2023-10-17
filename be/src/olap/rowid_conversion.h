@@ -22,6 +22,7 @@
 
 #include "olap/olap_common.h"
 #include "olap/utils.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
 
@@ -33,7 +34,11 @@ namespace doris {
 class RowIdConversion {
 public:
     RowIdConversion() = default;
-    ~RowIdConversion() = default;
+    ~RowIdConversion() {
+        if (_rowid_convert_mem_tracker.get() != nullptr) {
+            _rowid_convert_mem_tracker->release(_rowid_convert_mem_tracker->consumption());
+        }
+    }
 
     // resize segment rowid map to its rows num
     void init_segment_map(const RowsetId& src_rowset_id, const std::vector<uint32_t>& num_rows) {
@@ -109,6 +114,11 @@ public:
         return _segment_to_id_map.at(segment);
     }
 
+    void set_mem_tracker(std::shared_ptr<MemTracker> mem_tracker) {
+        this->_rowid_convert_mem_tracker = mem_tracker;
+    }
+    std::shared_ptr<MemTracker> get_mem_tracker() { return _rowid_convert_mem_tracker; }
+
 private:
     // the first level vector: index indicates src segment.
     // the second level vector: index indicates row id of source segment,
@@ -130,6 +140,9 @@ private:
 
     // current rowid of dst segment
     std::uint32_t _cur_dst_segment_rowid = 0;
+
+    // rowid conversion mem tracker
+    std::shared_ptr<MemTracker> _rowid_convert_mem_tracker;
 };
 
 } // namespace doris

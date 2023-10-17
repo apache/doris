@@ -747,6 +747,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                 _maybe_invalid_row_cache(key);
                 last_key = std::move(key);
             }
+            _primary_key_index_builder->update_mem_tracker();
         } else {
             // create short key indexes'
             // for min_max key
@@ -759,7 +760,6 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             }
         }
     }
-
     _num_rows_written += num_rows;
     _olap_data_convertor->clear_source_content();
     return Status::OK();
@@ -1054,7 +1054,9 @@ Status SegmentWriter::_write_short_key_index() {
 
 Status SegmentWriter::_write_primary_key_index() {
     CHECK(_primary_key_index_builder->num_rows() == _row_count);
-    return _primary_key_index_builder->finalize(_footer.mutable_primary_key_index_meta());
+    RETURN_IF_ERROR(_primary_key_index_builder->finalize(_footer.mutable_primary_key_index_meta()));
+    _primary_key_index_builder->update_mem_tracker();
+    return Status::OK();
 }
 
 Status SegmentWriter::_write_footer() {
