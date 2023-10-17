@@ -141,7 +141,7 @@ public class FeNameFormat {
     }
 
     public static void checkOutfileSuccessFileName(String type, String name) throws AnalysisException {
-        if (Strings.isNullOrEmpty(name) || !name.matches(getSuccessFileNameRegex())) {
+        if (Strings.isNullOrEmpty(name) || !name.matches(getOutfileSuccessFileNameRegex())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);
         }
     }
@@ -196,7 +196,7 @@ public class FeNameFormat {
         }
     }
 
-    public static String getSuccessFileNameRegex() {
+    public static String getOutfileSuccessFileNameRegex() {
         if (FeNameFormat.isEnableUnicodeNameSupport()) {
             return UNICODE_UNDERSCORE_COMMON_NAME_REGEX;
         } else {
