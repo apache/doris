@@ -301,13 +301,13 @@ public class StatisticsUtil {
 
     }
 
-
     public static DBObjects convertTableNameToObjects(TableName tableName) {
-        CatalogIf<DatabaseIf> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalogIf =
+                Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalogIf == null) {
             throw new IllegalStateException(String.format("Catalog:%s doesn't exist", tableName.getCtl()));
         }
-        DatabaseIf<TableIf> databaseIf = catalogIf.getDbNullable(tableName.getDb());
+        DatabaseIf<? extends TableIf> databaseIf = catalogIf.getDbNullable(tableName.getDb());
         if (databaseIf == null) {
             throw new IllegalStateException(String.format("DB:%s doesn't exist", tableName.getDb()));
         }
@@ -318,12 +318,17 @@ public class StatisticsUtil {
         return new DBObjects(catalogIf, databaseIf, tableIf);
     }
 
+    public static DBObjects convertIdToObjects(long catalogId, long dbId, long tblId) {
+        return new DBObjects(findCatalog(catalogId), findDatabase(catalogId, dbId), findTable(catalogId, dbId, tblId));
+    }
+
     public static Column findColumn(long catalogId, long dbId, long tblId, long idxId, String columnName) {
-        CatalogIf<DatabaseIf<TableIf>> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalogIf =
+                Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
         if (catalogIf == null) {
             return null;
         }
-        DatabaseIf<TableIf> db = catalogIf.getDb(dbId).orElse(null);
+        DatabaseIf<? extends TableIf> db = catalogIf.getDb(dbId).orElse(null);
         if (db == null) {
             return null;
         }
@@ -361,6 +366,16 @@ public class StatisticsUtil {
         }
     }
 
+    public static TableIf findTable(long catalogId, long dbId, long tblId) {
+        try {
+            DatabaseIf<? extends TableIf> db = findDatabase(catalogId, dbId);
+            return db.getTableOrException(tblId,
+                    t -> new RuntimeException("Table: " + t + " not exists"));
+        } catch (Throwable t) {
+            throw new RuntimeException("Table: `" + catalogId + "." + dbId + "." + tblId + "` not exists");
+        }
+    }
+
     /**
      * Throw RuntimeException if database not exists.
      */
@@ -371,6 +386,12 @@ public class StatisticsUtil {
                 d -> new RuntimeException("DB: " + d + " not exists"));
     }
 
+    public static DatabaseIf<? extends TableIf> findDatabase(long catalogId, long dbId)  {
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = findCatalog(catalogId);
+        return catalog.getDbOrException(dbId,
+                d -> new RuntimeException("DB: " + d + " not exists"));
+    }
+
     /**
      * Throw RuntimeException if catalog not exists.
      */
@@ -378,6 +399,11 @@ public class StatisticsUtil {
     public static CatalogIf findCatalog(String catalogName) {
         return Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(catalogName, c -> new RuntimeException("Catalog: " + c + " not exists"));
+    }
+
+    public static CatalogIf<? extends DatabaseIf<? extends TableIf>> findCatalog(long catalogId) {
+        return Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(catalogId,
+                c -> new RuntimeException("Catalog: " + c + " not exists"));
     }
 
     public static boolean isNullOrEmpty(String str) {
@@ -603,7 +629,12 @@ public class StatisticsUtil {
         }
         // Estimate row count: totalSize/estimatedRowSize
         long estimatedRowSize = 0;
+        List<Column> partitionColumns = table.getPartitionColumns();
         for (Column column : table.getFullSchema()) {
+            // Partition column shouldn't count to the row size, because it is not in the data file.
+            if (partitionColumns != null && partitionColumns.contains(column)) {
+                continue;
+            }
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {
@@ -757,6 +788,17 @@ public class StatisticsUtil {
         TableIf table;
         try {
             table = StatisticsUtil.findTable(catalogName, dbName, tblName);
+        } catch (Throwable e) {
+            LOG.warn(e.getMessage());
+            return false;
+        }
+        return table instanceof ExternalTable;
+    }
+
+    public static boolean isExternalTable(long catalogId, long dbId, long tblId) {
+        TableIf table;
+        try {
+            table = findTable(catalogId, dbId, tblId);
         } catch (Throwable e) {
             LOG.warn(e.getMessage());
             return false;

@@ -92,7 +92,6 @@ public:
     std::shared_ptr<std::vector<vectorized::Block>> build_blocks() const {
         return _shared_state->build_blocks;
     }
-    vectorized::Sizes probe_key_sz() const { return _shared_state->probe_key_sz; }
 
 private:
     void _prepare_probe_block();

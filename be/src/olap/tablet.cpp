@@ -1958,21 +1958,23 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
         context.segments_overlap = OVERLAP_UNKNOWN;
         context.tablet_schema = tablet_schema();
         context.newest_write_timestamp = UnixSeconds();
-        res = create_rowset_writer(context, &rs_writer);
 
-        if (!res.ok()) {
+        if (!(res = create_rowset_writer(context, &rs_writer)).ok()) {
             LOG(WARNING) << "failed to init rowset writer for tablet " << full_name();
             break;
         }
-        res = rs_writer->flush();
-        if (!res.ok()) {
+
+        if (!(res = rs_writer->flush()).ok()) {
             LOG(WARNING) << "failed to flush rowset writer for tablet " << full_name();
             break;
         }
 
-        new_rowset = rs_writer->build();
-        res = add_rowset(new_rowset);
-        if (!res.ok()) {
+        if (!(res = rs_writer->build(new_rowset)).ok()) {
+            LOG(WARNING) << "failed to build rowset for tablet " << full_name();
+            break;
+        }
+
+        if (!(res = add_rowset(new_rowset)).ok()) {
             LOG(WARNING) << "failed to add rowset for tablet " << full_name();
             break;
         }
@@ -2099,7 +2101,8 @@ Status Tablet::_cooldown_data() {
     RETURN_IF_ERROR(get_remote_file_system(storage_policy_id(), &dest_fs));
     auto old_rowset = pick_cooldown_rowset();
     if (!old_rowset) {
-        return Status::InternalError("cannot pick cooldown rowset in tablet {}", tablet_id());
+        LOG(INFO) << "cannot pick cooldown rowset in tablet " << tablet_id();
+        return Status::OK();
     }
     if (old_rowset->num_segments() < 1) {
         // Empty rowset, just reset rowset's resource_id
@@ -2228,8 +2231,9 @@ bool Tablet::update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replic
 Status Tablet::write_cooldown_meta() {
     std::shared_lock rlock(_cooldown_conf_lock);
     if (_cooldown_replica_id != _tablet_meta->replica_id()) {
-        return Status::Aborted("not cooldown replcia({} vs {}) tablet_id={}",
-                               _tablet_meta->replica_id(), _cooldown_replica_id, tablet_id());
+        return Status::Aborted<false>("not cooldown replica({} vs {}) tablet_id={}",
+                                      _tablet_meta->replica_id(), _cooldown_replica_id,
+                                      tablet_id());
     }
 
     std::shared_ptr<io::RemoteFileSystem> fs;
@@ -2294,7 +2298,11 @@ Status Tablet::_follow_cooldowned_data() {
     }
 
     TabletMetaPB cooldown_meta_pb;
-    RETURN_IF_ERROR(_read_cooldown_meta(fs, &cooldown_meta_pb));
+    auto st = _read_cooldown_meta(fs, &cooldown_meta_pb);
+    if (!st.ok()) {
+        LOG(INFO) << "cannot read cooldown meta: " << st;
+        return Status::InternalError<false>("cannot read cooldown meta");
+    }
     DCHECK(cooldown_meta_pb.rs_metas_size() > 0);
     if (_tablet_meta->cooldown_meta_id() == cooldown_meta_pb.cooldown_meta_id()) {
         // cooldowned rowsets are same, no need to follow
@@ -2310,7 +2318,7 @@ Status Tablet::_follow_cooldowned_data() {
         std::lock_guard wlock(_meta_lock);
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         if (tablet_state() != TABLET_RUNNING) {
-            return Status::InternalError("tablet not running");
+            return Status::InternalError<false>("tablet not running");
         }
 
         for (auto& [v, rs] : _rs_version_map) {
@@ -2320,13 +2328,14 @@ Status Tablet::_follow_cooldowned_data() {
             }
         }
         if (!version_aligned) {
-            return Status::InternalError("cooldowned version is not aligned");
+            return Status::InternalError<false>("cooldowned version is not aligned");
         }
         for (auto& [v, rs] : _rs_version_map) {
             if (v.second <= cooldowned_version) {
                 overlap_rowsets.push_back(rs);
             } else if (!rs->is_local()) {
-                return Status::InternalError("cooldowned version larger than that to follow");
+                return Status::InternalError<false>(
+                        "cooldowned version larger than that to follow");
             }
         }
         std::sort(overlap_rowsets.begin(), overlap_rowsets.end(), Rowset::comparator);
