@@ -14,20 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/AggregateFunctionSum.cpp
-// and modified by Doris
 
-#include "vec/aggregate_functions/aggregate_function_sum_old.h"
+package org.apache.doris.nereids.exceptions;
 
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/helpers.h"
+/**
+ * DialectTransformException when have not supported transforming for the
+ * {@link io.trino.sql.tree.Node}.
+ */
+public class DialectTransformException extends UnsupportedOperationException {
 
-namespace doris::vectorized {
-void register_aggregate_function_sum_old(AggregateFunctionSimpleFactory& factory) {
-    factory.register_alternative_function(
-            "sum", creator_with_type::creator<AggregateFunctionSumSimpleOld>, false);
-    factory.register_alternative_function(
-            "sum", creator_with_type::creator<AggregateFunctionSumSimpleOld>, true);
+    public DialectTransformException(String msg) {
+        super(String.format("Unsupported dialect transformation is %s", msg));
+    }
 }
-} // namespace doris::vectorized
