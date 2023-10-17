@@ -395,7 +395,8 @@ enum TOdbcTableType {
     PRESTO,
     OCEANBASE,
     OCEANBASE_ORACLE,
-    NEBULA
+    NEBULA,
+    GBASE
 }
 
 struct TJdbcExecutorCtorParams {

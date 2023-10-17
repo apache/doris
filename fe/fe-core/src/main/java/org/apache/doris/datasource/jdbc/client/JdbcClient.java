@@ -92,6 +92,8 @@ public abstract class JdbcClient {
             case JdbcResource.TRINO:
             case JdbcResource.PRESTO:
                 return new JdbcTrinoClient(jdbcClientConfig);
+            case JdbcResource.GBASE:
+                return new GBaseClient(jdbcClientConfig);
             default:
                 throw new IllegalArgumentException("Unsupported DB type: " + dbType);
         }
