@@ -57,7 +57,7 @@ public class FeNameFormatTest {
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkCommonName("fakeType", "commonName-"));
 
         // check success file name prefix
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName("_success"));
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkOutfileSuccessFileName("fakeType", "_success"));
     }
 
 }
