@@ -536,6 +536,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_routine_load_task_executor);
     SAFE_STOP(_pipeline_task_scheduler);
     SAFE_STOP(_pipeline_task_group_scheduler);
+    SAFE_STOP(_task_group_manager);
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
     // NewLoadStreamMgr should be destoried before storage_engine & after fragment_mgr stopped.

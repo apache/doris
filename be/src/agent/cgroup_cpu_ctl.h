@@ -30,9 +30,8 @@ namespace doris {
 
 class CgroupCpuCtl {
 public:
-    CgroupCpuCtl::~CgroupCpuCtl() = default;
+    virtual ~CgroupCpuCtl() = default;
     CgroupCpuCtl(uint64_t tg_id) { _tg_id = tg_id; }
-    virtual ~CgroupCpuCtl() = 0;
 
     virtual Status init();
 
