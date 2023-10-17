@@ -295,7 +295,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
     // create full block and fill with input columns
     auto full_block = _tablet_schema->create_block();
-    std::vector<uint32_t> including_cids = _tablet_schema->get_update_cids();
+    std::vector<uint32_t> including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
     size_t input_id = 0;
     for (auto i : including_cids) {
         full_block.replace_by_position(i, data.block->get_by_position(input_id++).column);
@@ -377,7 +377,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         auto st = _tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
                                           _mow_context->max_version, segment_caches, &rowset);
         if (st.is<KEY_NOT_FOUND>()) {
-            if (_tablet_schema->is_strict_mode()) {
+            if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
                 ++num_rows_filtered;
                 // delete the invalid newly inserted row
                 _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
@@ -385,7 +385,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                                                  segment_pos);
             }
 
-            if (!_tablet_schema->can_insert_new_rows_in_partial_update()) {
+            if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
                 return Status::InternalError(
                         "the unmentioned columns should have default value or be nullable for "
                         "newly inserted rows in non-strict mode partial update");
@@ -448,7 +448,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     }
 
     // convert missing columns and send to column writer
-    std::vector<uint32_t> missing_cids = _tablet_schema->get_missing_cids();
+    std::vector<uint32_t> missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
     _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, data.row_pos,
                                                                    data.num_rows, missing_cids);
     for (auto cid : missing_cids) {
@@ -501,8 +501,8 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         const size_t& segment_start_pos) {
     // create old value columns
-    auto old_value_block = _tablet_schema->create_missing_columns_block();
-    std::vector<uint32_t> cids_missing = _tablet_schema->get_missing_cids();
+    std::vector<uint32_t> cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
+    auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
     CHECK(cids_missing.size() == old_value_block.columns());
     auto mutable_old_columns = old_value_block.mutate_columns();
     bool has_row_column = _tablet_schema->store_row_column();
@@ -590,7 +590,9 @@ Status VerticalSegmentWriter::_fill_missing_columns(
 
 Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t row_pos,
                                           size_t num_rows) {
-    if (_tablet_schema->is_partial_update() && _opts.write_type == DataWriteType::TYPE_DIRECT) {
+    if (_opts.rowset_ctx->partial_update_info &&
+        _opts.rowset_ctx->partial_update_info->is_partial_update &&
+        _opts.write_type == DataWriteType::TYPE_DIRECT) {
         if (block->columns() <= _tablet_schema->num_key_columns() ||
             block->columns() >= _tablet_schema->num_columns()) {
             return Status::InternalError(fmt::format(
@@ -609,7 +611,9 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
 }
 
 Status VerticalSegmentWriter::write_batch() {
-    if (_tablet_schema->is_partial_update() && _opts.write_type == DataWriteType::TYPE_DIRECT) {
+    if (_opts.rowset_ctx->partial_update_info &&
+        _opts.rowset_ctx->partial_update_info->is_partial_update &&
+        _opts.write_type == DataWriteType::TYPE_DIRECT) {
         for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
             RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid)));
         }
