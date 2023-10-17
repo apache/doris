@@ -280,6 +280,23 @@ public:
         memcpy(_data.data() + old_size, data + begin_offset, total_mem_size);
     }
 
+    void insert_many_binary_data(char* data_array, uint32_t* len_array,
+                                 uint32_t* start_offset_array, size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+
+        size_t old_count = _item_count;
+        resize(old_count + num);
+        auto dst = _data.data() + old_count * _item_size;
+        for (size_t i = 0; i < num; i++) {
+            auto src = data_array + start_offset_array[i];
+            uint32_t len = len_array[i];
+            dst += i * _item_size;
+            memcpy(dst, src, len);
+        }
+    }
+
 protected:
     size_t _item_size;
     size_t _item_count;
