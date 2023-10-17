@@ -190,6 +190,7 @@ MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tde
           _table(tdesc.mcTable.table),
           _access_key(tdesc.mcTable.access_key),
           _secret_key(tdesc.mcTable.secret_key),
+          _partition_spec(tdesc.mcTable.partition_spec),
           _public_access(tdesc.mcTable.public_access) {}
 
 MaxComputeTableDescriptor::~MaxComputeTableDescriptor() = default;
