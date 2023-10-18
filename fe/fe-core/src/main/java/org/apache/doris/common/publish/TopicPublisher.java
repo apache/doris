@@ -15,34 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.common.publish;
 
-#include <gen_cpp/BackendService_types.h>
-#include <glog/logging.h>
+import org.apache.doris.thrift.TPublishTopicRequest;
 
-#include <map>
-#include <shared_mutex>
-#include <vector>
-
-namespace doris {
-class TopicListener;
-
-struct ThreadArgsPair {
-    TopicListener* first = nullptr;
-    TPublishTopicRequest* second = nullptr;
-};
-
-class TopicSubscriber {
-public:
-    TopicSubscriber();
-    ~TopicSubscriber();
-
-    void register_listener(TTopicInfoType::type topic_type, TopicListener* topic_listener);
-
-    void handle_topic_info(const TPublishTopicRequest& topic_request);
-
-private:
-    std::map<TTopicInfoType::type, TopicListener*> _registered_listeners;
-    std::shared_mutex _listener_mtx;
-};
-} // namespace doris
+public interface TopicPublisher {
+    public void getTopicInfo(TPublishTopicRequest req);
+}
