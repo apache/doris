@@ -515,7 +515,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::strin
     if (function) {
         return function;
     }
-    if (type->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+    if (type->get_type_as_type_descriptor().type != PrimitiveType::TYPE_AGG_STATE) {
         LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
                      << ", column_type=" << type->get_name();
         return nullptr;
