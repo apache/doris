@@ -108,7 +108,7 @@ under the License.
                 </repository>
                 <repository>
                     <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
                 </repository>
             </repositories>
         </profile>

@@ -60,6 +60,7 @@ public class AnalysisInfoBuilder {
     private long partitionCount;
     private CronExpression cronExpression;
     private boolean forceFull;
+    private boolean usingSqlForPartitionColumn;
 
     public AnalysisInfoBuilder() {
     }
@@ -95,6 +96,7 @@ public class AnalysisInfoBuilder {
         partitionCount = info.partitionCount;
         cronExpression = info.cronExpression;
         forceFull = info.forceFull;
+        usingSqlForPartitionColumn = info.usingSqlForPartitionColumn;
     }
 
     public AnalysisInfoBuilder setJobId(long jobId) {
@@ -237,12 +239,19 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public void setCronExpression(CronExpression cronExpression) {
+    public AnalysisInfoBuilder setCronExpression(CronExpression cronExpression) {
         this.cronExpression = cronExpression;
+        return this;
     }
 
-    public void setForceFull(boolean forceFull) {
+    public AnalysisInfoBuilder setForceFull(boolean forceFull) {
         this.forceFull = forceFull;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setUsingSqlForPartitionColumn(boolean usingSqlForPartitionColumn) {
+        this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
+        return this;
     }
 
     public AnalysisInfo build() {
@@ -250,7 +259,7 @@ public class AnalysisInfoBuilder {
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
                 externalTableLevelTask, partitionOnly, samplingPartition, isAllPartition, partitionCount,
-                cronExpression, forceFull);
+                cronExpression, forceFull, usingSqlForPartitionColumn);
     }
 
     public AnalysisInfoBuilder copy() {
@@ -281,6 +290,9 @@ public class AnalysisInfoBuilder {
                 .setSamplingPartition(samplingPartition)
                 .setPartitionOnly(partitionOnly)
                 .setAllPartition(isAllPartition)
-                .setPartitionCount(partitionCount);
+                .setPartitionCount(partitionCount)
+                .setCronExpression(cronExpression)
+                .setForceFull(forceFull)
+                .setUsingSqlForPartitionColumn(usingSqlForPartitionColumn);
     }
 }

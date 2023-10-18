@@ -1958,21 +1958,23 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
         context.segments_overlap = OVERLAP_UNKNOWN;
         context.tablet_schema = tablet_schema();
         context.newest_write_timestamp = UnixSeconds();
-        res = create_rowset_writer(context, &rs_writer);
 
-        if (!res.ok()) {
+        if (!(res = create_rowset_writer(context, &rs_writer)).ok()) {
             LOG(WARNING) << "failed to init rowset writer for tablet " << full_name();
             break;
         }
-        res = rs_writer->flush();
-        if (!res.ok()) {
+
+        if (!(res = rs_writer->flush()).ok()) {
             LOG(WARNING) << "failed to flush rowset writer for tablet " << full_name();
             break;
         }
 
-        new_rowset = rs_writer->build();
-        res = add_rowset(new_rowset);
-        if (!res.ok()) {
+        if (!(res = rs_writer->build(new_rowset)).ok()) {
+            LOG(WARNING) << "failed to build rowset for tablet " << full_name();
+            break;
+        }
+
+        if (!(res = add_rowset(new_rowset)).ok()) {
             LOG(WARNING) << "failed to add rowset for tablet " << full_name();
             break;
         }
@@ -2004,14 +2006,14 @@ Status Tablet::create_rowset_writer(RowsetWriterContext& context,
 
 // create a rowset writer with rowset_id and seg_id
 // after writer, merge this transient rowset with original rowset
-Status Tablet::create_transient_rowset_writer(RowsetSharedPtr rowset_ptr,
-                                              std::unique_ptr<RowsetWriter>* rowset_writer) {
+Status Tablet::create_transient_rowset_writer(
+        RowsetSharedPtr rowset_ptr, std::unique_ptr<RowsetWriter>* rowset_writer,
+        std::shared_ptr<PartialUpdateInfo> partial_update_info) {
     RowsetWriterContext context;
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = std::make_shared<TabletSchema>();
     context.tablet_schema->copy_from(*(rowset_ptr->tablet_schema()));
-    context.tablet_schema->set_partial_update_info(false, std::set<std::string>());
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = table_id();
     context.enable_segcompaction = false;
@@ -2019,6 +2021,8 @@ Status Tablet::create_transient_rowset_writer(RowsetSharedPtr rowset_ptr,
     // get the shared_ptr from tablet_manager.
     context.tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
     context.write_type = DataWriteType::TYPE_DIRECT;
+    context.partial_update_info = partial_update_info;
+    context.is_transient_rowset_writer = true;
     RETURN_IF_ERROR(
             create_transient_rowset_writer(context, rowset_ptr->rowset_id(), rowset_writer));
     (*rowset_writer)->set_segment_start_id(rowset_ptr->num_segments());
@@ -2099,7 +2103,8 @@ Status Tablet::_cooldown_data() {
     RETURN_IF_ERROR(get_remote_file_system(storage_policy_id(), &dest_fs));
     auto old_rowset = pick_cooldown_rowset();
     if (!old_rowset) {
-        return Status::InternalError("cannot pick cooldown rowset in tablet {}", tablet_id());
+        LOG(INFO) << "cannot pick cooldown rowset in tablet " << tablet_id();
+        return Status::OK();
     }
     if (old_rowset->num_segments() < 1) {
         // Empty rowset, just reset rowset's resource_id
@@ -2228,8 +2233,9 @@ bool Tablet::update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replic
 Status Tablet::write_cooldown_meta() {
     std::shared_lock rlock(_cooldown_conf_lock);
     if (_cooldown_replica_id != _tablet_meta->replica_id()) {
-        return Status::Aborted("not cooldown replcia({} vs {}) tablet_id={}",
-                               _tablet_meta->replica_id(), _cooldown_replica_id, tablet_id());
+        return Status::Aborted<false>("not cooldown replica({} vs {}) tablet_id={}",
+                                      _tablet_meta->replica_id(), _cooldown_replica_id,
+                                      tablet_id());
     }
 
     std::shared_ptr<io::RemoteFileSystem> fs;
@@ -2294,7 +2300,11 @@ Status Tablet::_follow_cooldowned_data() {
     }
 
     TabletMetaPB cooldown_meta_pb;
-    RETURN_IF_ERROR(_read_cooldown_meta(fs, &cooldown_meta_pb));
+    auto st = _read_cooldown_meta(fs, &cooldown_meta_pb);
+    if (!st.ok()) {
+        LOG(INFO) << "cannot read cooldown meta: " << st;
+        return Status::InternalError<false>("cannot read cooldown meta");
+    }
     DCHECK(cooldown_meta_pb.rs_metas_size() > 0);
     if (_tablet_meta->cooldown_meta_id() == cooldown_meta_pb.cooldown_meta_id()) {
         // cooldowned rowsets are same, no need to follow
@@ -2310,7 +2320,7 @@ Status Tablet::_follow_cooldowned_data() {
         std::lock_guard wlock(_meta_lock);
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         if (tablet_state() != TABLET_RUNNING) {
-            return Status::InternalError("tablet not running");
+            return Status::InternalError<false>("tablet not running");
         }
 
         for (auto& [v, rs] : _rs_version_map) {
@@ -2320,13 +2330,14 @@ Status Tablet::_follow_cooldowned_data() {
             }
         }
         if (!version_aligned) {
-            return Status::InternalError("cooldowned version is not aligned");
+            return Status::InternalError<false>("cooldowned version is not aligned");
         }
         for (auto& [v, rs] : _rs_version_map) {
             if (v.second <= cooldowned_version) {
                 overlap_rowsets.push_back(rs);
             } else if (!rs->is_local()) {
-                return Status::InternalError("cooldowned version larger than that to follow");
+                return Status::InternalError<false>(
+                        "cooldowned version larger than that to follow");
             }
         }
         std::sort(overlap_rowsets.begin(), overlap_rowsets.end(), Rowset::comparator);
@@ -2726,14 +2737,18 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
     vectorized::DataTypeSerDeSPtrs serdes;
     serdes.resize(cids.size());
     std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
+    std::vector<std::string> default_values;
+    default_values.resize(cids.size());
     for (int i = 0; i < cids.size(); ++i) {
         const TabletColumn& column = tablet_schema->column(cids[i]);
         vectorized::DataTypePtr type =
                 vectorized::DataTypeFactory::instance().create_data_type(column);
         col_uid_to_idx[column.unique_id()] = i;
+        default_values[i] = column.default_value();
         serdes[i] = type->get_serde();
     }
-    vectorized::JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx, block);
+    vectorized::JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx, block,
+                                                   default_values);
     return Status::OK();
 }
 
@@ -2918,7 +2933,16 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     auto rowset_id = rowset->rowset_id();
     Version dummy_version(end_version + 1, end_version + 1);
     auto rowset_schema = rowset->tablet_schema();
-    bool is_partial_update = rowset_schema->is_partial_update();
+    bool is_partial_update = rowset_writer && rowset_writer->is_partial_update();
+    bool have_input_seq_column = false;
+    if (is_partial_update && rowset_schema->has_sequence_col()) {
+        std::vector<uint32_t> including_cids =
+                rowset_writer->get_partial_update_info()->update_cids;
+        have_input_seq_column =
+                rowset_schema->has_sequence_col() &&
+                (std::find(including_cids.cbegin(), including_cids.cend(),
+                           rowset_schema->sequence_col_idx()) != including_cids.cend());
+    }
     // use for partial update
     PartialUpdateReadPlan read_plan_ori;
     PartialUpdateReadPlan read_plan_update;
@@ -2987,12 +3011,24 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 continue;
             }
 
-            // sequence id smaller than the previous one, so delete current row
-            if (st.is<KEY_ALREADY_EXISTS>()) {
+            if (st.is<KEY_ALREADY_EXISTS>() && (!is_partial_update || have_input_seq_column)) {
+                // `st.is<KEY_ALREADY_EXISTS>()` means that there exists a row with the same key and larger value
+                // in seqeunce column.
+                // - If the current load is not a partial update, we just delete current row.
+                // - Otherwise, it means that we are doing the alignment process in publish phase due to conflicts
+                // during concurrent partial updates. And there exists another load which introduces a row with
+                // the same keys and larger sequence column value published successfully after the commit phase
+                // of the current load.
+                //     - If the columns we update include sequence column, we should delete the current row becase the
+                //       partial update on the current row has been `overwritten` by the previous one with larger sequence
+                //       column value.
+                //     - Otherwise, we should combine the values of the missing columns in the previous row and the values
+                //       of the including columns in the current row into a new row.
                 delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
                                    row_id);
                 continue;
-            } else if (is_partial_update && rowset_writer != nullptr) {
+            }
+            if (is_partial_update && rowset_writer != nullptr) {
                 // In publish version, record rows to be deleted for concurrent update
                 // For example, if version 5 and 6 update a row, but version 6 only see
                 // version 4 when write, and when publish version, version 5's value will
@@ -3039,8 +3075,11 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     }
 
     if (pos > 0) {
+        auto partial_update_info = rowset_writer->get_partial_update_info();
+        DCHECK(partial_update_info);
         RETURN_IF_ERROR(generate_new_block_for_partial_update(
-                rowset_schema, read_plan_ori, read_plan_update, rsid_to_rowset, &block));
+                rowset_schema, partial_update_info->missing_cids, partial_update_info->update_cids,
+                read_plan_ori, read_plan_update, rsid_to_rowset, &block));
         sort_block(block, ordered_block);
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
     }
@@ -3114,7 +3153,8 @@ std::vector<RowsetSharedPtr> Tablet::get_rowset_by_ids(
 }
 
 Status Tablet::generate_new_block_for_partial_update(
-        TabletSchemaSPtr rowset_schema, const PartialUpdateReadPlan& read_plan_ori,
+        TabletSchemaSPtr rowset_schema, const std::vector<uint32>& missing_cids,
+        const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
         const PartialUpdateReadPlan& read_plan_update,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         vectorized::Block* output_block) {
@@ -3125,10 +3165,8 @@ Status Tablet::generate_new_block_for_partial_update(
     // 4. mark current keys deleted
     CHECK(output_block);
     auto full_mutable_columns = output_block->mutate_columns();
-    auto old_block = rowset_schema->create_missing_columns_block();
-    auto missing_cids = rowset_schema->get_missing_cids();
-    auto update_block = rowset_schema->create_update_columns_block();
-    auto update_cids = rowset_schema->get_update_cids();
+    auto old_block = rowset_schema->create_block_by_cids(missing_cids);
+    auto update_block = rowset_schema->create_block_by_cids(update_cids);
 
     std::map<uint32_t, uint32_t> read_index_old;
     RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, missing_cids, read_plan_ori, rsid_to_rowset,

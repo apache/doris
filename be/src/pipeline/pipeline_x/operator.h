@@ -45,14 +45,14 @@ namespace doris::pipeline {
 struct LocalStateInfo {
     RuntimeProfile* parent_profile;
     const std::vector<TScanRangeParams> scan_ranges;
-    Dependency* dependency;
+    std::vector<DependencySPtr>& dependencys;
 };
 
 // This struct is used only for initializing local sink state.
 struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile;
     const int sender_id;
-    Dependency* dependency;
+    std::vector<DependencySPtr>& dependencys;
     const TDataSink& tsink;
 };
 
@@ -232,8 +232,6 @@ public:
 
     virtual Status setup_local_state(RuntimeState* state, LocalStateInfo& info) = 0;
 
-    virtual Status setup_local_states(RuntimeState* state, std::vector<LocalStateInfo>& infos) = 0;
-
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this))
@@ -306,7 +304,6 @@ public:
     ~OperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
-    Status setup_local_states(RuntimeState* state, std::vector<LocalStateInfo>& info) override;
     using LocalState = LocalStateType;
 };
 
@@ -419,8 +416,7 @@ public:
     Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
 
-    virtual Status setup_local_states(RuntimeState* state,
-                                      std::vector<LocalSinkStateInfo>& infos) = 0;
+    virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
 
     template <class TARGET>
     TARGET& cast() {
@@ -532,7 +528,7 @@ public:
             : DataSinkOperatorXBase(id, node_id, sources) {}
     ~DataSinkOperatorX() override = default;
 
-    Status setup_local_states(RuntimeState* state, std::vector<LocalSinkStateInfo>& infos) override;
+    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
     void get_dependency(std::vector<DependencySPtr>& dependency) override;
 
     using LocalState = LocalStateType;

@@ -42,8 +42,8 @@ public class AnalyzeProperties {
     public static final String PROPERTY_NUM_BUCKETS = "num.buckets";
     public static final String PROPERTY_ANALYSIS_TYPE = "analysis.type";
     public static final String PROPERTY_PERIOD_SECONDS = "period.seconds";
-
     public static final String PROPERTY_FORCE_FULL = "force.full";
+    public static final String PROPERTY_PARTITION_COLUMN_FROM_SQL = "partition.column.from.sql";
 
     public static final AnalyzeProperties DEFAULT_PROP = new AnalyzeProperties(new HashMap<String, String>() {
         {
@@ -71,6 +71,7 @@ public class AnalyzeProperties {
             .add(PROPERTY_PERIOD_SECONDS)
             .add(PROPERTY_PERIOD_CRON)
             .add(PROPERTY_FORCE_FULL)
+            .add(PROPERTY_PARTITION_COLUMN_FROM_SQL)
             .build();
 
     public AnalyzeProperties(Map<String, String> properties) {
@@ -274,6 +275,10 @@ public class AnalyzeProperties {
 
     public boolean isSampleRows() {
         return properties.containsKey(PROPERTY_SAMPLE_ROWS);
+    }
+
+    public boolean usingSqlForPartitionColumn() {
+        return properties.containsKey(PROPERTY_PARTITION_COLUMN_FROM_SQL);
     }
 
     public String toSQL() {
