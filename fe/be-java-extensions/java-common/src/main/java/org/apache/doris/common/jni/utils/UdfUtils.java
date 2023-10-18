@@ -367,11 +367,11 @@ public class UdfUtils {
                     0, 0, true);
         } else if (java.util.Date.class.equals(clz)) {
             java.util.Date date = (java.util.Date) obj;
-            return convertToDateTime(date.getYear() + 1900, date.getMonth(), date.getDay(), 0,
+            return convertToDateTime(date.getYear() + 1900, date.getMonth() + 1, date.getDay(), 0,
                     0, 0, true);
         } else if (org.joda.time.LocalDate.class.equals(clz)) {
             org.joda.time.LocalDate date = (org.joda.time.LocalDate) obj;
-            return convertToDateTime(date.getYear(), date.getDayOfMonth(), date.getDayOfMonth(), 0,
+            return convertToDateTime(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), 0,
                     0, 0, true);
         } else {
             return 0;
