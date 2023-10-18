@@ -17,6 +17,7 @@
 
 #include "olap/rowset/vertical_beta_rowset_writer.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <algorithm>
