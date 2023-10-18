@@ -231,4 +231,9 @@ suite("nereids_scalar_fn_M") {
 	qt_sql_murmur_hash3_64_Varchar_notnull "select murmur_hash3_64(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_murmur_hash3_64_String "select murmur_hash3_64(kstr) from fn_test order by kstr"
 	qt_sql_murmur_hash3_64_String_notnull "select murmur_hash3_64(kstr) from fn_test_not_nullable order by kstr"
+
+	// bugfix
+	qt_bugfix_months_diff_1 "select months_diff('2023-10-14 00:00:00', '1975-10-18 00:00:00');"
+	qt_bugfix_months_diff_2 "select months_diff(cast('2023-10-14' as datev2), cast('1975-10-18 00:00:00' as datetimev2));"
+	qt_bugfix_months_diff_3 "select months_diff(cast('2023-10-14 00:00:00' as datetimev2), cast('1975-10-18' as datev2));"
 }
