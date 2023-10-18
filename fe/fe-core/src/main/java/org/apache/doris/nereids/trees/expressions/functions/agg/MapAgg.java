@@ -56,12 +56,6 @@ public class MapAgg extends AggregateFunction
         super("map_agg", distinct, arg0, arg1);
     }
 
-    @Override
-    public FunctionSignature computeSignature(FunctionSignature signature) {
-        signature = signature.withReturnType(MapType.of(getArgumentType(0), getArgumentType(1)));
-        return super.computeSignature(signature);
-    }
-
     /**
      * withDistinctAndChildren.
      */

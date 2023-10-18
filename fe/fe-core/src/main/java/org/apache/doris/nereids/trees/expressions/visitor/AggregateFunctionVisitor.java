@@ -176,6 +176,10 @@ public interface AggregateFunctionVisitor<R, C> {
     default R visitIntersectCount(IntersectCount intersectCount, C context) {
         return visitAggregateFunction(intersectCount, context);
     }
+    
+    default R visitMapAgg(MapAgg mapAgg, C context) {
+        return visitAggregateFunction(mapAgg, context);
+    }
 
     default R visitMax(Max max, C context) {
         return visitNullableAggregateFunction(max, context);
@@ -285,7 +289,4 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(javaUdaf, context);
     }
 
-    default R visitMapAgg(MapAgg mapAgg, C context) {
-        return visitAggregateFunction(mapAgg, context);
-    }
 }
