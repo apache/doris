@@ -59,7 +59,12 @@ public:
     DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_);
 
     TypeIndex get_type_id() const override { return TypeIndex::Map; }
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_MAP; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        TypeDescriptor desc(TYPE_MAP);
+        desc.add_sub_type(key_type->get_type_as_type_descriptor());
+        desc.add_sub_type(value_type->get_type_as_type_descriptor());
+        return desc;
+    }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::MAP;
     }

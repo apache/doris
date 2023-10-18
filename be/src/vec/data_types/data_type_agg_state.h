@@ -31,6 +31,8 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_fixed_length_object.h"
@@ -73,7 +75,9 @@ public:
 
     TypeIndex get_type_id() const override { return TypeIndex::AggState; }
 
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_AGG_STATE; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_AGG_STATE);
+    }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::AGG_STATE;
     }

@@ -56,7 +56,9 @@ public:
 
     TypeIndex get_type_id() const override { return TypeIndex::String; }
 
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_STRING; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_STRING);
+    }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::STRING;
     }

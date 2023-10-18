@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
 #include "serde/data_type_array_serde.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -58,8 +59,11 @@ public:
     DataTypeArray(const DataTypePtr& nested_);
 
     TypeIndex get_type_id() const override { return TypeIndex::Array; }
-
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_ARRAY; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        TypeDescriptor desc(TYPE_ARRAY);
+        desc.add_sub_type(nested->get_type_as_type_descriptor());
+        return desc;
+    }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::ARRAY;
     }
