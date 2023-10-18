@@ -351,6 +351,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     if (state && !(state->get_error_log_file_path().empty())) {
         ss << ", error_url=" << state->get_error_log_file_path();
     }
+    ss << ", rows=" << state->num_rows_load_success();
     LOG(INFO) << ss.str();
     return st;
 }

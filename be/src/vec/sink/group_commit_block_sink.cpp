@@ -88,16 +88,19 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
     RETURN_IF_ERROR(close_status);
     // wait to wal
     int64_t total_rows = 0;
+    int64_t loaded_rows = 0;
     for (const auto& future_block : _future_blocks) {
         std::unique_lock<doris::Mutex> l(*(future_block->lock));
         if (!future_block->is_handled()) {
             future_block->cv->wait(l);
         }
         // future_block->get_status()
-        // future_block->get_loaded_rows();
+        loaded_rows += future_block->get_loaded_rows();
         total_rows += future_block->get_total_rows();
     }
-    state->set_num_rows_load_total(total_rows + state->num_rows_load_unselected() +
+    state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() + total_rows -
+                                         loaded_rows);
+    state->set_num_rows_load_total(loaded_rows + state->num_rows_load_unselected() +
                                    state->num_rows_load_filtered());
     return Status::OK();
 }

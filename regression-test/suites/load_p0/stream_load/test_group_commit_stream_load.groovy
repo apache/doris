@@ -48,6 +48,26 @@ suite("test_group_commit_stream_load") {
         return false
     }
 
+    def checkStreamLoadResult = { exception, result, total_rows, loaded_rows, filtered_rows, unselected_rows ->
+        if (exception != null) {
+            throw exception
+        }
+        log.info("Stream load result: ${result}".toString())
+        def json = parseJson(result)
+        assertEquals("success", json.Status.toLowerCase())
+        assertTrue(json.GroupCommit)
+        assertTrue(json.Label.startsWith("group_commit_"))
+        assertEquals(total_rows, json.NumberTotalRows)
+        assertEquals(loaded_rows, json.NumberLoadedRows)
+        assertEquals(filtered_rows, json.NumberFilteredRows)
+        assertEquals(unselected_rows, json.NumberUnselectedRows)
+        if (filtered_rows > 0) {
+            assertFalse(json.ErrorURL.isEmpty())
+        } else {
+            assertTrue(json.ErrorURL == null || json.ErrorURL.isEmpty())
+        }
+    }
+
     try {
         // create table
         sql """ drop table if exists ${tableName}; """
@@ -86,14 +106,7 @@ suite("test_group_commit_stream_load") {
                 time 10000 // limit inflight 10s
 
                 check { result, exception, startTime, endTime ->
-                    if (exception != null) {
-                        throw exception
-                    }
-                    log.info("Stream load result: ${result}".toString())
-                    def json = parseJson(result)
-                    assertEquals("success", json.Status.toLowerCase())
-                    assertTrue(json.GroupCommit)
-                    assertTrue(json.Label.startsWith("group_commit_"))
+                    checkStreamLoadResult(exception, result, 4, 4, 0, 0)
                 }
             }
         }
@@ -111,14 +124,7 @@ suite("test_group_commit_stream_load") {
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertTrue(json.GroupCommit)
-                assertTrue(json.Label.startsWith("group_commit_"))
+                checkStreamLoadResult(exception, result, 2, 2, 0, 0)
             }
         }
 
@@ -135,14 +141,7 @@ suite("test_group_commit_stream_load") {
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertTrue(json.GroupCommit)
-                assertTrue(json.Label.startsWith("group_commit_"))
+                checkStreamLoadResult(exception, result, 2, 2, 0, 0)
             }
         }
 
@@ -160,18 +159,7 @@ suite("test_group_commit_stream_load") {
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertTrue(json.GroupCommit)
-                assertTrue(json.Label.startsWith("group_commit_"))
-                assertEquals(2, json.NumberTotalRows)
-                assertEquals(1, json.NumberLoadedRows)
-                assertEquals(0, json.NumberFilteredRows)
-                assertEquals(1, json.NumberUnselectedRows)
+                checkStreamLoadResult(exception, result, 2, 1, 0, 1)
             }
         }
 
@@ -188,14 +176,7 @@ suite("test_group_commit_stream_load") {
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertTrue(json.GroupCommit)
-                assertTrue(json.Label.startsWith("group_commit_"))
+                checkStreamLoadResult(exception, result, 2, 2, 0, 0)
             }
         }
 
@@ -213,20 +194,7 @@ suite("test_group_commit_stream_load") {
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertTrue(json.GroupCommit)
-                assertTrue(json.Label.startsWith("group_commit_"))
-                assertEquals(6, json.NumberTotalRows)
-                // TODO
-                /*assertEquals(2, json.NumberLoadedRows)
-                assertEquals(3, json.NumberFilteredRows)*/
-                assertEquals(1, json.NumberUnselectedRows)
-                assertFalse(json.ErrorURL.isEmpty())
+                checkStreamLoadResult(exception, result, 6, 2, 3, 1)
             }
         }
 
@@ -333,20 +301,7 @@ suite("test_group_commit_stream_load") {
                 // if declared a check callback, the default check condition will ignore.
                 // So you must check all condition
                 check { result, exception, startTime, endTime ->
-                    if (exception != null) {
-                        throw exception
-                    }
-                    log.info("Stream load ${i}, result: ${result}")
-                    def json = parseJson(result)
-                    assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-                    if (json.NumberLoadedRows != 600572) {
-                       logger.warn("Stream load ${i}, loaded rows: ${json.NumberLoadedRows}")
-                    }
-                    // assertEquals(json.NumberLoadedRows, 600572)
-                    assertTrue(json.LoadBytes > 0)
-                    assertTrue(json.GroupCommit)
-                    assertTrue(json.Label.startsWith("group_commit_"))
+                    checkStreamLoadResult(exception, result, 600572, 600572, 0, 0)
                 }
             }
         }
