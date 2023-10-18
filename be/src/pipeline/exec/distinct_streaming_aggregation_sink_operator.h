@@ -116,8 +116,8 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    WriteDependencyResult wait_for_dependency(RuntimeState* state) override {
+        CREATE_SINK_LOCAL_STATE_RETURN_RESULT_IF_ERROR(local_state);
         return local_state._dependency->write_blocked_by();
     }
 };

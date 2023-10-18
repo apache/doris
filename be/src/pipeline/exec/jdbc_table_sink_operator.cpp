@@ -57,14 +57,14 @@ Status JdbcTableSinkOperatorX::open(RuntimeState* state) {
 
 Status JdbcTableSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                     SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    CREATE_SINK_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     RETURN_IF_ERROR(local_state.sink(state, block, source_state));
     return Status::OK();
 }
 
-WriteDependency* JdbcTableSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+WriteDependencyResult JdbcTableSinkOperatorX::wait_for_dependency(RuntimeState* state) {
+    CREATE_SINK_LOCAL_STATE_RETURN_RESULT_IF_ERROR(local_state);
     return local_state.write_blocked_by();
 }
 

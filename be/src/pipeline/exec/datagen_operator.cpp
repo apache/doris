@@ -80,7 +80,7 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block*
         return Status::InternalError("input is NULL pointer");
     }
     RETURN_IF_CANCELLED(state);
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    CREATE_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state);
     bool eos = false;
     Status res = local_state._table_func->get_next(state, block, &eos);
     source_state = eos ? SourceState::FINISHED : source_state;

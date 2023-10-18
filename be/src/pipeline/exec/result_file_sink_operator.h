@@ -92,7 +92,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    WriteDependency* wait_for_dependency(RuntimeState* state) override;
+    WriteDependencyResult wait_for_dependency(RuntimeState* state) override;
 
     FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 

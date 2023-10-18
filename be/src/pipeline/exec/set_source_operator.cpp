@@ -89,7 +89,7 @@ template <bool is_intersect>
 Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectorized::Block* block,
                                                    SourceState& source_state) {
     RETURN_IF_CANCELLED(state);
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    CREATE_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     _create_mutable_cols(local_state, block);
     auto st = std::visit(

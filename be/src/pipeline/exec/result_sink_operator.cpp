@@ -138,7 +138,7 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
 
 Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                  SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    CREATE_SINK_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
@@ -206,8 +206,8 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     return final_status;
 }
 
-WriteDependency* ResultSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+WriteDependencyResult ResultSinkOperatorX::wait_for_dependency(RuntimeState* state) {
+    CREATE_SINK_LOCAL_STATE_RETURN_RESULT_IF_ERROR(local_state);
     return local_state._result_sink_dependency->write_blocked_by();
 }
 

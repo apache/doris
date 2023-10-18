@@ -97,7 +97,7 @@ public:
 
     Status push(RuntimeState* state, vectorized::Block* input_block,
                 SourceState source_state) const override {
-        CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+        CREATE_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state);
         if (input_block->rows() == 0) {
             return Status::OK();
         }
@@ -111,7 +111,7 @@ public:
 
     Status pull(RuntimeState* state, vectorized::Block* output_block,
                 SourceState& source_state) const override {
-        CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+        CREATE_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state);
         RETURN_IF_ERROR(local_state.get_expanded_block(state, output_block, source_state));
         local_state.reached_limit(output_block, source_state);
         return Status::OK();

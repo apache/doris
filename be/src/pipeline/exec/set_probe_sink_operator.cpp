@@ -102,8 +102,8 @@ Status SetProbeSinkOperatorX<is_intersect>::open(RuntimeState* state) {
 }
 
 template <bool is_intersect>
-WriteDependency* SetProbeSinkOperatorX<is_intersect>::wait_for_dependency(RuntimeState* state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+WriteDependencyResult SetProbeSinkOperatorX<is_intersect>::wait_for_dependency(RuntimeState* state) {
+    CREATE_SINK_LOCAL_STATE_RETURN_RESULT_IF_ERROR(local_state);
     return ((SetSharedState*)local_state._dependency->shared_state())
                            ->probe_finished_children_index[_cur_child_id - 1]
                    ? nullptr
@@ -114,7 +114,7 @@ template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
                                                  SourceState source_state) {
     RETURN_IF_CANCELLED(state);
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    CREATE_SINK_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 

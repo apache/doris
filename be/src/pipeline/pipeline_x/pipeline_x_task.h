@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline.h"
@@ -74,7 +75,11 @@ public:
             return true;
         }
         for (auto& op : _operators) {
-            auto dep = op->wait_for_dependency(_state);
+            auto result = op->wait_for_dependency(_state);
+            if (!result) {
+                LOG_FATAL("PipelineX source_can_read failed , reason {}", result.error());
+            }
+            auto* dep = result.value();
             if (dep != nullptr) {
                 dep->start_read_watcher();
                 return false;
@@ -88,7 +93,11 @@ public:
     }
 
     bool sink_can_write() override {
-        auto dep = _sink->wait_for_dependency(_state);
+        auto result = _sink->wait_for_dependency(_state);
+        if (!result) {
+            LOG_FATAL("PipelineX sink_can_write failed , reason {}", result.error());
+        }
+        auto* dep = result.value();
         if (dep != nullptr) {
             dep->start_write_watcher();
             return false;
@@ -102,7 +111,7 @@ public:
 
     bool is_pending_finish() override {
         for (auto& op : _operators) {
-            auto dep = op->finish_blocked_by(_state);
+            auto *dep = op->finish_blocked_by(_state);
             if (dep != nullptr) {
                 dep->start_finish_watcher();
                 return true;

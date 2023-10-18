@@ -234,7 +234,7 @@ public:
                            int num_receivers = 1);
 
     Status try_close(RuntimeState* state, Status exec_status) override;
-    WriteDependency* wait_for_dependency(RuntimeState* state) override;
+    WriteDependencyResult wait_for_dependency(RuntimeState* state) override;
     FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
 private:

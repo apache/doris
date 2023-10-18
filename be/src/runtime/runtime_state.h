@@ -458,11 +458,15 @@ public:
                              std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> state);
 
     std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> get_local_state(int id);
+    using ResultLocalState = Result<std::shared_ptr<doris::pipeline::PipelineXLocalStateBase>>;
+    ResultLocalState get_local_state_result(int id);
 
     void emplace_sink_local_state(
             int id, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state);
-
     std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> get_sink_local_state(int id);
+    using ResultSinkLocalState =
+            Result<std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase>>;
+    ResultSinkLocalState get_sink_local_state_result(int id);
 
 private:
     Status create_error_log_file();

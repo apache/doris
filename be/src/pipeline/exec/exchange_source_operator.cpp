@@ -123,7 +123,7 @@ Status ExchangeSourceOperatorX::open(RuntimeState* state) {
 
 Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    CREATE_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (_is_merging && !local_state.is_ready) {
         RETURN_IF_ERROR(local_state.stream_recvr->create_merger(
@@ -166,8 +166,8 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     return status;
 }
 
-Dependency* ExchangeSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+DependencyResult ExchangeSourceOperatorX::wait_for_dependency(RuntimeState* state) {
+    CREATE_LOCAL_STATE_RETURN_RESULT_IF_ERROR(local_state);
     return local_state.source_dependency->read_blocked_by();
 }
 

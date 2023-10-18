@@ -112,7 +112,7 @@ class ExchangeSourceOperatorX final : public OperatorX<ExchangeLocalState> {
 public:
     ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
                             int num_senders);
-    Dependency* wait_for_dependency(RuntimeState* state) override;
+    DependencyResult wait_for_dependency(RuntimeState* state) override;
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;

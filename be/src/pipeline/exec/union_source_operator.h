@@ -94,11 +94,11 @@ public:
     UnionSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
             : Base(pool, tnode, descs), _child_size(tnode.num_children) {};
     ~UnionSourceOperatorX() override = default;
-    Dependency* wait_for_dependency(RuntimeState* state) override {
+    DependencyResult wait_for_dependency(RuntimeState* state) override {
         if (_child_size == 0) {
             return nullptr;
         }
-        CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+        CREATE_LOCAL_STATE_RETURN_RESULT_IF_ERROR(local_state);
         return local_state._dependency->read_blocked_by();
     }
 

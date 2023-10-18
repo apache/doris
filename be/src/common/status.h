@@ -18,6 +18,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "util/expected.hpp"
 #ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
 #endif
@@ -592,6 +593,15 @@ inline std::string Status::to_string() const {
 
 template <typename T>
 using Result = expected<T, Status>;
+
+using ResultError = unexpected<Status>;
+
+#define RETURN_ERROR_OR_GET_VALUE(name, stmt) \
+    auto ExpectedRet = (stmt);                \
+    if (!ExpectedRet) {                       \
+        return ExpectedRet.error();           \
+    }                                         \
+    auto& name = ExpectedRet.value();
 
 #define RETURN_IF_ERROR_RESULT(stmt)                \
     do {                                            \

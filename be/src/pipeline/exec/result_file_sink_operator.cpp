@@ -262,7 +262,7 @@ void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelP
 
 Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                      SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    CREATE_SINK_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     return local_state.sink(state, in_block, source_state);
@@ -273,8 +273,8 @@ FinishDependency* ResultFileSinkOperatorX::finish_blocked_by(RuntimeState* state
     return local_state._finish_dependency->finish_blocked_by();
 }
 
-WriteDependency* ResultFileSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+WriteDependencyResult ResultFileSinkOperatorX::wait_for_dependency(RuntimeState* state) {
+    CREATE_SINK_LOCAL_STATE_RETURN_RESULT_IF_ERROR(local_state);
     return local_state.write_blocked_by();
 }
 

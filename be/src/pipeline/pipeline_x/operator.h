@@ -21,25 +21,25 @@
 
 namespace doris::pipeline {
 
-#define CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state)                                 \
-    auto _sptr = state->get_local_state(id());                                          \
-    if (!_sptr) return Status::InternalError("could not find local state id {}", id()); \
-    auto& local_state = _sptr->template cast<LocalState>();
+#define CREATE_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state) \
+    auto _sptr = state->get_local_state_result(id());          \
+    if (!_sptr) return _sptr.error();                          \
+    auto& local_state = (_sptr.value())->template cast<LocalState>();
 
-#define CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state)                            \
-    auto _sptr = state->get_sink_local_state(id());                                     \
-    if (!_sptr) return Status::InternalError("could not find local state id {}", id()); \
-    auto& local_state = _sptr->template cast<LocalState>();
+#define CREATE_SINK_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state) \
+    auto _sptr = state->get_sink_local_state_result(id());          \
+    if (!_sptr) return _sptr.error();                               \
+    auto& local_state = (_sptr.value())->template cast<LocalState>();
 
-#define CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state) \
-    auto _sptr = state->get_local_state(id());               \
-    if (!_sptr) return nullptr;                              \
-    auto& local_state = _sptr->template cast<LocalState>();
+#define CREATE_LOCAL_STATE_RETURN_RESULT_IF_ERROR(local_state) \
+    auto _sptr = state->get_local_state_result(id());          \
+    if (!_sptr) return ResultError(_sptr.error());             \
+    auto& local_state = (_sptr.value())->template cast<LocalState>();
 
-#define CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state) \
-    auto _sptr = state->get_sink_local_state(id());               \
-    if (!_sptr) return nullptr;                                   \
-    auto& local_state = _sptr->template cast<LocalState>();
+#define CREATE_SINK_LOCAL_STATE_RETURN_RESULT_IF_ERROR(local_state) \
+    auto _sptr = state->get_sink_local_state_result(id());          \
+    if (!_sptr) return ResultError(_sptr.error());                  \
+    auto& local_state = (_sptr.value())->template cast<LocalState>();
 
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
@@ -55,7 +55,8 @@ struct LocalSinkStateInfo {
     std::vector<DependencySPtr>& dependencys;
     const TDataSink& tsink;
 };
-
+using DependencyResult = Result<Dependency*>;
+using WriteDependencyResult = Result<WriteDependency*>;
 class PipelineXLocalStateBase {
 public:
     PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent);
@@ -216,7 +217,7 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    virtual Dependency* wait_for_dependency(RuntimeState* state) { return nullptr; }
+    virtual DependencyResult wait_for_dependency(RuntimeState* state) { return nullptr; }
 
     virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
 
@@ -458,7 +459,7 @@ public:
         return false;
     }
 
-    virtual WriteDependency* wait_for_dependency(RuntimeState* state) { return nullptr; }
+    virtual WriteDependencyResult wait_for_dependency(RuntimeState* state) { return nullptr; }
 
     virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
 

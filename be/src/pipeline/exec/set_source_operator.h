@@ -86,8 +86,8 @@ public:
             : Base(pool, tnode, descs) {};
     ~SetSourceOperatorX() override = default;
 
-    Dependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+    DependencyResult wait_for_dependency(RuntimeState* state) override {
+        CREATE_LOCAL_STATE_RETURN_RESULT_IF_ERROR(local_state);
         return local_state._dependency->read_blocked_by();
     }
 

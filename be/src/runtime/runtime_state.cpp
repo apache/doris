@@ -437,6 +437,14 @@ std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> RuntimeState::get_loca
     return _op_id_to_local_state[id];
 }
 
+RuntimeState::ResultLocalState RuntimeState::get_local_state_result(int id) {
+    std::unique_lock<std::mutex> l(_local_state_lock);
+    if (_op_id_to_local_state.find(id) == _op_id_to_local_state.end()) {
+        return ResultError(Status::InternalError("could not find local state id {}", id));
+    }
+    return _op_id_to_local_state[id];
+}
+
 void RuntimeState::emplace_sink_local_state(
         int id, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
     std::unique_lock<std::mutex> l(_local_sink_state_lock);
@@ -448,6 +456,14 @@ std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> RuntimeState::get_
     std::unique_lock<std::mutex> l(_local_sink_state_lock);
     if (_op_id_to_sink_local_state.find(id) == _op_id_to_sink_local_state.end()) {
         return nullptr;
+    }
+    return _op_id_to_sink_local_state[id];
+}
+
+RuntimeState::ResultSinkLocalState RuntimeState::get_sink_local_state_result(int id) {
+    std::unique_lock<std::mutex> l(_local_sink_state_lock);
+    if (_op_id_to_sink_local_state.find(id) == _op_id_to_sink_local_state.end()) {
+        return ResultError(Status::InternalError("could not find sink local state id {}", id));
     }
     return _op_id_to_sink_local_state[id];
 }

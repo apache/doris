@@ -42,7 +42,7 @@ SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnod
 
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    CREATE_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     SCOPED_TIMER(local_state._get_next_timer);
     bool eos = false;
@@ -55,8 +55,8 @@ Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
     return Status::OK();
 }
 
-Dependency* SortSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+DependencyResult SortSourceOperatorX::wait_for_dependency(RuntimeState* state) {
+    CREATE_LOCAL_STATE_RETURN_RESULT_IF_ERROR(local_state);
     return local_state._dependency->read_blocked_by();
 }
 

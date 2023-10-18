@@ -183,7 +183,7 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* child_block, int 
 
 Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block,
                              SourceState source_state) const {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    CREATE_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state);
     local_state._child_eos = source_state == SourceState::FINISHED;
     auto& _intermediate_block = local_state._intermediate_block;
     auto& _expr_ctxs = local_state._expr_ctxs;
@@ -210,7 +210,7 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
 
 Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
                              SourceState& source_state) const {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    CREATE_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     auto& _repeat_id_idx = local_state._repeat_id_idx;
     auto& _child_block = *local_state._child_block;

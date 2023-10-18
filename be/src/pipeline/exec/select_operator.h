@@ -59,7 +59,7 @@ public:
             : StreamingOperatorX<SelectLocalState>(pool, tnode, descs) {}
 
     Status pull(RuntimeState* state, vectorized::Block* block, SourceState& source_state) override {
-        CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+        CREATE_LOCAL_STATE_RETURN_STATUS_IF_ERROR(local_state);
         SCOPED_TIMER(local_state.profile()->total_time_counter());
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,

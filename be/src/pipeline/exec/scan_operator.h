@@ -416,7 +416,7 @@ public:
 
     Status try_close(RuntimeState* state) override;
 
-    Dependency* wait_for_dependency(RuntimeState* state) override;
+    DependencyResult wait_for_dependency(RuntimeState* state) override;
     FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
