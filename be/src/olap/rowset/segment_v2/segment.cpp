@@ -241,17 +241,16 @@ Status Segment::_load_pk_bloom_filter() {
             return Status::OK();
         });
     }();
-    if (!status.ok() && !config::disable_segment_cache) {
-        remove_segment_cache();
+    if (!status.ok()) {
+        remove_from_segment_cache();
     }
     return status;
 }
 
-void Segment::remove_segment_cache() const {
-    if (!config::disable_segment_cache) {
-        SegmentCache::CacheKey cache_key(_rowset_id, _segment_id);
-        SegmentLoader::instance()->erase_segment(cache_key);
-    }
+void Segment::remove_from_segment_cache() const {
+    if (config::disable_segment_cache) { return; }
+    SegmentCache::CacheKey cache_key(_rowset_id, _segment_id);
+    SegmentLoader::instance()->erase_segment(cache_key);
 }
 
 Status Segment::load_pk_index_and_bf() {
@@ -260,45 +259,47 @@ Status Segment::load_pk_index_and_bf() {
     return Status::OK();
 }
 Status Segment::load_index() {
-    auto status = [this]() {
-        return _load_index_once.call([this] {
-            if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
-                _pk_index_reader.reset(new PrimaryKeyIndexReader());
-                RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta));
-                _meta_mem_usage += _pk_index_reader->get_memory_size();
-                _segment_meta_mem_tracker->consume(_pk_index_reader->get_memory_size());
-                return Status::OK();
-            } else {
-                // read and parse short key index page
-                OlapReaderStatistics tmp_stats;
-                PageReadOptions opts {
-                        .use_page_cache = true,
-                        .type = INDEX_PAGE,
-                        .file_reader = _file_reader.get(),
-                        .page_pointer = PagePointer(_sk_index_page),
-                        // short key index page uses NO_COMPRESSION for now
-                        .codec = nullptr,
-                        .stats = &tmp_stats,
-                        .io_ctx = io::IOContext {.is_index_data = true},
-                };
-                Slice body;
-                PageFooterPB footer;
-                RETURN_IF_ERROR(
-                        PageIO::read_and_decompress_page(opts, &_sk_index_handle, &body, &footer));
-                DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
-                DCHECK(footer.has_short_key_page_footer());
-
-                _meta_mem_usage += body.get_size();
-                _segment_meta_mem_tracker->consume(body.get_size());
-                _sk_index_decoder.reset(new ShortKeyIndexDecoder);
-                return _sk_index_decoder->parse(body, footer.short_key_page_footer());
-            }
-        });
-    }();
-    if (!status.ok() && !config::disable_segment_cache) {
-        remove_segment_cache();
+    auto status = [this]() { return _load_index_impl(); }();
+    if (!status.ok()) {
+        remove_from_segment_cache();
     }
     return status;
+}
+
+Status Segment::_load_index_impl() {
+    return _load_index_once.call([this] {
+        if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
+            _pk_index_reader.reset(new PrimaryKeyIndexReader());
+            RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta));
+            _meta_mem_usage += _pk_index_reader->get_memory_size();
+            _segment_meta_mem_tracker->consume(_pk_index_reader->get_memory_size());
+            return Status::OK();
+        } else {
+            // read and parse short key index page
+            OlapReaderStatistics tmp_stats;
+            PageReadOptions opts {
+                    .use_page_cache = true,
+                    .type = INDEX_PAGE,
+                    .file_reader = _file_reader.get(),
+                    .page_pointer = PagePointer(_sk_index_page),
+                    // short key index page uses NO_COMPRESSION for now
+                    .codec = nullptr,
+                    .stats = &tmp_stats,
+                    .io_ctx = io::IOContext {.is_index_data = true},
+            };
+            Slice body;
+            PageFooterPB footer;
+            RETURN_IF_ERROR(
+                    PageIO::read_and_decompress_page(opts, &_sk_index_handle, &body, &footer));
+            DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
+            DCHECK(footer.has_short_key_page_footer());
+
+            _meta_mem_usage += body.get_size();
+            _segment_meta_mem_tracker->consume(body.get_size());
+            _sk_index_decoder.reset(new ShortKeyIndexDecoder);
+            return _sk_index_decoder->parse(body, footer.short_key_page_footer());
+        }
+    });
 }
 
 Status Segment::_create_column_readers(const SegmentFooterPB& footer) {

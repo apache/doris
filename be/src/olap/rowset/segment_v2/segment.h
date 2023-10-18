@@ -125,7 +125,7 @@ public:
 
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
-    void remove_segment_cache() const;
+    void remove_from_segment_cache() const;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
@@ -135,6 +135,8 @@ private:
     Status _parse_footer(SegmentFooterPB* footer);
     Status _create_column_readers(const SegmentFooterPB& footer);
     Status _load_pk_bloom_filter();
+
+    Status _load_index_impl();
 
 private:
     friend class SegmentIterator;

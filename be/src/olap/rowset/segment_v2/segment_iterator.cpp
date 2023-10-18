@@ -213,7 +213,7 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
 Status SegmentIterator::init(const StorageReadOptions& opts) {
     auto status = _init_impl(opts);
     if (!status.ok() && !config::disable_segment_cache) {
-        _segment->remove_segment_cache();
+        _segment->remove_from_segment_cache();
     }
     return status;
 }
@@ -1785,8 +1785,8 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
     auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); }); }();
-    if (!status.ok() && !config::disable_segment_cache) {
-        _segment->remove_segment_cache();
+    if (!status.ok()) {
+        _segment->remove_from_segment_cache();
     }
     return status;
 }
