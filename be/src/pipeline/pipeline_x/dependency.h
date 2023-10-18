@@ -156,7 +156,7 @@ protected:
 
 class FinishDependency : public Dependency {
 public:
-    constexpr auto max_block_time = 1000;
+    static constexpr auto max_block_time = 1000;
     FinishDependency(int id, std::string name) : Dependency(id, name), _ready_to_finish(true) {}
     ~FinishDependency() override = default;
 
