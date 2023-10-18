@@ -44,7 +44,7 @@ MockJniReader::MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
     int index = 0;
     for (auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
-        std::string type = JniConnector::get_hive_type(desc->type());
+        std::string type = JniConnector::get_jni_type(desc->type());
         column_names.emplace_back(field);
         if (index == 0) {
             required_fields << field;
