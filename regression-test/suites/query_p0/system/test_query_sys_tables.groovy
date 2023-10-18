@@ -175,16 +175,16 @@ suite("test_query_sys_tables", "query,p0") {
 
     // test user_privileges
     try {
-        sql("CREATE USER 'test_sys_tables'")
+        sql("CREATE USER 'original_test_sys_tables'")
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("already exist"), e.getMessage())
     }
-    sql("GRANT SELECT_PRIV ON *.*.* TO 'test_sys_tables'")
+    sql("GRANT SELECT_PRIV ON *.*.* TO 'original_test_sys_tables'")
     sql("use information_schema")
     qt_user_privileges """
-        select GRANTEE, PRIVILEGE_TYPE, IS_GRANTABLE from user_privileges where GRANTEE regexp '^\\'test'
+        select GRANTEE, PRIVILEGE_TYPE, IS_GRANTABLE from user_privileges where GRANTEE regexp '^\\'original_test_sys_tables'
     """
-    sql("DROP USER 'test_sys_tables'")
+    sql("DROP USER 'original_test_sys_tables'")
 
     // test views
     sql("use ${dbName1}")
