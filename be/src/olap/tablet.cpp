@@ -2934,6 +2934,15 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     Version dummy_version(end_version + 1, end_version + 1);
     auto rowset_schema = rowset->tablet_schema();
     bool is_partial_update = rowset_writer && rowset_writer->is_partial_update();
+    bool have_input_seq_column = false;
+    if (is_partial_update && rowset_schema->has_sequence_col()) {
+        std::vector<uint32_t> including_cids =
+                rowset_writer->get_partial_update_info()->update_cids;
+        have_input_seq_column =
+                rowset_schema->has_sequence_col() &&
+                (std::find(including_cids.cbegin(), including_cids.cend(),
+                           rowset_schema->sequence_col_idx()) != including_cids.cend());
+    }
     // use for partial update
     PartialUpdateReadPlan read_plan_ori;
     PartialUpdateReadPlan read_plan_update;
@@ -3002,12 +3011,24 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 continue;
             }
 
-            // sequence id smaller than the previous one, so delete current row
-            if (st.is<KEY_ALREADY_EXISTS>()) {
+            if (st.is<KEY_ALREADY_EXISTS>() && (!is_partial_update || have_input_seq_column)) {
+                // `st.is<KEY_ALREADY_EXISTS>()` means that there exists a row with the same key and larger value
+                // in seqeunce column.
+                // - If the current load is not a partial update, we just delete current row.
+                // - Otherwise, it means that we are doing the alignment process in publish phase due to conflicts
+                // during concurrent partial updates. And there exists another load which introduces a row with
+                // the same keys and larger sequence column value published successfully after the commit phase
+                // of the current load.
+                //     - If the columns we update include sequence column, we should delete the current row becase the
+                //       partial update on the current row has been `overwritten` by the previous one with larger sequence
+                //       column value.
+                //     - Otherwise, we should combine the values of the missing columns in the previous row and the values
+                //       of the including columns in the current row into a new row.
                 delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
                                    row_id);
                 continue;
-            } else if (is_partial_update && rowset_writer != nullptr) {
+            }
+            if (is_partial_update && rowset_writer != nullptr) {
                 // In publish version, record rows to be deleted for concurrent update
                 // For example, if version 5 and 6 update a row, but version 6 only see
                 // version 4 when write, and when publish version, version 5's value will
