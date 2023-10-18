@@ -101,7 +101,7 @@ suite("test_insert_from_tvf_with_common_user", "p0") {
                 );
             """
 
-        order_qt_select_base """ SELECT * FROM ${export_table_name} t ORDER BY id; """
+        order_qt_select_base """ SELECT * FROM ${load_table_name} t ORDER BY id; """
     }
 
     sql """drop user ${common_user}"""
