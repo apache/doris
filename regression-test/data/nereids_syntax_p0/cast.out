@@ -349,3 +349,12 @@ true	0.1
 -- !string --
 00:00:01
 
+-- !string_to_array --
+[1, 2, 3]
+
+-- !string_to_map --
+{1:1, 2:2, 3:3}
+
+-- !string_to_struct --
+{1, 2, 3}
+

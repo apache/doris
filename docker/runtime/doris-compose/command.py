@@ -370,6 +370,10 @@ class DownCommand(Command):
                 if args.clean:
                     utils.enable_dir_with_rw_perm(node.get_path())
                     shutil.rmtree(node.get_path())
+                    register_file = "{}/{}-register".format(
+                        CLUSTER.get_status_path(cluster.name), node.get_ip())
+                    if os.path.exists(register_file):
+                        os.remove(register_file)
                     LOG.info(
                         utils.render_yellow(
                             "Clean {} with id {} data cause has specific --clean"
@@ -413,8 +417,18 @@ class ListNode(object):
             self.tablet_num, self.last_heartbeat, self.err_msg
         ]
         if detail:
+            query_port = ""
+            http_port = ""
+            if self.node_type == CLUSTER.Node.TYPE_FE:
+                query_port = CLUSTER.FE_QUERY_PORT
+                http_port = CLUSTER.FE_HTTP_PORT
+            elif self.node_type == CLUSTER.Node.TYPE_BE:
+                http_port = CLUSTER.BE_WEBSVR_PORT
+            else:
+                pass
             result += [
-                CLUSTER.FE_QUERY_PORT,
+                query_port,
+                http_port,
             ]
         return result
 
@@ -565,6 +579,7 @@ class ListCommand(Command):
         if args.detail:
             header += [
                 "query_port",
+                "http_port",
             ]
 
         rows = []

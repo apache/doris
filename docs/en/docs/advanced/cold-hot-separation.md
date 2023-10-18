@@ -153,3 +153,27 @@ The be parameter `remove_unused_remote_files_interval_sec` can set the garbage c
 
 - Currently, there is no way to query the tables associated with a specific storage policy.
 - The acquisition of some remote occupancy indicators is not perfect enough.
+
+## FAQ
+
+1. ERROR 1105 (HY000): errCode = 2, detailMessage = Failed to create repository: connect to s3 failed: Unable to marshall request to JSON: host must not be null.
+
+S3 SDK uses virtual-hosted style by default. However, some object storage systems (such as minio) may not be enabled or support virtual-hosted style access. In this case, we can add the use_path_style parameter to force the use of path style:
+
+```text
+CREATE RESOURCE "remote_s3"
+PROPERTIES
+(
+    "type" = "s3",
+    "s3.endpoint" = "bj.s3.com",
+    "s3.region" = "bj",
+    "s3.bucket" = "test-bucket",
+    "s3.root.path" = "path/to/root",
+    "s3.access_key" = "bbb",
+    "s3.secret_key" = "aaaa",
+    "s3.connection.maximum" = "50",
+    "s3.connection.request.timeout" = "3000",
+    "s3.connection.timeout" = "1000",
+    "use_path_style" = "true"
+);
+```

@@ -97,8 +97,14 @@ Status VCSVTransformer::write(const Block& block) {
             if (col_id != 0) {
                 buffer_writer.write(_column_separator.data(), _column_separator.size());
             }
-            RETURN_IF_ERROR(_serdes[col_id]->serialize_one_cell_to_json(
-                    *(block.get_by_position(col_id).column), i, buffer_writer, _options));
+            Status st = _serdes[col_id]->serialize_one_cell_to_json(
+                    *(block.get_by_position(col_id).column), i, buffer_writer, _options);
+            if (!st.ok()) {
+                // VectorBufferWriter must do commit before deconstruct,
+                // or it may throw DCHECK failure.
+                buffer_writer.commit();
+                return st;
+            }
         }
         buffer_writer.write(_line_delimiter.data(), _line_delimiter.size());
         buffer_writer.commit();

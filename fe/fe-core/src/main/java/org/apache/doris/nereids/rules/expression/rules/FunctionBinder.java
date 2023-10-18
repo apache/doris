@@ -158,14 +158,13 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                     .accept(this, context);
         }
 
-        FunctionBuilder builder = functionRegistry.findFunctionBuilder(unboundFunction.getDbName(),
-                functionName, arguments);
-        BoundFunction boundFunction = builder.build(functionName, arguments);
+        FunctionBuilder builder = functionRegistry.findFunctionBuilder(
+                unboundFunction.getDbName(), functionName, arguments);
         if (builder instanceof AliasUdfBuilder) {
             // we do type coercion in build function in alias function, so it's ok to return directly.
-            return boundFunction;
+            return builder.build(functionName, arguments);
         } else {
-            return TypeCoercionUtils.processBoundFunction(boundFunction);
+            return TypeCoercionUtils.processBoundFunction((BoundFunction) builder.build(functionName, arguments));
         }
     }
 
@@ -337,7 +336,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = (Cast) super.visitCast(cast, context);
         // NOTICE: just for compatibility with legacy planner.
-        if (cast.child().getDataType() instanceof ArrayType || cast.getDataType() instanceof ArrayType) {
+        if (cast.child().getDataType().isComplexType() || cast.getDataType().isComplexType()) {
             TypeCoercionUtils.checkCanCastTo(cast.child().getDataType(), cast.getDataType());
         }
         return cast;

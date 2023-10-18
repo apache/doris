@@ -446,6 +446,11 @@ public abstract class Type {
         return isObjectStored() || isComplexType() || isJsonbType() || isVariantType();
     }
 
+    public static final String OnlyObjectTypeErrorMsg =
+            "Doris hll, bitmap column must use with specific function, and don't"
+                    + " support filter, group by or order by. please run 'help hll' or 'help bitmap'"
+                    + " in your mysql client.";
+
     public static final String OnlyMetricTypeErrorMsg =
             "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't"
                     + " support filter, group by or order by. please run 'help hll' or 'help bitmap' or 'help array'"

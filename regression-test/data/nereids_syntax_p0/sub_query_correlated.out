@@ -450,3 +450,18 @@
 22	3
 24	4
 
+-- !mark_join_nullable --
+\N
+\N
+\N
+\N
+\N
+\N
+true
+true
+true
+true
+\N
+\N
+\N
+

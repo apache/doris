@@ -62,6 +62,7 @@ struct TSlotDescriptor {
   14: optional bool is_auto_increment = false;
   // subcolumn path info list for semi structure column(variant)
   15: optional list<string> column_paths
+  16: optional string col_default_value
 }
 
 struct TTupleDescriptor {
@@ -176,6 +177,8 @@ struct TOlapTablePartition {
     9: optional bool is_mutable = true
     // only used in List Partition
     10: optional bool is_default_partition;
+    // only used in load_to_single_tablet
+    11: optional i64 load_tablet_idx
 }
 
 struct TOlapTablePartitionParam {
@@ -329,6 +332,7 @@ struct TMCTable {
   4: optional string access_key
   5: optional string secret_key
   6: optional string public_access
+  7: optional string partition_spec
 }
 
 // "Union" of all table types.

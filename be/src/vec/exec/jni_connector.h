@@ -60,6 +60,32 @@ namespace doris::vectorized {
  */
 class JniConnector {
 public:
+    class TableMetaAddress {
+    private:
+        long* _meta_ptr;
+        int _meta_index;
+
+    public:
+        TableMetaAddress() {
+            _meta_ptr = nullptr;
+            _meta_index = 0;
+        }
+
+        TableMetaAddress(long meta_addr) {
+            _meta_ptr = static_cast<long*>(reinterpret_cast<void*>(meta_addr));
+            _meta_index = 0;
+        }
+
+        void set_meta(long meta_addr) {
+            _meta_ptr = static_cast<long*>(reinterpret_cast<void*>(meta_addr));
+            _meta_index = 0;
+        }
+
+        long next_meta_as_long() { return _meta_ptr[_meta_index++]; }
+
+        void* next_meta_as_ptr() { return reinterpret_cast<void*>(_meta_ptr[_meta_index++]); }
+    };
+
     /**
      * The predicates that can be pushed down to java side.
      * Reference to java class org.apache.doris.common.jni.vec.ScanPredicate
@@ -220,11 +246,7 @@ public:
     /**
      * Call java side function JniScanner.getTableSchema.
      *
-     * The schema information are stored as a string.
-     * Use # between column names and column types.
-     *
-     * like: col_name1,col_name2,col_name3#col_type1,col_type2.col_type3
-     *
+     * The schema information are stored as json format
      */
     Status get_table_schema(std::string& table_schema_str);
 
@@ -233,12 +255,25 @@ public:
      */
     Status close();
 
+    static std::string get_jni_type(const DataTypePtr& data_type);
+
     /**
      * Map PrimitiveType to hive type.
      */
-    static std::string get_hive_type(const TypeDescriptor& desc);
+    static std::string get_jni_type(const TypeDescriptor& desc);
 
-    static Status generate_meta_info(Block* block, std::unique_ptr<long[]>& meta);
+    static Status to_java_table(Block* block, size_t num_rows, const ColumnNumbers& arguments,
+                                std::unique_ptr<long[]>& meta);
+
+    static Status to_java_table(Block* block, std::unique_ptr<long[]>& meta);
+
+    static std::pair<std::string, std::string> parse_table_schema(Block* block,
+                                                                  const ColumnNumbers& arguments,
+                                                                  bool ignore_column_name = true);
+
+    static std::pair<std::string, std::string> parse_table_schema(Block* block);
+
+    static Status fill_block(Block* block, const ColumnNumbers& arguments, long table_address);
 
 private:
     std::string _connector_name;
@@ -268,8 +303,7 @@ private:
     jmethodID _jni_scanner_release_table;
     jmethodID _jni_scanner_get_statistics;
 
-    long* _meta_ptr;
-    int _meta_index;
+    TableMetaAddress _table_meta;
 
     int _predicates_length = 0;
     std::unique_ptr<char[]> _predicates = nullptr;
@@ -277,87 +311,44 @@ private:
     /**
      * Set the address of meta information, which is returned by org.apache.doris.common.jni.JniScanner#getNextBatchMeta
      */
-    void _set_meta(long meta_addr) {
-        _meta_ptr = static_cast<long*>(reinterpret_cast<void*>(meta_addr));
-        _meta_index = 0;
-    }
-
-    /**
-     * Get the number of rows in next batch.
-     */
-    long _next_meta_as_long() { return _meta_ptr[_meta_index++]; }
-
-    /**
-     * Get the next column address
-     */
-    void* _next_meta_as_ptr() { return reinterpret_cast<void*>(_meta_ptr[_meta_index++]); }
+    void _set_meta(long meta_addr) { _table_meta.set_meta(meta_addr); }
 
     Status _init_jni_scanner(JNIEnv* env, int batch_size);
 
     Status _fill_block(Block* block, size_t num_rows);
 
-    Status _fill_column(ColumnPtr& doris_column, DataTypePtr& data_type, size_t num_rows);
+    static Status _fill_column(TableMetaAddress& address, ColumnPtr& doris_column,
+                               DataTypePtr& data_type, size_t num_rows);
 
-    Status _fill_map_column(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                            size_t num_rows);
+    static Status _fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                      size_t num_rows);
 
-    Status _fill_array_column(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                              size_t num_rows);
+    static Status _fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                   DataTypePtr& data_type, size_t num_rows);
 
-    Status _fill_struct_column(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                               size_t num_rows);
+    static Status _fill_array_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                     DataTypePtr& data_type, size_t num_rows);
 
-    static void _fill_column_meta(ColumnPtr& doris_column, DataTypePtr& data_type,
-                                  std::vector<long>& meta_data);
+    static Status _fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                      DataTypePtr& data_type, size_t num_rows);
 
-    template <typename CppType>
-    Status _fill_numeric_column(MutableColumnPtr& doris_column, CppType* ptr, size_t num_rows) {
-        auto& column_data = static_cast<ColumnVector<CppType>&>(*doris_column).get_data();
+    static Status _fill_column_meta(ColumnPtr& doris_column, DataTypePtr& data_type,
+                                    std::vector<long>& meta_data);
+
+    template <typename COLUMN_TYPE, typename CPP_TYPE>
+    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
+                                            size_t num_rows) {
+        auto& column_data = static_cast<COLUMN_TYPE&>(*doris_column).get_data();
         size_t origin_size = column_data.size();
         column_data.resize(origin_size + num_rows);
-        memcpy(column_data.data() + origin_size, ptr, sizeof(CppType) * num_rows);
+        memcpy(column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
         return Status::OK();
     }
 
-    template <typename CppType>
-    static long _get_numeric_data_address(MutableColumnPtr& doris_column) {
-        return (long)static_cast<ColumnVector<CppType>&>(*doris_column).get_data().data();
+    template <typename COLUMN_TYPE>
+    static long _get_fixed_length_column_address(MutableColumnPtr& doris_column) {
+        return (long)static_cast<COLUMN_TYPE&>(*doris_column).get_data().data();
     }
-
-    template <typename DecimalPrimitiveType>
-    Status _fill_decimal_column(MutableColumnPtr& doris_column, DecimalPrimitiveType* ptr,
-                                size_t num_rows) {
-        auto& column_data =
-                static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column)
-                        .get_data();
-        size_t origin_size = column_data.size();
-        column_data.resize(origin_size + num_rows);
-        memcpy(column_data.data() + origin_size, ptr, sizeof(DecimalPrimitiveType) * num_rows);
-        return Status::OK();
-    }
-
-    template <typename DecimalPrimitiveType>
-    static long _get_decimal_data_address(MutableColumnPtr& doris_column) {
-        return (long)static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column)
-                .get_data()
-                .data();
-    }
-
-    template <typename CppType>
-    Status _decode_time_column(MutableColumnPtr& doris_column, CppType* ptr, size_t num_rows) {
-        auto& column_data = static_cast<ColumnVector<CppType>&>(*doris_column).get_data();
-        size_t origin_size = column_data.size();
-        column_data.resize(origin_size + num_rows);
-        memcpy(column_data.data() + origin_size, ptr, sizeof(CppType) * num_rows);
-        return Status::OK();
-    }
-
-    template <typename CppType>
-    static long _get_time_data_address(MutableColumnPtr& doris_column) {
-        return (long)static_cast<ColumnVector<CppType>&>(*doris_column).get_data().data();
-    }
-
-    Status _fill_string_column(MutableColumnPtr& doris_column, size_t num_rows);
 
     void _generate_predicates(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);

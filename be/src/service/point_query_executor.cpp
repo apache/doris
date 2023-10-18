@@ -68,8 +68,11 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));
     _create_timestamp = butil::gettimeofday_ms();
     _data_type_serdes = vectorized::create_data_type_serdes(tuple_desc()->slots());
+    _col_default_values.resize(tuple_desc()->slots().size());
     for (int i = 0; i < tuple_desc()->slots().size(); ++i) {
-        _col_uid_to_idx[tuple_desc()->slots()[i]->col_unique_id()] = i;
+        auto slot = tuple_desc()->slots()[i];
+        _col_uid_to_idx[slot->col_unique_id()] = i;
+        _col_default_values[i] = slot->col_default_value();
     }
     return Status::OK();
 }
@@ -282,7 +285,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         }
         // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
-        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, true, specified_rowsets,
+        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, false, specified_rowsets,
                                       &location, INT32_MAX /*rethink?*/, segment_caches,
                                       rowset_ptr.get()));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
@@ -308,7 +311,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                     _reusable->get_data_type_serdes(),
                     _row_read_ctxs[i]._cached_row_data.data().data,
                     _row_read_ctxs[i]._cached_row_data.data().size, _reusable->get_col_uid_to_idx(),
-                    *_result_block);
+                    *_result_block, _reusable->get_col_default_values());
             continue;
         }
         if (!_row_read_ctxs[i]._row_location.has_value()) {
@@ -323,7 +326,8 @@ Status PointQueryExecutor::_lookup_row_data() {
         // serilize value to block, currently only jsonb row formt
         vectorized::JsonbSerializeUtil::jsonb_to_block(
                 _reusable->get_data_type_serdes(), value.data(), value.size(),
-                _reusable->get_col_uid_to_idx(), *_result_block);
+                _reusable->get_col_uid_to_idx(), *_result_block,
+                _reusable->get_col_default_values());
     }
     return Status::OK();
 }

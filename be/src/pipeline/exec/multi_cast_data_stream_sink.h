@@ -51,6 +51,8 @@ class MultiCastDataStreamSinkLocalState final
     friend class DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
     using Base = PipelineXSinkLocalState<MultiCastDependency>;
     using Parent = MultiCastDataStreamSinkOperatorX;
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    std::string id_name() override;
 
 private:
     std::shared_ptr<pipeline::MultiCastDataStreamer> _multi_cast_data_streamer;
@@ -65,10 +67,11 @@ public:
                                      const int cast_sender_count, ObjectPool* pool,
                                      const TMultiCastDataStreamSink& sink,
                                      const RowDescriptor& row_desc)
-            : Base(sink_id, sources),
+            : Base(sink_id, -1, sources),
               _pool(pool),
               _row_desc(row_desc),
-              _cast_sender_count(cast_sender_count) {}
+              _cast_sender_count(cast_sender_count),
+              _sink(sink) {}
     ~MultiCastDataStreamSinkOperatorX() override = default;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
@@ -78,7 +81,7 @@ public:
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
         if (in_block->rows() > 0 || source_state == SourceState::FINISHED) {
             COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-            auto st = local_state._shared_state->multi_cast_data_streamer->push(
+            auto st = local_state._shared_state->multi_cast_data_streamer.push(
                     state, in_block, source_state == SourceState::FINISHED);
             // TODO: improvement: if sink returned END_OF_FILE, pipeline task can be finished
             if (st.template is<ErrorCode::END_OF_FILE>()) {
@@ -91,17 +94,19 @@ public:
 
     RowDescriptor& row_desc() override { return _row_desc; }
 
-    std::shared_ptr<pipeline::MultiCastDataStreamer> create_multi_cast_data_streamer() {
-        auto multi_cast_data_streamer = std::make_shared<pipeline::MultiCastDataStreamer>(
-                _row_desc, _pool, _cast_sender_count);
+    std::shared_ptr<MultiCastSharedState> create_multi_cast_data_streamer() {
+        auto multi_cast_data_streamer =
+                std::make_shared<MultiCastSharedState>(_row_desc, _pool, _cast_sender_count);
         return multi_cast_data_streamer;
     }
+    const TMultiCastDataStreamSink& sink_node() { return _sink; }
 
 private:
     friend class MultiCastDataStreamSinkLocalState;
     ObjectPool* _pool;
     RowDescriptor _row_desc;
     int _cast_sender_count;
+    const TMultiCastDataStreamSink& _sink;
     friend class MultiCastDataStreamSinkLocalState;
 };
 

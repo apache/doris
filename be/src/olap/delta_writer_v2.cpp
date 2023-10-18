@@ -50,6 +50,7 @@
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
@@ -121,10 +122,11 @@ Status DeltaWriterV2::init() {
     context.rowset_type = RowsetTypePB::BETA_ROWSET;
     context.rowset_id = StorageEngine::instance()->next_rowset_id();
     context.data_dir = nullptr;
+    context.partial_update_info = _partial_update_info;
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));
-    RETURN_IF_ERROR(_memtable_writer->init(_rowset_writer, _tablet_schema,
+    RETURN_IF_ERROR(_memtable_writer->init(_rowset_writer, _tablet_schema, _partial_update_info,
                                            _streams[0]->enable_unique_mow(_req.index_id)));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
@@ -196,10 +198,6 @@ int64_t DeltaWriterV2::mem_consumption(MemType mem) {
     return _memtable_writer->mem_consumption(mem);
 }
 
-int64_t DeltaWriterV2::active_memtable_mem_consumption() {
-    return _memtable_writer->active_memtable_mem_consumption();
-}
-
 int64_t DeltaWriterV2::partition_id() const {
     return _req.partition_id;
 }
@@ -225,8 +223,10 @@ void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
 
     _tablet_schema->set_table_id(table_schema_param->table_id());
     // set partial update columns info
-    _tablet_schema->set_partial_update_info(table_schema_param->is_partial_update(),
-                                            table_schema_param->partial_update_input_columns());
+    _partial_update_info = std::make_shared<PartialUpdateInfo>();
+    _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
+                               table_schema_param->partial_update_input_columns(),
+                               table_schema_param->is_strict_mode());
 }
 
 } // namespace doris

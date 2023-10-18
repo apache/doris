@@ -174,12 +174,12 @@ static char* add_largeint(int128_t data, char* pos, bool dynamic_mode) {
 }
 
 template <typename T>
-char* add_float(T data, char* pos, bool dynamic_mode) {
+char* add_float(T data, char* pos, bool dynamic_mode, bool faster_float_convert = false) {
     int length = 0;
     if constexpr (std::is_same_v<T, float>) {
-        length = FastFloatToBuffer(data, pos + !dynamic_mode);
+        length = FastFloatToBuffer(data, pos + !dynamic_mode, faster_float_convert);
     } else if constexpr (std::is_same_v<T, double>) {
-        length = FastDoubleToBuffer(data, pos + !dynamic_mode);
+        length = FastDoubleToBuffer(data, pos + !dynamic_mode, faster_float_convert);
     }
     if (!dynamic_mode) {
         int1store(pos++, length);
@@ -385,7 +385,7 @@ int MysqlRowBuffer<is_binary_format>::push_float(float data) {
         return ret;
     }
 
-    _pos = add_float(data, _pos, _dynamic_mode);
+    _pos = add_float(data, _pos, _dynamic_mode, _faster_float_convert);
     return 0;
 }
 
@@ -405,7 +405,7 @@ int MysqlRowBuffer<is_binary_format>::push_double(double data) {
         return ret;
     }
 
-    _pos = add_float(data, _pos, _dynamic_mode);
+    _pos = add_float(data, _pos, _dynamic_mode, _faster_float_convert);
     return 0;
 }
 

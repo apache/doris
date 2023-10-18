@@ -118,17 +118,11 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
-    void protect() override {}
-
     void insert_value(T value) { data.emplace_back(std::move(value)); }
 
     [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                       IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
-    }
-
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "ColumnComplexType get_data_type not implemeted";
     }
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,

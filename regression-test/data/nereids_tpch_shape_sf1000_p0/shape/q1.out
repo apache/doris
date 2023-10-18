@@ -8,6 +8,6 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------filter((lineitem.l_shipdate <= 1998-09-02))
+----------------filter((lineitem.l_shipdate <= '1998-09-02'))
 ------------------PhysicalOlapScan[lineitem]
 
