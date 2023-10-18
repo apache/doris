@@ -62,9 +62,6 @@ public:
     Status init_scan_key(TabletSchemaSPtr schema, const std::vector<std::string>& keys,
                          const std::shared_ptr<Schema>& shared_schema);
 
-    //allocate memory for string type, which include char, varchar, hyperloglog
-    Status allocate_memory_for_string_type(TabletSchemaSPtr schema);
-
     RowCursorCell cell(uint32_t cid) const { return RowCursorCell(nullable_cell_ptr(cid)); }
 
     // RowCursor received a continuous buf
