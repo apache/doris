@@ -36,7 +36,7 @@ wait_timeout	30000
 wait_timeout	31000
 
 -- !user_privileges --
-'test_sys_tables'@'%'	SELECT	NO
+'nereids_test_sys_tables'@'%'	SELECT	NO
 
 -- !views --
 test_view	
