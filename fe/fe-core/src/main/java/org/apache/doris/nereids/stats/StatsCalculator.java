@@ -631,10 +631,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (colName == null) {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
-            ColumnStatistic cache = ConnectContext.get().getSessionVariable().enableStats
-                    && FeConstants.enableInternalSchemaDb
-                    ? shouldIgnoreThisCol
-                    ? ColumnStatistic.UNKNOWN : getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
+            ColumnStatistic cache;
+            if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().enableStats
+                    || !FeConstants.enableInternalSchemaDb
+                    || shouldIgnoreThisCol) {
+                cache = ColumnStatistic.UNKNOWN;
+            } else {
+                cache = getColumnStatistic(table, colName);
+            }
             if (cache.avgSizeByte <= 0) {
                 cache = new ColumnStatisticBuilder(cache)
                         .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())
