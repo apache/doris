@@ -44,6 +44,15 @@ public abstract class BaseAnalysisTask {
 
     public static final Logger LOG = LogManager.getLogger(BaseAnalysisTask.class);
 
+    protected static final String NDV_MULTIPLY_THRESHOLD = "0.3";
+
+    protected static final String NDV_SAMPLE_TEMPLATE = "ROUND(COUNT(1) * ${scaleFactor}) AS row_count, "
+            + "case when NDV(`${colName}`)/count('${colName}') < "
+            + NDV_MULTIPLY_THRESHOLD
+            + " then NDV(`${colName}`) "
+            + "else NDV(`${colName}`) * ${scaleFactor} end AS ndv, "
+            ;
+
     /**
      * Stats stored in the column_statistics table basically has two types, `part_id` is null which means it is
      * aggregate from partition level stats, `part_id` is not null which means it is partition level stats.
