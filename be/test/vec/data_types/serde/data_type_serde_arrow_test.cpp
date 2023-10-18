@@ -464,8 +464,7 @@ void serialize_and_deserialize_arrow_test() {
     std::cout << "block data: " << block.dump_data(0, row_num) << std::endl;
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
-    static_cast<void>(
-            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
+    static_cast<void>(convert_to_arrow_batch(block, arrow::default_memory_pool(), &result));
     Block new_block = block.clone_empty();
     EXPECT_TRUE(result != nullptr);
     std::cout << "result: " << result->ToString() << std::endl;
@@ -596,8 +595,7 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     std::cout << "block structure: " << block.dump_structure() << std::endl;
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
-    static_cast<void>(
-            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
+    static_cast<void>(convert_to_arrow_batch(block, arrow::default_memory_pool(), &result));
     Block new_block = block.clone_empty();
     EXPECT_TRUE(result != nullptr);
     std::cout << "result: " << result->ToString() << std::endl;
