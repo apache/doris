@@ -78,6 +78,7 @@ public:
 
     Status init(const TDataSink& thrift_sink) override {
         // From the thrift expressions create the real exprs.
+        RETURN_IF_ERROR(Base::init(thrift_sink));
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
         return Status::OK();
     }
