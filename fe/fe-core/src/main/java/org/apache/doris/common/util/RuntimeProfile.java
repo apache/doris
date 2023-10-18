@@ -504,7 +504,7 @@ public class RuntimeProfile {
                 String infoString = AVG_TIME_PRE + printCounter(newCounter.getValue(), newCounter.getType()) + ", "
                         + MAX_TIME_PRE + printCounter(maxCounter.getValue(), maxCounter.getType()) + ", "
                         + MIN_TIME_PRE + printCounter(minCounter.getValue(), minCounter.getType());
-                statistics.addInfoFromProfile(src, counterName, infoString);
+                statistics.addInfoFromProfile(src, counterName, infoString, rhsCounter.size() + 1);
             }
         } else {
             Counter newCounter = new Counter(counter.getType(), counter.getValue());
@@ -514,7 +514,7 @@ public class RuntimeProfile {
                 }
             }
             String infoString = printCounter(newCounter.getValue(), newCounter.getType());
-            statistics.addInfoFromProfile(src, counterName, infoString);
+            statistics.addInfoFromProfile(src, counterName, infoString, rhsCounter.size() + 1);
         }
     }
 

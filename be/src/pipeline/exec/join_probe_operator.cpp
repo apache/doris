@@ -41,7 +41,7 @@ Status JoinProbeLocalState<DependencyType, Derived>::init(RuntimeState* state,
     _probe_timer = ADD_TIMER(Base::profile(), "ProbeTime");
     _join_filter_timer = ADD_TIMER(Base::profile(), "JoinFilterTimer");
     _build_output_block_timer = ADD_TIMER(Base::profile(), "BuildOutputBlock");
-    _probe_rows_counter = ADD_COUNTER(Base::profile(), "ProbeRows", TUnit::UNIT);
+    _probe_rows_counter = ADD_COUNTER_WITH_LEVEL(Base::profile(), "ProbeRows", TUnit::UNIT, 1);
 
     return Status::OK();
 }
