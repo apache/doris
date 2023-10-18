@@ -15,26 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.udf;
+package org.apache.doris.common.jni.vec;
 
-import org.apache.hadoop.hive.ql.exec.UDF;
-
-import java.util.*;
-
-public class MapStrStrTest extends UDF {
-    public String evaluate(HashMap<String, String> hashMap) {
-        StringBuffer sb = new StringBuffer();
-        Set<String> sortSet = new TreeSet<String>();
-        for (Map.Entry<String, String> entry : hashMap.entrySet()) {
-            String key = entry.getKey();
-            String value = entry.getValue();
-            sortSet.add(key + value);
-        }
-        for (String item : sortSet) {
-            sb.append(item);
-        }
-        String ans = sb.toString();
-        return ans;
-    }
+/**
+ * Convert the column values if the type is not defined in ColumnType
+ */
+public interface ColumnValueConverter {
+    Object[] convert(Object[] column);
 }
-

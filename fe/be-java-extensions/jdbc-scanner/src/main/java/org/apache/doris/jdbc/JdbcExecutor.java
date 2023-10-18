@@ -173,16 +173,7 @@ public class JdbcExecutor {
     }
 
     public int write(Map<String, String> params) throws UdfRuntimeException {
-        String[] requiredFields = params.get("required_fields").split(",");
-        String[] types = params.get("columns_types").split("#");
-        long metaAddress = Long.parseLong(params.get("meta_address"));
-        // Get sql string from configuration map
-        ColumnType[] columnTypes = new ColumnType[types.length];
-        for (int i = 0; i < types.length; i++) {
-            columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
-        }
-        VectorTable batchTable = new VectorTable(columnTypes, requiredFields, metaAddress);
-        // todo: insert the batch table by PreparedStatement
+        VectorTable batchTable = VectorTable.createReadableTable(params);
         // Can't release or close batchTable, it's released by c++
         try {
             insert(batchTable);
