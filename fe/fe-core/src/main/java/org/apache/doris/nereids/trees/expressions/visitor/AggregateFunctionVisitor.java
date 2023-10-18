@@ -286,6 +286,6 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitMapAgg(MapAgg mapAgg, C context) {
-        return visitNullableAggregateFunction(mapAgg, context);
+        return visitAggregateFunction(mapAgg, context);
     }
 }
