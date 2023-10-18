@@ -242,4 +242,6 @@ suite("test_join_13", "nereids_p0") {
     qt_right_anti_join_null_1 "select b.k1 from ${tbName1} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
 
     qt_right_anti_join_null_2 "select b.k1 from ${empty_name} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
+
+    qt_pipelineX_max_rf """ select /* set runtime_filter_type = 4; set experimental_enable_pipeline_x_engine = true; */ a.k1, a.k2, a.k3, a.k4, a.k5 from test a left anti join baseall b on a.k1 > b.k1 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535; """
 }
