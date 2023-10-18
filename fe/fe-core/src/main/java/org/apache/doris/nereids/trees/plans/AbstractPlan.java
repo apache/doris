@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.MutableState.EmptyMutableState;
@@ -141,22 +143,19 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     @Override
     public LogicalProperties getLogicalProperties() {
-        // TODO: use bound()?
-        if (this instanceof Unbound) {
-            return UnboundLogicalProperties.INSTANCE;
-        }
         return logicalPropertiesSupplier.get();
     }
 
     @Override
     public LogicalProperties computeLogicalProperties() {
-        boolean hasUnboundChild = children.stream()
-                .anyMatch(child -> !child.bound());
-        if (hasUnboundChild || hasUnboundExpression()) {
-            return UnboundLogicalProperties.INSTANCE;
-        } else {
-            return new LogicalProperties(this::computeOutput);
+        // After analyzer, we should skip to check bound.
+        if (NereidsPlanner.isAnalyzerPhase) {
+            if (children.stream().anyMatch(child -> !child.bound())
+                    || (this instanceof Unbound || this.getExpressions().stream().anyMatch(Expression::hasUnbound))) {
+                return UnboundLogicalProperties.INSTANCE;
+            }
         }
+        return new LogicalProperties(this::computeOutput);
     }
 
     @Override

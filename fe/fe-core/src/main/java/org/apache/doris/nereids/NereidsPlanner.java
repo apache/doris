@@ -80,6 +80,8 @@ import java.util.stream.Collectors;
  */
 public class NereidsPlanner extends Planner {
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
+
+    public static boolean isAnalyzerPhase = false;
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
     private final List<ScanNode> scanNodeList = Lists.newArrayList();
@@ -188,7 +190,9 @@ public class NereidsPlanner extends Planner {
                             .spanBuilder("query analysis").setParent(Context.current()).startSpan();
             try (Scope scope = queryAnalysisSpan.makeCurrent()) {
                 // analyze this query
+                isAnalyzerPhase = true;
                 analyze();
+                isAnalyzerPhase = false;
             } catch (Exception e) {
                 queryAnalysisSpan.recordException(e);
                 throw e;
