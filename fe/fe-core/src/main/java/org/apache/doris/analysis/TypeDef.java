@@ -177,9 +177,6 @@ public class TypeDef implements ParseNode {
                     parent.getPrimitiveType() + " unsupported sub-type: " + child.toSql());
         }
 
-        if (child.getPrimitiveType().isStringType() && !child.isLengthSet()) {
-            child.setLength(1);
-        }
         analyze(child);
     }
 
