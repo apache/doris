@@ -40,7 +40,7 @@ suite ("null_insert") {
         `ip_country` varchar(65533)
         ) ENGINE=OLAP
         DUPLICATE KEY(`date`)
-        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`date`)
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1"
         );
