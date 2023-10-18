@@ -1634,7 +1634,7 @@ public class Config extends ConfigBase {
      * If set to TRUE, FE will convert date/datetime to datev2/datetimev2(0) automatically.
      */
     @ConfField(mutable = true)
-    public static boolean enable_date_conversion = false;
+    public static boolean enable_date_conversion = true;
 
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_tags = false;
@@ -2032,7 +2032,7 @@ public class Config extends ConfigBase {
     public static boolean disable_decimalv2  = true;
 
     @ConfField(mutable = true)
-    public static boolean disable_datev1  = false;
+    public static boolean disable_datev1  = true;
 
     /**
      * Now we not fully support array/struct/map nesting complex type in many situation,
