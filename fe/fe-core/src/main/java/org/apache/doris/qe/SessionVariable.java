@@ -408,6 +408,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_FULL_AUTO_ANALYZE = "enable_full_auto_analyze";
 
+    public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1168,6 +1170,9 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public String fullAutoAnalyzeEndTime = "02:00:00";
 
+    @VariableMgr.VarAttr(name = FASTER_FLOAT_CONVERT,
+            description = {"是否启用更快的浮点数转换算法，注意会影响输出格式", "Set true to enable faster float pointer number convert"})
+    public boolean fasterFloatConvert = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -2272,6 +2277,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
 
+        tResult.setFasterFloatConvert(fasterFloatConvert);
+
         return tResult;
     }
 
@@ -2580,6 +2587,10 @@ public class SessionVariable implements Serializable, Writable {
         return connectContext.getSessionVariable().enableAggState;
     }
 
+    public boolean fasterFloatConvert() {
+        return this.fasterFloatConvert;
+    }
+  
     public void checkAnalyzeTimeFormat(String time) {
         try {
             DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
