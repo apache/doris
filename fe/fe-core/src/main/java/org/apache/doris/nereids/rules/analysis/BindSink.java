@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -43,7 +44,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -117,8 +117,8 @@ public class BindSink implements AnalysisRuleFactory {
                             Optional<String> foundCol = sink.getColNames().stream()
                                             .filter(col -> col.equals(table.getSequenceMapCol()))
                                             .findFirst();
-                            if (!foundCol.isPresent() && seqCol.getDefaultValue() == null
-                                    || !seqCol.getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                            if (!foundCol.isPresent() && (seqCol.getDefaultValue() == null
+                                    || !seqCol.getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP))) {
                                 throw new AnalysisException("Table " + table.getName()
                                     + " has sequence column, need to specify the sequence column");
                             }
@@ -165,7 +165,7 @@ public class BindSink implements AnalysisRuleFactory {
                                 Optional<Column> seqCol = table.getFullSchema().stream()
                                         .filter(col -> col.getName().equals(table.getSequenceMapCol()))
                                         .findFirst();
-                                if (!seqCol.isPresent() && !sink.isPartialUpdate()) {
+                                if (!seqCol.isPresent()) {
                                     throw new AnalysisException("sequence column is not contained in"
                                             + " target table " + table.getName());
                                 }

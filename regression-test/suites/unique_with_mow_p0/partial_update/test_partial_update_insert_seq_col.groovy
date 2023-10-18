@@ -86,4 +86,29 @@ suite("test_partial_update_native_insert_seq_col_old_planner", "p0") {
     qt_partial_update_with_seq_hidden_columns """select * from ${tableName} order by id;"""
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
+
+
+    def tableName2 = "nereids_partial_update_native_insert_seq_col2"
+    sql """ DROP TABLE IF EXISTS ${tableName2} """
+    sql """
+            CREATE TABLE ${tableName2} (
+                `id` int(11) NOT NULL COMMENT "用户 ID",
+                `score` int(11) NOT NULL COMMENT "用户得分",
+                `update_time` DATETIMEV2 NULL DEFAULT CURRENT_TIMESTAMP)
+            UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES(
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true",
+                "function_column.sequence_col" = "update_time"
+            )""" 
+    
+    // don't set enable_unique_key_partial_update, it's a row update
+    // the input data don't contains sequence mapping column but the sequence mapping
+    // column's default value is CURRENT_TIMESTAMP, will load successfully
+    sql "SET show_hidden_columns=false"
+    sql "set enable_unique_key_partial_update=false;"
+    sql "sync;"
+    sql "insert into ${tableName2}(id,score) values(2,400),(1,200);"
+    qt_sql """ select id,score from ${tableName2} order by id;"""
+    sql """ DROP TABLE IF EXISTS ${tableName2}; """
 }
