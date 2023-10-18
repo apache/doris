@@ -447,7 +447,7 @@ void JniConnector::_generate_predicates(
 std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
     DataTypePtr type = remove_nullable(data_type);
     std::ostringstream buffer;
-    switch (type->get_type_as_primitive_type()) {
+    switch (type->get_type_as_type_descriptor().type) {
     case TYPE_BOOLEAN:
         return "boolean";
     case TYPE_TINYINT:
