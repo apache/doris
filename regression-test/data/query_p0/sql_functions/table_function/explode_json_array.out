@@ -137,3 +137,79 @@
 400	Dan	50	4	Street 4	22.214	b
 400	Dan	50	4	Street 4	214.1	b
 
+-- !explode_json_array15 --
+100	John	30	1	Street 1	1.23	b
+100	John	30	1	Street 1	22.214	b
+100	John	30	1	Street 1	214.1	b
+100	John	30	1	Street 1	1.23	false
+100	John	30	1	Street 1	22.214	false
+100	John	30	1	Street 1	214.1	false
+100	John	30	1	Street 1	1.23	true
+100	John	30	1	Street 1	22.214	true
+100	John	30	1	Street 1	214.1	true
+200	Mary	\N	1	Street 2	1.23	b
+200	Mary	\N	1	Street 2	22.214	b
+200	Mary	\N	1	Street 2	214.1	b
+200	Mary	\N	1	Street 2	1.23	false
+200	Mary	\N	1	Street 2	22.214	false
+200	Mary	\N	1	Street 2	214.1	false
+200	Mary	\N	1	Street 2	1.23	true
+200	Mary	\N	1	Street 2	22.214	true
+200	Mary	\N	1	Street 2	214.1	true
+300	Mike	80	3	Street 3	1.23	b
+300	Mike	80	3	Street 3	22.214	b
+300	Mike	80	3	Street 3	214.1	b
+300	Mike	80	3	Street 3	1.23	false
+300	Mike	80	3	Street 3	22.214	false
+300	Mike	80	3	Street 3	214.1	false
+300	Mike	80	3	Street 3	1.23	true
+300	Mike	80	3	Street 3	22.214	true
+300	Mike	80	3	Street 3	214.1	true
+400	Dan	50	4	Street 4	1.23	b
+400	Dan	50	4	Street 4	22.214	b
+400	Dan	50	4	Street 4	214.1	b
+400	Dan	50	4	Street 4	1.23	false
+400	Dan	50	4	Street 4	22.214	false
+400	Dan	50	4	Street 4	214.1	false
+400	Dan	50	4	Street 4	1.23	true
+400	Dan	50	4	Street 4	22.214	true
+400	Dan	50	4	Street 4	214.1	true
+
+-- !explode_json_array16 --
+100	John	30	1	Street 1	1.23	
+100	John	30	1	Street 1	1.23	
+100	John	30	1	Street 1	22.214	
+100	John	30	1	Street 1	22.214	
+100	John	30	1	Street 1	214.1	
+100	John	30	1	Street 1	214.1	
+100	John	30	1	Street 1	1.23	b
+100	John	30	1	Street 1	22.214	b
+100	John	30	1	Street 1	214.1	b
+200	Mary	\N	1	Street 2	1.23	
+200	Mary	\N	1	Street 2	1.23	
+200	Mary	\N	1	Street 2	22.214	
+200	Mary	\N	1	Street 2	22.214	
+200	Mary	\N	1	Street 2	214.1	
+200	Mary	\N	1	Street 2	214.1	
+200	Mary	\N	1	Street 2	1.23	b
+200	Mary	\N	1	Street 2	22.214	b
+200	Mary	\N	1	Street 2	214.1	b
+300	Mike	80	3	Street 3	1.23	
+300	Mike	80	3	Street 3	1.23	
+300	Mike	80	3	Street 3	22.214	
+300	Mike	80	3	Street 3	22.214	
+300	Mike	80	3	Street 3	214.1	
+300	Mike	80	3	Street 3	214.1	
+300	Mike	80	3	Street 3	1.23	b
+300	Mike	80	3	Street 3	22.214	b
+300	Mike	80	3	Street 3	214.1	b
+400	Dan	50	4	Street 4	1.23	
+400	Dan	50	4	Street 4	1.23	
+400	Dan	50	4	Street 4	22.214	
+400	Dan	50	4	Street 4	22.214	
+400	Dan	50	4	Street 4	214.1	
+400	Dan	50	4	Street 4	214.1	
+400	Dan	50	4	Street 4	1.23	b
+400	Dan	50	4	Street 4	22.214	b
+400	Dan	50	4	Street 4	214.1	b
+

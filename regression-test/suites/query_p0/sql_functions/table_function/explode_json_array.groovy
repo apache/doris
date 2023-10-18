@@ -78,4 +78,14 @@ suite("explode_json_array") {
                         LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1182381637816312, "b", -1273982982312333]') t1 as c 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
                         ORDER BY id, c, d """
+
+    qt_explode_json_array15 """ SELECT id, name, age, class, address, d, c FROM ${tableName}
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[true, "b", false]') t1 as c 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
+                        ORDER BY id, c, d """    
+
+    qt_explode_json_array16 """ SELECT id, name, age, class, address, d, c FROM ${tableName}
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[null, "b", null]') t1 as c 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
+                        ORDER BY id, c, d """        
 }
