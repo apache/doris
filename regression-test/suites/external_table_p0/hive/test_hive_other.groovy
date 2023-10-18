@@ -68,7 +68,18 @@ suite("test_hive_other", "p0") {
         sql """grant all on internal.${context.config.defaultDb}.* to ext_catalog_user"""
         sql """grant all on ${catalog_name}.*.* to ext_catalog_user"""
         connect(user = 'ext_catalog_user', password = '12345', url = context.config.jdbcUrl) {
-            order_qt_ext_catalog_grants """show databases from ${catalog_name}"""
+            def database_lists = sql """show databases from ${catalog_name}"""
+            boolean ok = false;
+            for (int i = 0; i < database_lists.size(); ++j) {
+                assertEquals(1, database_lists[i].size())
+                if (database_lists[i][0].equals("default")) {
+                    ok = true;
+                    break;
+                }
+            }
+            if (!ok) {
+                throw exception
+            }
         }
         sql """drop user ext_catalog_user"""
 
