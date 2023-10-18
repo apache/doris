@@ -21,6 +21,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.BackendLoadStatistic.LoadScore;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -186,34 +187,57 @@ public class LoadStatisticForTag {
         int lowCounter = 0;
         int midCounter = 0;
         int highCounter = 0;
+
+        long debugHighBeId = DebugPointUtil.getDebugParamOrDefault("FE.HIGH_LOAD_BE_ID", -1L);
+        if (debugHighBeId > 0) {
+            final long targetBeId = debugHighBeId; // debugHighBeId can not put in lambda cause it's updated later
+            if (!beLoadStatistics.stream().anyMatch(it -> it.getBeId() == targetBeId)) {
+                debugHighBeId = -1L;
+            }
+        }
+
         for (BackendLoadStatistic beStat : beLoadStatistics) {
             if (!beStat.hasMedium(medium)) {
                 continue;
             }
 
-
-            if (Config.be_rebalancer_fuzzy_test) {
+            Classification clazz = Classification.MID;
+            if (debugHighBeId > 0) {
+                if (beStat.getBeId() == debugHighBeId) {
+                    clazz = Classification.HIGH;
+                } else {
+                    clazz = Classification.LOW;
+                }
+            } else if (Config.be_rebalancer_fuzzy_test) {
                 if (beStat.getLoadScore(medium) > avgLoadScore) {
-                    beStat.setClazz(medium, Classification.HIGH);
-                    highCounter++;
+                    clazz = Classification.HIGH;
                 } else if (beStat.getLoadScore(medium) < avgLoadScore) {
-                    beStat.setClazz(medium, Classification.LOW);
-                    lowCounter++;
+                    clazz = Classification.LOW;
                 }
             } else {
                 if (Math.abs(beStat.getLoadScore(medium) - avgLoadScore) / avgLoadScore
                         > Config.balance_load_score_threshold) {
                     if (beStat.getLoadScore(medium) > avgLoadScore) {
-                        beStat.setClazz(medium, Classification.HIGH);
-                        highCounter++;
+                        clazz = Classification.HIGH;
                     } else if (beStat.getLoadScore(medium) < avgLoadScore) {
-                        beStat.setClazz(medium, Classification.LOW);
-                        lowCounter++;
+                        clazz = Classification.LOW;
                     }
-                } else {
-                    beStat.setClazz(medium, Classification.MID);
-                    midCounter++;
                 }
+            }
+
+            beStat.setClazz(medium, clazz);
+            switch (clazz) {
+                case HIGH:
+                    highCounter++;
+                    break;
+                case LOW:
+                    lowCounter++;
+                    break;
+                case MID:
+                    midCounter++;
+                    break;
+                default:
+                    break;
             }
         }
 

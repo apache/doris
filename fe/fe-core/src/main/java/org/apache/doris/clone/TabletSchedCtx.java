@@ -824,6 +824,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 return false;
             }
         } catch (Exception e) {
+            LOG.warn("replica {} of tablet {} check catchup with further repair watermark id {} failed",
+                    replica, tabletId, furtherRepairWatermarkTxnTd, e);
             return true;
         }
     }
