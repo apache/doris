@@ -126,11 +126,11 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             state, input_block, block, _output_vexpr_ctxs, rows, has_filtered_rows));
     // add block into block queue
-    return _add_block(state, block, eos);
+    return _add_block(state, block);
 }
 
 Status GroupCommitBlockSink::_add_block(RuntimeState* state,
-                                        std::shared_ptr<vectorized::Block> block, bool eos) {
+                                        std::shared_ptr<vectorized::Block> block) {
     if (block->rows() == 0) {
         return Status::OK();
     }
@@ -152,7 +152,7 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
     TUniqueId load_id;
     load_id.__set_hi(load_id.hi);
     load_id.__set_lo(load_id.lo);
-    future_block->set_info(_base_schema_version, load_id, eos);
+    future_block->set_info(_base_schema_version, load_id);
     if (_load_block_queue == nullptr) {
         RETURN_IF_ERROR(state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
                 _db_id, _table_id, future_block, _load_block_queue));

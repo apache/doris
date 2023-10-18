@@ -48,9 +48,6 @@ Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::FutureBlock> block)
     if (block->rows() > 0) {
         _block_queue.push_back(block);
     }
-    if (block->is_eos()) {
-        _load_ids.erase(block->get_load_id());
-    }
     _cv->notify_one();
     return Status::OK();
 }
@@ -94,12 +91,10 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
         *find_block = true;
         _block_queue.pop_front();
     }
-    if (_block_queue.empty()) {
-        if (need_commit && _load_ids.empty()) {
-            *eos = true;
-        } else {
-            *eos = false;
-        }
+    if (_block_queue.empty() && need_commit && _load_ids.empty()) {
+        *eos = true;
+    } else {
+        *eos = false;
     }
     return Status::OK();
 }
@@ -473,7 +468,7 @@ Status GroupCommitMgr::group_commit_insert(int64_t table_id, const TPlan& plan,
             std::shared_ptr<doris::vectorized::FutureBlock> future_block =
                     std::make_shared<doris::vectorized::FutureBlock>();
             future_block->swap(*(_block.get()));
-            future_block->set_info(request->base_schema_version(), load_id, eof);
+            future_block->set_info(request->base_schema_version(), load_id);
             if (load_block_queue == nullptr) {
                 RETURN_IF_ERROR(get_first_block_load_queue(request->db_id(), table_id, future_block,
                                                            load_block_queue));

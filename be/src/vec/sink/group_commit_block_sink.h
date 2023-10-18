@@ -48,7 +48,7 @@ public:
     Status close(RuntimeState* state, Status close_status) override;
 
 private:
-    Status _add_block(RuntimeState* state, std::shared_ptr<vectorized::Block> block, bool eos);
+    Status _add_block(RuntimeState* state, std::shared_ptr<vectorized::Block> block);
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
