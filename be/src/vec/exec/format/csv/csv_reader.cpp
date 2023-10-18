@@ -703,10 +703,12 @@ Status CsvReader::_validate_line(const Slice& line, bool* success) {
             return Status::InternalError("Only support csv data in utf8 codec");
         } else {
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                    []() -> std::string { return "Unable to display"; },
-                    []() -> std::string {
+                    [&]() -> std::string { return std::string(line.data, line.size); },
+                    [&]() -> std::string {
                         fmt::memory_buffer error_msg;
-                        fmt::format_to(error_msg, "{}", "Unable to display");
+                        fmt::format_to(error_msg, "{}{}",
+                                       "Unable to display, only support csv data in utf8 codec",
+                                       ", please check the data encoding");
                         return fmt::to_string(error_msg);
                     },
                     &_line_reader_eof));
