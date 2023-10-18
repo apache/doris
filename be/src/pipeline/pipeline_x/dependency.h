@@ -201,7 +201,7 @@ public:
 protected:
     std::atomic<bool> _ready_to_finish;
     MonotonicStopWatch _finish_dependency_watcher;
-    std::atomic_int64_t _block_counter;
+    std::atomic_int64_t _block_counter = 0;
 };
 
 class AndDependency : public WriteDependency {

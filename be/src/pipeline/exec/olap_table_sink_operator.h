@@ -104,7 +104,9 @@ public:
         auto& local_state = state->get_sink_local_state(id())->cast<OlapTableSinkLocalState>();
         auto* ret = local_state._finish_dependency->finish_blocked_by();
         if (local_state._finish_dependency->to_much_block()) {
-            LOG_WARNING("yxc only test").tag("query id", state->query_id()).tag("id()", id());
+            LOG_WARNING("yxc only test")
+                    .tag("query id", print_id(state->query_id()))
+                    .tag("id()", id());
         }
         return ret;
     };
