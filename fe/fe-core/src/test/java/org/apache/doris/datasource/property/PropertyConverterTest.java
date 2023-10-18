@@ -170,7 +170,7 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateRepositoryStmt analyzedStmt = createStmt(s3Repo);
         Assertions.assertEquals(analyzedStmt.getProperties().size(), 4);
         Repository repository = getRepository(analyzedStmt, "s3_repo");
-        Assertions.assertEquals(repository.getRemoteFileSystem().getProperties().size(), 5);
+        Assertions.assertEquals(9, repository.getRemoteFileSystem().getProperties().size());
 
         String s3RepoNew = "CREATE REPOSITORY `s3_repo_new`\n"
                 + "WITH S3\n"

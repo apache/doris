@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -627,9 +628,9 @@ public class BackupJob extends AbstractJob {
                 }
                 long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
-                        brokers.get(0), repo.getRemoteFileSystem().getProperties(),
+                        brokers.get(0),
+                        S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
                         repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
-                LOG.info("yy debug upload location: " + repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
             }
@@ -1013,3 +1014,4 @@ public class BackupJob extends AbstractJob {
         return sb.toString();
     }
 }
+
