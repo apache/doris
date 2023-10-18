@@ -36,8 +36,7 @@ class Schema;
 
 namespace doris {
 
-Status convert_to_arrow_batch(const vectorized::Block& block,
-                              const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
+Status convert_to_arrow_batch(const vectorized::Block& block, arrow::MemoryPool* pool,
                               std::shared_ptr<arrow::RecordBatch>* result);
 
 } // namespace doris

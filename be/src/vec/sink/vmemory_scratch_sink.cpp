@@ -86,8 +86,7 @@ Status MemoryScratchSink::send(RuntimeState* state, Block* input_block, bool eos
     Block block;
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
                                                                        *input_block, &block));
-    RETURN_IF_ERROR(
-            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow::default_memory_pool(), &result));
     _queue->blocking_put(result);
     return Status::OK();
 }

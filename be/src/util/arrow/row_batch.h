@@ -46,8 +46,8 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
 Status convert_to_arrow_schema(const RowDescriptor& row_desc,
                                std::shared_ptr<arrow::Schema>* result);
 
-Status get_block_arrow_schema(const vectorized::Block& block,
-                              std::shared_ptr<arrow::Schema>* result);
+Status convert_block_arrow_schema(const vectorized::Block& block,
+                                  std::shared_ptr<arrow::Schema>* result);
 
 Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::string* result);
 

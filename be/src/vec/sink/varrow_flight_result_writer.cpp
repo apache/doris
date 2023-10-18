@@ -75,8 +75,7 @@ Status VArrowFlightResultWriter::append_block(Block& input_block) {
     uint64_t bytes_sent = block.bytes();
     {
         SCOPED_TIMER(_convert_tuple_timer);
-        RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
-                                               &result));
+        RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow::default_memory_pool(), &result));
     }
     {
         SCOPED_TIMER(_result_send_timer);

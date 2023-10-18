@@ -135,8 +135,8 @@ Status convert_to_arrow_field(SlotDescriptor* desc, std::shared_ptr<arrow::Field
     return Status::OK();
 }
 
-Status get_block_arrow_schema(const vectorized::Block& block,
-                              std::shared_ptr<arrow::Schema>* result) {
+Status convert_block_arrow_schema(const vectorized::Block& block,
+                                  std::shared_ptr<arrow::Schema>* result) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
@@ -214,7 +214,7 @@ Status serialize_arrow_schema(RowDescriptor row_desc, std::shared_ptr<arrow::Sch
     }
     auto block = vectorized::Block(slots, 0);
     std::shared_ptr<arrow::RecordBatch> batch;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, *schema, arrow::default_memory_pool(), &batch));
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow::default_memory_pool(), &batch));
     return serialize_record_batch(*batch, result);
 }
 
