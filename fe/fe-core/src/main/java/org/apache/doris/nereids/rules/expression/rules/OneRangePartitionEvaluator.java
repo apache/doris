@@ -88,7 +88,7 @@ public class OneRangePartitionEvaluator
 
     /** OneRangePartitionEvaluator */
     public OneRangePartitionEvaluator(long partitionId, List<Slot> partitionSlots,
-            RangePartitionItem partitionItem, CascadesContext cascadesContext) {
+            RangePartitionItem partitionItem, CascadesContext cascadesContext, boolean allowMerged) {
         this.partitionId = partitionId;
         this.partitionSlots = Objects.requireNonNull(partitionSlots, "partitionSlots cannot be null");
         this.partitionItem = Objects.requireNonNull(partitionItem, "partitionItem cannot be null");
@@ -132,7 +132,7 @@ public class OneRangePartitionEvaluator
                 10, sessionVariable -> sessionVariable.partitionPruningExpandThreshold);
 
         List<List<Expression>> expandInputs = expander.tryExpandRange(
-                partitionSlots, lowers, uppers, partitionSlotTypes, expandThreshold);
+                partitionSlots, lowers, uppers, partitionSlotTypes, expandThreshold, allowMerged);
         // after expand range, we will get 2 dimension list like list:
         // part_col1: [1], part_col2:[4, 5, 6], we should combine it to
         // [1, 4], [1, 5], [1, 6] as inputs
@@ -322,8 +322,8 @@ public class OneRangePartitionEvaluator
             Slot slot = (Slot) lessThanEqual.left();
             if (isPartitionSlot(slot)) {
                 Map<Slot, ColumnRange> leftColumnRanges = result.childrenResult.get(0).columnRanges;
-                ColumnRange atLeastRange = ColumnRange.atMost((Literal) lessThanEqual.right());
-                result = intersectSlotRange(result, leftColumnRanges, slot, atLeastRange);
+                ColumnRange atMostRange = ColumnRange.atMost((Literal) lessThanEqual.right());
+                result = intersectSlotRange(result, leftColumnRanges, slot, atMostRange);
             }
         } else if (lessThanEqual.left() instanceof Literal && lessThanEqual.right() instanceof Slot) {
             Slot slot = (Slot) lessThanEqual.right();
@@ -632,6 +632,34 @@ public class OneRangePartitionEvaluator
                 .stream()
                 .map(slot -> Pair.of(slot, new PartitionSlotInput(inputs.get(slot).result, allColumnRanges)))
                 .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
+    }
+
+    /**
+     * Check if the filter expression range can match the pruned partition column ranges accurately.
+     */
+    public boolean checkEqualRange(Expression expression, Map<Slot, PartitionSlotInput> currentInputs) {
+        Map<Slot, ColumnRange> defaultColumnRanges = currentInputs.values().iterator().next().columnRanges;
+        EvaluateRangeResult result = expression.accept(
+                this, new EvaluateRangeInput(defaultColumnRanges, currentInputs));
+        if (result.equals(BooleanLiteral.FALSE)) {
+            return false;
+        } else {
+            Map<Slot, ColumnRange> rangesMaps = result.columnRanges;
+            if (rangesMaps.size() != defaultColumnRanges.size()) {
+                return false;
+            } else {
+                for (Map.Entry<Slot, ColumnRange> kv : rangesMaps.entrySet()) {
+                    Range<ColumnBound> range = defaultColumnRanges.get(kv.getKey()).asRanges().iterator().next();
+                    Range<ColumnBound> otherRange = kv.getValue().asRanges().iterator().next();
+                    // TODO: currently only check 'where date >= 20230801 and date < 20230807'
+                    // and 'where date >= 20230801 and date <= 20230806' is NOT supported
+                    if (range == null || !range.equals(otherRange)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
     }
 
     /** EvaluateRangeInput */

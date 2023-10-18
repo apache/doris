@@ -119,7 +119,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         List<OnePartitionEvaluator> evaluators = idToPartitions.entrySet()
                 .stream()
                 .map(kv -> toPartitionEvaluator(kv.getKey(), kv.getValue(), partitionSlots, cascadesContext,
-                        partitionTableType))
+                        partitionTableType, false))
                 .collect(ImmutableList.toImmutableList());
 
         PartitionPruner partitionPruner = new PartitionPruner(evaluators, partitionPredicate);
@@ -131,7 +131,8 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
      * convert partition item to partition evaluator
      */
     public static final OnePartitionEvaluator toPartitionEvaluator(long id, PartitionItem partitionItem,
-            List<Slot> partitionSlots, CascadesContext cascadesContext, PartitionTableType partitionTableType) {
+            List<Slot> partitionSlots, CascadesContext cascadesContext, PartitionTableType partitionTableType,
+            boolean allowMerged) {
         if (partitionItem instanceof ListPartitionItem) {
             if (partitionTableType == PartitionTableType.HIVE
                     && ((ListPartitionItem) partitionItem).isHiveDefaultPartition()) {
@@ -142,7 +143,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             }
         } else if (partitionItem instanceof RangePartitionItem) {
             return new OneRangePartitionEvaluator(
-                    id, partitionSlots, (RangePartitionItem) partitionItem, cascadesContext);
+                    id, partitionSlots, (RangePartitionItem) partitionItem, cascadesContext, allowMerged);
         } else {
             return new UnknownPartitionEvaluator(id, partitionItem);
         }

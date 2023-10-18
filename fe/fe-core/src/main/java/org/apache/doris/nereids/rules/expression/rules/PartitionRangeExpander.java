@@ -76,7 +76,7 @@ public class PartitionRangeExpander {
     /** expandRangeLiterals */
     public final List<List<Expression>> tryExpandRange(
             List<Slot> partitionSlots, List<Literal> lowers, List<Literal> uppers,
-            List<PartitionSlotType> partitionSlotTypes, int expandThreshold) {
+            List<PartitionSlotType> partitionSlotTypes, int expandThreshold, boolean allowMerged) {
 
         long expandedCount = 1;
         List<List<Expression>> expandedLists = Lists.newArrayListWithCapacity(lowers.size());
@@ -97,7 +97,7 @@ public class PartitionRangeExpander {
                     Literal upper = uppers.get(i);
                     try {
                         boolean isLastColumn = i + 1 == partitionSlots.size();
-                        if (canExpandRange(slot, lower, upper, expandedCount, expandThreshold)) {
+                        if (!allowMerged && canExpandRange(slot, lower, upper, expandedCount, expandThreshold)) {
                             expandedList.addAll(ImmutableList.copyOf(
                                     enumerableIterator(slot, lower, upper, isLastColumn))
                             );
