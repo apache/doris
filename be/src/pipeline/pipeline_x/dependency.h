@@ -176,15 +176,9 @@ public:
             _finish_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
                          << id();
-            _block_counter++;
-        }
-        if (to_much_block()) {
-            return this;
         }
         return _ready_to_finish ? nullptr : this;
     }
-
-    bool to_much_block() { return _block_counter > max_block_time; }
 
     void set_ready_to_finish() {
         if (_ready_to_finish) {
@@ -201,7 +195,6 @@ public:
 protected:
     std::atomic<bool> _ready_to_finish;
     MonotonicStopWatch _finish_dependency_watcher;
-    std::atomic_int64_t _block_counter = 0;
 };
 
 class AndDependency : public WriteDependency {

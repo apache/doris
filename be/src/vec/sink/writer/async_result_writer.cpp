@@ -16,6 +16,7 @@
 // under the License.
 
 #include "async_result_writer.h"
+#include <glog/logging.h>
 
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/exec_env.h"
@@ -93,15 +94,21 @@ void AsyncResultWriter::_return_block_to_queue(std::unique_ptr<Block> add_block)
 }
 
 void AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
-    static_cast<void>(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-            [this, state, profile]() { this->process_block(state, profile); }));
+    if (_dependency) {
+        DCHECK(_finish_dependency);
+    }
+    auto st = ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
+            [this, state, profile]() { this->process_block(state, profile); });
+    DCHECK(st.ok());
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
     if (auto status = open(state, profile); !status.ok()) {
         force_close(status);
     }
-
+    if (_dependency) {
+        DCHECK(_finish_dependency);
+    }
     if (_writer_status.ok()) {
         while (true) {
             if (!_eos && _data_queue.empty() && _writer_status.ok()) {
@@ -141,6 +148,9 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         _need_normal_close = false;
     }
     _writer_thread_closed = true;
+    if (_dependency) {
+        DCHECK(_finish_dependency);
+    }
     if (_finish_dependency) {
         _finish_dependency->set_ready_to_finish();
     }
