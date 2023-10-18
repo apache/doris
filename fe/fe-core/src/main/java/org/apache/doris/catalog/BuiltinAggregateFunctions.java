@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
@@ -82,6 +83,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(AnyValue.class, "any", "any_value"),
             agg(Avg.class, "avg"),
             agg(AvgWeighted.class, "avg_weighted"),
+            agg(BitmapAgg.class, "bitmap_agg"),
             agg(BitmapIntersect.class, "bitmap_intersect"),
             agg(BitmapUnion.class, "bitmap_union"),
             agg(BitmapUnionCount.class, "bitmap_union_count"),
