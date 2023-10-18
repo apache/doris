@@ -109,6 +109,8 @@ public:
     bool is_key() const { return _is_key; }
     bool need_materialize() const { return _need_materialize; }
 
+    const std::string& col_default_value() const { return _col_default_value; }
+
 private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
@@ -141,6 +143,10 @@ private:
 
     const bool _is_key;
     const bool _need_materialize;
+    const std::vector<std::string> _column_paths;
+
+    const bool _is_auto_increment;
+    const std::string _col_default_value;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);

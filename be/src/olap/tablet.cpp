@@ -2723,14 +2723,18 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
     vectorized::DataTypeSerDeSPtrs serdes;
     serdes.resize(cids.size());
     std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
+    std::vector<std::string> default_values;
+    default_values.resize(cids.size());
     for (int i = 0; i < cids.size(); ++i) {
         const TabletColumn& column = tablet_schema->column(cids[i]);
         vectorized::DataTypePtr type =
                 vectorized::DataTypeFactory::instance().create_data_type(column);
         col_uid_to_idx[column.unique_id()] = i;
+        default_values[i] = column.default_value();
         serdes[i] = type->get_serde();
     }
-    vectorized::JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx, block);
+    vectorized::JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx, block,
+                                                   default_values);
     return Status::OK();
 }
 

@@ -201,10 +201,10 @@ suite("test_point_query") {
             qe_point_select stmt
             qe_point_select stmt
 
-            // sql """
-            //   ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
-            // """
-            // qe_point_select stmt
+            sql """
+              ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
+            """
+            qe_point_select stmt
         }
         // disable useServerPrepStmts
         def result2 = connect(user=user, password=password, url=context.config.jdbcUrl) {
