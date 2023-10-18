@@ -104,7 +104,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
         VLOG_NOTICE
                 << "cumulative compaction size_based policy, calculate cumulative point value = "
                 << *ret_cumulative_point << ", calc promotion size value = " << promotion_size
-                << " tablet = " << tablet->full_name();
+                << " tablet = " << tablet->tablet_id();
     } else if (tablet->tablet_state() == TABLET_NOTREADY) {
         // tablet under alter process
         // we choose version next to the base version as cumulative point
@@ -345,7 +345,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     VLOG_CRITICAL << "cumulative compaction size_based policy, compaction_score = "
                   << *compaction_score << ", total_size = " << total_size
                   << ", calc promotion size value = " << promotion_size
-                  << ", tablet = " << tablet->full_name() << ", input_rowset size "
+                  << ", tablet = " << tablet->tablet_id() << ", input_rowset size "
                   << input_rowsets->size();
 
     // empty return

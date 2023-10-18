@@ -491,7 +491,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 const RowsetSharedPtr last_version = ref_tablet->rowset_with_max_version();
                 if (last_version == nullptr) {
                     res = Status::InternalError("tablet has not any version. path={}",
-                                                ref_tablet->full_name());
+                                                ref_tablet->tablet_id());
                     break;
                 }
                 // get snapshot version, use request.version if specified

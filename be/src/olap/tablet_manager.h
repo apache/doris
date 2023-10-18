@@ -82,9 +82,6 @@ public:
     TabletSharedPtr get_tablet(TTabletId tablet_id, bool include_deleted = false,
                                std::string* err = nullptr);
 
-    std::pair<TabletSharedPtr, Status> get_tablet_and_status(TTabletId tablet_id,
-                                                             bool include_deleted = false);
-
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
 

@@ -33,6 +33,7 @@
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
+#include "olap/tablet_fwd.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
 
@@ -127,6 +128,9 @@ public:
         static ExecEnv s_exec_env;
         return &s_exec_env;
     }
+
+    // Requires ExenEnv ready
+    static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     const std::string& token() const;

@@ -22,6 +22,7 @@
 #include "common/object_pool.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "io/fs/local_file_system.h"
 #include "olap/wal_manager.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"

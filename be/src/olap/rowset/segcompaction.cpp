@@ -26,6 +26,7 @@
 #include <condition_variable>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -110,7 +111,7 @@ std::unique_ptr<segment_v2::SegmentWriter> SegcompactionWorker::_create_segcompa
     status = _create_segment_writer_for_segcompaction(&writer, begin, end);
     if (!status.ok() || writer == nullptr) {
         LOG(ERROR) << "failed to create segment writer for begin:" << begin << " end:" << end
-                   << " path:" << writer->get_data_dir()->path() << " status:" << status;
+                   << " status:" << status;
         return nullptr;
     } else {
         return writer;
@@ -212,7 +213,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     }
 
     DCHECK(ctx.tablet);
-    auto tablet = ctx.tablet;
+    auto tablet = std::static_pointer_cast<Tablet>(ctx.tablet);
 
     std::vector<std::vector<uint32_t>> column_groups;
     Merger::vertical_split_columns(ctx.tablet_schema, &column_groups);

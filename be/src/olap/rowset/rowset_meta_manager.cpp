@@ -462,7 +462,8 @@ Status RowsetMetaManager::traverse_rowset_metas(
 }
 
 Status RowsetMetaManager::traverse_binlog_metas(
-        OlapMeta* meta, std::function<bool(const string&, const string&, bool)> const& collector) {
+        OlapMeta* meta,
+        std::function<bool(const std::string&, const std::string&, bool)> const& collector) {
     std::pair<std::string, bool> last_info = std::make_pair(kBinlogMetaPrefix.data(), false);
     bool seek_found = false;
     Status status;

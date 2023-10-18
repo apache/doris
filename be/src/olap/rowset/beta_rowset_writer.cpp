@@ -28,9 +28,11 @@
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
@@ -133,6 +135,10 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
 }
 
 Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
+    if (config::cloud_mode) {
+        // TODO(plat1ko)
+        return Status::NotSupported("_generate_delete_bitmap");
+    }
     SCOPED_RAW_TIMER(&_delete_bitmap_ns);
     if (!_context.tablet->enable_unique_key_merge_on_write() ||
         (_context.partial_update_info && _context.partial_update_info->is_partial_update)) {
@@ -143,14 +149,15 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(segment_id, segment_id + 1, &segments));
     std::vector<RowsetSharedPtr> specified_rowsets;
+    auto tablet = static_cast<Tablet*>(_context.tablet.get());
     {
-        std::shared_lock meta_rlock(_context.tablet->get_header_lock());
-        specified_rowsets = _context.tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
+        std::shared_lock meta_rlock(tablet->get_header_lock());
+        specified_rowsets = tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
     }
     OlapStopWatch watch;
-    RETURN_IF_ERROR(_context.tablet->calc_delete_bitmap(
-            rowset, segments, specified_rowsets, _context.mow_context->delete_bitmap,
-            _context.mow_context->max_version, nullptr));
+    RETURN_IF_ERROR(tablet->calc_delete_bitmap(rowset, segments, specified_rowsets,
+                                               _context.mow_context->delete_bitmap,
+                                               _context.mow_context->max_version, nullptr));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });

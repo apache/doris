@@ -28,6 +28,7 @@
 #include <string>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exprs/function_filter.h"
@@ -58,6 +59,14 @@ BlockReader::~BlockReader() {
         _agg_functions[i]->destroy(_agg_places[i]);
         delete[] _agg_places[i];
     }
+}
+
+Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
+    auto res = (this->*_next_block_func)(block, eof);
+    if (!res.ok() && !res.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
+        static_cast<Tablet*>(_tablet.get())->report_error(res);
+    }
+    return res;
 }
 
 bool BlockReader::_rowsets_overlapping(const ReaderParams& read_params) {
@@ -224,8 +233,8 @@ Status BlockReader::init(const ReaderParams& read_params) {
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) {
-        if (UNLIKELY(!status.ok() && !status.is<ErrorCode::END_OF_FILE>())) {
-            _tablet->report_error(status);
+        if (!status.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
+            static_cast<Tablet*>(_tablet.get())->report_error(status);
         }
 
         return status;

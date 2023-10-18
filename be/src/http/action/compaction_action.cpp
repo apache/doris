@@ -245,11 +245,11 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             if (res.is<BE_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init base compaction due to no suitable version, tablet="
-                            << tablet->full_name();
+                            << tablet->tablet_id();
             } else {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
                 LOG(WARNING) << "failed to init base compaction. res=" << res
-                             << ", tablet=" << tablet->full_name();
+                             << ", tablet=" << tablet->tablet_id();
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
@@ -259,11 +259,11 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             if (res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
-                            << "tablet=" << tablet->full_name();
+                            << "tablet=" << tablet->tablet_id();
             } else {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 LOG(WARNING) << "failed to do cumulative compaction. res=" << res
-                             << ", table=" << tablet->full_name();
+                             << ", table=" << tablet->tablet_id();
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_FULL) {
@@ -273,10 +273,10 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             if (res.is<FULL_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init full compaction due to no suitable version,"
-                            << "tablet=" << tablet->full_name();
+                            << "tablet=" << tablet->tablet_id();
             } else {
                 LOG(WARNING) << "failed to do full compaction. res=" << res
-                             << ", table=" << tablet->full_name();
+                             << ", table=" << tablet->tablet_id();
             }
         }
     }

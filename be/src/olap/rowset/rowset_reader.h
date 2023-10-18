@@ -21,10 +21,9 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <memory>
-#include <unordered_map>
 
 #include "olap/iterators.h"
-#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "vec/core/block.h"
 
@@ -33,9 +32,6 @@ namespace doris {
 namespace vectorized {
 class Block;
 }
-
-class RowsetReader;
-using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
 struct RowSetSplits {
     RowsetReaderSharedPtr rs_reader;

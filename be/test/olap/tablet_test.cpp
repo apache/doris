@@ -28,6 +28,7 @@
 #include "gutil/strings/numbers.h"
 #include "http/action/pad_rowset_action.h"
 #include "io/fs/local_file_system.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"

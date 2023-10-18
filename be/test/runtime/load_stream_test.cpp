@@ -37,6 +37,7 @@
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/tablet_manager.h"

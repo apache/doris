@@ -314,7 +314,7 @@ void TabletPublishTxnTask::handle() {
     g_tablet_publish_latency << cost_us;
     _stats.record_in_bvar();
     LOG(INFO) << "publish version successfully on tablet"
-              << ", table_id=" << _tablet->table_id() << ", tablet=" << _tablet->full_name()
+              << ", table_id=" << _tablet->table_id() << ", tablet=" << _tablet->tablet_id()
               << ", transaction_id=" << _transaction_id << ", version=" << _version.first
               << ", num_rows=" << _rowset->num_rows() << ", res=" << publish_status
               << ", cost: " << cost_us << "(us) "
@@ -357,7 +357,7 @@ void AsyncTabletPublishTask::handle() {
     g_tablet_publish_latency << cost_us;
     _stats.record_in_bvar();
     LOG(INFO) << "async publish version successfully on tablet, table_id=" << _tablet->table_id()
-              << ", tablet=" << _tablet->full_name() << ", transaction_id=" << _transaction_id
+              << ", tablet=" << _tablet->tablet_id() << ", transaction_id=" << _transaction_id
               << ", version=" << _version << ", num_rows=" << rowset->num_rows()
               << ", res=" << publish_status << ", cost: " << cost_us << "(us) "
               << (cost_us > 500 * 1000 ? _stats.to_string() : "");

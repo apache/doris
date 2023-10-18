@@ -126,8 +126,6 @@ private:
     RowsetBuilder _rowset_builder;
     std::shared_ptr<MemTableWriter> _memtable_writer;
 
-    StorageEngine* _storage_engine;
-
     std::mutex _lock;
 
     std::unordered_set<int64_t> _unfinished_slave_node;

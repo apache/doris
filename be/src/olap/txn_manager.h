@@ -112,7 +112,7 @@ public:
 
     // add a txn to manager
     // partition id is useful in publish version stage because version is associated with partition
-    Status prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+    Status prepare_txn(TPartitionId partition_id, const Tablet& tablet,
                        TTransactionId transaction_id, const PUniqueId& load_id,
                        bool is_ingest = false);
     // most used for ut
@@ -120,7 +120,7 @@ public:
                        TTabletId tablet_id, TabletUid tablet_uid, const PUniqueId& load_id,
                        bool is_ingest = false);
 
-    Status commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+    Status commit_txn(TPartitionId partition_id, const Tablet& tablet,
                       TTransactionId transaction_id, const PUniqueId& load_id,
                       const RowsetSharedPtr& rowset_ptr, bool is_recovery);
 
@@ -129,7 +129,7 @@ public:
                        TabletPublishStatistics* stats);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
-    Status rollback_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+    Status rollback_txn(TPartitionId partition_id, const Tablet& tablet,
                         TTransactionId transaction_id);
 
     Status delete_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
