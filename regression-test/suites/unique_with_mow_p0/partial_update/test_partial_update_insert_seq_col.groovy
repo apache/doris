@@ -16,10 +16,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_primary_key_partial_update_seq_col", "p0") {
-    def tableName = "test_primary_key_partial_update_seq_col"
+suite("test_partial_update_native_insert_seq_col_old_planner", "p0") {
+    sql "set enable_nereids_dml=false;"
+    sql "set experimental_enable_nereids_planner=false;"
+    sql "set enable_fallback_to_original_planner=true;"
+    sql "sync;"
 
-    // create table
+    def tableName = "test_partial_update_native_insert_seq_col_old_planner"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -36,93 +39,52 @@ suite("test_primary_key_partial_update_seq_col", "p0") {
                 "function_column.sequence_col" = "update_time"
             )
     """
-    // insert 2 lines
-    sql """
-        insert into ${tableName} values
+    sql """ insert into ${tableName} values
             (2, "doris2", 2000, 223, 1, '2023-01-01'),
-            (1, "doris", 1000, 123, 1, '2023-01-01')
-    """
-
+            (1, "doris", 1000, 123, 1, '2023-01-01');"""
     sql "sync"
 
-    qt_select_default """
-        select * from ${tableName} order by id;
-    """
+    qt_select_default """ select * from ${tableName} order by id;"""
 
     // don't set partial update header, it's a row update streamload
     // the input data don't contains sequence mapping column, will load fail
-    streamLoad {
-        table "${tableName}"
-
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'columns', 'id,score'
-
-        file 'basic.csv'
-        time 10000 // limit inflight 10s
-
-        check { result, exception, startTime, endTime ->
-            if (exception != null) {
-                throw exception
-            }
-            log.info("Stream load result: ${result}".toString())
-            def json = parseJson(result)
-            assertEquals("fail", json.Status.toLowerCase())
-            assertTrue(json.Message.contains('need to specify the sequence column'))
-        }
+    test {
+        sql "insert into ${tableName}(id,score) values(2,400),(1,200);"
+        exception "Table test_partial_update_native_insert_seq_col_old_planner has sequence column, need to specify the sequence column"
     }
-
 
     // set partial update header, should success
     // we don't provide the sequence column in input data, so the updated rows
     // should use there original sequence column values.
-    streamLoad {
-        table "${tableName}"
+    sql "set enable_unique_key_partial_update=true;"
+    sql "sync;"
+    sql "insert into ${tableName}(id,score) values(2,400),(1,200);"
+    sql "set enable_unique_key_partial_update=false;"
+    sql "sync;"
 
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'partial_columns', 'true'
-        set 'columns', 'id,score'
-
-        file 'basic.csv'
-        time 10000 // limit inflight 10s
-    }
-
-    sql "sync"
-
-    qt_partial_update_without_seq """
-        select * from ${tableName} order by id;
-    """
+    qt_partial_update_without_seq """ select * from ${tableName} order by id;"""
 
     // provide the sequence column this time, should update according to the
     // given sequence values
-    streamLoad {
-        table "${tableName}"
+    sql "set enable_unique_key_partial_update=true;"
+    sql "set enable_insert_strict = false;"
+    sql "sync;"
+    sql """insert into ${tableName}(id,score,update_time) values
+                (2,2500,"2023-07-19"),
+                (2,2600,"2023-07-20"),
+                (1,1300,"2022-07-19"),
+                (3,1500,"2022-07-20"),
+                (3,2500,"2022-07-18");"""
+    sql "set enable_unique_key_partial_update=false;"
+    sql "sync;"
 
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'partial_columns', 'true'
-        set 'columns', 'id,score,update_time'
-
-        file 'basic_with_seq.csv'
-        time 10000 // limit inflight 10s
-    }
-
-    sql "sync"
-
-    qt_partial_update_with_seq """
-        select * from ${tableName} order by id;
-    """
+    qt_partial_update_with_seq """ select * from ${tableName} order by id;"""
 
     sql "SET show_hidden_columns=true"
-
     sql "sync"
 
-    qt_partial_update_with_seq_hidden_columns """
-        select * from ${tableName} order by id;
-    """
+    qt_partial_update_with_seq_hidden_columns """select * from ${tableName} order by id;"""
 
-    // drop drop
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
 
@@ -140,19 +102,13 @@ suite("test_primary_key_partial_update_seq_col", "p0") {
                 "function_column.sequence_col" = "update_time"
             )""" 
     
-    // don't set partial update header, it's a row update streamload
+    // don't set enable_unique_key_partial_update, it's a row update
     // the input data don't contains sequence mapping column but the sequence mapping
     // column's default value is CURRENT_TIMESTAMP, will load successfully
-    streamLoad {
-        table "${tableName2}"
-
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'columns', 'id,score'
-
-        file 'basic.csv'
-        time 10000 // limit inflight 10s
-    }
+    sql "SET show_hidden_columns=false"
+    sql "set enable_unique_key_partial_update=false;"
+    sql "sync;"
+    sql "insert into ${tableName2}(id,score) values(2,400),(1,200);"
     qt_sql """ select id,score from ${tableName2} order by id;"""
     sql """ DROP TABLE IF EXISTS ${tableName2}; """
 }
