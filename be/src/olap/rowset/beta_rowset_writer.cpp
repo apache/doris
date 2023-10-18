@@ -33,7 +33,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -85,8 +84,8 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     if (!_already_built) { // abnormal exit, remove all files generated
         WARN_IF_ERROR(_segment_creator.close(),
                       "close segment creator failed"); // ensure all files are closed
-        auto fs = _rowset_meta->fs();
-        if (fs->type() != io::FileSystemType::LOCAL) { // Remote fs will delete them asynchronously
+        const auto& fs = _rowset_meta->fs();
+        if (!fs || !_rowset_meta->is_local()) { // Remote fs will delete them asynchronously
             return;
         }
         for (int i = _segment_start_id; i < _segment_creator.next_segment_id(); ++i) {
@@ -96,7 +95,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
             WARN_IF_ERROR(fs->delete_file(seg_path),
-                          strings::Substitute("Failed to delete file=$0", seg_path));
+                          fmt::format("Failed to delete file={}", seg_path));
         }
     }
 }

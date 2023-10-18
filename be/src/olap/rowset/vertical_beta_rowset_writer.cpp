@@ -29,7 +29,6 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "olap/rowset/beta_rowset.h"
@@ -44,8 +43,8 @@ using namespace ErrorCode;
 
 VerticalBetaRowsetWriter::~VerticalBetaRowsetWriter() {
     if (!_already_built) {
-        auto fs = _rowset_meta->fs();
-        if (!fs) {
+        const auto& fs = _rowset_meta->fs();
+        if (!fs || !_rowset_meta->is_local()) { // Remote fs will delete them asynchronously
             return;
         }
         for (auto& segment_writer : _segment_writers) {
@@ -56,8 +55,7 @@ VerticalBetaRowsetWriter::~VerticalBetaRowsetWriter() {
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
-            WARN_IF_ERROR(fs->delete_file(path),
-                          strings::Substitute("Failed to delete file=$0", path));
+            WARN_IF_ERROR(fs->delete_file(path), fmt::format("Failed to delete file={}", path));
         }
     }
 }
@@ -105,7 +103,8 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
             RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key));
         }
         // when splitting segment, need to make rows align between key columns and value columns
-        size_t start_offset = 0, limit = num_rows;
+        size_t start_offset = 0;
+        size_t limit = num_rows;
         if (num_rows_written + num_rows >= num_rows_key_group &&
             _cur_writer_idx < _segment_writers.size() - 1) {
             RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(
