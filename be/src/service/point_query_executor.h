@@ -82,6 +82,8 @@ public:
         return _col_uid_to_idx;
     }
 
+    const std::vector<std::string>& get_col_default_values() const { return _col_default_values; }
+
     // do not touch block after returned
     void return_block(std::unique_ptr<vectorized::Block>& block);
 
@@ -102,6 +104,7 @@ private:
     int64_t _create_timestamp = 0;
     vectorized::DataTypeSerDeSPtrs _data_type_serdes;
     std::unordered_map<uint32_t, uint32_t> _col_uid_to_idx;
+    std::vector<std::string> _col_default_values;
     int64_t _mem_size = 0;
 };
 
