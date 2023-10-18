@@ -1230,12 +1230,14 @@ public class TabletScheduler extends MasterDaemon {
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         Collections.shuffle(alternativeTablets);
         for (TabletSchedCtx tabletCtx : alternativeTablets) {
-            if (addTablet(tabletCtx, false) == AddResult.ADDED) {
+            if (needAddBalanceNum > 0 && addTablet(tabletCtx, false) == AddResult.ADDED) {
                 needAddBalanceNum--;
-                if (needAddBalanceNum <= 0) {
-                    return;
-                }
+            } else {
+                rebalancer.onTabletFailed(tabletCtx);
             }
+        }
+        if (needAddBalanceNum <= 0) {
+            return;
         }
         if (Config.disable_disk_balance) {
             LOG.info("disk balance is disabled. skip selecting tablets for disk balance");
@@ -1444,6 +1446,13 @@ public class TabletScheduler extends MasterDaemon {
 
 
     private void finalizeTabletCtx(TabletSchedCtx tabletCtx, TabletSchedCtx.State state, Status status, String reason) {
+        if (state == TabletSchedCtx.State.CANCELLED || state == TabletSchedCtx.State.UNEXPECTED) {
+            if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE
+                    && tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.BE_BALANCE) {
+                rebalancer.onTabletFailed(tabletCtx);
+            }
+        }
+
         // use 2 steps to avoid nested database lock and synchronized.(releaseTabletCtx() may hold db lock)
         // remove the tablet ctx, so that no other process can see it
         removeTabletCtx(tabletCtx, reason);
