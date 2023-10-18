@@ -39,6 +39,7 @@
 #include "gutil/strings/numbers.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/delete_handler.h"
 #include "olap/merger.h"
 #include "olap/options.h"
