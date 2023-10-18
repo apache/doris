@@ -30,11 +30,9 @@ class FutureBlock : public Block {
 public:
     FutureBlock() : Block() {};
     void swap_future_block(std::shared_ptr<FutureBlock> other);
-    void set_info(int64_t block_schema_version, const TUniqueId& load_id, bool first,
-                  bool block_eos);
+    void set_info(int64_t block_schema_version, const TUniqueId& load_id, bool block_eos);
     int64_t get_schema_version() { return _schema_version; }
     TUniqueId get_load_id() { return _load_id; }
-    bool is_first() { return _first; }
     bool is_eos() { return _eos; }
 
     // hold lock before call this function
@@ -50,7 +48,6 @@ public:
 private:
     int64_t _schema_version;
     TUniqueId _load_id;
-    bool _first = false;
     bool _eos = false;
 
     std::shared_ptr<std::tuple<bool, Status, int64_t, int64_t>> _result =

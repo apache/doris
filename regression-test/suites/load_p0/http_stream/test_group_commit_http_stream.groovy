@@ -85,6 +85,17 @@ suite("test_group_commit_http_stream") {
                 unset 'label'
 
                 time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertTrue(json.GroupCommit)
+                    assertTrue(json.Label.startsWith("group_commit_"))
+                }
             }
         }
 
@@ -101,6 +112,17 @@ suite("test_group_commit_http_stream") {
             unset 'label'
 
             time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertTrue(json.GroupCommit)
+                assertTrue(json.Label.startsWith("group_commit_"))
+            }
         }
 
         // stream load with different column order
@@ -116,6 +138,17 @@ suite("test_group_commit_http_stream") {
             unset 'label'
 
             time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertTrue(json.GroupCommit)
+                assertTrue(json.Label.startsWith("group_commit_"))
+            }
         }
 
         // stream load with where condition
@@ -140,6 +173,7 @@ suite("test_group_commit_http_stream") {
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertTrue(json.GroupCommit)
+                assertTrue(json.Label.startsWith("group_commit_"))
                 // assertEquals(2, json.NumberTotalRows)
                 assertEquals(1, json.NumberLoadedRows)
                 assertEquals(0, json.NumberFilteredRows)
@@ -160,6 +194,17 @@ suite("test_group_commit_http_stream") {
             unset 'label'
 
             time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertTrue(json.GroupCommit)
+                assertTrue(json.Label.startsWith("group_commit_"))
+            }
         }
 
         // stream load with filtered rows
@@ -186,6 +231,7 @@ suite("test_group_commit_http_stream") {
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertTrue(json.GroupCommit)
+                assertTrue(json.Label.startsWith("group_commit_"))
                 // assertEquals(6, json.NumberTotalRows)
                 // assertEquals(2, json.NumberLoadedRows)
                 // assertEquals(3, json.NumberFilteredRows)
@@ -313,6 +359,7 @@ suite("test_group_commit_http_stream") {
                     }
                     assertTrue(json.LoadBytes > 0)
                     assertTrue(json.GroupCommit)
+                    assertTrue(json.Label.startsWith("group_commit_"))
                 }
             }
         }
