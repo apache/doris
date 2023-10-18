@@ -289,6 +289,11 @@ public class LoadStatisticForTag {
             return false;
         }
 
+        long debugHighBeId = DebugPointUtil.getDebugParamOrDefault("FE.HIGH_LOAD_BE_ID", -1L);
+        if (srcBeStat.getBeId() == debugHighBeId) {
+            return true;
+        }
+
         currentSrcBeScore = srcBeStat.getLoadScore(medium);
         currentDestBeScore = destBeStat.getLoadScore(medium);
 
