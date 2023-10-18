@@ -59,13 +59,13 @@ using namespace ErrorCode;
 
 void TabletReader::ReaderParams::check_validation() const {
     if (UNLIKELY(version.first == -1 && is_segcompaction == false)) {
-        LOG(FATAL) << "version is not set. tablet=" << tablet->full_name();
+        LOG(FATAL) << "version is not set. tablet=" << tablet->tablet_id();
     }
 }
 
 std::string TabletReader::ReaderParams::to_string() const {
     std::stringstream ss;
-    ss << "tablet=" << tablet->full_name() << " reader_type=" << int(reader_type)
+    ss << "tablet=" << tablet->tablet_id() << " reader_type=" << int(reader_type)
        << " aggregation=" << aggregation << " version=" << version
        << " start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
 
@@ -165,7 +165,7 @@ bool TabletReader::_optimize_for_single_rowset(
 Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     if (read_params.rs_splits.empty()) {
         return Status::InternalError("fail to acquire data sources. tablet={}",
-                                     _tablet->full_name());
+                                     _tablet->tablet_id());
     }
 
     bool eof = false;

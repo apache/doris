@@ -155,9 +155,6 @@ static bvar::PerSecond<bvar::Adder<uint64_t>> g_tablet_pk_not_found_per_second(
 
 const std::chrono::seconds TRACE_TABLET_LOCK_THRESHOLD = 1s;
 
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
-
 bvar::Adder<uint64_t> exceed_version_limit_counter;
 bvar::Window<bvar::Adder<uint64_t>> exceed_version_limit_counter_minute(
         &exceed_version_limit_counter, 60);
@@ -242,12 +239,13 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
 
 TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
                                                 DataDir* data_dir) {
-    return std::make_shared<Tablet>(tablet_meta, data_dir);
+    return std::make_shared<Tablet>(std::move(tablet_meta), data_dir);
 }
 
 Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
                const std::string_view& cumulative_compaction_type)
-        : BaseTablet(tablet_meta, data_dir),
+        : BaseTablet(std::move(tablet_meta)),
+          _data_dir(data_dir),
           _is_bad(false),
           _last_cumu_compaction_failure_millis(0),
           _last_base_compaction_failure_millis(0),
@@ -263,6 +261,10 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
           _is_tablet_path_exists(true),
           _last_missed_version(-1),
           _last_missed_time_s(0) {
+    if (_data_dir != nullptr) {
+        _tablet_path = fmt::format("{}/{}/{}/{}/{}", _data_dir->path(), DATA_PREFIX,
+                                   _tablet_meta->shard_id(), tablet_id(), schema_hash());
+    }
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
@@ -272,20 +274,28 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
     // And when upgrade to doris 1.2 version,
     // all rowset metas will be set the tablet schmea from tablet meta.
     if (_tablet_meta->all_rs_metas().empty() || !_tablet_meta->all_rs_metas()[0]->tablet_schema()) {
-        _max_version_schema = BaseTablet::tablet_schema();
+        _max_version_schema = _tablet_meta->tablet_schema();
     } else {
         _max_version_schema =
                 rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas())->tablet_schema();
     }
     DCHECK(_max_version_schema);
+}
 
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
-    INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
+bool Tablet::set_tablet_schema_into_rowset_meta() {
+    bool flag = false;
+    for (auto&& rowset_meta : _tablet_meta->all_mutable_rs_metas()) {
+        if (!rowset_meta->tablet_schema()) {
+            rowset_meta->set_tablet_schema(_tablet_meta->tablet_schema());
+            flag = true;
+        }
+    }
+    return flag;
 }
 
 Status Tablet::_init_once_action() {
     Status res = Status::OK();
-    VLOG_NOTICE << "begin to load tablet. tablet=" << full_name()
+    VLOG_NOTICE << "begin to load tablet. tablet=" << tablet_id()
                 << ", version_size=" << _tablet_meta->version_count();
 
 #ifdef BE_TEST
@@ -299,7 +309,8 @@ Status Tablet::_init_once_action() {
     for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
         Version version = rs_meta->version();
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(_schema, _tablet_path, rs_meta, &rowset);
+        res = RowsetFactory::create_rowset(_tablet_meta->tablet_schema(), _tablet_path, rs_meta,
+                                           &rowset);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init rowset. tablet_id=" << tablet_id()
                          << ", schema_hash=" << schema_hash() << ", version=" << version
@@ -314,7 +325,8 @@ Status Tablet::_init_once_action() {
     for (auto& stale_rs_meta : _tablet_meta->all_stale_rs_metas()) {
         Version version = stale_rs_meta->version();
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(_schema, _tablet_path, stale_rs_meta, &rowset);
+        res = RowsetFactory::create_rowset(_tablet_meta->tablet_schema(), _tablet_path,
+                                           stale_rs_meta, &rowset);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init stale rowset. tablet_id:" << tablet_id()
                          << ", schema_hash:" << schema_hash() << ", version=" << version
@@ -493,12 +505,12 @@ Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
             if (find_rs == _rs_version_map.end()) {
                 return Status::Error<DELETE_VERSION_ERROR>(
                         "try to delete not exist version {} from {}", rs->version().to_string(),
-                        full_name());
+                        tablet_id());
             } else if (find_rs->second->rowset_id() != rs->rowset_id()) {
                 return Status::Error<DELETE_VERSION_ERROR>(
                         "try to delete version {} from {}, but rowset id changed, delete rowset id "
                         "is {}, exists rowsetid is {}",
-                        rs->version().to_string(), full_name(), rs->rowset_id().to_string(),
+                        rs->version().to_string(), tablet_id(), rs->rowset_id().to_string(),
                         find_rs->second->rowset_id().to_string());
             }
         }
@@ -598,7 +610,7 @@ const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version,
 const RowsetSharedPtr Tablet::get_stale_rowset_by_version(const Version& version) const {
     auto iter = _stale_rs_version_map.find(version);
     if (iter == _stale_rs_version_map.end()) {
-        VLOG_NOTICE << "no rowset for version:" << version << ", tablet: " << full_name();
+        VLOG_NOTICE << "no rowset for version:" << version << ", tablet: " << tablet_id();
         return nullptr;
     }
     return iter->second;
@@ -673,7 +685,7 @@ void Tablet::_delete_stale_rowset_by_version(const Version& version) {
         return;
     }
     _tablet_meta->delete_stale_rs_meta_by_version(version);
-    VLOG_NOTICE << "delete stale rowset. tablet=" << full_name() << ", version=" << version;
+    VLOG_NOTICE << "delete stale rowset. tablet=" << tablet_id() << ", version=" << version;
 }
 
 void Tablet::delete_expired_stale_rowset() {
@@ -709,7 +721,7 @@ void Tablet::delete_expired_stale_rowset() {
         calc_missed_versions_unlocked(lastest_delta->end_version(), &missed_versions);
 
         if (!missed_versions.empty()) {
-            LOG(WARNING) << "tablet:" << full_name()
+            LOG(WARNING) << "tablet:" << tablet_id()
                          << ", missed version for version:" << lastest_delta->end_version();
             _print_missed_versions(missed_versions);
             return;
@@ -804,13 +816,13 @@ void Tablet::delete_expired_stale_rowset() {
                     // delete rowset
                     StorageEngine::instance()->add_unused_rowset(it->second);
                     _stale_rs_version_map.erase(it);
-                    VLOG_NOTICE << "delete stale rowset tablet=" << full_name() << " version["
+                    VLOG_NOTICE << "delete stale rowset tablet=" << tablet_id() << " version["
                                 << timestampedVersion->version().first << ","
                                 << timestampedVersion->version().second
                                 << "] move to unused_rowset success " << std::fixed
                                 << expired_stale_sweep_endtime;
                 } else {
-                    LOG(WARNING) << "delete stale rowset tablet=" << full_name() << " version["
+                    LOG(WARNING) << "delete stale rowset tablet=" << tablet_id() << " version["
                                  << timestampedVersion->version().first << ","
                                  << timestampedVersion->version().second
                                  << "] not find in stale rs version map";
@@ -822,7 +834,7 @@ void Tablet::delete_expired_stale_rowset() {
 
         bool reconstructed = _reconstruct_version_tracker_if_necessary();
 
-        VLOG_NOTICE << "delete stale rowset _stale_rs_version_map tablet=" << full_name()
+        VLOG_NOTICE << "delete stale rowset _stale_rs_version_map tablet=" << tablet_id()
                     << " current_size=" << _stale_rs_version_map.size() << " old_size=" << old_size
                     << " current_meta_size=" << _tablet_meta->all_stale_rs_metas().size()
                     << " old_meta_size=" << old_meta_size << " sweep endtime " << std::fixed
@@ -857,13 +869,13 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
             // if version_path is null, it may be a compaction check logic.
             // so to avoid print too many logs.
             if (version_path != nullptr) {
-                LOG(WARNING) << "tablet:" << full_name()
+                LOG(WARNING) << "tablet:" << tablet_id()
                              << ", version already has been merged. spec_version: " << spec_version;
             }
             status = Status::Error<VERSION_ALREADY_MERGED>("missed_versions is empty");
         } else {
             if (version_path != nullptr) {
-                LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
+                LOG(WARNING) << "status:" << status << ", tablet:" << tablet_id()
                              << ", missed version for version:" << spec_version;
                 _print_missed_versions(missed_versions);
             }
@@ -936,7 +948,7 @@ Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& 
 
         if (!is_find) {
             return Status::Error<CAPTURE_ROWSET_ERROR>(
-                    "fail to find Rowset for version. tablet={}, version={}", full_name(),
+                    "fail to find Rowset for version. tablet={}, version={}", tablet_id(),
                     version.to_string());
         }
     }
@@ -957,7 +969,7 @@ Status Tablet::capture_rs_readers(const std::vector<Version>& version_path,
     for (auto version : version_path) {
         auto it = _rs_version_map.find(version);
         if (it == _rs_version_map.end()) {
-            VLOG_NOTICE << "fail to find Rowset in rs_version for version. tablet=" << full_name()
+            VLOG_NOTICE << "fail to find Rowset in rs_version for version. tablet=" << tablet_id()
                         << ", version='" << version.first << "-" << version.second;
 
             it = _stale_rs_version_map.find(version);
@@ -965,7 +977,7 @@ Status Tablet::capture_rs_readers(const std::vector<Version>& version_path,
                 return Status::Error<CAPTURE_ROWSET_READER_ERROR>(
                         "fail to find Rowset in stale_rs_version for version. tablet={}, "
                         "version={}-{}",
-                        full_name(), version.first, version.second);
+                        tablet_id(), version.first, version.second);
             }
         }
         RowsetReaderSharedPtr rs_reader;
@@ -1256,7 +1268,7 @@ bool Tablet::check_rowset_id(const RowsetId& rowset_id) {
 
 void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions) const {
     std::stringstream ss;
-    ss << full_name() << " has " << missed_versions.size() << " missed version:";
+    ss << tablet_id() << " has " << missed_versions.size() << " missed version:";
     // print at most 10 version
     for (int i = 0; i < 10 && i < missed_versions.size(); ++i) {
         ss << missed_versions[i] << ",";
@@ -1521,10 +1533,10 @@ bool Tablet::do_tablet_meta_checkpoint() {
     if (tablet_state() != TABLET_RUNNING) {
         LOG(INFO) << "tablet is under state=" << tablet_state()
                   << ", not running, skip do checkpoint"
-                  << ", tablet=" << full_name();
+                  << ", tablet=" << tablet_id();
         return false;
     }
-    VLOG_NOTICE << "start to do tablet meta checkpoint, tablet=" << full_name();
+    VLOG_NOTICE << "start to do tablet meta checkpoint, tablet=" << tablet_id();
     save_meta();
     // if save meta successfully, then should remove the rowset meta existing in tablet
     // meta from rowset meta store
@@ -1661,7 +1673,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
 
     if (tablet_state() == TABLET_RUNNING) {
         if (has_version_cross || is_io_error_too_times() || !data_dir()->is_used()) {
-            LOG(INFO) << "report " << full_name() << " as bad, version_cross=" << has_version_cross
+            LOG(INFO) << "report " << tablet_id() << " as bad, version_cross=" << has_version_cross
                       << ", ioe times=" << get_io_error_times() << ", data_dir used "
                       << data_dir()->is_used();
             tablet_info->__set_used(false);
@@ -1669,7 +1681,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
 
         if (enable_path_check) {
             if (!_is_tablet_path_exists.exchange(true, std::memory_order_relaxed)) {
-                LOG(INFO) << "report " << full_name() << " as bad, tablet directory not found";
+                LOG(INFO) << "report " << tablet_id() << " as bad, tablet directory not found";
                 tablet_info->__set_used(false);
             }
         }
@@ -1836,7 +1848,7 @@ void Tablet::execute_single_replica_compaction(CompactionType compaction_type) {
             set_last_full_compaction_failure_time(UnixMillis());
         }
         LOG(WARNING) << "failed to do single replica compaction. res=" << res
-                     << ", tablet=" << full_name();
+                     << ", tablet=" << tablet_id();
         return;
     }
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
@@ -1887,7 +1899,7 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
             set_last_cumu_compaction_failure_time(UnixMillis());
             DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
             LOG(WARNING) << "failed to do cumulative compaction. res=" << res
-                         << ", tablet=" << full_name();
+                         << ", tablet=" << tablet_id();
             return;
         }
         set_last_cumu_compaction_failure_time(0);
@@ -1912,7 +1924,7 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
             set_last_base_compaction_failure_time(UnixMillis());
             DorisMetrics::instance()->base_compaction_request_failed->increment(1);
             LOG(WARNING) << "failed to do base compaction. res=" << res
-                         << ", tablet=" << full_name();
+                         << ", tablet=" << tablet_id();
             return;
         }
         set_last_base_compaction_failure_time(0);
@@ -1924,7 +1936,7 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         if (!res.ok()) {
             set_last_full_compaction_failure_time(UnixMillis());
             LOG(WARNING) << "failed to do full compaction. res=" << res
-                         << ", tablet=" << full_name();
+                         << ", tablet=" << tablet_id();
             return;
         }
         set_last_full_compaction_failure_time(0);
@@ -1960,22 +1972,22 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
         context.newest_write_timestamp = UnixSeconds();
 
         if (!(res = create_rowset_writer(context, &rs_writer)).ok()) {
-            LOG(WARNING) << "failed to init rowset writer for tablet " << full_name();
+            LOG(WARNING) << "failed to init rowset writer for tablet " << tablet_id();
             break;
         }
 
         if (!(res = rs_writer->flush()).ok()) {
-            LOG(WARNING) << "failed to flush rowset writer for tablet " << full_name();
+            LOG(WARNING) << "failed to flush rowset writer for tablet " << tablet_id();
             break;
         }
 
         if (!(res = rs_writer->build(new_rowset)).ok()) {
-            LOG(WARNING) << "failed to build rowset for tablet " << full_name();
+            LOG(WARNING) << "failed to build rowset for tablet " << tablet_id();
             break;
         }
 
         if (!(res = add_rowset(new_rowset)).ok()) {
-            LOG(WARNING) << "failed to add rowset for tablet " << full_name();
+            LOG(WARNING) << "failed to add rowset for tablet " << tablet_id();
             break;
         }
     } while (false);
@@ -2059,7 +2071,8 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
 }
 
 Status Tablet::create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset) {
-    return RowsetFactory::create_rowset(_schema, tablet_path(), rowset_meta, rowset);
+    return RowsetFactory::create_rowset(_tablet_meta->tablet_schema(), tablet_path(), rowset_meta,
+                                        rowset);
 }
 
 Status Tablet::cooldown() {
@@ -2144,8 +2157,9 @@ Status Tablet::_cooldown_data() {
     new_rowset_meta->set_creation_time(time(nullptr));
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
     RowsetSharedPtr new_rowset;
-    static_cast<void>(RowsetFactory::create_rowset(_schema, remote_tablet_path(tablet_id()),
-                                                   new_rowset_meta, &new_rowset));
+    RETURN_IF_ERROR(RowsetFactory::create_rowset(_tablet_meta->tablet_schema(),
+                                                 remote_tablet_path(tablet_id()), new_rowset_meta,
+                                                 &new_rowset));
 
     {
         std::unique_lock meta_wlock(_meta_lock);
@@ -2357,7 +2371,8 @@ Status Tablet::_follow_cooldowned_data() {
             auto rs_meta = std::make_shared<RowsetMeta>();
             rs_meta->init_from_pb(*rs_pb_it);
             RowsetSharedPtr rs;
-            static_cast<void>(RowsetFactory::create_rowset(_schema, _tablet_path, rs_meta, &rs));
+            RETURN_IF_ERROR(RowsetFactory::create_rowset(_tablet_meta->tablet_schema(),
+                                                         _tablet_path, rs_meta, &rs));
             to_add.push_back(std::move(rs));
         }
         // Note: We CANNOT call `modify_rowsets` here because `modify_rowsets` cannot process version graph correctly.
@@ -2465,7 +2480,7 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const std::s
 }
 
 Status Tablet::remove_all_remote_rowsets() {
-    DCHECK(_state == TABLET_SHUTDOWN);
+    DCHECK(tablet_state() == TABLET_SHUTDOWN);
     std::set<std::string> resource_ids;
     for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
         if (!rs_meta->is_local()) {
@@ -2648,7 +2663,7 @@ void Tablet::remove_unused_remote_files() {
                              std::chrono::seconds(config::confirm_unused_remote_files_interval_sec);
     for (auto& t : tablets) {
         if (t.use_count() <= 1 // this means tablet has been dropped
-            || t->_cooldown_replica_id != t->replica_id() || t->_state != TABLET_RUNNING) {
+            || t->_cooldown_replica_id != t->replica_id() || t->tablet_state() != TABLET_RUNNING) {
             continue;
         }
         calc_unused_remote_files(t.get());
@@ -2666,11 +2681,6 @@ void Tablet::remove_unused_remote_files() {
     if (num_files_in_buffer > 0) {
         confirm_and_remove_files();
     }
-}
-
-TabletSchemaSPtr Tablet::tablet_schema() const {
-    std::shared_lock rlock(_meta_lock);
-    return _max_version_schema;
 }
 
 void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
@@ -2816,8 +2826,11 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                               RowsetSharedPtr* rowset) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
-    if (_schema->has_sequence_col() && with_seq_col) {
-        seq_col_length = _schema->column(_schema->sequence_col_idx()).length() + 1;
+    if (_tablet_meta->tablet_schema()->has_sequence_col() && with_seq_col) {
+        seq_col_length = _tablet_meta->tablet_schema()
+                                 ->column(_tablet_meta->tablet_schema()->sequence_col_idx())
+                                 .length() +
+                         1;
     }
     Slice key_without_seq = Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length);
     RowLocation loc;
@@ -2859,7 +2872,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                                   {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
-                if (_schema->has_sequence_col()) {
+                if (_tablet_meta->tablet_schema()->has_sequence_col()) {
                     continue;
                 }
                 // The key is deleted, we don't need to search for it any more.
@@ -2899,7 +2912,7 @@ void Tablet::sort_block(vectorized::Block& in_block, vectorized::Block& output_b
     _row_in_blocks.reserve(in_block.rows());
 
     std::shared_ptr<RowInBlockComparator> vec_row_comparator =
-            std::make_shared<RowInBlockComparator>(_schema.get());
+            std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema().get());
     vec_row_comparator->set_block(&mutable_input_block);
 
     std::vector<RowInBlock*> row_in_blocks;
@@ -3752,9 +3765,9 @@ Status Tablet::calc_delete_bitmap_between_segments(
     OlapStopWatch watch;
     auto const rowset_id = rowset->rowset_id();
     size_t seq_col_length = 0;
-    if (_schema->has_sequence_col()) {
-        auto seq_col_idx = _schema->sequence_col_idx();
-        seq_col_length = _schema->column(seq_col_idx).length();
+    if (_tablet_meta->tablet_schema()->has_sequence_col()) {
+        auto seq_col_idx = _tablet_meta->tablet_schema()->sequence_col_idx();
+        seq_col_length = _tablet_meta->tablet_schema()->column(seq_col_idx).length();
     }
 
     MergeIndexDeleteBitmapCalculator calculator;

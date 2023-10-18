@@ -626,16 +626,6 @@ Status DataDir::load() {
     return Status::OK();
 }
 
-void DataDir::add_pending_ids(const std::string& id) {
-    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
-    _pending_path_ids.insert(id);
-}
-
-void DataDir::remove_pending_ids(const std::string& id) {
-    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
-    _pending_path_ids.erase(id);
-}
-
 void DataDir::perform_path_gc() {
     std::unique_lock<std::mutex> lck(_check_path_mutex);
     _check_path_cv.wait(lck, [this] {
@@ -837,11 +827,6 @@ void DataDir::_process_garbage_path(const std::string& path) {
         WARN_IF_ERROR(io::global_local_filesystem()->delete_directory_or_file(path),
                       "remove garbage failed");
     }
-}
-
-bool DataDir::_check_pending_ids(const std::string& id) {
-    std::shared_lock rd_lock(_pending_path_mutex);
-    return _pending_path_ids.find(id) != _pending_path_ids.end();
 }
 
 Status DataDir::update_capacity() {

@@ -199,7 +199,7 @@ Status Compaction::do_compact_ordered_rowsets() {
     RowsetWriterContext ctx;
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
-    LOG(INFO) << "start to do ordered data compaction, tablet=" << _tablet->full_name()
+    LOG(INFO) << "start to do ordered data compaction, tablet=" << _tablet->tablet_id()
               << ", output_version=" << _output_version;
     // link data to new rowset
     auto seg_id = 0;
@@ -313,7 +313,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         }
         auto cumu_policy = _tablet->cumulative_compaction_policy();
         LOG(INFO) << "succeed to do ordered data " << compaction_name()
-                  << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
+                  << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
                   << ", disk=" << _tablet->data_dir()->path()
                   << ", segments=" << _input_num_segments << ", input_row_num=" << _input_row_num
                   << ", output_row_num=" << _output_rowset->num_rows()
@@ -324,7 +324,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
     build_basic_info();
 
-    LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name()
+    LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->tablet_id()
               << ", output_version=" << _output_version << ", permits: " << permits;
     bool vertical_compaction = should_vertical_compaction();
     RowsetWriterContext ctx;
@@ -359,7 +359,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
     if (!res.ok()) {
         LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
-                     << ", tablet=" << _tablet->full_name()
+                     << ", tablet=" << _tablet->tablet_id()
                      << ", output_version=" << _output_version;
         return res;
     }
@@ -447,7 +447,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
             // Used to distinguish between different index compaction
             auto index_writer_path = tablet_path + "/" + dest_index_files[0];
             LOG(INFO) << "start index compaction"
-                      << ". tablet=" << _tablet->full_name()
+                      << ". tablet=" << _tablet->tablet_id()
                       << ", source index size=" << src_segment_num
                       << ", destination index size=" << dest_segment_num << ".";
             std::for_each(
@@ -462,7 +462,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                                 dest_segment_num_rows);
                         if (!st.ok()) {
                             LOG(ERROR) << "failed to do index compaction"
-                                       << ". tablet=" << _tablet->full_name()
+                                       << ". tablet=" << _tablet->tablet_id()
                                        << ". column uniq id=" << column_uniq_id << ". index_id= "
                                        << _cur_tablet_schema->get_inverted_index(column_uniq_id)
                                                   ->index_id();
@@ -470,13 +470,13 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                     });
 
             LOG(INFO) << "succeed to do index compaction"
-                      << ". tablet=" << _tablet->full_name()
+                      << ". tablet=" << _tablet->tablet_id()
                       << ", input row number=" << _input_row_num
                       << ", output row number=" << _output_rowset->num_rows()
                       << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
         } else {
             LOG(INFO) << "skip doing index compaction due to no output segments"
-                      << ". tablet=" << _tablet->full_name()
+                      << ". tablet=" << _tablet->tablet_id()
                       << ", input row number=" << _input_row_num
                       << ", output row number=" << _output_rowset->num_rows()
                       << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
@@ -511,7 +511,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     auto cumu_policy = _tablet->cumulative_compaction_policy();
     DCHECK(cumu_policy);
     LOG(INFO) << "succeed to do " << compaction_name() << " is_vertical=" << vertical_compaction
-              << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
+              << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << _input_num_segments
               << ", input_row_num=" << _input_row_num
@@ -819,7 +819,7 @@ Status Compaction::check_correctness(const Merger::Statistics& stats) {
         return Status::Error<CHECK_LINES_ERROR>(
                 "row_num does not match between cumulative input and output! tablet={}, "
                 "input_row_num={}, merged_row_num={}, filtered_row_num={}, output_row_num={}",
-                _tablet->full_name(), _input_row_num, stats.merged_rows, stats.filtered_rows,
+                _tablet->tablet_id(), _input_row_num, stats.merged_rows, stats.filtered_rows,
                 _output_rowset->num_rows());
     }
     return Status::OK();
