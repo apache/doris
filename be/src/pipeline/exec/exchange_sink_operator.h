@@ -163,8 +163,6 @@ public:
 
     segment_v2::CompressionTypePB& compression_type();
 
-    vectorized::VExprContextSPtrs partition_expr_ctxs;
-
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
     std::vector<std::shared_ptr<vectorized::PipChannel<ExchangeSinkLocalState>>>
             channel_shared_ptrs;
@@ -212,6 +210,8 @@ private:
     std::shared_ptr<AndDependency> _exchange_sink_dependency = nullptr;
     std::shared_ptr<BroadcastDependency> _broadcast_dependency = nullptr;
     std::vector<std::shared_ptr<ChannelDependency>> _channels_dependency;
+    std::unique_ptr<vectorized::Partitioner> _partitioner;
+    int _partition_count;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
@@ -243,19 +243,13 @@ private:
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
-    Status get_partition_column_result(vectorized::Block* block, int* result) const {
-        int counter = 0;
-        for (auto ctx : _partition_expr_ctxs) {
-            RETURN_IF_ERROR(ctx->execute(block, &result[counter++]));
-        }
-        return Status::OK();
-    }
-
-    template <typename Channels>
+    template <typename Channels, typename HashValueType>
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
-                            const uint64_t* channel_ids, int rows, vectorized::Block* block,
+                            const HashValueType* channel_ids, int rows, vectorized::Block* block,
                             bool eos);
     RuntimeState* _state = nullptr;
+
+    const std::vector<TExpr>& _texprs;
 
     const RowDescriptor& _row_desc;
 
@@ -266,9 +260,6 @@ private:
     PBlock _pb_block1;
     PBlock _pb_block2;
     PBlock* _cur_pb_block = nullptr;
-
-    // compute per-row partition values
-    vectorized::VExprContextSPtrs _partition_expr_ctxs;
 
     const std::vector<TPlanFragmentDestination> _dests;
     const bool _send_query_statistics_with_every_batch;
