@@ -72,10 +72,14 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             def c15 = """select * from all_table where c15='a';"""
             def c16 = """select * from all_table where c16=true;"""
             def c18 = """select * from all_table where c18='2023-08-13 09:32:38.53';"""
-            def c19 = """select * from auto_bucket;"""
+            def c19 = """select * from auto_bucket order by user_id;"""
             def c20 = """select * from auto_bucket where dt="b";"""
             def c21 = """select * from auto_bucket where dt="b" and hh="c";"""
             def c22 = """select * from auto_bucket where dt="d";"""
+            def c23 = """select * from complex_tab order by c1;"""
+            def c24 = """select * from complex_tab where c1=1;"""
+            def c25 = """select * from complex_tab where c1=2;"""
+            def c26 = """select * from complex_tab where c1=3;"""
 
             String hdfs_port = context.config.otherConfigs.get("hdfs_port")
             String catalog_name = "paimon1"
@@ -111,5 +115,9 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c20 c20
             qt_c21 c21
             qt_c22 c22
+            qt_c23 c23
+            qt_c24 c24
+            qt_c25 c25
+            qt_c26 c26
         }
 }

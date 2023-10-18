@@ -20,6 +20,8 @@ package org.apache.doris.paimon;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnType.Type;
 
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.compress.utils.Lists;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BinaryType;
@@ -45,6 +47,11 @@ import org.apache.paimon.types.VarCharType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
+
 /**
  * Convert paimon type to doris type.
  */
@@ -56,9 +63,26 @@ public class PaimonTypeUtils {
 
     public static ColumnType fromPaimonType(String columnName, DataType type) {
         PaimonColumnType paimonColumnType = type.accept(PaimonToDorisTypeVisitor.INSTANCE);
-        return new ColumnType(columnName, paimonColumnType.getType(), paimonColumnType.getLength(),
+        ColumnType columnType = new ColumnType(columnName, paimonColumnType.getType(), paimonColumnType.getLength(),
                 paimonColumnType.getPrecision(),
                 paimonColumnType.getScale());
+        buildComplexColumnType(paimonColumnType, columnType);
+        return columnType;
+    }
+
+    private static void buildComplexColumnType(PaimonColumnType paimonColumnType, ColumnType columnType) {
+        if (CollectionUtils.isNotEmpty(paimonColumnType.getChildTypes())) {
+            List<ColumnType> childColumnTypes = paimonColumnType.getChildTypes().stream().map(
+                    childPaimonType -> {
+                        ColumnType childColumnType = new ColumnType("child", childPaimonType.getType(),
+                                childPaimonType.getLength(),
+                                childPaimonType.getPrecision(),
+                                childPaimonType.getScale());
+                        buildComplexColumnType(childPaimonType, childColumnType);
+                        return childColumnType;
+                    }).collect(Collectors.toList());
+            columnType.setChildTypes(childColumnTypes);
+        }
     }
 
     private static class PaimonToDorisTypeVisitor extends DataTypeDefaultVisitor<PaimonColumnType> {
@@ -153,7 +177,10 @@ public class PaimonTypeUtils {
 
         @Override
         public PaimonColumnType visit(ArrayType arrayType) {
-            return this.defaultMethod(arrayType);
+            PaimonColumnType paimonColumnType = new PaimonColumnType(Type.ARRAY);
+            ColumnType elementColumnType = fromPaimonType("element", arrayType.getElementType());
+            buildPaimonColumnType(Collections.singletonList(elementColumnType), paimonColumnType);
+            return paimonColumnType;
         }
 
         @Override
@@ -163,7 +190,11 @@ public class PaimonTypeUtils {
 
         @Override
         public PaimonColumnType visit(MapType mapType) {
-            return this.defaultMethod(mapType);
+            PaimonColumnType paimonColumnType = new PaimonColumnType(Type.MAP);
+            ColumnType key = fromPaimonType("key", mapType.getKeyType());
+            ColumnType value = fromPaimonType("value", mapType.getValueType());
+            buildPaimonColumnType(Arrays.asList(key, value), paimonColumnType);
+            return paimonColumnType;
         }
 
         @Override
@@ -176,6 +207,18 @@ public class PaimonTypeUtils {
             LOG.info("UNSUPPORTED type:" + dataType);
             return new PaimonColumnType(Type.UNSUPPORTED);
         }
+
+        private void buildPaimonColumnType(List<ColumnType> columnTypes, PaimonColumnType paimonColumnType) {
+            List<PaimonColumnType> paimonColumnTypes = Lists.newArrayList();
+            for (ColumnType columnType : columnTypes) {
+                PaimonColumnType paimonType = new PaimonColumnType(columnType.getType());
+                if (CollectionUtils.isNotEmpty(columnType.getChildTypes())) {
+                    buildPaimonColumnType(columnType.getChildTypes(), paimonType);
+                }
+                paimonColumnTypes.add(paimonType);
+            }
+            paimonColumnType.setChildTypes(paimonColumnTypes);
+        }
     }
 
     private static class PaimonColumnType {
@@ -184,6 +227,7 @@ public class PaimonTypeUtils {
         private int length;
         private int precision;
         private int scale;
+        private List<PaimonColumnType> childTypes;
 
         public PaimonColumnType(Type type) {
             this.type = type;
@@ -224,6 +268,14 @@ public class PaimonTypeUtils {
 
         public void setPrecision(int precision) {
             this.precision = precision;
+        }
+
+        public void setChildTypes(List<PaimonColumnType> childTypes) {
+            this.childTypes = childTypes;
+        }
+
+        public List<PaimonColumnType> getChildTypes() {
+            return childTypes;
         }
     }
 }
