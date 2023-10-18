@@ -19,6 +19,7 @@
 
 #include <sqltypes.h>
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 
@@ -155,6 +156,7 @@ protected:
 
 class FinishDependency : public Dependency {
 public:
+    constexpr auto max_block_time = 1000;
     FinishDependency(int id, std::string name) : Dependency(id, name), _ready_to_finish(true) {}
     ~FinishDependency() override = default;
 
@@ -174,9 +176,15 @@ public:
             _finish_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
                          << id();
+            _block_counter++;
+        }
+        if (to_much_block()) {
+            return this;
         }
         return _ready_to_finish ? nullptr : this;
     }
+
+    bool to_much_block() { return _block_counter > max_block_time; }
 
     void set_ready_to_finish() {
         if (_ready_to_finish) {
@@ -193,6 +201,7 @@ public:
 protected:
     std::atomic<bool> _ready_to_finish;
     MonotonicStopWatch _finish_dependency_watcher;
+    std::atomic_int64_t _block_counter;
 };
 
 class AndDependency : public WriteDependency {

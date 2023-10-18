@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/logging.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vtablet_sink.h"
@@ -101,7 +102,11 @@ public:
 
     FinishDependency* finish_blocked_by(RuntimeState* state) const override {
         auto& local_state = state->get_sink_local_state(id())->cast<OlapTableSinkLocalState>();
-        return local_state._finish_dependency->finish_blocked_by();
+        auto* ret = local_state._finish_dependency->finish_blocked_by();
+        if (local_state._finish_dependency->to_much_block()) {
+            LOG_WARNING("yxc only test").tag("query id", state->query_id()).tag("id()", id());
+        }
+        return ret;
     };
 
     WriteDependency* wait_for_dependency(RuntimeState* state) override {
