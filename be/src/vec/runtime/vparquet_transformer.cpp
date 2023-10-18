@@ -250,7 +250,8 @@ Status VParquetTransformer::write(const Block& block) {
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow::default_memory_pool(), &result));
+    RETURN_IF_ERROR(
+            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
 
     auto get_table_res = arrow::Table::FromRecordBatches(result->schema(), {result});
     if (!get_table_res.ok()) {

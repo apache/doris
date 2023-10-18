@@ -407,11 +407,10 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
     return Status::OK();
 }
 
-Status convert_to_arrow_batch(const vectorized::Block& block, arrow::MemoryPool* pool,
+Status convert_to_arrow_batch(const vectorized::Block& block,
+                              const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
                               std::shared_ptr<arrow::RecordBatch>* result) {
-    std::shared_ptr<arrow::Schema> block_arrow_schema;
-    RETURN_IF_ERROR(convert_block_arrow_schema(block, &block_arrow_schema));
-    FromBlockConverter converter(block, block_arrow_schema, pool);
+    FromBlockConverter converter(block, schema, pool);
     return converter.convert(result);
 }
 

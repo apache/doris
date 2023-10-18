@@ -214,7 +214,7 @@ Status serialize_arrow_schema(RowDescriptor row_desc, std::shared_ptr<arrow::Sch
     }
     auto block = vectorized::Block(slots, 0);
     std::shared_ptr<arrow::RecordBatch> batch;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow::default_memory_pool(), &batch));
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, *schema, arrow::default_memory_pool(), &batch));
     return serialize_record_batch(*batch, result);
 }
 
