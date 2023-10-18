@@ -53,6 +53,7 @@ struct MethodBase {
     Key* keys;
     Arena arena;
     std::vector<size_t> hash_values;
+    std::vector<uint32_t> join_hash_values;
 
     MethodBase() { hash_table.reset(new HashMap()); }
     virtual ~MethodBase() = default;
@@ -71,6 +72,33 @@ struct MethodBase {
     virtual void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                                       const uint8_t* null_map = nullptr) = 0;
 
+    virtual void init_serialized_keys_join(const ColumnRawPtrs& key_columns, size_t num_rows,
+                                      const uint8_t* null_map = nullptr) {
+    }
+
+    void init_hash_values_join(size_t num_rows, const uint8_t* null_map) {
+        if (null_map == nullptr) {
+            init_hash_values_join(num_rows);
+            return;
+        }
+        join_hash_values.resize(num_rows);
+        for (size_t k = 0; k < num_rows; ++k) {
+            if (null_map[k]) {
+                continue;
+            }
+
+            join_hash_values[k] = hash_table->hash(keys[k]);
+        }
+    }
+
+    void init_hash_values_join(size_t num_rows) {
+        join_hash_values.resize(num_rows);
+        for (size_t k = 0; k < num_rows; ++k) {
+            join_hash_values[k] = hash_table->hash(keys[k]);
+        }
+    }
+
+
     void init_hash_values(size_t num_rows, const uint8_t* null_map) {
         if (null_map == nullptr) {
             init_hash_values(num_rows);
@@ -85,6 +113,7 @@ struct MethodBase {
             hash_values[k] = hash_table->hash(keys[k]);
         }
     }
+
     void init_hash_values(size_t num_rows) {
         hash_values.resize(num_rows);
         for (size_t k = 0; k < num_rows; ++k) {
@@ -264,6 +293,17 @@ struct MethodOneNumber : public MethodBase<TData> {
                              .data;
         std::string name = key_columns[0]->get_name();
         Base::init_hash_values(num_rows, null_map);
+    }
+
+    void init_serialized_keys_join(const ColumnRawPtrs& key_columns, size_t num_rows,
+                                           const uint8_t* null_map = nullptr) override {
+        Base::keys = (FieldType*)(key_columns[0]->is_nullable()
+                                  ? assert_cast<const ColumnNullable*>(key_columns[0])
+                                          ->get_nested_column_ptr()
+                                  : key_columns[0])
+                ->get_raw_data()
+                .data;
+        Base::init_hash_values_join(num_rows, null_map);
     }
 
     void insert_keys_into_columns(std::vector<typename Base::Key>& keys,
