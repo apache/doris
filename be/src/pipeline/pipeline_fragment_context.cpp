@@ -757,7 +757,9 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
     }
     case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
-        if (state->query_options().enable_memtable_on_sink_node) {
+        DCHECK(thrift_sink.__isset.olap_table_sink);
+        if (state->query_options().enable_memtable_on_sink_node &&
+            _has_inverted_index(thrift_sink.olap_table_sink)) {
             sink_ = std::make_shared<OlapTableSinkV2OperatorBuilder>(next_operator_builder_id(),
                                                                      _sink.get());
         } else {
@@ -885,6 +887,21 @@ Status PipelineFragmentContext::send_report(bool done) {
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
                        std::placeholders::_2)},
             shared_from_this());
+}
+
+bool PipelineFragmentContext::_has_inverted_index(TOlapTableSink sink) {
+    OlapTableSchemaParam schema;
+    if (!schema.init(sink.schema).ok()) {
+        return false;
+    }
+    for (const auto& index_schema : schema.indexes()) {
+        for (const auto& index : index_schema->indexes) {
+            if (index->index_type() == INVERTED) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 } // namespace doris::pipeline
