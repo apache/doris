@@ -85,6 +85,7 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
         _load_block_queue->remove_load_id(_load_id);
     }
     RETURN_IF_ERROR(DataSink::close(state, close_status));
+    RETURN_IF_ERROR(close_status);
     // wait to wal
     int64_t total_rows = 0;
     for (const auto& future_block : _future_blocks) {

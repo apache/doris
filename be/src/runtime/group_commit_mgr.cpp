@@ -147,7 +147,7 @@ Status GroupCommitTable::get_first_block_load_queue(
         for (int i = 0; i < 3; i++) {
             bool is_schema_version_match = true;
             for (auto it = _load_block_queues.begin(); it != _load_block_queues.end(); ++it) {
-                if (!it->second->need_commit && it->second->schema_version == base_schema_version) {
+                if (!it->second->need_commit) {
                     if (base_schema_version == it->second->schema_version) {
                         if (it->second->add_load_id(block->get_load_id()).ok()) {
                             load_block_queue = it->second;
@@ -254,8 +254,8 @@ Status GroupCommitTable::_create_group_commit_load(
     st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, params,
                              pipeline_params);
     if (!st.ok()) {
-        [[maybe_unused]] auto status = _finish_group_commit_load(_db_id, _table_id, label, txn_id,
-                                                                 instance_id, st, true, nullptr);
+        static_cast<void>(_finish_group_commit_load(_db_id, _table_id, label, txn_id, instance_id,
+                                                    st, true, nullptr));
     }
     return st;
 }

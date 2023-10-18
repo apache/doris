@@ -2238,13 +2238,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId(),
                     multiTableFragmentInstanceIdIndex);
-            // add table indexes to transaction state
-            TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionState(db.getId(), request.getTxnId());
-            if (txnState == null) {
-                throw new UserException("txn does not exist: " + request.getTxnId());
+            if (!request.isGroupCommit()) {
+                // add table indexes to transaction state
+                TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(db.getId(), request.getTxnId());
+                if (txnState == null) {
+                    throw new UserException("txn does not exist: " + request.getTxnId());
+                }
+                txnState.addTableIndexes(table);
             }
-            txnState.addTableIndexes(table);
             return plan;
         } finally {
             table.readUnlock();
