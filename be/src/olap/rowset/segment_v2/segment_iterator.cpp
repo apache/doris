@@ -1784,9 +1784,7 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
-    auto status = [&]() {
-        RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); });
-    }();
+    auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); }); }();
     if (!status.ok() && !config::disable_segment_cache) {
         _segment->remove_segment_cache();
     }
