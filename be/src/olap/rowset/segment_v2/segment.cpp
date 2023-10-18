@@ -180,7 +180,9 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         auto pruned_predicates = read_options.column_predicates;
         auto pruned = false;
         for (auto& it : _column_readers) {
-            if (it.second->prune_predicates_by_zone_map(pruned_predicates, it.first)) {
+            const auto uid = it.first;
+            const auto column_id = read_options.tablet_schema->field_index(uid);
+            if (it.second->prune_predicates_by_zone_map(pruned_predicates, column_id)) {
                 pruned = true;
             }
         }

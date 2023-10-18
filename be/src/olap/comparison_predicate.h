@@ -209,6 +209,8 @@ public:
             return false;
         }
 
+        DCHECK_LE(sizeof(T), statistic.first->size());
+
         T tmp_min_value {};
         T tmp_max_value {};
         memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
