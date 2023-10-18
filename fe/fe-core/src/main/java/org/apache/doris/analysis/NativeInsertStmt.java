@@ -448,13 +448,13 @@ public class NativeInsertStmt extends InsertStmt {
             if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null && targetColumnNames != null) {
                 Optional<String> foundCol = targetColumnNames.stream()
                             .filter(c -> c.equalsIgnoreCase(olapTable.getSequenceMapCol())).findAny();
-                Column seqCol = olapTable.getFullSchema().stream()
+                Optional<Column> seqCol = olapTable.getFullSchema().stream()
                                 .filter(col -> col.getName().equals(olapTable.getSequenceMapCol()))
-                                .findFirst().get();
-                if (!foundCol.isPresent() && !isPartialUpdate && !isFromDeleteOrUpdateStmt
+                                .findFirst();
+                if (seqCol.isPresent() && !foundCol.isPresent() && !isPartialUpdate && !isFromDeleteOrUpdateStmt
                         && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
-                    if (seqCol.getDefaultValue() == null
-                                    || !seqCol.getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                    if (seqCol.get().getDefaultValue() == null
+                                    || !seqCol.get().getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
                         throw new AnalysisException("Table " + olapTable.getName()
                                 + " has sequence column, need to specify the sequence column");
                     }
