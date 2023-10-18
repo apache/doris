@@ -29,6 +29,7 @@ import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
 import org.antlr.v4.runtime.tree.ParseTree;
 
+import java.io.StringWriter;
 import java.util.Collections;
 import java.util.List;
 
@@ -56,6 +57,51 @@ public class SqlUtils {
             return str;
         }
         return str.replaceAll("\"", "\\\\\"");
+    }
+
+    /**
+     * add escape characters for string
+     * @param str
+     * @return
+     */
+    public static String addEscapeCharacters(String str) {
+        StringWriter writer = new StringWriter();
+        int strLen = str.length();
+        for (int i = 0; i < strLen; ++i) {
+            char c = str.charAt(i);
+            switch (c) {
+                case '\n':
+                    writer.append("\\n");
+                    break;
+                case '\t':
+                    writer.append("\\t");
+                    break;
+                case '\r':
+                    writer.append("\\r");
+                    break;
+                case '\b':
+                    writer.append("\\b");
+                    break;
+                case '\0':
+                    writer.append("\\0");
+                    break;
+                case '\032':
+                    writer.append("\\Z");
+                    break;
+                case '\'':
+                    writer.append("\\'");
+                    break;
+                case '\"':
+                    writer.append("\\\"");
+                    break;
+
+                default:
+                    writer.append(c);
+                    break;
+            }
+        }
+
+        return writer.toString();
     }
 
     public static List<String> splitMultiStmts(String sql) {

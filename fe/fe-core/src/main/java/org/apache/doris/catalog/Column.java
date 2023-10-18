@@ -477,7 +477,7 @@ public class Column implements Writable, GsonPostProcessable {
         if (!escapeQuota) {
             return comment;
         }
-        return SqlUtils.escapeQuota(comment);
+        return SqlUtils.addEscapeCharacters(comment);
     }
 
     public int getOlapColumnIndexSize() {

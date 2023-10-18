@@ -564,12 +564,12 @@ HINT_END: '*/';
 ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
-STRING_LITERAL
-    : '\'' ( ~('\''|'\\') | ('\\' .) )* '\''
-    | '"' ( ~('"'|'\\') | ('\\' .) )* '"'
-    | 'R\'' (~'\'')* '\''
-    | 'R"'(~'"')* '"'
-    ;
+STRING_LITERAL: '"' (~["\\\r\n] | EscapeSequence)* '"'
+    {
+        String text = getText();
+        setText(text.substring(1, text.length() - 1));
+    };
+fragment EscapeSequence: '\\' .;    
 
 LEADING_STRING
     : LEFT_BRACE
