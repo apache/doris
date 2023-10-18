@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -262,7 +261,8 @@ public class MinidumpUtils {
             for (Column column : columns) {
                 String colName = column.getName();
                 ColumnStatistic cache =
-                        Config.enable_stats ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
+                        ConnectContext.get().getSessionVariable().enableStats
+                        ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
                 if (cache.avgSizeByte <= 0) {
                     cache = new ColumnStatisticBuilder(cache)
                         .setAvgSizeByte(column.getType().getSlotSize())
