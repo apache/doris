@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
@@ -89,6 +90,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitAvgWeighted(AvgWeighted avgWeighted, C context) {
         return visitAggregateFunction(avgWeighted, context);
+    }
+
+    default R visitBitmapAgg(BitmapAgg bitmapAgg, C context) {
+        return visitAggregateFunction(bitmapAgg, context);
     }
 
     default R visitBitmapIntersect(BitmapIntersect bitmapIntersect, C context) {
