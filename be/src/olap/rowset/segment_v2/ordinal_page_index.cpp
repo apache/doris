@@ -24,6 +24,7 @@
 #include <ostream>
 #include <string>
 
+#include "common/exception.h"
 #include "io/fs/file_writer.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
