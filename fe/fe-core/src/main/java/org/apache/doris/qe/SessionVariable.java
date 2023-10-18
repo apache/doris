@@ -2590,7 +2590,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean fasterFloatConvert() {
         return this.fasterFloatConvert;
     }
-  
+
     public void checkAnalyzeTimeFormat(String time) {
         try {
             DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
