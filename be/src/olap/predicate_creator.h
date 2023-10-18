@@ -179,11 +179,15 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& ty
         return std::make_unique<IntegerPredicateCreator<TYPE_DOUBLE, PT, ConditionType>>();
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
-        return std::make_unique<CustomPredicateCreator<TYPE_DECIMALV2, PT, ConditionType>>(
+        return std::make_unique<
+                CustomPredicateCreator<PrimitiveType::TYPE_DECIMALV2, PT, ConditionType>>(
                 [](const std::string& condition) {
                     decimal12_t value = {0, 0};
                     static_cast<void>(value.from_string(condition));
-                    return value;
+                    // Decimal12t is stroage type, we need convert to compute type here to
+                    // do comparisons
+                    DecimalV2Value decimalv2_val(value.integer, value.fraction);
+                    return decimalv2_val;
                 });
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {

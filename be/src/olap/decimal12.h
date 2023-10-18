@@ -81,6 +81,8 @@ struct decimal12_t {
         return std::string(buf);
     }
 
+    // Not modify this structure, ZoneMap use this from_string and to_string to serialize decimalv2 value
+    // to segment files
     Status from_string(const std::string& str) {
         integer = 0;
         fraction = 0;

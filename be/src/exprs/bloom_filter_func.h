@@ -446,12 +446,8 @@ struct DateFindOp : public CommonFindOp<vectorized::VecDateTimeValue> {
 
 struct DecimalV2FindOp : public CommonFindOp<DecimalV2Value> {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        auto packed_decimal = *static_cast<const decimal12_t*>(data);
-        DecimalV2Value value;
-        int64_t int_value = packed_decimal.integer;
-        int32_t frac_value = packed_decimal.fraction;
-        value.from_olap_decimal(int_value, frac_value);
-
+        // Predicate column using decimalv2value as column value type, so not need convert here
+        DecimalV2Value value = *static_cast<const DecimalV2Value*>(data);
         constexpr int decimal_value_sz = sizeof(DecimalV2Value);
         char data_bytes[decimal_value_sz];
         memcpy(&data_bytes, &value, decimal_value_sz);
