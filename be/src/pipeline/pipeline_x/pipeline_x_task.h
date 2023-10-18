@@ -111,7 +111,7 @@ public:
 
     bool is_pending_finish() override {
         for (auto& op : _operators) {
-            auto *dep = op->finish_blocked_by(_state);
+            auto* dep = op->finish_blocked_by(_state);
             if (dep != nullptr) {
                 dep->start_finish_watcher();
                 return true;

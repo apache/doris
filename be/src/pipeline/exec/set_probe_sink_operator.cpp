@@ -102,7 +102,8 @@ Status SetProbeSinkOperatorX<is_intersect>::open(RuntimeState* state) {
 }
 
 template <bool is_intersect>
-WriteDependencyResult SetProbeSinkOperatorX<is_intersect>::wait_for_dependency(RuntimeState* state) {
+WriteDependencyResult SetProbeSinkOperatorX<is_intersect>::wait_for_dependency(
+        RuntimeState* state) {
     CREATE_SINK_LOCAL_STATE_RETURN_RESULT_IF_ERROR(local_state);
     return ((SetSharedState*)local_state._dependency->shared_state())
                            ->probe_finished_children_index[_cur_child_id - 1]
