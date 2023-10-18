@@ -21,6 +21,10 @@
 30	8
 60	8
 
+-- !explode_json_array_8_invalid --
+0	8
+60	8
+
 -- !explode_json_array9 --
 
 -- !explode_json_array10 --

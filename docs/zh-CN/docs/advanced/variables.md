@@ -627,7 +627,7 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
     <version since="1.2.0"></version>
 
-    使用固定的replica进行查询，该值表示固定使用第几小的replica，默认为-1表示不启用。
+    使用固定replica进行查询。replica从0开始，如果use_fix_replica为0，则使用最小的，如果use_fix_replica为1，则使用第二个最小的，依此类推。默认值为-1，表示未启用。
 
 * `dry_run_query`
 

@@ -45,6 +45,11 @@ suite("explode_json_array") {
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[40, 80]') t2 as d_age 
                         GROUP BY c_age ORDER BY c_age """
 
+    qt_explode_json_array_8_invalid """ SELECT c_age, COUNT(1) FROM ${tableName}
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('["1", 60]') t1 as c_age 
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('["b", "c"]') t2 as d_age 
+                        GROUP BY c_age ORDER BY c_age """
+
     qt_explode_json_array9 """ SELECT * FROM ${tableName}
                             LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[]') t1 AS c_age 
                             ORDER BY id, c_age """
