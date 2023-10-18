@@ -86,7 +86,7 @@ const std::string json_rowset_meta2 = R"({
 
 const std::string json_rowset_meta3 = R"({
             "rowset_id": 10002,
-            "tablet_id": 15673,
+            "tablet_id": 11111,
             "txn_id": 3,
             "tablet_schema_hash": 567997577,
             "rowset_type": "BETA_ROWSET",
@@ -154,7 +154,7 @@ public:
 
     void SetUp() override {
         config::max_runnings_transactions_per_txn_map = 500;
-        _txn_mgr.reset(new TxnManager(64, 1024));
+        _txn_mgr.reset(new TxnManager(1, 1));
 
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
@@ -213,7 +213,7 @@ public:
         static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta1));
         static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta2));
         static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta3));
-        TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+        _tablet = std::make_shared<Tablet>(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY);
         static_cast<void>(_tablet->init());
     }
 
@@ -227,7 +227,6 @@ private:
     std::string _json_rowset_meta;
     std::unique_ptr<TxnManager> _txn_mgr;
     TPartitionId partition_id = 111;
-    TTransactionId transaction_id = 222;
     TTabletId tablet_id = 12345;
     TabletUid _tablet_uid {0, 0};
     PUniqueId load_id;
@@ -241,41 +240,41 @@ private:
 
 TEST_F(CompactionDeleteBitmapCalculatorTest, test) {
     // publish rowset 1
-    Status status =
-            _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, _tablet_uid, load_id);
-    EXPECT_TRUE(status == Status::OK());
-    status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, _tablet_uid,
-                                  load_id, _rowset1, false);
-    EXPECT_TRUE(status == Status::OK());
-    TabletPublishStatistics stats;
-    status = _txn_mgr->publish_txn(_meta, partition_id, transaction_id, tablet_id, _tablet_uid,
-                                   Version(0, 1), &stats);
-    EXPECT_TRUE(status == Status::OK());
+    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
+    RowsetIdUnorderedSet set;
+    set.insert(_tablet_meta->all_rs_metas()[0]->rowset_id());
+    _txn_mgr->set_txn_related_delete_bitmap(partition_id, 1, _tablet->tablet_id(),
+                                                           _tablet->tablet_uid(), true,
+                                                           delete_bitmap, set);
 
     // commit rowset 2
-    status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, _tablet_uid, load_id);
+    load_id.set_hi(2);
+    load_id.set_lo(2);
+    Status status = _txn_mgr->prepare_txn(partition_id, 2, tablet_id, _tablet_uid, load_id);
     EXPECT_TRUE(status == Status::OK());
-    status = _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, _tablet_uid,
-                                  load_id, _rowset2, false);
+    status = _txn_mgr->commit_txn(_meta, partition_id, 2, tablet_id, _tablet_uid, load_id, _rowset2,
+                                  false);
     EXPECT_TRUE(status == Status::OK());
+    set.insert(_tablet_meta->all_rs_metas()[1]->rowset_id());
+    _txn_mgr->set_txn_related_delete_bitmap(partition_id, 2, tablet_id,
+                                                           _tablet_uid, true,
+                                                           delete_bitmap, set);
 
     // prepare rowset 3
-    status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, _tablet_uid, load_id);
+    load_id.set_hi(3);
+    load_id.set_lo(3);
+    status = _txn_mgr->prepare_txn(partition_id, 3, tablet_id, _tablet_uid, load_id);
     EXPECT_TRUE(status == Status::OK());
 
     RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
-    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _rowset1->rowset_id(),
+    status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _rowset2->rowset_id(),
                                                 rowset_meta);
     EXPECT_TRUE(status == Status::OK());
-    EXPECT_TRUE(rowset_meta->rowset_id() == _rowset1->rowset_id());
+    EXPECT_TRUE(rowset_meta->rowset_id() == _rowset2->rowset_id());
 
     CommitTabletTxnInfoVec commit_tablet_txn_info_vec {};
     _txn_mgr->get_all_commit_tablet_txn_info_by_tablet(_tablet, &commit_tablet_txn_info_vec);
-    /*
-    _tablet->calc_compaction_output_rowset_delete_bitmap(
-                            _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
-                            &location_map, *it.delete_bitmap.get(), &txn_output_delete_bitmap);
-    */
+    EXPECT_EQ(commit_tablet_txn_info_vec.size(), 1);
 }
 } // namespace doris
 
