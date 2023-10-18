@@ -86,10 +86,10 @@ struct ProcessRuntimeFilterBuild {
         RETURN_IF_ERROR(parent->_runtime_filter_slots->init(
                 state, hash_table_ctx.hash_table->size(), parent->_build_rf_cardinality));
 
-        if (!parent->_runtime_filter_slots->empty() && !parent->_inserted_rows.empty()) {
+        if (!parent->_runtime_filter_slots->empty() && !parent->_inserted_blocks.empty()) {
             {
                 SCOPED_TIMER(parent->_push_compute_timer);
-                parent->_runtime_filter_slots->insert(parent->_inserted_rows);
+                parent->_runtime_filter_slots->insert(parent->_inserted_blocks);
             }
         }
         {
@@ -117,54 +117,25 @@ struct ProcessHashTableBuild {
 
     template <bool ignore_null, bool short_circuit_for_null>
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
-        using KeyGetter = typename HashTableContext::State;
-
-        Defer defer {[&]() {
-            int64_t bucket_size = hash_table_ctx.hash_table->get_buffer_size_in_cells();
-            int64_t filled_bucket_size = hash_table_ctx.hash_table->size();
-            int64_t bucket_bytes = hash_table_ctx.hash_table->get_buffer_size_in_bytes();
-            COUNTER_SET(_parent->_hash_table_memory_usage, bucket_bytes);
-            COUNTER_SET(_parent->_build_buckets_counter, bucket_size);
-            COUNTER_SET(_parent->_build_collisions_counter,
-                        hash_table_ctx.hash_table->get_collisions());
-            COUNTER_SET(_parent->_build_buckets_fill_counter, filled_bucket_size);
-
-            std::string hash_table_buckets_info;
-
-            hash_table_buckets_info +=
-                    std::to_string(hash_table_ctx.hash_table->get_buffer_size_in_cells()) + ", ";
-            _parent->add_hash_buckets_info(hash_table_buckets_info);
-
-            hash_table_buckets_info.clear();
-            hash_table_buckets_info += std::to_string(hash_table_ctx.hash_table->size()) + ", ";
-            _parent->add_hash_buckets_filled_info(hash_table_buckets_info);
-        }};
-
-        KeyGetter key_getter(_build_raw_ptrs);
-
-        SCOPED_TIMER(_parent->_build_table_insert_timer);
-        hash_table_ctx.hash_table->reset_resize_timer();
-
-        vector<int>& inserted_rows = _parent->_inserted_rows[&_acquired_block];
-        bool has_runtime_filter = !_parent->runtime_filter_descs().empty();
-        if (has_runtime_filter) {
-            inserted_rows.reserve(_batch_size);
+        if (short_circuit_for_null || ignore_null) {
+            for (int i = 0; i < _rows; i++) {
+                if ((*null_map)[i]) {
+                    *has_null_key = true;
+                }
+            }
+            if (short_circuit_for_null && *has_null_key) {
+                return Status::OK();
+            }
         }
 
+        if (!_parent->runtime_filter_descs().empty()) {
+            _parent->_inserted_blocks.insert(&_acquired_block);
+        }
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr);
-
-        auto& arena = *_parent->arena();
-        auto old_build_arena_memory = arena.size();
+        SCOPED_TIMER(_parent->_build_table_insert_timer);
         hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.hash_values.data(),
                                          _rows);
-        _parent->_build_rf_cardinality += inserted_rows.size();
-
-        _parent->_build_arena_memory_usage->add(arena.size() - old_build_arena_memory);
-
-        COUNTER_UPDATE(_parent->_build_table_expanse_timer,
-                       hash_table_ctx.hash_table->get_resize_timer_value());
-
         return Status::OK();
     }
 
@@ -471,7 +442,7 @@ private:
     friend struct ProcessRuntimeFilterBuild;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-    std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
+    std::unordered_set<const Block*> _inserted_blocks;
 
     std::vector<IRuntimeFilter*> _runtime_filters;
     size_t _build_rf_cardinality = 0;
