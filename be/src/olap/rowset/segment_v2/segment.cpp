@@ -248,7 +248,9 @@ Status Segment::_load_pk_bloom_filter() {
 }
 
 void Segment::remove_from_segment_cache() const {
-    if (config::disable_segment_cache) { return; }
+    if (config::disable_segment_cache) {
+        return;
+    }
     SegmentCache::CacheKey cache_key(_rowset_id, _segment_id);
     SegmentLoader::instance()->erase_segment(cache_key);
 }
