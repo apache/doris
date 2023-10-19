@@ -183,13 +183,9 @@ public:
         return _enable_unique_mow_for_index->at(index_id);
     }
 
-    std::vector<int64_t> success_tablets() {
-        return _handler.success_tablets();
-    }
+    std::vector<int64_t> success_tablets() { return _handler.success_tablets(); }
 
-    std::vector<int64_t> failed_tablets() {
-        return _handler.failed_tablets();
-    }
+    std::vector<int64_t> failed_tablets() { return _handler.failed_tablets(); }
 
     brpc::StreamId stream_id() const { return _stream_id; }
 
