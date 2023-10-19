@@ -1374,6 +1374,35 @@ public class TabletScheduler extends MasterDaemon {
         BePathLoadStatPairComparator comparator = new BePathLoadStatPairComparator(allFitPaths);
         Collections.sort(allFitPaths, comparator);
 
+        for (BePathLoadStatPair bePathLoadStat : allFitPaths) {
+            RootPathLoadStatistic rootPathLoadStatistic = bePathLoadStat.getPathLoadStatistic();
+            if (rootPathLoadStatistic.getStorageMedium() != tabletCtx.getStorageMedium()) {
+                LOG.debug("backend {}'s path {}'s storage medium {} "
+                        + "is not equal to tablet's storage medium {}, skip. tablet: {}",
+                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
+                        rootPathLoadStatistic.getStorageMedium(), tabletCtx.getStorageMedium(),
+                        tabletCtx.getTabletId());
+                continue;
+            }
+
+            PathSlot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
+            if (slot == null) {
+                LOG.debug("backend {}'s path {}'s slot is null, skip. tablet: {}",
+                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
+                        tabletCtx.getTabletId());
+                continue;
+            }
+
+            long pathHash = slot.takeSlot(rootPathLoadStatistic.getPathHash());
+            if (pathHash == -1) {
+                LOG.debug("backend {}'s path {}'s slot is full, skip. tablet: {}",
+                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
+                        tabletCtx.getTabletId());
+                continue;
+            }
+            return rootPathLoadStatistic;
+        }
+
         boolean hasBePath = false;
 
         // no root path with specified media type is found, get arbitrary one.
