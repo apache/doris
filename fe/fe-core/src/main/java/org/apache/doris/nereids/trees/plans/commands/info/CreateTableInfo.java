@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -388,14 +389,14 @@ public class CreateTableInfo {
      * check partitions types.
      */
     private boolean checkPartitionsTypes() {
-        if (partitionType.equalsIgnoreCase("RANGE")) {
+        if (partitionType.equalsIgnoreCase(PartitionType.RANGE.name())) {
             if (partitions.stream().allMatch(p -> p instanceof StepPartition)) {
                 return true;
             }
             return partitions.stream().allMatch(p -> (p instanceof LessThanPartition)
                     || (p instanceof FixedRangePartition));
         }
-        return partitionType.equalsIgnoreCase("LIST") && partitions.stream().allMatch(p -> p instanceof InPartition);
+        return partitionType.equalsIgnoreCase(PartitionType.LIST.name()) && partitions.stream().allMatch(p -> p instanceof InPartition);
     }
 
     private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx) {
@@ -416,7 +417,7 @@ public class CreateTableInfo {
         if (!ctx.getSessionVariable().isAllowPartitionColumnNullable() && column.isNullable()) {
             throw new AnalysisException("The partition column must be NOT NULL");
         }
-        if (partitionType.equalsIgnoreCase("LIST") && column.isNullable()) {
+        if (partitionType.equalsIgnoreCase(PartitionType.LIST.name()) && column.isNullable()) {
             throw new AnalysisException("The list partition column must be NOT NULL");
         }
     }
@@ -436,7 +437,7 @@ public class CreateTableInfo {
             List<AllPartitionDesc> partitionDescs = partitions.stream()
                     .map(PartitionDefinition::translateToCatalogStyle).collect(Collectors.toList());
             try {
-                if (partitionType.equals("RANGE")) {
+                if (partitionType.equals(PartitionType.RANGE.name())) {
                     partitionDesc = new RangePartitionDesc(partitionColumns, partitionDescs);
                 } else {
                     partitionDesc = new ListPartitionDesc(partitionColumns, partitionDescs);
