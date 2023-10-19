@@ -20,6 +20,7 @@ package org.apache.doris.clone;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.BackendClause;
+import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
@@ -501,13 +502,13 @@ public class TabletRepairAndBalanceTest {
 
         //test decommission backend by ids
 
-        String stmtStr4 = "alter system decommission backend \"" + be.getId();
+        String stmtStr4 = "alter system decommission backend \"" + be.getHost() + ":" + be.getHeartbeatPort() + "\"";
         stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr4, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
 
-        String stmtStr5 = "cancel decommission backend \"" + be.getId();
-        stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr5, connectContext);
-        DdlExecutor.execute(Env.getCurrentEnv(), stmt);
+        String stmtStr5 = "cancel decommission backend \"" + be.getId() + "\"";
+        CancelAlterSystemStmt cancelAlterSystemStmt = (CancelAlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr5, connectContext);
+        DdlExecutor.execute(Env.getCurrentEnv(), cancelAlterSystemStmt);
 
         Assert.assertFalse(be.isDecommissioned());
 
