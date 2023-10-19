@@ -137,7 +137,7 @@ void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
 }
 
 template <typename T>
-void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                              const uint8_t* __restrict null_data) const {
     if (null_data == nullptr) {
         for (size_t i = start; i < end; i++) {
@@ -161,9 +161,10 @@ void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint64_t&
 }
 
 template <typename T>
-void ColumnDecimal<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type,
+                                              uint32_t rows, uint32_t offset,
                                               const uint8_t* __restrict null_data) const {
-    auto s = hashes.size();
+    auto s = rows;
     DCHECK(s == size());
 
     if constexpr (!IsDecimalV2<T>) {

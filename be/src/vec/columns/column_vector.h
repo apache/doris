@@ -288,7 +288,7 @@ public:
         }
     }
 
-    void ALWAYS_INLINE update_crc_with_value_without_null(size_t idx, uint64_t& hash) const {
+    void ALWAYS_INLINE update_crc_with_value_without_null(size_t idx, uint32_t& hash) const {
         if constexpr (!std::is_same_v<T, Int64>) {
             hash = HashUtil::zlib_crc_hash(&data[idx], sizeof(T), hash);
         } else {
@@ -303,7 +303,7 @@ public:
         }
     }
 
-    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override {
         if (null_data) {
             for (size_t i = start; i < end; i++) {
@@ -322,7 +322,8 @@ public:
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;
 
-    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+    void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
+                                uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
 
     void update_hashes_with_value(uint64_t* __restrict hashes,

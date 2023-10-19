@@ -93,10 +93,10 @@ struct MethodBase {
     }
 
     template <bool read>
-    void prefetch(int currrent) {
-        if (LIKELY(currrent + HASH_MAP_PREFETCH_DIST < hash_values.size())) {
-            hash_table->template prefetch<read>(keys[currrent + HASH_MAP_PREFETCH_DIST],
-                                                hash_values[currrent + HASH_MAP_PREFETCH_DIST]);
+    void prefetch(int current) {
+        if (LIKELY(current + HASH_MAP_PREFETCH_DIST < hash_values.size())) {
+            hash_table->template prefetch<read>(keys[current + HASH_MAP_PREFETCH_DIST],
+                                                hash_values[current + HASH_MAP_PREFETCH_DIST]);
         }
     }
 

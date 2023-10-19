@@ -115,17 +115,18 @@ void ColumnConst::update_hashes_with_value(std::vector<SipHash>& hashes,
     }
 }
 
-void ColumnConst::update_crcs_with_value(std::vector<uint64_t>& hashes, doris::PrimitiveType type,
+void ColumnConst::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
+                                         uint32_t rows, uint32_t offset,
                                          const uint8_t* __restrict null_data) const {
     DCHECK(null_data == nullptr);
-    DCHECK(hashes.size() == size());
+    DCHECK(rows == size());
     auto real_data = data->get_data_at(0);
     if (real_data.data == nullptr) {
-        for (int i = 0; i < hashes.size(); ++i) {
+        for (int i = 0; i < rows; ++i) {
             hashes[i] = HashUtil::zlib_crc_hash_null(hashes[i]);
         }
     } else {
-        for (int i = 0; i < hashes.size(); ++i) {
+        for (int i = 0; i < rows; ++i) {
             hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, type, hashes[i]);
         }
     }

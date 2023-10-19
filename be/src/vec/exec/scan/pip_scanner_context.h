@@ -103,7 +103,7 @@ public:
         int64_t local_bytes = 0;
 
         if (_need_colocate_distribute) {
-            std::vector<uint64_t> hash_vals;
+            std::vector<uint32_t> hash_vals;
             for (const auto& block : blocks) {
                 // vectorized calculate hash
                 int rows = block->rows();
@@ -115,9 +115,11 @@ public:
                 for (int j = 0; j < _col_distribute_ids.size(); ++j) {
                     block->get_by_position(_col_distribute_ids[j])
                             .column->update_crcs_with_value(
-                                    hash_vals, _output_tuple_desc->slots()[_col_distribute_ids[j]]
-                                                       ->type()
-                                                       .type);
+                                    hash_vals.data(),
+                                    _output_tuple_desc->slots()[_col_distribute_ids[j]]
+                                            ->type()
+                                            .type,
+                                    rows);
                 }
                 for (int i = 0; i < rows; i++) {
                     hashes[i] = hashes[i] % element_size;
