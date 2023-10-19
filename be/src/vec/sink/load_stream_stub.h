@@ -94,8 +94,25 @@ private:
 
         void on_closed(brpc::StreamId id) override;
 
+        bool is_closed() { return _is_closed.load(); }
+
+        Status close_wait(int64_t timeout_ms) {
+            std::unique_lock<bthread::Mutex> lock(_mutex);
+            if (_is_closed) {
+                return Status::OK();
+            }
+            if (timeout_ms > 0) {
+                int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
+                return ret == 0 ? Status::OK()
+                                : Status::Error<true>(ret, "stream close_wait timeout");
+            }
+            _close_cv.wait(lock);
+        };
+
     private:
-        LoadStreamStub* _stub;
+        std::atomic<bool> _is_closed;
+        bthread::Mutex _mutex;
+        bthread::ConditionVariable _close_cv;
     };
 
 public:
@@ -135,16 +152,10 @@ public:
     // wait remote to close stream,
     // remote will close stream when it receives CLOSE_LOAD
     Status close_wait(int64_t timeout_ms = 0) {
-        std::unique_lock<bthread::Mutex> lock(_mutex);
-        if (!_is_init || _is_closed) {
+        if (!_is_init.load() || _handler.is_closed()) {
             return Status::OK();
         }
-        if (timeout_ms > 0) {
-            int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
-            return ret == 0 ? Status::OK() : Status::Error<true>(ret, "stream close_wait timeout");
-        }
-        _close_cv.wait(lock);
-        return Status::OK();
+        return _handler.close_wait(timeout_ms);
     }
 
     std::shared_ptr<TabletSchema> tablet_schema(int64_t index_id) const {
@@ -177,10 +188,8 @@ private:
     Status _send_with_retry(butil::IOBuf& buf);
 
 protected:
-    bool _is_init = false;
-    bool _is_closed = false;
+    std::atomic<bool> _is_init;
     bthread::Mutex _mutex;
-    bthread::ConditionVariable _close_cv;
 
     std::atomic<int> _num_open;
 

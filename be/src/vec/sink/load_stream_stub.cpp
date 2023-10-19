@@ -78,9 +78,9 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
 }
 
 void LoadStreamStub::LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
-    std::lock_guard<bthread::Mutex> lock(_stub->_mutex);
-    _stub->_is_closed = true;
-    _stub->_close_cv.notify_all();
+    std::lock_guard<bthread::Mutex> lock(_mutex);
+    _is_closed.store(true);
+    _close_cv.notify_all();
 }
 
 LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id)
@@ -96,8 +96,7 @@ LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
           _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {};
 
 LoadStreamStub::~LoadStreamStub() {
-    std::unique_lock<bthread::Mutex> lock(_mutex);
-    if (_is_init && !_is_closed) {
+    if (_is_init.load() && !_handler.is_closed()) {
         brpc::StreamClose(_stream_id);
     }
 }
@@ -110,7 +109,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const std::vector<PTabletID>& tablets_for_schema, bool enable_profile) {
     _num_open++;
     std::unique_lock<bthread::Mutex> lock(_mutex);
-    if (_is_init) {
+    if (_is_init.load()) {
         return Status::OK();
     }
     _dst_id = node_info.id;
@@ -152,7 +151,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     }
     LOG(INFO) << "Opened stream " << _stream_id << " for backend " << _dst_id << " (" << host_port
               << ")";
-    _is_init = true;
+    _is_init.store(true);
     return Status::OK();
 }
 
