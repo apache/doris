@@ -64,7 +64,7 @@ TEST(HashFuncTest, ArrayTypeTest) {
 
     std::vector<uint64_t> sip_hash_vals(1);
     std::vector<uint64_t> xx_hash_vals(1);
-    std::vector<uint64_t> crc_hash_vals(1);
+    std::vector<uint32_t> crc_hash_vals(1);
     auto* __restrict sip_hashes = sip_hash_vals.data();
     auto* __restrict xx_hashes = xx_hash_vals.data();
     auto* __restrict crc_hashes = crc_hash_vals.data();
@@ -83,7 +83,7 @@ TEST(HashFuncTest, ArrayTypeTest) {
         std::cout << xx_hashes[0] << std::endl;
         // crcHash
         EXPECT_NO_FATAL_FAILURE(
-                col_a->update_crcs_with_value(crc_hash_vals, PrimitiveType::TYPE_ARRAY));
+                col_a->update_crcs_with_value(crc_hashes, PrimitiveType::TYPE_ARRAY, 1));
         std::cout << crc_hashes[0] << std::endl;
     }
 }
@@ -103,12 +103,12 @@ TEST(HashFuncTest, ArraySimpleBenchmarkTest) {
         }
         array_mutable_col->insert(a);
     }
-    std::vector<uint64_t> crc_hash_vals(r_num);
+    std::vector<uint32_t> crc_hash_vals(r_num);
     int64_t time_t = 0;
     {
         SCOPED_RAW_TIMER(&time_t);
         EXPECT_NO_FATAL_FAILURE(array_mutable_col->update_crcs_with_value(
-                crc_hash_vals, PrimitiveType::TYPE_ARRAY));
+                crc_hash_vals.data(), PrimitiveType::TYPE_ARRAY, r_num));
     }
     std::cout << time_t << "ns" << std::endl;
 }
@@ -150,7 +150,7 @@ TEST(HashFuncTest, ArrayNestedArrayTest) {
     EXPECT_EQ(nested_col->size(), 8);
 
     std::vector<uint64_t> xx_hash_vals(4);
-    std::vector<uint64_t> crc_hash_vals(4);
+    std::vector<uint32_t> crc_hash_vals(4);
     auto* __restrict xx_hashes = xx_hash_vals.data();
     auto* __restrict crc_hashes = crc_hash_vals.data();
 
@@ -160,7 +160,7 @@ TEST(HashFuncTest, ArrayNestedArrayTest) {
     EXPECT_TRUE(xx_hashes[2] != xx_hashes[3]);
     // crcHash
     EXPECT_NO_FATAL_FAILURE(
-            array_mutable_col->update_crcs_with_value(crc_hash_vals, PrimitiveType::TYPE_ARRAY));
+            array_mutable_col->update_crcs_with_value(crc_hashes, PrimitiveType::TYPE_ARRAY, 4));
     EXPECT_TRUE(crc_hashes[0] != crc_hashes[1]);
     EXPECT_TRUE(crc_hashes[2] != crc_hashes[3]);
 }
@@ -186,7 +186,7 @@ TEST(HashFuncTest, ArrayCornerCaseTest) {
 
     std::vector<uint64_t> sip_hash_vals(3);
     std::vector<uint64_t> xx_hash_vals(3);
-    std::vector<uint64_t> crc_hash_vals(3);
+    std::vector<uint32_t> crc_hash_vals(3);
     auto* __restrict sip_hashes = sip_hash_vals.data();
     auto* __restrict xx_hashes = xx_hash_vals.data();
     auto* __restrict crc_hashes = crc_hash_vals.data();
@@ -205,8 +205,8 @@ TEST(HashFuncTest, ArrayCornerCaseTest) {
     EXPECT_EQ(xx_hashes[0], xx_hashes[1]);
     EXPECT_TRUE(xx_hashes[0] != xx_hashes[2]);
     // crcHash
-    EXPECT_NO_FATAL_FAILURE(
-            array_mutable_col->update_crcs_with_value(crc_hash_vals, PrimitiveType::TYPE_ARRAY));
+    EXPECT_NO_FATAL_FAILURE(array_mutable_col->update_crcs_with_value(
+            crc_hashes, PrimitiveType::TYPE_ARRAY, array_mutable_col->size()));
     EXPECT_EQ(crc_hashes[0], crc_hashes[1]);
     EXPECT_TRUE(xx_hashes[0] != xx_hashes[2]);
 }
@@ -216,7 +216,7 @@ TEST(HashFuncTest, MapTypeTest) {
 
     std::vector<uint64_t> sip_hash_vals(1);
     std::vector<uint64_t> xx_hash_vals(1);
-    std::vector<uint64_t> crc_hash_vals(1);
+    std::vector<uint32_t> crc_hash_vals(1);
     auto* __restrict sip_hashes = sip_hash_vals.data();
     auto* __restrict xx_hashes = xx_hash_vals.data();
     auto* __restrict crc_hashes = crc_hash_vals.data();
@@ -234,7 +234,7 @@ TEST(HashFuncTest, MapTypeTest) {
         std::cout << xx_hashes[0] << std::endl;
         // crcHash
         EXPECT_NO_FATAL_FAILURE(unpack_if_const(col_a).first->update_crcs_with_value(
-                crc_hash_vals, PrimitiveType::TYPE_MAP));
+                crc_hashes, PrimitiveType::TYPE_MAP, 1));
         std::cout << crc_hashes[0] << std::endl;
     }
 }
@@ -244,7 +244,7 @@ TEST(HashFuncTest, StructTypeTest) {
 
     std::vector<uint64_t> sip_hash_vals(1);
     std::vector<uint64_t> xx_hash_vals(1);
-    std::vector<uint64_t> crc_hash_vals(1);
+    std::vector<uint32_t> crc_hash_vals(1);
     auto* __restrict sip_hashes = sip_hash_vals.data();
     auto* __restrict xx_hashes = xx_hash_vals.data();
     auto* __restrict crc_hashes = crc_hash_vals.data();
@@ -262,7 +262,7 @@ TEST(HashFuncTest, StructTypeTest) {
     std::cout << xx_hashes[0] << std::endl;
     // crcHash
     EXPECT_NO_FATAL_FAILURE(unpack_if_const(col_a).first->update_crcs_with_value(
-            crc_hash_vals, PrimitiveType::TYPE_STRUCT));
+            crc_hashes, PrimitiveType::TYPE_STRUCT, 1));
     std::cout << crc_hashes[0] << std::endl;
 }
 
