@@ -177,7 +177,7 @@ public:
             _finish_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
                          << id();
-            DCHECK(_ready_to_finish);       
+            DCHECK(_ready_to_finish);
         }
         return _ready_to_finish ? nullptr : this;
     }
