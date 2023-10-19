@@ -72,5 +72,4 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         newPlan.setMutableState(MutableState.KEY_GROUP, from.getGroupIdAsString());
         return newPlan;
     }
-    
 }
