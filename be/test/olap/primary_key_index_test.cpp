@@ -213,6 +213,20 @@ TEST_F(PrimaryKeyIndexTest, multiple_pages) {
         row_id = index_iterator->get_current_ordinal();
         EXPECT_EQ(i, row_id);
     }
+    for (size_t i = 0; i < keys.size(); i++) {
+        bool exists = index_reader.check_present(keys[i]);
+        EXPECT_TRUE(exists);
+        auto status = index_iterator->seek_to_ordinal(i);
+        EXPECT_TRUE(status.ok());
+        row_id = index_iterator->get_current_ordinal();
+        EXPECT_EQ(i, row_id);
+    }
+    {
+        auto status = index_iterator->seek_to_ordinal(10);
+        EXPECT_TRUE(status.ok());
+        row_id = index_iterator->get_current_ordinal();
+        EXPECT_EQ(10, row_id);
+    }
 
     std::vector<std::string> non_exist_keys {"00001", "00003", "00005", "00007", "00009",
                                              "00011", "00013", "00015", "00017"};
