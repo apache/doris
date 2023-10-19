@@ -242,6 +242,7 @@ TEST_F(PrimaryKeyIndexTest, single_page) {
     io::FileWriterPtr file_writer;
     auto fs = io::global_local_filesystem();
     EXPECT_TRUE(fs->create_file(filename, &file_writer).ok());
+    config::primary_key_data_page_size = 32768;
 
     PrimaryKeyIndexBuilder builder(file_writer.get(), 0);
     static_cast<void>(builder.init());
