@@ -372,6 +372,18 @@ public class MysqlLoadManager {
                 String trimQuotes = props.get(LoadStmt.KEY_TRIM_DOUBLE_QUOTES);
                 httpPut.addHeader(LoadStmt.KEY_TRIM_DOUBLE_QUOTES, trimQuotes);
             }
+
+            // enclose
+            if (props.containsKey(LoadStmt.KEY_ENCLOSE)) {
+                String enclose = props.get(LoadStmt.KEY_ENCLOSE);
+                httpPut.addHeader(LoadStmt.KEY_ENCLOSE, enclose);
+            }
+
+            //escape
+            if (props.containsKey(LoadStmt.KEY_ESCAPE)) {
+                String escape = props.get(LoadStmt.KEY_ESCAPE);
+                httpPut.addHeader(LoadStmt.KEY_ESCAPE, escape);
+            }
         }
 
         // skip_lines
