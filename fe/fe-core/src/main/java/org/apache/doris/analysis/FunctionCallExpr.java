@@ -1362,7 +1362,10 @@ public class FunctionCallExpr extends Expr {
             // TODO: fix how we equal count distinct.
             fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
-
+            if (children.get(0).type.isComplexType()) {
+                throw new AnalysisException("The pattern params of " + fnName + " function can not support "
+                    + children.get(0).type);
+            }
             // Make sure BE doesn't see any TYPE_NULL exprs
             for (int i = 0; i < children.size(); ++i) {
                 if (getChild(i).getType().isNull()) {
