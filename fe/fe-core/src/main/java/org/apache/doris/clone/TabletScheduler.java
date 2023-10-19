@@ -1354,10 +1354,14 @@ public class TabletScheduler extends MasterDaemon {
             if (st.ok()) {
                 resultPaths.stream().forEach(path -> allFitPathsSameMedium.add(new BePathLoadStatPair(bes, path)));
             } else {
+                LOG.debug("backend {} unable to find path for tablet: {}. {}", bes.getBeId(), tabletCtx, st);
                 resultPaths.clear();
                 st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), resultPaths, true);
                 if (st.ok()) {
                     resultPaths.stream().forEach(path -> allFitPathsDiffMedium.add(new BePathLoadStatPair(bes, path)));
+                } else {
+                    LOG.debug("backend {} unable to find path for supplementing tablet: {}. {}",
+                            bes.getBeId(), tabletCtx, st);
                 }
             }
         }
