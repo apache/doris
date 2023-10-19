@@ -63,6 +63,7 @@ struct TSlotDescriptor {
   // subcolumn path info list for semi structure column(variant)
   15: optional list<string> column_paths
   16: optional string col_default_value
+  17: optional Types.TPrimitiveType primitive_type = Types.TPrimitiveType.INVALID_TYPE
 }
 
 struct TTupleDescriptor {
