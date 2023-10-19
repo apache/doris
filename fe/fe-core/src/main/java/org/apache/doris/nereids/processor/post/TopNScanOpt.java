@@ -44,8 +44,7 @@ public class TopNScanOpt extends PlanPostProcessor {
         Plan child = topN.child().accept(this, ctx);
         topN = rewriteTopN(topN);
         if (child != topN.child()) {
-            topN.withChildren(child);
-        }
+            topN = ((PhysicalTopN) topN.withChildren(child)).copyStatsAndGroupIdFrom(topN);        }
         return topN;
     }
 
@@ -54,11 +53,11 @@ public class TopNScanOpt extends PlanPostProcessor {
             CascadesContext context) {
         Plan child = topN.child().accept(this, context);
         if (child != topN.child()) {
-            topN = topN.withChildren(ImmutableList.of(child));
+            topN = topN.withChildren(ImmutableList.of(child)).copyStatsAndGroupIdFrom(topN);
         }
         PhysicalTopN<? extends Plan> rewrittenTopN = rewriteTopN(topN.getPhysicalTopN());
         if (topN.getPhysicalTopN() != rewrittenTopN) {
-            topN = topN.withPhysicalTopN(rewrittenTopN);
+            topN = topN.withPhysicalTopN(rewrittenTopN).copyStatsAndGroupIdFrom(topN);
         }
         return topN;
     }
