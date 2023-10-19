@@ -30,7 +30,7 @@ suite("query64") {
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
 
-    sql 'set dump_nereids_planner=true'
+    sql 'set dump_nereids_memo=true'
     
     qt_ds_shape_64 '''
     explain shape plan
