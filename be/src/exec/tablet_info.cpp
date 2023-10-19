@@ -29,9 +29,11 @@
 #include <ostream>
 
 #include "olap/tablet_schema.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/primitive_type.h"
 #include "runtime/raw_value.h"
 #include "runtime/types.h"
 #include "util/hash_util.hpp"
@@ -67,30 +69,33 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     for (auto& col : pschema.partial_update_input_columns()) {
         _partial_update_input_columns.insert(col);
     }
-    std::map<std::string, SlotDescriptor*> slots_map;
+    std::unordered_map<std::pair<std::string, std::string>, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(pschema.tuple_desc()));
 
     for (auto& p_slot_desc : pschema.slot_descs()) {
         auto slot_desc = _obj_pool.add(new SlotDescriptor(p_slot_desc));
         _tuple_desc->add_slot(slot_desc);
-        slots_map.emplace(slot_desc->col_name(), slot_desc);
+        string data_type;
+        EnumToString(TPrimitiveType, to_thrift(slot_desc->col_type()), data_type);
+        slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()), std::move(data_type)),
+                          slot_desc);
     }
 
     for (auto& p_index : pschema.indexes()) {
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
-        for (auto& col : p_index.columns()) {
-            if (_is_partial_update && _partial_update_input_columns.count(col) == 0) {
-                continue;
-            }
-            auto it = slots_map.find(col);
-            if (it == std::end(slots_map)) {
-                return Status::InternalError("unknown index column, column={}", col);
-            }
-            index->slots.emplace_back(it->second);
-        }
         for (auto& pcolumn_desc : p_index.columns_desc()) {
+            if (!_is_partial_update ||
+                _partial_update_input_columns.count(pcolumn_desc.name()) > 0) {
+                auto it = slots_map.find(
+                        std::make_pair(to_lower(pcolumn_desc.name()), pcolumn_desc.type()));
+                if (it == std::end(slots_map)) {
+                    return Status::InternalError("unknown index column, column={}, type={}",
+                                                 pcolumn_desc.name(), pcolumn_desc.type());
+                }
+                index->slots.emplace_back(it->second);
+            }
             TabletColumn* tc = _obj_pool.add(new TabletColumn());
             tc->init_from_pb(pcolumn_desc);
             index->columns.emplace_back(tc);
@@ -123,41 +128,43 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     for (auto& tcolumn : tschema.partial_update_input_columns) {
         _partial_update_input_columns.insert(tcolumn);
     }
-    std::map<std::string, SlotDescriptor*> slots_map;
+    std::unordered_map<std::pair<std::string, PrimitiveType>, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(tschema.tuple_desc));
     for (auto& t_slot_desc : tschema.slot_descs) {
         auto slot_desc = _obj_pool.add(new SlotDescriptor(t_slot_desc));
         _tuple_desc->add_slot(slot_desc);
-        slots_map.emplace(to_lower(slot_desc->col_name()), slot_desc);
+        slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()), slot_desc->col_type()),
+                          slot_desc);
     }
 
     for (auto& t_index : tschema.indexes) {
+        std::unordered_map<std::string, SlotDescriptor*> index_slots_map;
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
-        for (auto& col : t_index.columns) {
-            if (_is_partial_update && _partial_update_input_columns.count(col) == 0) {
-                continue;
+        for (auto& tcolumn_desc : t_index.columns_desc) {
+            auto it = slots_map.find(std::make_pair(to_lower(tcolumn_desc.column_name),
+                                                    thrift_to_type(tcolumn_desc.column_type.type)));
+            if (!_is_partial_update ||
+                _partial_update_input_columns.count(tcolumn_desc.column_name) > 0) {
+                if (it == slots_map.end()) {
+                    return Status::InternalError("unknown index column, column={}, type={}",
+                                                 tcolumn_desc.column_name,
+                                                 tcolumn_desc.column_type.type);
+                }
+                index_slots_map.emplace(to_lower(tcolumn_desc.column_name), it->second);
+                index->slots.emplace_back(it->second);
             }
-            auto it = slots_map.find(to_lower(col));
-            if (it == std::end(slots_map)) {
-                return Status::InternalError("unknown index column, column={}", col);
-            }
-            index->slots.emplace_back(it->second);
-        }
-        if (t_index.__isset.columns_desc) {
-            for (auto& tcolumn_desc : t_index.columns_desc) {
-                TabletColumn* tc = _obj_pool.add(new TabletColumn());
-                tc->init_from_thrift(tcolumn_desc);
-                index->columns.emplace_back(tc);
-            }
+            TabletColumn* tc = _obj_pool.add(new TabletColumn());
+            tc->init_from_thrift(tcolumn_desc);
+            index->columns.emplace_back(tc);
         }
         if (t_index.__isset.indexes_desc) {
             for (auto& tindex_desc : t_index.indexes_desc) {
                 std::vector<int32_t> column_unique_ids(tindex_desc.columns.size());
                 for (size_t i = 0; i < tindex_desc.columns.size(); i++) {
-                    auto it = slots_map.find(to_lower(tindex_desc.columns[i]));
-                    if (it != std::end(slots_map)) {
+                    auto it = index_slots_map.find(to_lower(tindex_desc.columns[i]));
+                    if (it != index_slots_map.end()) {
                         column_unique_ids[i] = it->second->col_unique_id();
                     }
                 }
