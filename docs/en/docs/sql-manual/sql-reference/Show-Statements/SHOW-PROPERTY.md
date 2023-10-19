@@ -31,7 +31,7 @@ under the License.
 This statement is used to view the attributes of the user
 
 ```
-SHOW PROPERTY [FOR user] [LIKE key];
+SHOW [ALL] PROPERTY [FOR user] [LIKE key];
 ```
 
 * `user`
@@ -41,6 +41,10 @@ SHOW PROPERTY [FOR user] [LIKE key];
 * `LIKE`
 
     Fuzzy matching can be done by attribute name.
+
+* `ALL`
+
+  View the properties of all users (supported since version 2.0.3)
 
 Return result description:
 
@@ -62,6 +66,26 @@ mysql> show property like'%connection%';
 
     Attribute value.
 
+
+```sql
+mysql> show all property like "%connection%";
++-------------------+--------------------------------------+
+| User              | Properties                           |
++-------------------+--------------------------------------+
+| root              | {"max_user_connections": "100"}      |
+| admin             | {"max_user_connections": "100"}      |
+| default_cluster:a | {"max_user_connections": "1000"}     |
++-------------------+--------------------------------------+
+```
+
+* `User`
+
+  username.
+
+* `Properties`
+
+  Key: value corresponding to each property of the user.
+
 ### Example
 
 1. View the attributes of the jack user
@@ -76,8 +100,14 @@ mysql> show property like'%connection%';
     SHOW PROPERTY FOR'jack' LIKE'%connection%';
     ```
 
+3. View all users importing cluster related properties
+
+   ```sql
+   SHOW ALL PROPERTY LIKE '%load_cluster%'
+   ```
+
 ### Keywords
 
-    SHOW, PROPERTY
+    SHOW, PROPERTY, ALL
 
 ### Best Practice

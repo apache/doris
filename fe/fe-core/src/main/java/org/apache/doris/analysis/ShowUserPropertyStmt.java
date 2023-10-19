@@ -159,9 +159,9 @@ public class ShowUserPropertyStmt extends ShowStmt {
         if (isAll) {
             sb.append("ALL ");
         }
-        sb.append("PROPERTY ");
+        sb.append("PROPERTY");
         if (!isAll) {
-            sb.append("FOR '");
+            sb.append(" FOR '");
             sb.append(user);
             sb.append("'");
         }

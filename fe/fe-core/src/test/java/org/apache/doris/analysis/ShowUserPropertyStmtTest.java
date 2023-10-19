@@ -17,8 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.proc.UserPropertyProcNode;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -27,6 +28,8 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import java.util.List;
 
 public class ShowUserPropertyStmtTest {
     private Analyzer analyzer;
@@ -44,9 +47,36 @@ public class ShowUserPropertyStmtTest {
     }
 
     @Test
-    public void testNormal() throws UserException, AnalysisException {
+    public void testNormal() throws UserException {
         ShowUserPropertyStmt stmt = new ShowUserPropertyStmt("testUser", "%load_cluster%", false);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW PROPERTY FOR 'testCluster:testUser' LIKE '%load_cluster%'", stmt.toString());
+        List<Column> columns = stmt.getMetaData().getColumns();
+        for (int i = 0; i < columns.size(); i++) {
+            Assert.assertEquals(columns.get(i).getName(), UserPropertyProcNode.TITLE_NAMES.get(i));
+        }
+    }
+
+    @Test
+    public void testAll() throws UserException {
+        ShowUserPropertyStmt stmt = new ShowUserPropertyStmt(null, "%load_cluster%", true);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW ALL PROPERTY LIKE '%load_cluster%'", stmt.toString());
+        List<Column> columns = stmt.getMetaData().getColumns();
+        for (int i = 0; i < columns.size(); i++) {
+            Assert.assertEquals(columns.get(i).getName(), UserPropertyProcNode.ALL_USER_TITLE_NAMES.get(i));
+        }
+    }
+
+    @Test
+    public void testError() {
+        ShowUserPropertyStmt stmt = new ShowUserPropertyStmt("testUser", "%load_cluster%", true);
+        try {
+            stmt.analyze(analyzer);
+            Assert.fail();
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("ALL"));
+        }
+
     }
 }
