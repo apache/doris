@@ -170,6 +170,10 @@ public class TabletScheduler extends MasterDaemon {
         return stat;
     }
 
+    public Rebalancer getRebalancer() {
+        return rebalancer;
+    }
+
     /*
      * update working slots at the beginning of each round
      */
