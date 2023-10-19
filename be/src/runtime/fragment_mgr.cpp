@@ -266,11 +266,13 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 params.delta_urls.push_back(to_http_path(it));
             }
         } else if (!req.runtime_states.empty()) {
-            params.__isset.delta_urls = true;
             for (auto* rs : req.runtime_states) {
                 for (auto& it : rs->output_files()) {
                     params.delta_urls.push_back(to_http_path(it));
                 }
+            }
+            if (!params.delta_urls.empty()) {
+                params.__isset.delta_urls = true;
             }
         }
         if (req.runtime_state->num_rows_load_total() > 0 ||
