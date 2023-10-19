@@ -497,6 +497,20 @@ public class TabletRepairAndBalanceTest {
         // set one replica to bad, see if it can be repaired
         oneReplica.setBad(true);
         Assert.assertTrue(checkReplicaBad(oneTablet, oneReplica));
+
+
+        //test decommission backend by ids
+
+        String stmtStr4 = "alter system decommission backend \"" + be.getId();
+        stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr4, connectContext);
+        DdlExecutor.execute(Env.getCurrentEnv(), stmt);
+
+        String stmtStr5 = "cancel decommission backend \"" + be.getId();
+        stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr5, connectContext);
+        DdlExecutor.execute(Env.getCurrentEnv(), stmt);
+
+        Assert.assertFalse(be.isDecommissioned());
+
     }
 
     private static boolean checkReplicaState(Replica replica) throws Exception {

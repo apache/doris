@@ -231,7 +231,6 @@ public class SystemHandler extends AlterHandler {
         CancelAlterSystemStmt cancelAlterSystemStmt = (CancelAlterSystemStmt) stmt;
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         // check if backends is under decommission
-        List<Backend> backends = Lists.newArrayList();
         List<HostInfo> hostInfos = cancelAlterSystemStmt.getHostInfos();
         if (hostInfos.isEmpty()) {
             List<String> ids = cancelAlterSystemStmt.getIds();
@@ -246,8 +245,13 @@ public class SystemHandler extends AlterHandler {
                     LOG.info("backend is not decommissioned[{}]", backend.getId());
                     continue;
                 }
-                backends.add(backend);
+                if (backend.setDecommissioned(false)) {
+                    Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
+                } else {
+                    LOG.info("backend is not decommissioned[{}]", backend.getHost());
+                }
             }
+
         } else {
             for (HostInfo hostInfo : hostInfos) {
                 // check if exist
@@ -264,10 +268,6 @@ public class SystemHandler extends AlterHandler {
                     continue;
                 }
 
-                backends.add(backend);
-            }
-
-            for (Backend backend : backends) {
                 if (backend.setDecommissioned(false)) {
                     Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
                 } else {
