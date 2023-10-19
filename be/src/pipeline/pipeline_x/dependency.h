@@ -39,7 +39,7 @@ namespace pipeline {
 class Dependency;
 using DependencySPtr = std::shared_ptr<Dependency>;
 
-static constexpr auto SLOW_DEPENDENCY_THRESHOLD = 10 * 1000L * 1000L * 1000L;
+static constexpr auto SLOW_DEPENDENCY_THRESHOLD = 1000LL * 1000LL * 1000LL * 1000LL;
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
@@ -157,6 +157,7 @@ protected:
 class FinishDependency : public Dependency {
 public:
     static constexpr auto max_block_time = 1000;
+
     FinishDependency(int id, std::string name) : Dependency(id, name), _ready_to_finish(true) {}
     ~FinishDependency() override = default;
 
