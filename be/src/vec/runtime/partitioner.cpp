@@ -22,8 +22,9 @@
 
 namespace doris::vectorized {
 
-Status HashPartitioner::do_partitioning(RuntimeState* state, Block* block,
-                                        MemTracker* mem_tracker) const {
+template <typename HashValueType>
+Status Partitioner<HashValueType>::do_partitioning(RuntimeState* state, Block* block,
+                                                   MemTracker* mem_tracker) const {
     // will only copy schema
     // we don't want send temp columns
     auto column_to_keep = block->columns();
@@ -41,12 +42,10 @@ Status HashPartitioner::do_partitioning(RuntimeState* state, Block* block,
             SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
             RETURN_IF_ERROR(_get_partition_column_result(block, result));
         }
-        SCOPED_TIMER(*_split_block_hash_compute_timer);
         // result[j] means column index, i means rows index, here to calculate the xxhash value
         for (int j = 0; j < result_size; ++j) {
             // complex type most not implement get_data_at() method which column_const will call
-            unpack_if_const(block->get_by_position(result[j]).column)
-                    .first->update_hashes_with_value(hashes);
+            _do_hash(unpack_if_const(block->get_by_position(result[j]).column).first, hashes, j);
         }
 
         for (int i = 0; i < rows; i++) {
@@ -61,41 +60,13 @@ Status HashPartitioner::do_partitioning(RuntimeState* state, Block* block,
     return Status::OK();
 }
 
-Status BucketHashPartitioner::do_partitioning(RuntimeState* state, Block* block,
-                                              MemTracker* mem_tracker) const {
-    // will only copy schema
-    // we don't want send temp columns
-    auto column_to_keep = block->columns();
+void BucketHashPartitioner::_do_hash(const ColumnPtr& column, uint32_t* result, int idx) const {
+    column->update_crcs_with_value(result, _partition_expr_ctxs[idx]->root()->type().type,
+                                   column->size());
+}
 
-    int result_size = _partition_expr_ctxs.size();
-    int result[result_size];
-
-    // vectorized calculate hash
-    int rows = block->rows();
-    _hash_vals.resize(rows);
-    auto* __restrict hashes = _hash_vals.data();
-
-    if (rows > 0) {
-        {
-            SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
-            RETURN_IF_ERROR(_get_partition_column_result(block, result));
-        }
-        for (int j = 0; j < result_size; ++j) {
-            // complex type most not implement get_data_at() method which column_const will call
-            unpack_if_const(block->get_by_position(result[j]).column)
-                    .first->update_crcs_with_value(
-                            hashes, _partition_expr_ctxs[j]->root()->type().type, rows);
-        }
-        for (int i = 0; i < rows; i++) {
-            hashes[i] = hashes[i] % _partition_count;
-        }
-
-        {
-            SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
-            Block::erase_useless_column(block, column_to_keep);
-        }
-    }
-    return Status::OK();
+void HashPartitioner::_do_hash(const ColumnPtr& column, uint64_t* result, int /*idx*/) const {
+    column->update_hashes_with_value(result);
 }
 
 } // namespace doris::vectorized

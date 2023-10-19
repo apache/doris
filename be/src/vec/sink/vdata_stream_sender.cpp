@@ -418,7 +418,7 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
     const TDataStreamSink& t_stream_sink = tsink.stream_sink;
     if (_part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = _channels.size();
-        _partitioner.reset(new HashPartitioner(_channels.size(), &_split_block_hash_compute_timer));
+        _partitioner.reset(new HashPartitioner(_channels.size()));
         RETURN_IF_ERROR(_partitioner->init(t_stream_sink.output_partition.partition_exprs));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = _channel_shared_ptrs.size();
@@ -619,6 +619,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         auto rows = block->rows();
+        SCOPED_TIMER(_split_block_hash_compute_timer);
         RETURN_IF_ERROR(_partitioner->do_partitioning(state, block, _mem_tracker.get()));
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(state, _channels, _partition_count,

@@ -180,7 +180,7 @@ protected:
     std::vector<BroadcastPBlockHolder> _broadcast_pb_blocks;
     int _broadcast_pb_block_idx;
 
-    std::unique_ptr<Partitioner> _partitioner;
+    std::unique_ptr<PartitionerBase> _partitioner;
     int _partition_count;
 
     std::vector<Channel<VDataStreamSender>*> _channels;
