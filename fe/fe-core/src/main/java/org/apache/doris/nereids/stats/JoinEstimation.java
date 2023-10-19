@@ -156,7 +156,7 @@ public class JoinEstimation {
 
     private static Statistics estimateInnerJoin(Statistics leftStats, Statistics rightStats, Join join) {
         if (hashJoinConditionContainsUnknownColumnStats(leftStats, rightStats, join)) {
-            double rowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
+            double rowCount = leftStats.getRowCount() + rightStats.getRowCount();
             rowCount = Math.max(1, rowCount);
             return new StatisticsBuilder()
                 .setRowCount(rowCount)
