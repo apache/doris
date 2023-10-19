@@ -129,6 +129,11 @@ public:
         }
     }
 
+    void release_dependency() override {
+        std::vector<DependencySPtr> {}.swap(_downstream_dependency);
+        DependencyMap {}.swap(_upstream_dependency);
+    }
+
     std::vector<DependencySPtr>& get_upstream_dependency(int id) {
         if (_upstream_dependency.find(id) == _upstream_dependency.end()) {
             _upstream_dependency.insert({id, {DependencySPtr {}}});
