@@ -1318,7 +1318,8 @@ public class TabletScheduler extends MasterDaemon {
 
         // get all available paths which this tablet can fit in.
         // beStatistics is sorted by mix load score in ascend order, so select from first to last.
-        List<BePathLoadStatPair> allFitPaths = Lists.newArrayList();
+        List<BePathLoadStatPair> allFitPathsSameMedium = Lists.newArrayList();
+        List<BePathLoadStatPair> allFitPathsDiffMedium = Lists.newArrayList();
         for (BackendLoadStatistic bes : beStatistics) {
             if (!bes.isAvailable()) {
                 LOG.debug("backend {} is not available, skip. tablet: {}", bes.getBeId(), tabletCtx.getTabletId());
@@ -1349,65 +1350,29 @@ public class TabletScheduler extends MasterDaemon {
 
             List<RootPathLoadStatistic> resultPaths = Lists.newArrayList();
             BalanceStatus st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(),
-                    resultPaths, tabletCtx.getTabletStatus() != TabletStatus.REPLICA_RELOCATING
-                    /* if REPLICA_RELOCATING, then it is not a supplement task */);
-            if (!st.ok()) {
-                LOG.debug("unable to find path for tablet: {}. {}", tabletCtx, st);
-                // This is to solve, when we decommission some BEs with SSD disks,
-                // if there are no SSD disks on the remaining BEs, it will be impossible to select a
-                // suitable destination path.
-                // In this case, we need to ignore the storage medium property
-                // and try to select the destination path again.
-                // Set `isSupplement` to true will ignore the  storage medium property.
-                st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(),
-                        resultPaths, true);
-                if (!st.ok()) {
-                    LOG.debug("unable to find path for supplementing tablet: {}. {}", tabletCtx, st);
-                    continue;
+                    resultPaths, false);
+            if (st.ok()) {
+                resultPaths.stream().forEach(path -> allFitPathsSameMedium.add(new BePathLoadStatPair(bes, path)));
+            } else {
+                resultPaths.clear();
+                st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), resultPaths, true);
+                if (st.ok()) {
+                    resultPaths.stream().forEach(path -> allFitPathsDiffMedium.add(new BePathLoadStatPair(bes, path)));
                 }
             }
-
-            resultPaths.stream().forEach(path -> allFitPaths.add(new BePathLoadStatPair(bes, path)));
         }
 
+        // all fit paths has already been sorted by load score in 'allFitPaths' in ascend order.
+        // just get first available path.
+        // we try to find a path with specified media type, if not find, arbitrarily use one.
+        List<BePathLoadStatPair> allFitPaths =
+                !allFitPathsSameMedium.isEmpty() ? allFitPathsSameMedium : allFitPathsDiffMedium;
         if (allFitPaths.isEmpty()) {
             throw new SchedException(Status.UNRECOVERABLE, "unable to find dest path for new replica");
         }
 
         BePathLoadStatPairComparator comparator = new BePathLoadStatPairComparator(allFitPaths);
         Collections.sort(allFitPaths, comparator);
-
-        // all fit paths has already been sorted by load score in 'allFitPaths' in ascend order.
-        // just get first available path.
-        // we try to find a path with specified media type, if not find, arbitrarily use one.
-        for (BePathLoadStatPair bePathLoadStat : allFitPaths) {
-            RootPathLoadStatistic rootPathLoadStatistic = bePathLoadStat.getPathLoadStatistic();
-            if (rootPathLoadStatistic.getStorageMedium() != tabletCtx.getStorageMedium()) {
-                LOG.debug("backend {}'s path {}'s storage medium {} "
-                                + "is not equal to tablet's storage medium {}, skip. tablet: {}",
-                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
-                        rootPathLoadStatistic.getStorageMedium(), tabletCtx.getStorageMedium(),
-                        tabletCtx.getTabletId());
-                continue;
-            }
-
-            PathSlot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
-            if (slot == null) {
-                LOG.debug("backend {}'s path {}'s slot is null, skip. tablet: {}",
-                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
-                        tabletCtx.getTabletId());
-                continue;
-            }
-
-            long pathHash = slot.takeSlot(rootPathLoadStatistic.getPathHash());
-            if (pathHash == -1) {
-                LOG.debug("backend {}'s path {}'s slot is full, skip. tablet: {}",
-                        rootPathLoadStatistic.getBeId(), rootPathLoadStatistic.getPathHash(),
-                        tabletCtx.getTabletId());
-                continue;
-            }
-            return rootPathLoadStatistic;
-        }
 
         boolean hasBePath = false;
 
