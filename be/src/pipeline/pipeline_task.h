@@ -184,6 +184,8 @@ public:
         _previous_schedule_id = id;
     }
 
+    virtual void release_dependency() {}
+
     bool has_dependency();
 
     OperatorPtr get_root() { return _root; }

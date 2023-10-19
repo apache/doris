@@ -344,10 +344,10 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
                                           Status::Cancelled(status.to_string()));
             state = PipelineTaskState::CANCELED;
         }
-        DCHECK(!task->is_pending_finish()) << task->debug_string();
     }
     task->set_state(state);
     task->set_close_pipeline_time();
+    task->release_dependency();
     task->fragment_context()->close_a_pipeline();
 }
 
