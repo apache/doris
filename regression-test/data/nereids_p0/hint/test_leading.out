@@ -3,7 +3,7 @@
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
+------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
 --------PhysicalOlapScan[t2]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t1]
@@ -16,7 +16,7 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
+------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
 --------PhysicalOlapScan[t1]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
@@ -29,8 +29,8 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t2.c2 = t3.c3)
---------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
+------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
 ----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute
 ------------PhysicalOlapScan[t2]
@@ -45,13 +45,13 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
---------PhysicalOlapScan[t1]
+------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3))otherCondition=()
+----------PhysicalOlapScan[t2]
+----------PhysicalDistribute
+------------PhysicalOlapScan[t3]
 --------PhysicalDistribute
-----------hashJoin[INNER_JOIN](t2.c2 = t3.c3)
-------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalOlapScan[t3]
+----------PhysicalOlapScan[t1]
 
 Used: leading(t1 { t2 t3 })
 UnUsed:
@@ -61,15 +61,14 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t3.c3 = t4.c4)
---------PhysicalDistribute
-----------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
-------------PhysicalOlapScan[t1]
+------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3))otherCondition=()
+------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute
---------------hashJoin[INNER_JOIN](t2.c2 = t3.c3)
-----------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute
-------------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t3]
+----------PhysicalDistribute
+------------PhysicalOlapScan[t1]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t4]
 
@@ -81,13 +80,13 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t2.c2 = t3.c3)
---------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
+------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
 ----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute
 ------------PhysicalOlapScan[t2]
 --------PhysicalDistribute
-----------hashJoin[INNER_JOIN](t3.c3 = t4.c4)
+----------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4))otherCondition=()
 ------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[t4]
@@ -100,13 +99,13 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t2.c2 = t3.c3)
---------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
+------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
 ----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute
 ------------PhysicalOlapScan[t2]
 --------PhysicalDistribute
-----------hashJoin[INNER_JOIN](t3.c3 = t4.c4)
+----------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4))otherCondition=()
 ------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[t4]
@@ -119,8 +118,8 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t1.c1 = t3.c3)
---------hashJoin[LEFT_OUTER_JOIN](t1.c1 = t2.c2)
+------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t3.c3))otherCondition=()
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
 ----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute
 ------------PhysicalOlapScan[t2]
@@ -131,8 +130,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN](t1.c1 = t2.c2)
---------hashJoin[INNER_JOIN](t1.c1 = t3.c3)
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t3.c3))otherCondition=()
 ----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute
 ------------PhysicalOlapScan[t3]
@@ -147,8 +146,8 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN](t1.c1 = t3.c3)
---------hashJoin[LEFT_OUTER_JOIN](t1.c1 = t2.c2)
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t3.c3))otherCondition=()
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
 ----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute
 ------------PhysicalOlapScan[t2]
@@ -159,8 +158,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN](t1.c1 = t2.c2)
---------hashJoin[LEFT_OUTER_JOIN](t1.c1 = t3.c3)
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t3.c3))otherCondition=()
 ----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute
 ------------PhysicalOlapScan[t3]
@@ -175,14 +174,13 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN](t2.c2 = t3.c3)
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3))otherCondition=()
+----------PhysicalOlapScan[t2]
+----------PhysicalDistribute
+------------PhysicalOlapScan[t3]
 --------PhysicalDistribute
-----------hashJoin[LEFT_OUTER_JOIN](t1.c1 = t2.c2)
-------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalOlapScan[t2]
---------PhysicalDistribute
-----------PhysicalOlapScan[t3]
+----------PhysicalOlapScan[t1]
 
 Used:
 UnUsed: leading(t1 { t2 t3 })
@@ -192,13 +190,13 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
---------PhysicalOlapScan[t1]
+------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3))otherCondition=()
+----------PhysicalOlapScan[t2]
+----------PhysicalDistribute
+------------PhysicalOlapScan[t3]
 --------PhysicalDistribute
-----------hashJoin[INNER_JOIN](t2.c2 = t3.c3)
-------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalOlapScan[t3]
+----------PhysicalOlapScan[t1]
 
 Used: leading(t1 { t2 t3 })
 UnUsed:
@@ -208,25 +206,25 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN](t1.c1 = tmp.c2)
---------PhysicalOlapScan[t1]
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.c1 = tmp.c2))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3))otherCondition=()
+----------PhysicalOlapScan[t2]
+----------PhysicalDistribute
+------------PhysicalOlapScan[t3]
 --------PhysicalDistribute
-----------hashJoin[INNER_JOIN](t2.c2 = t3.c3)
-------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalOlapScan[t3]
+----------PhysicalOlapScan[t1]
 
 -- !select15 --
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_OUTER_JOIN](t1.c1 = tmp.c2)
---------PhysicalOlapScan[t1]
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.c1 = tmp.c2))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3))otherCondition=()
+----------PhysicalOlapScan[t2]
+----------PhysicalDistribute
+------------PhysicalOlapScan[t3]
 --------PhysicalDistribute
-----------hashJoin[INNER_JOIN](t2.c2 = t3.c3)
-------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalOlapScan[t3]
+----------PhysicalOlapScan[t1]
 
 Used:
 UnUsed: leading(t1 t2 t3)
@@ -236,7 +234,7 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[LEFT_SEMI_JOIN](t1.c1 = t2.c2)
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
 --------PhysicalOlapScan[t1]
 --------PhysicalDistribute
 ----------PhysicalProject
@@ -246,11 +244,11 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[RIGHT_SEMI_JOIN](t1.c1 = t2.c2)
---------PhysicalProject
-----------PhysicalOlapScan[t2]
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
+--------PhysicalOlapScan[t1]
 --------PhysicalDistribute
-----------PhysicalOlapScan[t1]
+----------PhysicalProject
+------------PhysicalOlapScan[t2]
 
 Used: leading(t2 t1)
 UnUsed:
@@ -274,10 +272,10 @@ PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
 ------NestedLoopJoin[CROSS_JOIN]
---------PhysicalProject
-----------PhysicalOlapScan[t2]
+--------PhysicalOlapScan[t1]
 --------PhysicalDistribute
-----------PhysicalOlapScan[t1]
+----------PhysicalProject
+------------PhysicalOlapScan[t2]
 
 Used: leading(t2 t1)
 UnUsed:
@@ -288,7 +286,7 @@ PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
 ------NestedLoopJoin[CROSS_JOIN]
---------hashJoin[INNER_JOIN](cte.c1 = cte.c2)
+--------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = cte.c2))otherCondition=()
 ----------PhysicalProject
 ------------PhysicalOlapScan[t1]
 ----------PhysicalDistribute
@@ -319,7 +317,7 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
+------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
 --------PhysicalOlapScan[t1]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
@@ -332,7 +330,7 @@ SyntaxError: leading(t66 t1) Msg:can not find table: t66
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
+------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
 --------PhysicalOlapScan[t1]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
@@ -346,7 +344,7 @@ PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
 ------NestedLoopJoin[CROSS_JOIN]
---------hashJoin[INNER_JOIN](cte.c1 = cte.c2)
+--------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = cte.c2))otherCondition=()
 ----------PhysicalProject
 ------------PhysicalOlapScan[t1]
 ----------PhysicalDistribute
@@ -363,8 +361,8 @@ SyntaxError: leading(t2 cte t1) Msg:Leading alias can only be table name alias
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t2.c2 = t3.c3)
---------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
+------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
 ----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute
 ------------PhysicalOlapScan[t2]
@@ -379,8 +377,8 @@ SyntaxError: leading(t1 t2) Msg:tables should be same as join tables
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t2.c2 = t3.c3)
---------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
+------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
 ----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute
 ------------PhysicalOlapScan[t2]
@@ -395,7 +393,7 @@ SyntaxError: leading(t1 t1 t2 t3) Msg:duplicated table
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t1.c1 = t_2.c2)
+------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t_2.c2))otherCondition=()
 --------PhysicalOlapScan[t1]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
@@ -408,7 +406,7 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t1.c1 = t_2.c2)
+------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t_2.c2))otherCondition=()
 --------PhysicalOlapScan[t1]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
@@ -421,10 +419,11 @@ SyntaxError: leading(t1 t2) Msg:can not find table: t2
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN](t1.c1 = t_1.c1)
+------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t_1.c1))otherCondition=()
 --------PhysicalOlapScan[t1]
 --------PhysicalOlapScan[t1]
 
 Used: leading(t1 t_1)
 UnUsed:
 SyntaxError:
+

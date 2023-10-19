@@ -19,6 +19,7 @@
 
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
+#include <fmt/format.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Types_types.h>
@@ -53,7 +54,6 @@ class TReportRequest;
 
 using std::map;
 using std::string;
-using std::stringstream;
 using apache::thrift::transport::TTransportException;
 
 namespace doris {
@@ -226,9 +226,7 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
     // Execute command.
     FILE* fp = popen(cmd.c_str(), "r");
     if (fp == nullptr) {
-        std::stringstream err_stream;
-        err_stream << "popen failed. " << strerror(errno) << ", with errno: " << errno << ".\n";
-        *errmsg = err_stream.str();
+        *errmsg = fmt::format("popen failed. {}, with errno: {}.\n", strerror(errno), errno);
         return false;
     }
 
@@ -244,10 +242,8 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
         if (errno == ECHILD) {
             *errmsg += "pclose cannot obtain the child status.\n";
         } else {
-            std::stringstream err_stream;
-            err_stream << "Close popen failed. " << strerror(errno) << ", with errno: " << errno
-                       << "\n";
-            *errmsg += err_stream.str();
+            *errmsg += fmt::format("Close popen failed. {}, with errno: {}.\n", strerror(errno),
+                                   errno);
         }
         return false;
     }

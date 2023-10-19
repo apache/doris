@@ -37,6 +37,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/local_file_system.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_tuple.h"
@@ -881,9 +882,6 @@ protected:
         EXPECT_TRUE(tablet != nullptr);
         _tablet_path = tablet->tablet_path();
 
-        static_cast<void>(_data_row_cursor.init(tablet->tablet_schema()));
-        static_cast<void>(
-                _data_row_cursor.allocate_memory_for_string_type(tablet->tablet_schema()));
         _json_rowset_meta = R"({
             "rowset_id": 540081,
             "tablet_id": 15673,
@@ -949,7 +947,6 @@ protected:
     }
 
     std::string _tablet_path;
-    RowCursor _data_row_cursor;
     TabletSharedPtr tablet;
     TCreateTabletReq _create_tablet;
     DeleteHandler _delete_handler;
@@ -1090,30 +1087,6 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
 
-    // 构造一行测试数据
-    std::vector<string> data_str;
-    data_str.push_back("1");
-    data_str.push_back("6");
-    data_str.push_back("8");
-    data_str.push_back("-1");
-    data_str.push_back("16");
-    data_str.push_back("1.2");
-    data_str.push_back("2014-01-01");
-    data_str.push_back("2014-01-01 00:00:00");
-    data_str.push_back("YWFH");
-    data_str.push_back("1");
-    data_str.push_back("YWFH==");
-    data_str.push_back("1");
-    OlapTuple tuple1(data_str);
-    res = _data_row_cursor.from_tuple(tuple1);
-    EXPECT_EQ(Status::OK(), res);
-
-    // 构造一行测试数据
-    data_str[1] = "4";
-    OlapTuple tuple2(data_str);
-    res = _data_row_cursor.from_tuple(tuple2);
-    EXPECT_EQ(Status::OK(), res);
-
     _delete_handler.finalize();
 }
 
@@ -1175,23 +1148,6 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
 
-    std::vector<string> data_str;
-    data_str.push_back("4");
-    data_str.push_back("5");
-    data_str.push_back("8");
-    data_str.push_back("-1");
-    data_str.push_back("16");
-    data_str.push_back("1.2");
-    data_str.push_back("2014-01-01");
-    data_str.push_back("2014-01-01 00:00:00");
-    data_str.push_back("YWFH");
-    data_str.push_back("1");
-    data_str.push_back("YWFH==");
-    data_str.push_back("1");
-    OlapTuple tuple(data_str);
-    res = _data_row_cursor.from_tuple(tuple);
-    EXPECT_EQ(Status::OK(), res);
-
     _delete_handler.finalize();
 }
 
@@ -1236,24 +1192,6 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
 
     // 指定版本号为4以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
     res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
-    EXPECT_EQ(Status::OK(), res);
-
-    // 构造一行测试数据
-    std::vector<string> data_str;
-    data_str.push_back("1");
-    data_str.push_back("6");
-    data_str.push_back("8");
-    data_str.push_back("-1");
-    data_str.push_back("16");
-    data_str.push_back("1.2");
-    data_str.push_back("2014-01-01");
-    data_str.push_back("2014-01-01 00:00:00");
-    data_str.push_back("YWFH");
-    data_str.push_back("1");
-    data_str.push_back("YWFH==");
-    data_str.push_back("1");
-    OlapTuple tuple(data_str);
-    res = _data_row_cursor.from_tuple(tuple);
     EXPECT_EQ(Status::OK(), res);
 
     _delete_handler.finalize();
