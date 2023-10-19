@@ -640,21 +640,29 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
             if (params.__isset.workload_groups && !params.workload_groups.empty()) {
                 taskgroup::TaskGroupInfo task_group_info;
-                int query_cpu_hard_limit = -1;
-                auto status = taskgroup::TaskGroupInfo::parse_group_info(
-                        params.workload_groups[0], &task_group_info, &query_cpu_hard_limit);
+                auto status = taskgroup::TaskGroupInfo::parse_group_info(params.workload_groups[0],
+                                                                         &task_group_info);
                 if (status.ok()) {
                     auto tg = _exec_env->task_group_manager()->get_or_create_task_group(
                             task_group_info);
                     tg->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
-                    query_ctx->set_task_group(tg);
+                    uint64_t tg_id = tg->id();
+                    std::string tg_name = tg->name();
                     LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                               << " use task group: " << tg->debug_string()
-                              << " query_cpu_hard_limit: " << query_cpu_hard_limit
+                              << " cpu_hard_limit: " << task_group_info.cpu_hard_limit
                               << " cpu_share:" << task_group_info.cpu_share;
-                    if (query_cpu_hard_limit > 0 && _exec_env->get_cgroup_cpu_ctl() != nullptr) {
-                        _exec_env->get_cgroup_cpu_ctl()->update_cpu_hard_limit(
-                                query_cpu_hard_limit);
+                    if (task_group_info.cpu_hard_limit > 0) {
+                        Status ret = _exec_env->task_group_manager()->create_and_get_task_scheduler(
+                                tg_id, tg_name, task_group_info.cpu_hard_limit, _exec_env,
+                                query_ctx.get());
+                        if (!ret.ok()) {
+                            LOG(INFO) << "workload group init failed "
+                                      << ", name=" << tg_name << ", id=" << tg_id
+                                      << ", reason=" << ret.to_string();
+                        }
+                    } else {
+                        query_ctx->set_task_group(tg);
                     }
                 }
             } else {
