@@ -2164,7 +2164,7 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集"
             + "统计信息", "Whether to enable automatic sampling for large tables, which, when enabled, automatically"
             + "collects statistics through sampling for tables larger than 'huge_table_lower_bound_size_in_bytes'"})
-    public static boolean enable_auto_sample = false;
+    public static boolean enable_auto_sample = true;
 
     @ConfField(description = {
             "控制统计信息的自动触发作业执行记录的持久化行数",
