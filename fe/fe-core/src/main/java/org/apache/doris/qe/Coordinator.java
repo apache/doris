@@ -1087,6 +1087,9 @@ public class Coordinator implements CoordInterface {
     void updateDeltas(List<String> urls) {
         lock.lock();
         try {
+            if (deltaUrls == null) {
+                deltaUrls = Lists.newArrayList();
+            }
             deltaUrls.addAll(urls);
         } finally {
             lock.unlock();
@@ -1125,7 +1128,9 @@ public class Coordinator implements CoordInterface {
             if (value != null) {
                 numRowsUnselected += Long.parseLong(value);
             }
-
+            if (this.loadCounters == null) {
+                this.loadCounters = Maps.newHashMap();
+            }
             this.loadCounters.put(LoadEtlTask.DPP_NORMAL_ALL, "" + numRowsNormal);
             this.loadCounters.put(LoadEtlTask.DPP_ABNORMAL_ALL, "" + numRowsAbnormal);
             this.loadCounters.put(LoadJob.UNSELECTED_ROWS, "" + numRowsUnselected);
@@ -2403,7 +2408,7 @@ public class Coordinator implements CoordInterface {
             if (params.isSetLoadCounters()) {
                 updateLoadCounters(params.getLoadCounters());
             }
-            if (params.isSetTrackingUrl()) {
+            if (params.isSetTrackingUrl() && trackingUrl != null) {
                 trackingUrl = params.getTrackingUrl();
             }
             if (params.isSetExportFiles()) {
