@@ -100,7 +100,7 @@ public:
 
 protected:
     int _id;
-    std::string _name = "DependencyBase";
+    std::string _name;
     std::atomic<bool> _ready_for_read;
     MonotonicStopWatch _read_dependency_watcher;
 

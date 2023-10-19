@@ -117,7 +117,7 @@ public:
     }
 
     void release_dependency() {
-        // std::vector<DependencySPtr> {}.swap(_downstream_dependency);
+        std::vector<DependencySPtr> {}.swap(_downstream_dependency);
         DependencyMap {}.swap(_upstream_dependency);
     }
 
