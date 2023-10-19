@@ -421,7 +421,6 @@
                                 "sql-manual/sql-functions/string-functions/initcap",
                                 "sql-manual/sql-functions/string-functions/repeat",
                                 "sql-manual/sql-functions/string-functions/reverse",
-                                "sql-manual/sql-functions/string-functions/char",
                                 "sql-manual/sql-functions/string-functions/concat",
                                 "sql-manual/sql-functions/string-functions/concat_ws",
                                 "sql-manual/sql-functions/string-functions/substr",
