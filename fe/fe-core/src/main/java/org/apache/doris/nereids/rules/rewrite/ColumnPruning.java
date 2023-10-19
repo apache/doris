@@ -215,6 +215,9 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     /** prune output */
     public static <P extends Plan> P pruneOutput(P plan, List<NamedExpression> originOutput,
             Function<List<NamedExpression>, P> withPrunedOutput, PruneContext context) {
+        if (originOutput.isEmpty()) {
+            return plan;
+        }
         List<NamedExpression> prunedOutputs = originOutput.stream()
                 .filter(output -> context.requiredSlots.contains(output.toSlot()))
                 .collect(ImmutableList.toImmutableList());
