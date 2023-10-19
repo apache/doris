@@ -180,8 +180,9 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
         // try to get query bitmap result from cache and return immediately on cache hit
         io::Path path(_path);
         auto index_dir = path.parent_path();
-        auto index_file_name = InvertedIndexDescriptor::get_index_file_name(path.filename(),
-                                                                            _index_meta.index_id());
+        auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
+                path.filename(), _index_meta.index_id(),
+                _index_meta.get_escaped_index_suffix_path());
         auto index_file_path = index_dir / index_file_name;
         InvertedIndexQueryCache::CacheKey cache_key {
                 index_file_path, "", InvertedIndexQueryType::UNKNOWN_QUERY, "null_bitmap"};
@@ -243,8 +244,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
 
     io::Path path(_path);
     auto index_dir = path.parent_path();
-    auto index_file_name =
-            InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_meta.index_id());
+    auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
+            path.filename(), _index_meta.index_id(), _index_meta.get_escaped_index_suffix_path());
     auto index_file_path = index_dir / index_file_name;
     InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
     inverted_index_ctx->parser_type = get_inverted_index_parser_type_from_string(
@@ -515,8 +516,8 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
 
     io::Path path(_path);
     auto index_dir = path.parent_path();
-    auto index_file_name =
-            InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_meta.index_id());
+    auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
+            path.filename(), _index_meta.index_id(), _index_meta.get_escaped_index_suffix_path());
     auto index_file_path = index_dir / index_file_name;
 
     // try to get query bitmap result from cache and return immediately on cache hit
@@ -631,8 +632,9 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
         : InvertedIndexReader(fs, path, index_meta), _compoundReader(nullptr) {
     io::Path io_path(_path);
     auto index_dir = io_path.parent_path();
-    auto index_file_name = InvertedIndexDescriptor::get_index_file_name(io_path.filename(),
-                                                                        index_meta->index_id());
+    auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
+            io_path.filename(), index_meta->index_id(),
+            index_meta->get_escaped_index_suffix_path());
 
     // check index file existence
     auto index_file = index_dir / index_file_name;

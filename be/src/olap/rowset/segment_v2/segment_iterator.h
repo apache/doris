@@ -49,6 +49,7 @@
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
@@ -364,14 +365,14 @@ private:
     class BackwardBitmapRangeIterator;
 
     std::shared_ptr<Segment> _segment;
+    // read schema from scanner
     SchemaSPtr _schema;
-    // _column_iterators_map.size() == _schema.num_columns()
-    // map<unique_id, ColumnIterator*> _column_iterators_map/_bitmap_index_iterators;
-    // can use _schema get unique_id by cid
-    // column_id -> iter
-    std::map<int32_t, std::unique_ptr<ColumnIterator>> _column_iterators;
-    std::map<int32_t, std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
-    std::map<int32_t, std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
+    // storage type schema related to _schema, since column in segment may be different with type in _schema
+    std::vector<vectorized::NameAndTypePair> _storage_name_and_type;
+    // vector idx -> column iterarator
+    std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
+    std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
+    std::vector<std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
     // "column_name+operator+value-> <in_compound_query, rowid_result>

@@ -131,6 +131,8 @@ template <MergeMode mode>
 void merge_multi_subcolumns(const ColumnObject::Subcolumns& subcolumns, ColumnPtr src,
                             MutableColumnPtr& result, const DataTypePtr& result_type, int start,
                             int size, PathInData target_path = {});
+// inherit index info from it's parent column
+void inherit_tablet_index(TabletSchemaSPtr& schema);
 
 // Extract json data from source with path
 Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);

@@ -20,12 +20,16 @@
 
 #pragma once
 
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
 using ColumnsWithTypeAndName = std::vector<ColumnWithTypeAndName>;
+using NameAndTypePair = std::pair<std::string, DataTypePtr>;
 
-}
+} // namespace doris::vectorized

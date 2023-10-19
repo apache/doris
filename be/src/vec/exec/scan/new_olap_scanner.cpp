@@ -52,6 +52,7 @@
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
@@ -447,6 +448,7 @@ Status NewOlapScanner::_init_variant_columns() {
             subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
             subcol.set_is_nullable(true);
             subcol.set_unique_id(slot->col_unique_id());
+            subcol.set_parent_unique_id(slot->col_unique_id());
             PathInData path = _build_path(slot);
             subcol.set_path_info(path);
             subcol.set_name(path.get_path());
@@ -459,6 +461,7 @@ Status NewOlapScanner::_init_variant_columns() {
             int index = _tablet_schema->field_index(slot->col_unique_id());
             _tablet_schema->mutable_columns()[index].set_path_info(path);
         }
+        schema_util::inherit_tablet_index(_tablet_schema);
     }
     return Status::OK();
 }

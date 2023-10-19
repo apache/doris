@@ -295,17 +295,19 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     int ret;
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
-        if (_context.tablet_schema->has_inverted_index(column.unique_id())) {
-            auto index_id =
-                    _context.tablet_schema->get_inverted_index(column.unique_id())->index_id();
+        if (_context.tablet_schema->has_inverted_index(column)) {
+            auto index_info = _context.tablet_schema->get_inverted_index(column);
+            auto index_id = index_info->index_id();
             auto src_idx_path =
                     begin < 0 ? InvertedIndexDescriptor::inverted_index_file_path(
-                                        _context.rowset_dir, _context.rowset_id, seg_id, index_id)
+                                        _context.rowset_dir, _context.rowset_id, seg_id, index_id,
+                                        index_info->get_escaped_index_suffix_path())
                               : InvertedIndexDescriptor::local_inverted_index_path_segcompacted(
                                         _context.rowset_dir, _context.rowset_id, begin, end,
-                                        index_id);
+                                        index_id, index_info->get_escaped_index_suffix_path());
             auto dst_idx_path = InvertedIndexDescriptor::inverted_index_file_path(
-                    _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id);
+                    _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id,
+                    index_info->get_escaped_index_suffix_path());
             VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
                        << dst_idx_path;
             ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());

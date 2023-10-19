@@ -152,8 +152,7 @@ public:
                                                                   bool ignore_children) const;
 
     // Check is schema read type equals storage column type
-    bool is_same_file_col_type_with_expected(int32_t cid, const Schema& schema,
-                                             bool ignore_children) const;
+    bool same_with_storage_type(int32_t cid, const Schema& schema, bool ignore_children) const;
 
     // If column in segment is the same type in schema, then it is safe to apply predicate
     template <typename Predicate>
@@ -182,6 +181,7 @@ private:
     Status _parse_footer();
     Status _create_column_readers();
     Status _load_pk_bloom_filter();
+    ColumnReader* _get_column_reader(const TabletColumn& col);
 
 private:
     friend class SegmentIterator;

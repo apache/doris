@@ -566,6 +566,7 @@ message PTabletWriteSlaveRequest {
     message IndexSize {
         required int64 indexId = 1;
         required int64 size = 2;
+        required string suffix_path = 3;
     };
 
     message IndexSizeMap{
