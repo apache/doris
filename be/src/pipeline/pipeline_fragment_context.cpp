@@ -687,7 +687,9 @@ Status PipelineFragmentContext::submit() {
     int submit_tasks = 0;
     Status st;
     auto* scheduler = _exec_env->pipeline_task_scheduler();
-    if (_task_group_entity) {
+    if (_query_ctx->get_task_scheduler()) {
+        scheduler = _query_ctx->get_task_scheduler();
+    } else if (_task_group_entity) {
         scheduler = _exec_env->pipeline_task_group_scheduler();
     }
     for (auto& task : _tasks) {
