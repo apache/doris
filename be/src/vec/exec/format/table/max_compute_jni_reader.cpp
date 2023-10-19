@@ -49,7 +49,7 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
     int index = 0;
     for (auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
-        std::string type = JniConnector::get_hive_type(desc->type());
+        std::string type = JniConnector::get_jni_type(desc->type());
         column_names.emplace_back(field);
         if (index == 0) {
             required_fields << field;
@@ -64,6 +64,7 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
                                        {"access_key", _table_desc->access_key()},
                                        {"secret_key", _table_desc->secret_key()},
                                        {"project", _table_desc->project()},
+                                       {"partition_spec", _table_desc->partition_spec()},
                                        {"table", _table_desc->table()},
                                        {"public_access", _table_desc->public_access()},
                                        {"start_offset", std::to_string(_range.start_offset)},

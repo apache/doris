@@ -29,6 +29,7 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <atomic>
 #include <chrono> // IWYU pragma: keep
 #include <ctime>
 #include <functional>
@@ -1597,12 +1598,18 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     TabletSharedPtr tablet =
                             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
                     if (tablet != nullptr) {
-                        tablet->publised_count++;
-                        if (tablet->publised_count % 10 == 0) {
-                            static_cast<void>(StorageEngine::instance()->submit_compaction_task(
-                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true));
-                            LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
-                                      << ", publised:" << tablet->publised_count;
+                        int64_t published_count =
+                                tablet->published_count.fetch_add(1, std::memory_order_relaxed);
+                        if (published_count % 10 == 0) {
+                            auto st = StorageEngine::instance()->submit_compaction_task(
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+                            if (!st.ok()) [[unlikely]] {
+                                LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
+                                             << ", published=" << published_count << " : " << st;
+                            } else {
+                                LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
+                                          << ", published:" << published_count;
+                            }
                         }
                     } else {
                         LOG(WARNING) << "trigger compaction failed, tablet_id:" << tablet_id;

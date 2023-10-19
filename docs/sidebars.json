@@ -566,7 +566,8 @@
                                 "sql-manual/sql-functions/aggregate-functions/grouping",
                                 "sql-manual/sql-functions/aggregate-functions/grouping-id",
                                 "sql-manual/sql-functions/aggregate-functions/count-by-enum",
-                                "sql-manual/sql-functions/aggregate-functions/histogram"
+                                "sql-manual/sql-functions/aggregate-functions/histogram",
+                                "sql-manual/sql-functions/aggregate-functions/map-agg"
                             ]
                         },
                         {

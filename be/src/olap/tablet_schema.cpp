@@ -521,7 +521,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
-    if (type && type->get_type_as_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+    if (type && type->get_type_as_type_descriptor().type == PrimitiveType::TYPE_AGG_STATE) {
         return get_aggregate_function_union(type);
     }
 
@@ -799,6 +799,9 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
+    _delete_sign_idx = -1;
+    _sequence_col_idx = -1;
+    _version_col_idx = -1;
 
     for (auto& column : index->columns) {
         if (column->is_key()) {
