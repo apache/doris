@@ -17,10 +17,12 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -48,12 +50,7 @@ import java.util.stream.Collectors;
 public class HMSAnalysisTask extends BaseAnalysisTask {
     private static final Logger LOG = LogManager.getLogger(HMSAnalysisTask.class);
 
-    // While doing sample analysis, the sampled ndv result will multiply a factor (total size/sample size)
-    // if ndv(col)/count(col) is greater than this threshold.
-
-    private static final String ANALYZE_TABLE_TEMPLATE = "INSERT INTO "
-            + "${internalDB}.${columnStatTbl}"
-            + " SELECT "
+    private static final String SAMPLE_ANALYZE_TEMPLATE = "SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
             + "${catalogId} AS catalog_id, "
             + "${dbId} AS db_id, "
@@ -62,13 +59,14 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "'${colId}' AS col_id, "
             + "NULL AS part_id, "
             + "ROUND(COUNT(1) * ${scaleFactor}) AS row_count, "
-            + NDV_SAMPLE_TEMPLATE
-            + "ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS null_count, "
+            + "NDV(`${colName}`) AS ndv, "
+            + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor} AS null_count, "
             + "${minFunction} AS min, "
             + "${maxFunction} AS max, "
             + "${dataSizeFunction} * ${scaleFactor} AS data_size, "
             + "NOW() "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleExpr}";
+            + "FROM "
+            + "`${catalogName}`.`${dbName}`.`${tblName}` ${sampleExpr}";
 
     private static final String ANALYZE_PARTITION_TEMPLATE = " SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}', '-', ${partId}) AS id, "
@@ -118,6 +116,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
      */
     private void getTableStats() throws Exception {
         Map<String, String> params = buildStatsParams(null);
+        params.put("scaleFactor", Double.toString(getSampleScaleFactor(tableSample, false).first));
         List<ResultRow> columnResult =
                 StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
                         .replace(ANALYZE_TABLE_COUNT_TEMPLATE));
@@ -158,31 +157,85 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
     }
 
     private void getOrdinaryColumnStats() throws Exception {
-        // An example sql for a column stats:
-        // INSERT INTO __internal_schema.column_statistics
-        //   SELECT CONCAT(13055, '-', -1, '-', 'r_regionkey') AS id,
-        //   13002 AS catalog_id,
-        //   13038 AS db_id,
-        //   13055 AS tbl_id,
-        //   -1 AS idx_id,
-        //   'r_regionkey' AS col_id,
-        //   'NULL' AS part_id,
-        //   COUNT(1) AS row_count,
-        //   NDV(`r_regionkey`) AS ndv,
-        //   SUM(CASE WHEN `r_regionkey` IS NULL THEN 1 ELSE 0 END) AS null_count,
-        //   MIN(`r_regionkey`) AS min,
-        //   MAX(`r_regionkey`) AS max,
-        //   0 AS data_size,
-        //   NOW() FROM `hive`.`tpch100`.`region`
-        StringBuilder sb = new StringBuilder();
-        sb.append(ANALYZE_TABLE_TEMPLATE);
         Map<String, String> params = buildStatsParams("NULL");
         params.put("dataSizeFunction", getDataSizeFunction(col));
         params.put("minFunction", getMinFunction());
         params.put("maxFunction", getMaxFunction());
+        if (tableSample == null || !doSample(params)) {
+            params.put("sampleExpr", "");
+            params.put("scaleFactor", "1");
+            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+                Pair<ColStatsData, Double> colStatsDataDoublePair = sampleOnce(null, r, params, 1);
+                String value = combineTwoSamples(colStatsDataDoublePair, colStatsDataDoublePair);
+                String insertSQL = "INSERT INTO "
+                        + StatisticConstants.FULL_QUALIFIED_STATS_TBL_NAME
+                        + " VALUES "
+                        + value;
+                executeInsertSql(insertSQL, r);
+            }
+        }
+    }
+
+    /**
+     * Try to do two time sample.
+     * @param params
+     * @return True means finished two time sample, false means no need to do two time sample,
+     *         fall back to full table scan.
+     * @throws Exception
+     */
+    private boolean doSample(Map<String, String> params) throws Exception {
+        try (AutoCloseConnectContext r =
+                 StatisticsUtil.buildConnectContext(info.jobType.equals(AnalysisInfo.JobType.SYSTEM))) {
+            Pair<Double, Boolean> scaleFactor1 = getSampleScaleFactor(tableSample, true);
+            if (scaleFactor1.first == 1.0) {
+                LOG.debug(String.format("No need to do two time sample for col %s. Factor is 1.", col.getName()));
+                // scaleFactor1 == 1 means full sample, doesn't need to sample second time.
+                return false;
+            }
+            TableSample firstSample;
+            TableSample secondSample;
+            if (scaleFactor1.second) {
+                LOG.debug(String.format("Extra file added. Sample percent is %d.", (long) (100 / scaleFactor1.first)));
+                // scaleFactor1.second is true, means only selected one file and an extra file is added.
+                firstSample = new TableSample(true, (long) (100 / scaleFactor1.first), tableSample.getSeek());
+                secondSample = tableSample;
+            } else {
+                firstSample = tableSample;
+                // Second sample rate is half of the first time.
+                // Don't set seek value to get random result, avoid sample a subset of the first sample.
+                secondSample = new TableSample(tableSample.isPercent(),
+                    Math.max(tableSample.getSampleValue() / 2, 1), System.currentTimeMillis());
+            }
+            Pair<Double, Boolean> scaleFactor2 = getSampleScaleFactor(secondSample, false);
+            Pair<ColStatsData, Double> colStatsDataDoublePair1 = sampleOnce(firstSample, r, params, scaleFactor1.first);
+            Pair<ColStatsData, Double> colStatsDataDoublePair2
+                    = sampleOnce(secondSample, r, params, scaleFactor2.first);
+            String value = combineTwoSamples(colStatsDataDoublePair1, colStatsDataDoublePair2);
+            String insertSQL = "INSERT INTO "
+                    + StatisticConstants.FULL_QUALIFIED_STATS_TBL_NAME
+                    + " VALUES "
+                    + value;
+            stmtExecutor = new StmtExecutor(r.connectContext, insertSQL);
+            executeWithExceptionOnFail(stmtExecutor);
+            LOG.debug(String.format("Done two time sample for col %s", col.getName()));
+            return true;
+        }
+    }
+
+    /**
+     * Sample once with the given table sample rate.
+     * @param tableSample Sample rate
+     * @param context Statement executor context.
+     * @return Pair of result of the sql and the factor of sample rate. (factor = 1 / sample percentage).
+     */
+    private Pair<ColStatsData, Double> sampleOnce(TableSample tableSample, AutoCloseConnectContext context,
+                                                  Map<String, String> params, double scaleFactor) {
+        params.put("sampleExpr", getSampleExpression(tableSample));
+        params.put("scaleFactor", Double.toString(scaleFactor));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-        String sql = stringSubstitutor.replace(sb.toString());
-        executeInsertSql(sql);
+        stmtExecutor = new StmtExecutor(context.connectContext, stringSubstitutor.replace(SAMPLE_ANALYZE_TEMPLATE));
+        // Scalar query only return one row
+        return Pair.of(new ColStatsData(stmtExecutor.executeInternalQuery().get(0)), scaleFactor);
     }
 
     private void getPartitionColumnStats() throws Exception {
@@ -227,7 +280,9 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         params.put("data_size", String.valueOf(dataSize));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_PARTITION_COLUMN_TEMPLATE);
-        executeInsertSql(sql);
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            executeInsertSql(sql, r);
+        }
     }
 
     private String updateMinValue(String currentMin, String value) {
@@ -342,22 +397,20 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
 
     }
 
-    private void executeInsertSql(String sql) throws Exception {
+    private void executeInsertSql(String sql, AutoCloseConnectContext r) throws Exception {
         long startTime = System.currentTimeMillis();
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-            this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
-            this.stmtExecutor.execute();
-            QueryState queryState = r.connectContext.getState();
-            if (queryState.getStateType().equals(QueryState.MysqlStateType.ERR)) {
-                LOG.warn(String.format("Failed to analyze %s.%s.%s, sql: [%s], error: [%s]",
-                        catalog.getName(), db.getFullName(), info.colName, sql, queryState.getErrorMessage()));
-                throw new RuntimeException(queryState.getErrorMessage());
-            }
-            LOG.debug(String.format("Analyze %s.%s.%s done. SQL: [%s]. Cost %d ms.",
-                    catalog.getName(), db.getFullName(), info.colName, sql, (System.currentTimeMillis() - startTime)));
+        r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
+        this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
+        r.connectContext.setExecutor(stmtExecutor);
+        this.stmtExecutor.execute();
+        QueryState queryState = r.connectContext.getState();
+        if (queryState.getStateType().equals(QueryState.MysqlStateType.ERR)) {
+            LOG.warn(String.format("Failed to analyze %s.%s.%s, sql: [%s], error: [%s]",
+                    catalog.getName(), db.getFullName(), info.colName, sql, queryState.getErrorMessage()));
+            throw new RuntimeException(queryState.getErrorMessage());
         }
+        LOG.debug(String.format("Analyze %s.%s.%s done. SQL: [%s]. Cost %d ms.",
+                catalog.getName(), db.getFullName(), info.colName, sql, (System.currentTimeMillis() - startTime)));
     }
 
     private Map<String, String> buildStatsParams(String partId) {
@@ -382,8 +435,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         commonParams.put("catalogName", catalog.getName());
         commonParams.put("dbName", db.getFullName());
         commonParams.put("tblName", tbl.getName());
-        commonParams.put("sampleExpr", getSampleExpression());
-        commonParams.put("scaleFactor", getSampleScaleFactor());
+        commonParams.put("sampleExpr", getSampleExpression(tableSample));
         if (col != null) {
             commonParams.put("type", col.getType().toString());
         }
@@ -391,7 +443,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         return commonParams;
     }
 
-    protected String getSampleExpression() {
+    protected String getSampleExpression(TableSample tableSample) {
         if (tableSample == null) {
             return "";
         }
@@ -402,15 +454,26 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         }
     }
 
-    // Get the sample scale factor. While analyzing, the result of count, null count and data size need to
-    // multiply this factor to get more accurate result.
-    protected String getSampleScaleFactor() {
+    /**
+     * Get the sample scale factor and a boolean flag to indicate if extra file is included.
+     * While analyzing, the result of count, null count and data size need to
+     * multiply this factor to get more accurate result.
+     * @param tableSample Sample rate.
+     * @param addExtraFile True to add an extra file. This is used for the first time of two time sample.
+     *                     When only one file is selected under the given sample rate, try to add an extra file
+     *                     for the first time sample to increase sample accuracy.
+     * @return Pair of the sample scale factor and a boolean flag to indicate if extra file is included.
+     */
+    protected Pair<Double, Boolean> getSampleScaleFactor(TableSample tableSample, boolean addExtraFile) {
         if (tableSample == null) {
-            return "1";
+            return Pair.of(1.0, false);
         }
         long target = 0;
         // Get list of all files' size in this HMS table.
         List<Long> chunkSizes = table.getChunkSizes();
+        if (chunkSizes.size() <= 1) {
+            return Pair.of(1.0, false);
+        }
         Collections.shuffle(chunkSizes, new Random(tableSample.getSeek()));
         long total = 0;
         // Calculate the total size of this HMS table.
@@ -429,13 +492,23 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         }
         // Calculate the actual sample size (cumulate).
         long cumulate = 0;
+        int fileCount = 0;
         for (long size : chunkSizes) {
             cumulate += size;
+            fileCount += 1;
             if (cumulate >= target) {
                 break;
             }
         }
-        return Double.toString(Math.max(((double) total) / cumulate, 1));
+        boolean extraFileAdded = false;
+        if (fileCount == 1 && addExtraFile) {
+            extraFileAdded = true;
+            cumulate += chunkSizes.get(fileCount);
+        }
+        if (cumulate == 0) {
+            return Pair.of(1.0, false);
+        }
+        return Pair.of(Math.max(((double) total) / cumulate, 1), extraFileAdded);
     }
 
     @Override

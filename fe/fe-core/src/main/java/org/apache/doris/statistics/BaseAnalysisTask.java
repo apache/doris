@@ -23,6 +23,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.QueryState;
@@ -300,5 +301,45 @@ public abstract class BaseAnalysisTask {
                     stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(),
                     true);
         }
+    }
+
+    /**
+     * Calculate the total ndv based on the two given sample results and factors.
+     * @param input1 Result 1 and factor 1.
+     * @param input2 Result 2 and factor 2.
+     * @return String value for the column with ndv value calculated through the two given sample result.
+     */
+    protected String combineTwoSamples(Pair<ColStatsData, Double> input1, Pair<ColStatsData, Double> input2) {
+        long ndv1 = input1.first.ndv;
+        long ndv2 = input2.first.ndv;
+        long ndv = calculateNdv(ndv1, ndv2, input1.second, input2.second);
+        LOG.debug(String.format("Two sample for table %s.%s.%s.%s is ndv1=%d, ndv2=%d, fact1=%f, fact2=%f, ndv=%d",
+                catalog.getName(), db.getFullName(), tbl.getName(), col.getName(),
+                ndv1, ndv2, input1.second, input2.second, ndv));
+        return String.format(
+            "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())",
+            StatisticsUtil.quote(StatisticsUtil.constructId(tbl.getId(), -1, col.getName())),
+            catalog.getId(),
+            db.getId(),
+            tbl.getId(),
+            -1,
+            StatisticsUtil.quote(col.getName()),
+            "NULL",
+            input1.first.count,
+            ndv,
+            input1.first.nullCount,
+            StatisticsUtil.quote(input1.first.minLit),
+            StatisticsUtil.quote(input1.first.maxLit),
+            input1.first.dataSizeInBytes);
+    }
+
+    private long calculateNdv(long ndv1, long ndv2, double fact1, double fact2) {
+        // If the second ndv is greater than or equal to the first one, use the larger one.
+        if (ndv2 >= ndv1) {
+            return ndv2;
+        }
+        // (ndv1 - ndv2) / (1/fact1 - 1/fact2) = (ndv - ndv1) / (1 - 1/fact1)
+        // So ndv = [(ndv1 - ndv2) * (1 - 1/fact1) / (1/fact1 - 1/fact2)] + ndv1
+        return Math.abs((long) Math.ceil((ndv1 - ndv2) * (1 - 1 / fact1) / (1 / fact1 - 1 / fact2) + ndv1));
     }
 }

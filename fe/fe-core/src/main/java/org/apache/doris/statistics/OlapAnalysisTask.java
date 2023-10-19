@@ -17,12 +17,12 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -36,7 +36,6 @@ import org.apache.commons.text.StringSubstitutor;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -81,15 +80,19 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             + "${idxId} AS idx_id, "
             + "'${colId}' AS col_id, "
             + "NULL AS part_id, "
-            + "ROUND(COUNT(1) * ${scaleFactor}) AS row_count, "
-            + NDV_SAMPLE_TEMPLATE
+            + "NDV(`${colName}`) AS ndv, "
             + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor} AS null_count, "
-            + "NULL AS min, "
-            + "NULL AS max, "
             + "${dataSizeFunction} * ${scaleFactor} AS data_size, "
             + "NOW() "
-            + "FROM `${dbName}`.`${tblName}`"
-            + "${tablets}";
+            + "FROM "
+            + "`${dbName}`.`${tblName}` "
+            + "${tablets} ";
+
+    private static final String BASIC_STATS_TEMPLATE = "SELECT "
+            + "COUNT(1) as row_count, "
+            + "MIN(`${colName}`) as min, "
+            + "MAX(`${colName}`) as max "
+            + "FROM `${dbName}`.`${tblName}`";
 
     // cache stats for each partition, it would be inserted into column_statistics in a batch.
     private final List<List<ColStatsData>> buf = new ArrayList<>();
@@ -112,77 +115,40 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     /**
-     * 1. Get col stats in sample ways
-     * 2. estimate partition stats
-     * 3. insert col stats and partition stats
+     * 1. Get col stats in sample ways twice with sample rows and (sample rows)/2
+     * 2. Calculate col stats using the two values sampled.
+     * 3. insert col stats.
      */
     protected void doSample() throws Exception {
-        Pair<List<Long>, Long> pair = calcActualSampleTablets();
-        List<Long> tabletIds = pair.first;
-        double scaleFactor = (double) tbl.getRowCount() / (double) pair.second;
-        // might happen if row count in fe metadata hasn't been updated yet
-        if (Double.isInfinite(scaleFactor)) {
-            scaleFactor = 1;
-        }
-        String tabletStr = tabletIds.stream()
-                .map(Object::toString)
-                .collect(Collectors.joining(", "));
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(info.jobType.equals(JobType.SYSTEM))) {
-            Map<String, String> params = new HashMap<>();
-            params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-            params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
-            params.put("catalogId", String.valueOf(catalog.getId()));
-            params.put("dbId", String.valueOf(db.getId()));
-            params.put("tblId", String.valueOf(tbl.getId()));
-            params.put("idxId", String.valueOf(info.indexId));
-            params.put("colId", String.valueOf(info.colName));
-            params.put("dataSizeFunction", getDataSizeFunction(col));
-            params.put("dbName", db.getFullName());
-            params.put("colName", info.colName);
-            params.put("tblName", tbl.getName());
-            params.put("scaleFactor", String.valueOf(scaleFactor));
-            params.put("tablets", tabletStr.isEmpty() ? "" : String.format("TABLET(%s)", tabletStr));
-            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            stmtExecutor = new StmtExecutor(r.connectContext, stringSubstitutor.replace(SAMPLE_COLUMN_SQL_TEMPLATE));
-            // Scalar query only return one row
-            ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
-            OlapTable olapTable = (OlapTable) tbl;
-            Collection<Partition> partitions = olapTable.getPartitions();
-            int partitionCount = partitions.size();
-            List<String> values = partitions.stream().map(p -> String.format(
-                    "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())",
-                    StatisticsUtil.quote(StatisticsUtil.constructId(tbl.getId(), -1, col.getName(), p.getId())),
-                    InternalCatalog.INTERNAL_CATALOG_ID,
-                    db.getId(),
-                    tbl.getId(),
-                    -1,
-                    StatisticsUtil.quote(col.getName()),
-                    p.getId(),
-                    colStatsData.count / partitionCount,
-                    colStatsData.ndv / partitionCount,
-                    colStatsData.nullCount / partitionCount,
-                    StatisticsUtil.quote(colStatsData.minLit),
-                    StatisticsUtil.quote(colStatsData.maxLit),
-                    colStatsData.dataSizeInBytes / partitionCount)).collect(Collectors.toList());
-            values.add(String.format(
-                    "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())",
-                    StatisticsUtil.quote(StatisticsUtil.constructId(tbl.getId(), -1, col.getName())),
-                    InternalCatalog.INTERNAL_CATALOG_ID,
-                    db.getId(),
-                    tbl.getId(),
-                    -1,
-                    StatisticsUtil.quote(col.getName()),
-                    "NULL",
-                    colStatsData.count,
-                    colStatsData.ndv,
-                    colStatsData.nullCount,
-                    StatisticsUtil.quote(colStatsData.minLit),
-                    StatisticsUtil.quote(colStatsData.maxLit),
-                    colStatsData.dataSizeInBytes));
+            ResultRow basicStats = collectBasicStat(r);
+            Pair<List<Long>, Long> pair1 = calcActualSampleTablets(tableSample, true);
+
+            // Second sample rate is half of the first time.
+            // Don't set seek value to get random result, avoid sample a subset of the first sample.
+            TableSample halfSample = new TableSample(tableSample.isPercent(),
+                    Math.max(tableSample.getSampleValue() / 2, 1));
+            Pair<List<Long>, Long> pair2 = calcActualSampleTablets(halfSample, false);
+
+            Pair<ColStatsData, Double> colStatsDataDoublePair1;
+            Pair<ColStatsData, Double> colStatsDataDoublePair2;
+            if (pair1.first.isEmpty()) {
+                // If the first pair's tablet id list is empty, will sample the full table, doesn't need second sample.
+                colStatsDataDoublePair1 = sampleOnce(1, pair1.first, r, basicStats);
+                colStatsDataDoublePair2 = colStatsDataDoublePair1;
+            } else {
+                long rowCount = tbl.getRowCount();
+                double scaleFactor1 = (double) rowCount / (double) pair1.second;
+                double scaleFactor2 = (double) rowCount / (double) pair2.second;
+                colStatsDataDoublePair1 = sampleOnce(scaleFactor1, pair1.first, r, basicStats);
+                colStatsDataDoublePair2 = sampleOnce(scaleFactor2, pair2.first, r, basicStats);
+            }
+
+            String value = combineTwoSamples(colStatsDataDoublePair1, colStatsDataDoublePair2);
             String insertSQL = "INSERT INTO "
                     + StatisticConstants.FULL_QUALIFIED_STATS_TBL_NAME
                     + " VALUES "
-                    + String.join(",", values);
+                    + value;
             stmtExecutor = new StmtExecutor(r.connectContext, insertSQL);
             executeWithExceptionOnFail(stmtExecutor);
         }
@@ -231,6 +197,49 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         execSQLs(partitionAnalysisSQLs, params);
     }
 
+    private ResultRow collectBasicStat(AutoCloseConnectContext context) {
+        Map<String, String> params = new HashMap<>();
+        params.put("dbName", db.getFullName());
+        params.put("colName", info.colName);
+        params.put("tblName", tbl.getName());
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        stmtExecutor = new StmtExecutor(context.connectContext, stringSubstitutor.replace(BASIC_STATS_TEMPLATE));
+        return stmtExecutor.executeInternalQuery().get(0);
+    }
+
+    /**
+     * Sample once with the given table sample rate.
+     * @param scaleFactor Scale factor rate
+     * @param tabletIds selected tablet ids.
+     * @param context Statement executor context.
+     * @return Pair of result of the sql and the factor of sample rate. (factor = 1 / sample percentage).
+     */
+    private Pair<ColStatsData, Double> sampleOnce(double scaleFactor, List<Long> tabletIds,
+                                                  AutoCloseConnectContext context, ResultRow basicStats) {
+        String tabletStr = tabletIds.stream()
+                .map(Object::toString)
+                .collect(Collectors.joining(", "));
+        Map<String, String> params = new HashMap<>();
+        params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
+        params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+        params.put("catalogId", String.valueOf(catalog.getId()));
+        params.put("dbId", String.valueOf(db.getId()));
+        params.put("tblId", String.valueOf(tbl.getId()));
+        params.put("idxId", String.valueOf(info.indexId));
+        params.put("colId", String.valueOf(info.colName));
+        params.put("dataSizeFunction", getDataSizeFunction(col));
+        params.put("dbName", db.getFullName());
+        params.put("colName", info.colName);
+        params.put("tblName", tbl.getName());
+        params.put("scaleFactor", String.valueOf(scaleFactor));
+        params.put("tablets", tabletStr.isEmpty() ? "" : String.format("TABLET(%s)", tabletStr));
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        stmtExecutor = new StmtExecutor(context.connectContext,
+            stringSubstitutor.replace(SAMPLE_COLUMN_SQL_TEMPLATE));
+        // Scalar query only return one row
+        return Pair.of(new ColStatsData(basicStats, stmtExecutor.executeInternalQuery().get(0)), scaleFactor);
+    }
+
     @VisibleForTesting
     public void execSQLs(List<String> partitionAnalysisSQLs, Map<String, String> params) throws Exception {
         long startTime = System.currentTimeMillis();
@@ -274,8 +283,16 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
     }
 
-    // Get sample tablets id and scale up scaleFactor
-    protected Pair<List<Long>, Long> calcActualSampleTablets() {
+    /**
+     * Get sample tablets id and actual row count to sample.
+     * @param tableSample Input sample rate.
+     * @param addExtraTablet True to add one more tablet to the sample tablet list. This is used for two time sample.
+     *                       When the given sample rate is too low, the result will contain only one tablet.
+     *                       in this case, need to add one more tablet to the sample tablet list to improve accuracy.
+     *                       False to ignore this. The second sample time doesn't need to add extra tablet.
+     * @return Tablet list and actual row count to sample.
+     */
+    protected Pair<List<Long>, Long> calcActualSampleTablets(TableSample tableSample, boolean addExtraTablet) {
         // Below code copied from OlapScanNode.java
         long sampleRows; // The total number of sample rows
         long totalRows = 0; // The total number of partition rows hit
@@ -291,6 +308,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         long avgRowsPerPartition = sampleRows / Math.max(olapTable.getPartitions().size(), 1);
         List<Long> sampleTabletIds = new ArrayList<>();
         long actualSampledRowCount = 0;
+        // If sampled only one tablet, add this extra tablet to the sample list to improve accuracy.
+        long extraTabletId = -1;
+        long extraSampledRowCount = 0;
         for (Partition p : olapTable.getPartitions()) {
             List<Long> ids = p.getBaseIndex().getTabletIdsInOrder();
 
@@ -317,6 +337,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 sampleTabletIds.add(tabletId);
                 actualSampledRowCount += baseIndex.getTablet(tabletId).getRowCount(true);
             }
+            if (tabletCounts < ids.size()) {
+                extraTabletId = ids.get((int) ((tabletCounts + seek) % ids.size()));
+                extraSampledRowCount = baseIndex.getTablet(extraTabletId).getRowCount(true);
+            }
 
             totalRows += p.getBaseIndex().getRowCount();
             totalTablet += ids.size();
@@ -331,6 +355,15 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             sampleTabletIds.clear();
         } else if (!sampleTabletIds.isEmpty()) {
             // TODO add limit
+            // might happen if row count in fe metadata hasn't been updated yet
+            if (actualSampledRowCount == 0) {
+                sampleTabletIds.clear();
+            }
+        }
+        // When only sample one tablet, add an extra tablet to the sample list.
+        if (addExtraTablet && sampleTabletIds.size() == 1 && extraTabletId != -1) {
+            sampleTabletIds.add(extraTabletId);
+            actualSampledRowCount += extraSampledRowCount;
         }
         return Pair.of(sampleTabletIds, actualSampledRowCount);
     }
