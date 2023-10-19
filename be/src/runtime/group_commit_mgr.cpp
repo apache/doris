@@ -184,6 +184,14 @@ Status GroupCommitTable::get_first_block_load_queue(
 
 Status GroupCommitTable::_create_group_commit_load(
         std::shared_ptr<LoadBlockQueue>& load_block_queue) {
+    Status st = Status::OK();
+    std::unique_ptr<int, std::function<void(int*)>> remove_pipe_func((int*)0x01, [&](int*) {
+        if (!st.ok()) {
+            std::unique_lock l(_lock);
+            _need_plan_fragment = false;
+            _cv.notify_all();
+        }
+    });
     TStreamLoadPutRequest request;
     UniqueId load_id = UniqueId::gen_uid();
     TUniqueId tload_id;
@@ -207,13 +215,14 @@ Status GroupCommitTable::_create_group_commit_load(
     }
     TStreamLoadPutResult result;
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+    st = ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&result, &request](FrontendServiceConnection& client) {
                 client->streamLoadPut(result, request);
             },
-            10000L));
-    Status st = Status::create(result.status);
+            10000L);
+    RETURN_IF_ERROR(st);
+    st = Status::create(result.status);
     if (!st.ok()) {
         LOG(WARNING) << "create group commit load error, st=" << st.to_string();
     }
