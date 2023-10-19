@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.task.PublishVersionTask;
@@ -718,7 +719,10 @@ public class TabletInvertedIndex {
         Set<Long> dbIds = Sets.newHashSet();
         Set<Long> tableIds = Sets.newHashSet();
         Set<Long> partitionIds = Sets.newHashSet();
-        Env.getCurrentRecycleBin().getRecycleIds(dbIds, tableIds, partitionIds);
+        // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
+        if (!FeConstants.runningUnitTest) {
+            Env.getCurrentRecycleBin().getRecycleIds(dbIds, tableIds, partitionIds);
+        }
         long stamp = readLock();
 
         // 1. gen <partitionId-indexId, <beId, replicaCount>>

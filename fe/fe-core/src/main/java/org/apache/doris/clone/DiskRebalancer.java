@@ -30,6 +30,7 @@ import org.apache.doris.clone.TabletSchedCtx.BalanceType;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -161,7 +162,12 @@ public class DiskRebalancer extends Rebalancer {
             return alternativeTablets;
         }
 
-        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+        // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
+        // so in clone ut recycleBin need to set to null.
+        CatalogRecycleBin recycleBin = null;
+        if (!FeConstants.runningUnitTest) {
+            recycleBin = Env.getCurrentRecycleBin();
+        }
         Set<Long> alternativeTabletIds = Sets.newHashSet();
         Set<Long> unbalancedBEs = Sets.newHashSet();
         // choose tablets from backends randomly.
@@ -224,8 +230,8 @@ public class DiskRebalancer extends Rebalancer {
                     if (tabletMeta == null) {
                         continue;
                     }
-                    if (recycleBin.isRecyclePartition(tabletMeta.getDbId(), tabletMeta.getTableId(),
-                            tabletMeta.getPartitionId())) {
+                    if (recycleBin != null && recycleBin.isRecyclePartition(tabletMeta.getDbId(),
+                            tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
                         continue;
                     }
 
