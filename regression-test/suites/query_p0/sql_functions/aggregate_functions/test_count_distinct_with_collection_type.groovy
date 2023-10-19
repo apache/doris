@@ -20,7 +20,7 @@ suite("test_count_distinct_with_collection_type", "p0") {
 
     // not support array/map/struct
     sql " drop table if exists test_collection_type;"
-    sql """ CREATE TABLE IF NOT EXIST `test_collection_type` (
+    sql """ CREATE TABLE IF NOT EXISTS `test_collection_type` (
       `id` int(11) NULL,
       `a` array<text> NULL,
       `m` map<text, int> NULL,
