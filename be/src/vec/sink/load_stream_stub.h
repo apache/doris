@@ -105,6 +105,7 @@ private:
                                 : Status::Error<true>(ret, "stream close_wait timeout");
             }
             _close_cv.wait(lock);
+            return Status::OK();
         };
 
     private:
