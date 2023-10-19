@@ -351,7 +351,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             this.isPartialUpdate = true;
         }
         jobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
-
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
         } else if (stmt.getFormat().equals("json")) {
@@ -384,6 +383,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             jobProperties.put(PROPS_FUZZY_PARSE, "true");
         } else {
             jobProperties.put(PROPS_FUZZY_PARSE, "false");
+        }
+        if (stmt.getEnclose() != null) {
+            jobProperties.put(LoadStmt.KEY_ENCLOSE, stmt.getEnclose());
+        }
+        if (stmt.getEscape() != null) {
+            jobProperties.put(LoadStmt.KEY_ESCAPE, stmt.getEscape());
         }
     }
 

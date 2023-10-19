@@ -204,6 +204,14 @@ WITH BROKER broker_name
     
     Set the priority of the load job, there are three options: `HIGH/NORMAL/LOW`, use `NORMAL` priority as default. The pending broker load jobs which have higher priority will be chosen to execute earlier.
 
+  - <version since="dev" type="inline"> enclose </version>
+  
+      When the csv data field contains row delimiters or column delimiters, to prevent accidental truncation, single-byte characters can be specified as brackets for protection. For example, the column separator is ",", the bracket is "'", and the data is "a,'b,c'", then "b,c" will be parsed as a field.
+
+  - <version since="dev" type="inline"> escape </version>
+
+      Used to escape characters that appear in a csv field identical to the enclosing characters. For example, if the data is "a,'b,'c'", enclose is "'", and you want "b,'c to be parsed as a field, you need to specify a single-byte escape character, such as "\", and then modify the data to "a,' b,\'c'".
+
 -  <version since="1.2.3" type="inline"> comment </version>
     
    Specify the comment for the import job. The comment can be viewed in the `show load` statement.

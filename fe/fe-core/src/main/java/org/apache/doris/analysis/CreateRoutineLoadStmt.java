@@ -175,6 +175,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private boolean numAsString = false;
     private boolean fuzzyParse = false;
 
+    private String enclose;
+
+    private String escape;
+
     /**
      * support partial columns load(Only Unique Key Columns)
      */
@@ -299,6 +303,14 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public String getJsonPaths() {
         return jsonPaths;
+    }
+
+    public String getEnclose() {
+        return enclose;
+    }
+
+    public String getEscape() {
+        return escape;
     }
 
     public String getJsonRoot() {
@@ -484,6 +496,14 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET),
                 RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
                 LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
+        enclose = jobProperties.get(LoadStmt.KEY_ENCLOSE);
+        if (enclose != null && enclose.length() != 1) {
+            throw new AnalysisException("enclose must be single-char");
+        }
+        escape = jobProperties.get(LoadStmt.KEY_ESCAPE);
+        if (escape != null && escape.length() != 1) {
+            throw new AnalysisException("escape must be single-char");
+        }
 
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
