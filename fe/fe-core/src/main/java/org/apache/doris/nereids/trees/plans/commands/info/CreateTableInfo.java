@@ -396,7 +396,8 @@ public class CreateTableInfo {
             return partitions.stream().allMatch(p -> (p instanceof LessThanPartition)
                     || (p instanceof FixedRangePartition));
         }
-        return partitionType.equalsIgnoreCase(PartitionType.LIST.name()) && partitions.stream().allMatch(p -> p instanceof InPartition);
+        return partitionType.equalsIgnoreCase(PartitionType.LIST.name())
+                && partitions.stream().allMatch(p -> p instanceof InPartition);
     }
 
     private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx) {

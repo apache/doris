@@ -46,6 +46,10 @@ public abstract class PartitionDefinition {
 
     public abstract AllPartitionDesc translateToCatalogStyle();
 
+    /**
+     * Validate the properties.
+     * Derived class can override this method to do more validation.
+     */
     public void validate(Map<String, String> properties) {
         try {
             replicaAllocation = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
