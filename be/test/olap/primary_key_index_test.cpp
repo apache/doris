@@ -44,7 +44,7 @@ public:
         EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
     }
     void TearDown() override {
-        //EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
 private:
