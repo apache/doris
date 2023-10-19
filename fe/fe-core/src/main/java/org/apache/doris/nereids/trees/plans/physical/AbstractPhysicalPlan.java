@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
@@ -64,4 +65,12 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
     public Plan getExplainPlan(ConnectContext ctx) {
         return this;
     }
+
+    public <T extends AbstractPhysicalPlan> T copyStatsAndGroupIdFrom(T from) {
+        T newPlan = (T) withPhysicalPropertiesAndStats(
+                from.getPhysicalProperties(), from.getStats());
+        newPlan.setMutableState(MutableState.KEY_GROUP, from.getGroupIdAsString());
+        return newPlan;
+    }
+    
 }
