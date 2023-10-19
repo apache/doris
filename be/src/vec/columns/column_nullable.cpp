@@ -298,8 +298,9 @@ void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t 
     _has_null |= simd::contain_byte(src_null_map_data.data() + start, length, 1);
 }
 
-void ColumnNullable::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                         const int* indices_end) {
+void ColumnNullable::insert_indices_from(const IColumn& src,
+                                         const uint32_t* __restrict indices_begin,
+                                         const uint32_t* __restrict indices_end) {
     const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
     get_nested_column().insert_indices_from(src_concrete.get_nested_column(), indices_begin,
                                             indices_end);

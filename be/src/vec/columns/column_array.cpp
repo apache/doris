@@ -792,14 +792,10 @@ size_t ColumnArray::filter_nullable(const Filter& filter) {
     return result_size;
 }
 
-void ColumnArray::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                      const int* indices_end) {
+void ColumnArray::insert_indices_from(const IColumn& src, const uint32_t* __restrict indices_begin,
+                                      const uint32_t* __restrict indices_end) {
     for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x == -1) {
-            ColumnArray::insert_default();
-        } else {
-            ColumnArray::insert_from(src, *x);
-        }
+        ColumnArray::insert_from(src, *x);
     }
 }
 
