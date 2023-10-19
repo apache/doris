@@ -61,10 +61,11 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "${idxId} AS idx_id, "
             + "'${colId}' AS col_id, "
             + "NULL AS part_id, "
+            + "ROUND(COUNT(1) * ${scaleFactor}) AS row_count, "
             + NDV_SAMPLE_TEMPLATE
             + "ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS null_count, "
-            + "MIN(`${colName}`) AS min, "
-            + "MAX(`${colName}`) AS max, "
+            + "${minFunction} AS min, "
+            + "${maxFunction} AS max, "
             + "${dataSizeFunction} * ${scaleFactor} AS data_size, "
             + "NOW() "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleExpr}";
@@ -177,6 +178,8 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         sb.append(ANALYZE_TABLE_TEMPLATE);
         Map<String, String> params = buildStatsParams("NULL");
         params.put("dataSizeFunction", getDataSizeFunction(col));
+        params.put("minFunction", getMinFunction());
+        params.put("maxFunction", getMaxFunction());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(sb.toString());
         executeInsertSql(sql);
