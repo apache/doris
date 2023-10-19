@@ -368,8 +368,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         break;
                     }
                 }
-                Preconditions.checkState(projIndex >= 0
-                        && projIndex < project.getProjects().size());
+                if (projIndex < 0
+                        || projIndex >= project.getProjects().size()) {
+                    continue;
+                }
 
                 NamedExpression targetExpr = (NamedExpression) project.getProjects().get(projIndex);
 
