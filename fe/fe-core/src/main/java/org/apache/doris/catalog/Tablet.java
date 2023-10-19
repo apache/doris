@@ -247,7 +247,10 @@ public class Tablet extends MetaObject implements Writable {
             }
 
             // Skip the missing version replica
-            if (replica.getLastFailedVersion() > 0) {
+            // If recover_with_skip_missing_version config is open, dont't skip this replica,
+            // we can skip missing version in BE.
+            if (replica.getLastFailedVersion() > 0
+                    && Config.recover_with_skip_missing_version.equalsIgnoreCase("disable")) {
                 continue;
             }
 

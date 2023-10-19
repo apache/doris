@@ -859,7 +859,8 @@ bool Tablet::_reconstruct_version_tracker_if_necessary() {
 }
 
 Status Tablet::capture_consistent_versions(const Version& spec_version,
-                                           std::vector<Version>* version_path, bool quiet) const {
+                                           std::vector<Version>* version_path,
+                                           bool skip_missing_version, bool quiet) const {
     Status status =
             _timestamped_version_tracker.capture_consistent_versions(spec_version, version_path);
     if (!status.ok() && !quiet) {
@@ -878,6 +879,10 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
                 LOG(WARNING) << "status:" << status << ", tablet:" << tablet_id()
                              << ", missed version for version:" << spec_version;
                 _print_missed_versions(missed_versions);
+                if (skip_missing_version) {
+                    LOG(WARNING) << "force skipping missing version for tablet:" << tablet_id();
+                    return Status::OK();
+                }
             }
         }
     }
@@ -956,9 +961,10 @@ Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& 
 }
 
 Status Tablet::capture_rs_readers(const Version& spec_version,
-                                  std::vector<RowSetSplits>* rs_splits) const {
+                                  std::vector<RowSetSplits>* rs_splits,
+                                  bool skip_missing_version) const {
     std::vector<Version> version_path;
-    RETURN_IF_ERROR(capture_consistent_versions(spec_version, &version_path));
+    RETURN_IF_ERROR(capture_consistent_versions(spec_version, &version_path, skip_missing_version));
     RETURN_IF_ERROR(capture_rs_readers(version_path, rs_splits));
     return Status::OK();
 }

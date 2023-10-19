@@ -739,6 +739,10 @@ public class OlapScanNode extends ScanNode {
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
 
+            if (!Config.recover_with_skip_missing_version.equalsIgnoreCase("disable")) {
+                paloRange.setSkipMissingVersion(true);
+            }
+
             // random shuffle List && only collect one copy
             List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion);
             if (replicas.isEmpty()) {
