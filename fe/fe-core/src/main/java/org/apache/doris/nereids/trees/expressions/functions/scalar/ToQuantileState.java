@@ -40,7 +40,7 @@ public class ToQuantileState extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(QuantileStateType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, FloatType.INSTANCE)
+            FunctionSignature.ret(QuantileStateType.INSTANCE).args(DoubleType.INSTANCE, FloatType.INSTANCE)
     );
 
     /**
