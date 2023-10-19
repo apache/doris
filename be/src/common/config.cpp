@@ -1006,6 +1006,7 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 DEFINE_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
+DEFINE_String(inverted_index_dict_file_name, "jieba.dict.utf8");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");

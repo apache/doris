@@ -20,12 +20,16 @@
 
 #include <stddef.h>
 
+#include <stack>
 #include <string>
 
+#include "common/logging.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "util/unicode.h"
 
 namespace doris {
-
+class Trie;
 /// Interface for string parsers.
 struct ITokenExtractor {
     virtual ~ITokenExtractor() = default;
@@ -79,7 +83,7 @@ public:
 };
 
 /// Parser extracting all ngrams from string.
-struct NgramTokenExtractor final : public ITokenExtractorHelper<NgramTokenExtractor> {
+class NgramTokenExtractor final : public ITokenExtractorHelper<NgramTokenExtractor> {
 public:
     explicit NgramTokenExtractor(size_t n_) : n(n_) {}
 
@@ -93,6 +97,61 @@ public:
 private:
     size_t n;
 };
+
+class AlphaNumTokenExtractor final : public ITokenExtractorHelper<AlphaNumTokenExtractor> {
+public:
+    AlphaNumTokenExtractor() = default;
+    bool next_in_string(const char* data, size_t length, size_t* __restrict pos,
+                        size_t* __restrict token_start,
+                        size_t* __restrict token_length) const override;
+
+    bool next_in_string_like(const char* data, size_t length, size_t* pos,
+                             std::string& token) const override;
+};
+
+struct ChineseTokenDict {
+    Trie* trie;
+    std::vector<Unicode> static_node_infos;
+
+    explicit ChineseTokenDict(const std::string& dict_path);
+    std::vector<Unicode> load_dict(const std::string& file_path);
+};
+
+template <InvertedIndexParserMode parser_mode>
+class ChineseTokenExtractor final
+        : public ITokenExtractorHelper<ChineseTokenExtractor<parser_mode>> {
+public:
+    explicit ChineseTokenExtractor(const ChineseTokenDict* dict) : _dict(dict) {};
+    bool next_in_string(const char* data, size_t length, size_t* __restrict pos,
+                        size_t* __restrict token_start,
+                        size_t* __restrict token_length) const override;
+
+    bool next_in_string_like(const char* data, size_t length, size_t* pos,
+                             std::string& token) const override {
+        LOG_FATAL("next_in_string_like is not implemented in ChineseTokenExtractor");
+        __builtin_unreachable();
+    };
+    bool cut(const char* sentence, std::string_view& word) const;
+    bool cut_all(const char* sentence, std::string_view& word) const;
+    void find(RuneStrArray::const_iterator begin, RuneStrArray::const_iterator end,
+              vector<WordRange>& res) const;
+    void reset() const {
+        _runes.clear();
+        _currentIter = _runes.end();
+        _endIter = _runes.end();
+        _matchedWords.clear();
+        _matchedWordIndex = 0;
+    };
+
+private:
+    mutable RuneStrArray _runes;
+    mutable RuneStrArray::const_iterator _currentIter;
+    mutable RuneStrArray::const_iterator _endIter;
+    mutable std::vector<WordRange> _matchedWords;
+    mutable size_t _matchedWordIndex = 0;
+    const ChineseTokenDict* _dict;
+};
+
 } // namespace doris
 
 #endif //DORIS_ITOKEN_EXTRACTOR_H
