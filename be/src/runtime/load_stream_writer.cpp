@@ -69,9 +69,7 @@ namespace doris {
 using namespace ErrorCode;
 
 LoadStreamWriter::LoadStreamWriter(WriteRequest* req, RuntimeProfile* profile)
-        : _req(*req),
-          _rowset_builder(*req, StorageEngine::instance(), profile),
-          _rowset_writer(nullptr) {}
+        : _req(*req), _rowset_builder(*req, profile), _rowset_writer(nullptr) {}
 
 LoadStreamWriter::~LoadStreamWriter() = default;
 

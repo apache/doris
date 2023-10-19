@@ -79,8 +79,6 @@ public:
 
     Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
 
-    const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
-
     void set_compound_filters(const std::vector<TCondition>& compound_filters);
 
     doris::TabletStorageType get_storage_type() override;
@@ -102,7 +100,7 @@ private:
     bool _aggregation;
 
     TabletSchemaSPtr _tablet_schema;
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
     int64_t _version;
     const TPaloScanRange& _scan_range;
     std::vector<OlapScanRange*> _key_ranges;

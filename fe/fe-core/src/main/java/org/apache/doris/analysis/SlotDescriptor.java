@@ -304,6 +304,7 @@ public class SlotDescriptor {
             LOG.debug("column name:{}, column unique id:{}", column.getName(), column.getUniqueId());
             tSlotDescriptor.setColUniqueId(column.getUniqueId());
             tSlotDescriptor.setIsKey(column.isKey());
+            tSlotDescriptor.setColDefaultValue(column.getDefaultValue());
         }
         return tSlotDescriptor;
     }
