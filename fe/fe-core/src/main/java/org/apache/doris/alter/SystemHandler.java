@@ -107,8 +107,8 @@ public class SystemHandler extends AlterHandler {
     @Override
     // add synchronized to avoid process 2 or more stmts at same time
     public synchronized void process(String rawSql, List<AlterClause> alterClauses, String clusterName,
-                                     Database dummyDb,
-                                     OlapTable dummyTbl) throws UserException {
+            Database dummyDb,
+            OlapTable dummyTbl) throws UserException {
         Preconditions.checkArgument(alterClauses.size() == 1);
         AlterClause alterClause = alterClauses.get(0);
 
@@ -258,20 +258,21 @@ public class SystemHandler extends AlterHandler {
                             + NetUtils.getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
                 }
 
-            if (!backend.isDecommissioned()) {
-                // it's ok. just log
-                LOG.info("backend is not decommissioned[{}]", backend.getId());
-                continue;
+                if (!backend.isDecommissioned()) {
+                    // it's ok. just log
+                    LOG.info("backend is not decommissioned[{}]", backend.getId());
+                    continue;
+                }
+
+                backends.add(backend);
             }
 
-            backends.add(backend);
-        }
-
-        for (Backend backend : backends) {
-            if (backend.setDecommissioned(false)) {
-                Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
-            } else {
-                LOG.info("backend is not decommissioned[{}]", backend.getHost());
+            for (Backend backend : backends) {
+                if (backend.setDecommissioned(false)) {
+                    Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
+                } else {
+                    LOG.info("backend is not decommissioned[{}]", backend.getHost());
+                }
             }
         }
     }
