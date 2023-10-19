@@ -181,7 +181,7 @@ protected:
     int _broadcast_pb_block_idx;
 
     std::unique_ptr<PartitionerBase> _partitioner;
-    int _partition_count;
+    size_t _partition_count;
 
     std::vector<Channel<VDataStreamSender>*> _channels;
     std::vector<std::shared_ptr<Channel<VDataStreamSender>>> _channel_shared_ptrs;

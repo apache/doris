@@ -25,26 +25,21 @@ namespace doris::vectorized {
 template <typename HashValueType>
 Status Partitioner<HashValueType>::do_partitioning(RuntimeState* state, Block* block,
                                                    MemTracker* mem_tracker) const {
-    // will only copy schema
-    // we don't want send temp columns
-    auto column_to_keep = block->columns();
-
-    int result_size = _partition_expr_ctxs.size();
-    int result[result_size];
-
-    // vectorized calculate hash
     int rows = block->rows();
-    _hash_vals.resize(rows);
-    auto* __restrict hashes = _hash_vals.data();
 
     if (rows > 0) {
+        auto column_to_keep = block->columns();
+
+        int result_size = _partition_expr_ctxs.size();
+        std::vector<int> result(result_size);
+
+        _hash_vals.resize(rows);
+        auto* __restrict hashes = _hash_vals.data();
         {
             SCOPED_CONSUME_MEM_TRACKER(mem_tracker);
             RETURN_IF_ERROR(_get_partition_column_result(block, result));
         }
-        // result[j] means column index, i means rows index, here to calculate the xxhash value
         for (int j = 0; j < result_size; ++j) {
-            // complex type most not implement get_data_at() method which column_const will call
             _do_hash(unpack_if_const(block->get_by_position(result[j]).column).first, hashes, j);
         }
 

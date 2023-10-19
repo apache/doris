@@ -28,7 +28,7 @@ namespace vectorized {
 
 class PartitionerBase {
 public:
-    PartitionerBase(int partition_count) : _partition_count(partition_count) {}
+    PartitionerBase(size_t partition_count) : _partition_count(partition_count) {}
     virtual ~PartitionerBase() = default;
 
     virtual Status init(const std::vector<TExpr>& texprs) = 0;
@@ -43,7 +43,7 @@ public:
     virtual void* get_hash_values() const = 0;
 
 protected:
-    const int _partition_count;
+    const size_t _partition_count;
 };
 
 template <typename HashValueType>
@@ -68,7 +68,7 @@ public:
     void* get_hash_values() const override { return _hash_vals.data(); }
 
 protected:
-    Status _get_partition_column_result(Block* block, int* result) const {
+    Status _get_partition_column_result(Block* block, std::vector<int>& result) const {
         int counter = 0;
         for (auto ctx : _partition_expr_ctxs) {
             RETURN_IF_ERROR(ctx->execute(block, &result[counter++]));
