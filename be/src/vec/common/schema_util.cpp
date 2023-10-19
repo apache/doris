@@ -31,8 +31,10 @@
 #include <rapidjson/writer.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <ostream>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -290,10 +292,43 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         TabletColumn common_column;
         // const std::string& column_name = variant_col_name + "." + tuple_paths[i].get_path();
         get_column_by_type(tuple_types[i], tuple_paths[i].get_path(), common_column,
-                           ExtraInfo {.unique_id = -1,
+                           ExtraInfo {.unique_id = variant_col_unique_id,
                                       .parent_unique_id = variant_col_unique_id,
                                       .path_info = tuple_paths[i]});
         common_schema->append_column(common_column);
+    }
+}
+
+void inherit_tablet_index(TabletSchemaSPtr& schema) {
+    std::unordered_map<int32_t, TabletIndex> variants_index_meta;
+    // Get all variants tablet index metas if exist
+    for (const auto& col : schema->columns()) {
+        auto index_meta = schema->get_inverted_index(col.unique_id(), "");
+        if (col.is_variant_type() && index_meta != nullptr) {
+            variants_index_meta.emplace(col.unique_id(), *index_meta);
+        }
+    }
+
+    // Add index meta if extracted column is missing index meta
+    for (const auto& col : schema->columns()) {
+        if (!col.is_extracted_column()) {
+            continue;
+        }
+        auto it = variants_index_meta.find(col.parent_unique_id());
+        // variant has no index meta, ignore
+        if (it == variants_index_meta.end()) {
+            continue;
+        }
+        auto index_meta = schema->get_inverted_index(col);
+        // add index meta
+        TabletIndex index_info = it->second;
+        index_info.set_escaped_escaped_index_suffix_path(col.path_info().get_path());
+        if (index_meta != nullptr) {
+            // already exist
+            schema->update_index(col, index_info);
+        } else {
+            schema->append_index(index_info);
+        }
     }
 }
 
@@ -335,6 +370,8 @@ TabletSchemaSPtr get_least_common_schema(const std::vector<TabletSchemaSPtr>& sc
     for (int32_t unique_id : variant_column_unique_id) {
         update_least_common_schema(schemas, output_schema, unique_id);
     }
+
+    inherit_tablet_index(output_schema);
     return output_schema;
 }
 

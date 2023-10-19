@@ -115,8 +115,8 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     // The static ones are original _tablet_schame columns
     flush_schema = std::make_shared<TabletSchema>();
     flush_schema->copy_from(*_context->tablet_schema);
-    vectorized::Block flush_block(std::move(block));
 
+    vectorized::Block flush_block(std::move(block));
     // If column already exist in original tablet schema, then we pick common type
     // and cast column to common type, and modify tablet column to common type,
     // otherwise it's a new column, we should add to frontend
@@ -132,10 +132,11 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
                                  .build();
         vectorized::schema_util::get_column_by_type(
                 final_data_type_from_object, column_name, tablet_column,
-                vectorized::schema_util::ExtraInfo {.unique_id = -1,
+                vectorized::schema_util::ExtraInfo {.unique_id = parent_variant.unique_id(),
                                                     .parent_unique_id = parent_variant.unique_id(),
                                                     .path_info = full_path});
         flush_schema->append_column(std::move(tablet_column));
+
         flush_block.insert({column_entry_from_object->data.get_finalized_column_ptr()->get_ptr(),
                             final_data_type_from_object, column_name});
     };
@@ -172,6 +173,8 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         flush_schema->mutable_columns()[variant_pos].set_path_info(full_root_path);
         VLOG_DEBUG << "set root_path : " << full_root_path.get_path();
     }
+
+    vectorized::schema_util::inherit_tablet_index(flush_schema);
 
     {
         // Update rowset schema, tablet's tablet schema will be updated when build Rowset

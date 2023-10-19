@@ -49,6 +49,7 @@
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
@@ -364,7 +365,10 @@ private:
     class BackwardBitmapRangeIterator;
 
     std::shared_ptr<Segment> _segment;
+    // read schema from scanner
     SchemaSPtr _schema;
+    // storage type schema related to _schema, since column in segment may be different with type in _schema
+    std::vector<vectorized::NameAndTypePair> _storage_name_and_type;
     // vector idx -> column iterarator
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;

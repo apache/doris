@@ -276,6 +276,17 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
     }
+
+    _storage_name_and_type.resize(_schema->columns().size());
+    for (int i = 0; i < _schema->columns().size(); ++i) {
+        const Field* col = _schema->column(i);
+        if (col) {
+            _storage_name_and_type[i] = std::make_pair(
+                    col->name(),
+                    _segment->get_data_type_of(
+                            *col, _opts.io_ctx.reader_type != ReaderType::READER_QUERY));
+        }
+    }
     return Status::OK();
 }
 
@@ -760,8 +771,9 @@ Status SegmentIterator::_apply_inverted_index_except_leafnode_of_andnode(
         return Status::OK();
     }
     // TODO handle variant
-    RETURN_IF_ERROR(pred->evaluate(*_schema, _inverted_index_iterators[pred->column_id()].get(),
-                                   num_rows(), output_result));
+    RETURN_IF_ERROR(pred->evaluate(_storage_name_and_type[pred->column_id()],
+                                   _inverted_index_iterators[pred->column_id()].get(), num_rows(),
+                                   output_result));
     return Status::OK();
 }
 
@@ -895,8 +907,9 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
                                              PredicateTypeTraits::is_equal_or_list(pred->type());
         roaring::Roaring bitmap = _row_bitmap;
         // TODO handle variant
-        Status res = pred->evaluate(*_schema, _inverted_index_iterators[pred->column_id()].get(),
-                                    num_rows(), &bitmap);
+        Status res = pred->evaluate(_storage_name_and_type[pred->column_id()],
+                                    _inverted_index_iterators[pred->column_id()].get(), num_rows(),
+                                    &bitmap);
         if (!res.ok()) {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 remaining_predicates.emplace_back(pred);
@@ -1116,7 +1129,8 @@ Status SegmentIterator::_init_inverted_index_iterators() {
     for (auto cid : _schema->column_ids()) {
         if (_inverted_index_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
-                    _opts.tablet_schema->column(cid), _opts.tablet_schema->get_inverted_index(cid),
+                    _opts.tablet_schema->column(cid),
+                    _opts.tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid)),
                     _opts, &_inverted_index_iterators[cid]));
         }
     }
@@ -1593,11 +1607,10 @@ void SegmentIterator::_init_current_block(
         auto cid = _schema->column_id(i);
         auto column_desc = _schema->column(cid);
         if (!_is_pred_column[cid] &&
-            !_segment->is_same_file_col_type_with_expected(
+            !_segment->same_with_storage_type(
                     cid, *_schema, _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
             // Will be converted to PredicateColumnType<T> if it's a predicate column
-            auto file_column_type = _segment->get_data_type_of(
-                    *column_desc, _opts.io_ctx.reader_type != ReaderType::READER_QUERY);
+            auto file_column_type = _storage_name_and_type[cid].second;
             VLOG_DEBUG << fmt::format(
                     "Recreate column with expected type {}, file column type {}, col_name {}, "
                     "col_path {}",
@@ -1823,12 +1836,11 @@ Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& c
             _is_pred_column[i]) {
             continue;
         }
-        if (!_segment->is_same_file_col_type_with_expected(
+        if (!_segment->same_with_storage_type(
                     i, *_schema, _opts.io_ctx.reader_type != ReaderType::READER_QUERY)) {
             const Field* field_type = _schema->column(i);
             vectorized::DataTypePtr expected_type = Schema::get_data_type_ptr(*field_type);
-            vectorized::DataTypePtr file_column_type = _segment->get_data_type_of(
-                    *field_type, _opts.io_ctx.reader_type != ReaderType::READER_QUERY);
+            vectorized::DataTypePtr file_column_type = _storage_name_and_type[i].second;
             vectorized::ColumnPtr expected;
             vectorized::ColumnPtr original =
                     _current_return_columns[i]->assume_mutable()->get_ptr();
@@ -1878,8 +1890,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             auto cid = _schema->column_id(i);
             auto column_desc = _schema->column(cid);
             if (_is_pred_column[cid]) {
-                auto storage_column_type = _segment->get_data_type_of(
-                        *column_desc, _opts.io_ctx.reader_type != ReaderType::READER_QUERY);
+                auto storage_column_type = _storage_name_and_type[cid].second;
                 _current_return_columns[cid] = Schema::get_predicate_column_ptr(
                         TabletColumn::get_field_type_by_type(
                                 storage_column_type->get_type_as_primitive_type()),

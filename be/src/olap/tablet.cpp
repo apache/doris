@@ -1344,7 +1344,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
         std::shared_lock rlock(_meta_lock);
         auto has_alter_inverted_index = [&](RowsetSharedPtr rowset) -> bool {
             for (const auto& index_id : alter_index_uids) {
-                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id)) {
+                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id, "")) {
                     return true;
                 }
             }

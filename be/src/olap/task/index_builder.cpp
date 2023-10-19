@@ -77,8 +77,8 @@ Status IndexBuilder::update_inverted_index_info() {
                 TabletIndex index;
                 index.init_from_thrift(t_inverted_index, *input_rs_tablet_schema);
                 auto column_uid = index.col_unique_ids()[0];
-                const TabletIndex* exist_index =
-                        output_rs_tablet_schema->get_inverted_index(column_uid);
+                const TabletColumn& col = output_rs_tablet_schema->column_by_uid(column_uid);
+                const TabletIndex* exist_index = output_rs_tablet_schema->get_inverted_index(col);
                 if (exist_index && exist_index->index_id() != index.index_id()) {
                     LOG(WARNING) << fmt::format(
                             "column: {} has a exist inverted index, but the index id not equal "
@@ -174,11 +174,11 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     continue;
                 }
                 auto column = output_rowset_schema->column(column_idx);
-                DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id));
+                DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id, ""));
                 _olap_data_convertor->add_column_data_convertor(column);
                 return_columns.emplace_back(column_idx);
                 std::unique_ptr<Field> field(FieldFactory::create(column));
-                auto index_meta = output_rowset_schema->get_inverted_index(column.unique_id());
+                auto index_meta = output_rowset_schema->get_inverted_index(column);
                 std::unique_ptr<segment_v2::InvertedIndexColumnWriter> inverted_index_builder;
                 try {
                     RETURN_IF_ERROR(segment_v2::InvertedIndexColumnWriter::create(

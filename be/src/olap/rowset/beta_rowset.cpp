@@ -171,10 +171,11 @@ Status BetaRowset::remove() {
             success = false;
         }
         for (auto& column : _schema->columns()) {
-            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            const TabletIndex* index_meta = _schema->get_inverted_index(column);
             if (index_meta) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
-                        seg_path, index_meta->index_id());
+                        seg_path, index_meta->index_id(),
+                        index_meta->get_escaped_index_suffix_path());
                 st = fs->delete_file(inverted_index_file);
                 if (!st.ok()) {
                     LOG(WARNING) << st.to_string();
@@ -231,10 +232,10 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
             if (without_index_uids != nullptr && without_index_uids->count(index_id)) {
                 continue;
             }
-            std::string inverted_index_src_file_path =
-                    InvertedIndexDescriptor::get_index_file_name(src_path, index_id);
-            std::string inverted_index_dst_file_path =
-                    InvertedIndexDescriptor::get_index_file_name(dst_path, index_id);
+            std::string inverted_index_src_file_path = InvertedIndexDescriptor::get_index_file_name(
+                    src_path, index_id, index.get_escaped_index_suffix_path());
+            std::string inverted_index_dst_file_path = InvertedIndexDescriptor::get_index_file_name(
+                    dst_path, index_id, index.get_escaped_index_suffix_path());
             bool need_to_link = true;
             if (_schema->skip_write_index_on_load()) {
                 local_fs->exists(inverted_index_src_file_path, &need_to_link);
@@ -273,14 +274,16 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
         RETURN_IF_ERROR(io::global_local_filesystem()->copy_dirs(src_path, dst_path));
         for (auto& column : _schema->columns()) {
             // if (column.has_inverted_index()) {
-            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            const TabletIndex* index_meta = _schema->get_inverted_index(column);
             if (index_meta) {
                 std::string inverted_index_src_file_path =
-                        InvertedIndexDescriptor::get_index_file_name(src_path,
-                                                                     index_meta->index_id());
+                        InvertedIndexDescriptor::get_index_file_name(
+                                src_path, index_meta->index_id(),
+                                index_meta->get_escaped_index_suffix_path());
                 std::string inverted_index_dst_file_path =
-                        InvertedIndexDescriptor::get_index_file_name(dst_path,
-                                                                     index_meta->index_id());
+                        InvertedIndexDescriptor::get_index_file_name(
+                                dst_path, index_meta->index_id(),
+                                index_meta->get_escaped_index_suffix_path());
                 RETURN_IF_ERROR(io::global_local_filesystem()->copy_dirs(
                         inverted_index_src_file_path, inverted_index_dst_file_path));
                 LOG(INFO) << "success to copy file. from=" << inverted_index_src_file_path << ", "
@@ -308,14 +311,16 @@ Status BetaRowset::upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_
         local_paths.push_back(local_seg_path);
         for (auto& column : _schema->columns()) {
             // if (column.has_inverted_index()) {
-            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            const TabletIndex* index_meta = _schema->get_inverted_index(column);
             if (index_meta) {
                 std::string remote_inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_name(remote_seg_path,
-                                                                     index_meta->index_id());
+                        InvertedIndexDescriptor::get_index_file_name(
+                                remote_seg_path, index_meta->index_id(),
+                                index_meta->get_escaped_index_suffix_path());
                 std::string local_inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_name(local_seg_path,
-                                                                     index_meta->index_id());
+                        InvertedIndexDescriptor::get_index_file_name(
+                                local_seg_path, index_meta->index_id(),
+                                index_meta->get_escaped_index_suffix_path());
                 dest_paths.push_back(remote_inverted_index_file);
                 local_paths.push_back(local_inverted_index_file);
             }

@@ -175,7 +175,11 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
             skip_inverted_index = true;
         }
         // indexes for this column
-        opts.indexes = _tablet_schema->get_indexes_for_column(column.unique_id());
+        opts.indexes = _tablet_schema->get_indexes_for_column(column);
+        if (column.is_variant_type() || column.is_jsonb_type()) {
+            // variant and jsonb type skip write index
+            opts.indexes.clear();
+        }
         for (auto index : opts.indexes) {
             if (!skip_inverted_index && index && index->index_type() == IndexType::INVERTED) {
                 opts.inverted_index = index;

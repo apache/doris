@@ -1387,14 +1387,16 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                 for (auto index_size : segment_indices_size.index_sizes()) {
                     auto index_id = index_size.indexid();
                     auto size = index_size.size();
+                    auto suffix_path = index_size.suffix_path();
                     std::string remote_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(remote_file_path,
-                                                                         index_id);
+                            InvertedIndexDescriptor::get_index_file_name(remote_file_path, index_id,
+                                                                         suffix_path);
                     std::string remote_inverted_index_file_url = construct_url(
                             get_host_port(host, http_port), token, remote_inverted_index_file);
 
                     std::string local_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id);
+                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id,
+                                                                         suffix_path);
                     st = download_file_action(remote_inverted_index_file_url,
                                               local_inverted_index_file, estimate_timeout, size);
                     if (!st.ok()) {

@@ -226,14 +226,15 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         _unfinished_slave_node.insert(node_info.id());
     }
 
-    std::vector<int64_t> indices_ids;
+    std::vector<std::pair<int64_t, std::string>> indices_ids;
     auto cur_rowset = _rowset_builder.rowset();
     auto tablet_schema = cur_rowset->rowset_meta()->tablet_schema();
     if (!tablet_schema->skip_write_index_on_load()) {
         for (auto& column : tablet_schema->columns()) {
-            const TabletIndex* index_meta = tablet_schema->get_inverted_index(column.unique_id());
+            const TabletIndex* index_meta = tablet_schema->get_inverted_index(column);
             if (index_meta) {
-                indices_ids.emplace_back(index_meta->index_id());
+                indices_ids.emplace_back(index_meta->index_id(),
+                                         index_meta->get_escaped_index_suffix_path());
             }
         }
     }
@@ -257,11 +258,12 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         if (!indices_ids.empty()) {
             for (auto index_id : indices_ids) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
-                        tablet_path + "/" + segment_name.str(), index_id);
+                        tablet_path + "/" + segment_name.str(), index_id.first, index_id.second);
                 int64_t size = std::filesystem::file_size(inverted_index_file);
                 PTabletWriteSlaveRequest::IndexSize index_size;
-                index_size.set_indexid(index_id);
+                index_size.set_indexid(index_id.first);
                 index_size.set_size(size);
+                index_size.set_suffix_path(index_id.second);
                 // Fetch the map value for the current segment_id.
                 // If it doesn't exist, this will insert a new default-constructed IndexSizeMapValue
                 auto& index_size_map_value = (*request.mutable_inverted_indices_size())[segment_id];

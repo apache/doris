@@ -475,13 +475,28 @@ Status Segment::new_column_iterator(int32_t unique_id, std::unique_ptr<ColumnIte
     return Status::OK();
 }
 
+ColumnReader* Segment::_get_column_reader(const TabletColumn& col) {
+    // init column iterator by path info
+    if (!col.path_info().empty() || col.is_variant_type()) {
+        auto node = _sub_column_tree.find_exact(col.path_info());
+        if (node != nullptr) {
+            return node->data.reader.get();
+        }
+        return nullptr;
+    }
+    auto col_unique_id = col.unique_id();
+    if (_column_readers.count(col_unique_id) > 0) {
+        return _column_readers[col_unique_id].get();
+    }
+    return nullptr;
+}
+
 Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
                                           std::unique_ptr<BitmapIndexIterator>* iter) {
-    auto col_unique_id = tablet_column.unique_id();
-    if (_column_readers.count(col_unique_id) > 0 &&
-        _column_readers.at(col_unique_id)->has_bitmap_index()) {
+    ColumnReader* reader = _get_column_reader(tablet_column);
+    if (reader != nullptr && reader->has_bitmap_index()) {
         BitmapIndexIterator* it;
-        RETURN_IF_ERROR(_column_readers.at(col_unique_id)->new_bitmap_index_iterator(&it));
+        RETURN_IF_ERROR(reader->new_bitmap_index_iterator(&it));
         iter->reset(it);
         return Status::OK();
     }
@@ -492,10 +507,9 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             const TabletIndex* index_meta,
                                             const StorageReadOptions& read_options,
                                             std::unique_ptr<InvertedIndexIterator>* iter) {
-    auto col_unique_id = tablet_column.unique_id();
-    if (_column_readers.count(col_unique_id) > 0 && index_meta) {
-        RETURN_IF_ERROR(_column_readers.at(col_unique_id)
-                                ->new_inverted_index_iterator(index_meta, read_options, iter));
+    ColumnReader* reader = _get_column_reader(tablet_column);
+    if (reader != nullptr && index_meta) {
+        RETURN_IF_ERROR(reader->new_inverted_index_iterator(index_meta, read_options, iter));
         return Status::OK();
     }
     return Status::OK();
@@ -583,8 +597,8 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
     return Status::OK();
 }
 
-bool Segment::is_same_file_col_type_with_expected(int32_t cid, const Schema& schema,
-                                                  bool ignore_children) const {
+bool Segment::same_with_storage_type(int32_t cid, const Schema& schema,
+                                     bool ignore_children) const {
     auto file_column_type = get_data_type_of(*schema.column(cid), ignore_children);
     auto expected_type = Schema::get_data_type_ptr(*schema.column(cid));
     // ignore struct and map now

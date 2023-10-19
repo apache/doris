@@ -28,7 +28,10 @@
 #include "olap/schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 
 namespace doris {
 
@@ -39,8 +42,9 @@ PredicateType MatchPredicate::type() const {
     return PredicateType::MATCH;
 }
 
-Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* iterator,
-                                uint32_t num_rows, roaring::Roaring* bitmap) const {
+Status MatchPredicate::evaluate(const vectorized::NameAndTypePair& name_with_type,
+                                InvertedIndexIterator* iterator, uint32_t num_rows,
+                                roaring::Roaring* bitmap) const {
     if (iterator == nullptr) {
         return Status::OK();
     }
@@ -48,25 +52,18 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
         return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                 "match predicate evaluate skipped.");
     }
-    auto column_desc = schema.column(_column_id);
+    auto type = name_with_type.second;
+    const std::string& name = name_with_type.first;
     roaring::Roaring roaring;
     auto inverted_index_query_type = _to_inverted_index_query_type(_match_type);
-
-    if (is_string_type(column_desc->type()) ||
-        (column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY &&
-         is_string_type(column_desc->get_sub_field(0)->type_info()->type()))) {
+    FieldType filed_type = type->get_type_as_field_type();
+    if (is_string_type(filed_type)) {
         StringRef match_value;
         int32_t length = _value.length();
         char* buffer = const_cast<char*>(_value.c_str());
         match_value.replace(buffer, length); //is it safe?
         RETURN_IF_ERROR(iterator->read_from_inverted_index(
-                column_desc->name(), &match_value, inverted_index_query_type, num_rows, &roaring));
-    } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY &&
-               is_numeric_type(column_desc->get_sub_field(0)->type_info()->type())) {
-        char buf[column_desc->get_sub_field(0)->type_info()->size()];
-        column_desc->get_sub_field(0)->from_string(buf, _value);
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(
-                column_desc->name(), buf, inverted_index_query_type, num_rows, &roaring, true));
+                name, &match_value, inverted_index_query_type, num_rows, &roaring));
     }
 
     // mask out null_bitmap, since NULL cmp VALUE will produce NULL

@@ -38,6 +38,7 @@
 #include "runtime/define_primitive_type.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/common/string_utils/string_utils.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -80,6 +81,7 @@ public:
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
     bool is_array_type() const { return _type == FieldType::OLAP_FIELD_TYPE_ARRAY; }
+    bool is_jsonb_type() const { return _type == FieldType::OLAP_FIELD_TYPE_JSONB; }
     bool is_length_variable_type() const {
         return _type == FieldType::OLAP_FIELD_TYPE_CHAR ||
                _type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
@@ -205,16 +207,15 @@ public:
 
         return 0;
     }
-    TabletIndex(const TabletIndex& other) {
-        _index_id = other._index_id;
-        _index_name = other._index_name;
-        _index_type = other._index_type;
-        _col_unique_ids = other._col_unique_ids;
-        _properties = other._properties;
-    }
+
+    const std::string& get_escaped_index_suffix_path() const { return _escaped_index_suffix_path; }
+
+    void set_escaped_escaped_index_suffix_path(const std::string& name);
 
 private:
     int64_t _index_id;
+    // Identify the different index with the same _index_id
+    std::string _escaped_index_suffix_path;
     std::string _index_name;
     IndexType _index_type;
     std::vector<int32_t> _col_unique_ids;
@@ -232,7 +233,9 @@ public:
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
     void append_index(TabletIndex index);
+    void update_index(const TabletColumn& column, TabletIndex index);
     void remove_index(int64_t index_id);
+    void clear_index();
     // Must make sure the row column is always the last column
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
@@ -284,10 +287,12 @@ public:
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
-    std::vector<const TabletIndex*> get_indexes_for_column(int32_t col_unique_id) const;
-    bool has_inverted_index(int32_t col_unique_id) const;
-    bool has_inverted_index_with_index_id(int32_t index_id) const;
-    const TabletIndex* get_inverted_index(int32_t col_unique_id) const;
+    std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
+    bool has_inverted_index(const TabletColumn& col) const;
+    bool has_inverted_index_with_index_id(int32_t index_id, const std::string& suffix_path) const;
+    const TabletIndex* get_inverted_index(const TabletColumn& col) const;
+    const TabletIndex* get_inverted_index(int32_t col_unique_id,
+                                          const std::string& suffix_path) const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);

@@ -40,6 +40,7 @@
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_state_union.h"
+#include "vec/common/hex.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -623,6 +624,30 @@ vectorized::DataTypePtr TabletColumn::get_vec_type() const {
     return vectorized::DataTypeFactory::instance().create_data_type(*this);
 }
 
+// escape '.' as '%2E'
+std::string escape_for_path_name(const std::string& s) {
+    std::string res;
+    const char* pos = s.data();
+    const char* end = pos + s.size();
+    while (pos != end) {
+        unsigned char c = *pos;
+        if (c == '.') {
+            res += '%';
+            res += vectorized::hex_digit_uppercase(c / 16);
+            res += vectorized::hex_digit_uppercase(c % 16);
+        } else {
+            res += c;
+        }
+        ++pos;
+    }
+    return res;
+}
+
+void TabletIndex::set_escaped_escaped_index_suffix_path(const std::string& path_name) {
+    std::string escaped_path = escape_for_path_name(path_name);
+    _escaped_index_suffix_path = escaped_path;
+}
+
 void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
                                    const TabletSchema& tablet_schema) {
     _index_id = index.index_id;
@@ -699,6 +724,7 @@ void TabletIndex::init_from_pb(const TabletIndexPB& index) {
     for (auto& kv : index.properties()) {
         _properties[kv.first] = kv.second;
     }
+    _escaped_index_suffix_path = index.index_suffix_name();
 }
 
 void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
@@ -712,6 +738,7 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
     for (auto& kv : _properties) {
         (*index->mutable_properties())[kv.first] = kv.second;
     }
+    index->set_index_suffix_name(_escaped_index_suffix_path);
 }
 
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
@@ -752,6 +779,26 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
 
 void TabletSchema::append_index(TabletIndex index) {
     _indexes.push_back(std::move(index));
+}
+
+void TabletSchema::update_index(const TabletColumn& col, TabletIndex index) {
+    int32_t col_unique_id = col.unique_id();
+    const std::string& suffix_path =
+            !col.path_info().empty() ? escape_for_path_name(col.path_info().get_path()) : "";
+    for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i].get_escaped_index_suffix_path() != suffix_path) {
+            continue;
+        }
+        for (int32_t id : _indexes[i].col_unique_ids()) {
+            if (id == col_unique_id) {
+                _indexes[i] = index;
+            }
+        }
+    }
+}
+
+void TabletSchema::clear_index() {
+    _indexes.clear();
 }
 
 void TabletSchema::remove_index(int64_t index_id) {
@@ -1069,11 +1116,17 @@ const TabletColumn& TabletSchema::column(const std::string& field_name) const {
     return _cols[found->second];
 }
 
-std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(int32_t col_unique_id) const {
+std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(
+        const TabletColumn& col) const {
     std::vector<const TabletIndex*> indexes_for_column;
-
+    int32_t col_unique_id = col.unique_id();
+    const std::string& suffix_path =
+            !col.path_info().empty() ? escape_for_path_name(col.path_info().get_path()) : "";
     // TODO use more efficient impl
     for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i].get_escaped_index_suffix_path() != suffix_path) {
+            continue;
+        }
         for (int32_t id : _indexes[i].col_unique_ids()) {
             if (id == col_unique_id) {
                 indexes_for_column.push_back(&(_indexes[i]));
@@ -1084,9 +1137,15 @@ std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(int32_t col
     return indexes_for_column;
 }
 
-bool TabletSchema::has_inverted_index(int32_t col_unique_id) const {
+bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
     // TODO use more efficient impl
+    int32_t col_unique_id = col.unique_id();
+    const std::string& suffix_path =
+            !col.path_info().empty() ? escape_for_path_name(col.path_info().get_path()) : "";
     for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i].get_escaped_index_suffix_path() != suffix_path) {
+            continue;
+        }
         if (_indexes[i].index_type() == IndexType::INVERTED) {
             for (int32_t id : _indexes[i].col_unique_ids()) {
                 if (id == col_unique_id) {
@@ -1099,8 +1158,12 @@ bool TabletSchema::has_inverted_index(int32_t col_unique_id) const {
     return false;
 }
 
-bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id) const {
+bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id,
+                                                    const std::string& suffix_name) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i].get_escaped_index_suffix_path() != suffix_name) {
+            continue;
+        }
         if (_indexes[i].index_type() == IndexType::INVERTED && _indexes[i].index_id() == index_id) {
             return true;
         }
@@ -1109,9 +1172,12 @@ bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id) const {
     return false;
 }
 
-const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id) const {
-    // TODO use more efficient impl
+const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id,
+                                                    const std::string& suffix_path) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i].get_escaped_index_suffix_path() != escape_for_path_name(suffix_path)) {
+            continue;
+        }
         if (_indexes[i].index_type() == IndexType::INVERTED) {
             for (int32_t id : _indexes[i].col_unique_ids()) {
                 if (id == col_unique_id) {
@@ -1120,8 +1186,15 @@ const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id) const
             }
         }
     }
-
     return nullptr;
+}
+
+const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col) const {
+    // TODO use more efficient impl
+    int32_t col_unique_id = col.unique_id();
+    const std::string& suffix_path =
+            !col.path_info().empty() ? escape_for_path_name(col.path_info().get_path()) : "";
+    return get_inverted_index(col_unique_id, suffix_path);
 }
 
 bool TabletSchema::has_ngram_bf_index(int32_t col_unique_id) const {
