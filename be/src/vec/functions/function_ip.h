@@ -164,8 +164,11 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
             continue;
         }
 
-        bool parse_result =
-                tryParseIPv4(reinterpret_cast<const char*>(&vec_src[prev_offset]), vec_res[i]);
+        const char* src_start = reinterpret_cast<const char*>(&vec_src[prev_offset]);
+        size_t src_length = (i < vec_res.size() - 1) ? (offsets_src[i] - prev_offset)
+                                                     : (vec_src.size() - prev_offset);
+        std::string src(src_start, src_length);
+        bool parse_result = tryParseIPv4(src.c_str(), vec_res[i]);
 
         if (!parse_result) {
             if constexpr (exception_mode == IPStringToNumExceptionMode::Throw) {
