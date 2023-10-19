@@ -93,10 +93,6 @@ public:
 
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
     RuntimeProfile::Counter* rows_returned_counter() { return _rows_returned_counter; }
-    RuntimeProfile::Counter* rows_returned_rate() { return _rows_returned_rate; }
-    RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
-    RuntimeProfile::Counter* projection_timer() { return _projection_timer; }
-    RuntimeProfile::Counter* wait_for_dependency_timer() { return _wait_for_dependency_timer; }
     RuntimeProfile::Counter* blocks_returned_counter() { return _blocks_returned_counter; }
 
     OperatorXBase* parent() { return _parent; }
@@ -123,10 +119,9 @@ protected:
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _blocks_returned_counter;
-    RuntimeProfile::Counter* _rows_returned_rate;
     RuntimeProfile::Counter* _wait_for_dependency_timer;
-    // Account for peak memory used by this node
     RuntimeProfile::Counter* _memory_used_counter;
+    RuntimeProfile::Counter* _wait_for_finish_dependency_timer;
     RuntimeProfile::Counter* _projection_timer;
     // Account for peak memory used by this node
     RuntimeProfile::Counter* _peak_memory_usage_counter;
@@ -391,6 +386,7 @@ protected:
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _wait_for_dependency_timer;
+    RuntimeProfile::Counter* _wait_for_finish_dependency_timer;
 
     std::shared_ptr<FinishDependency> _finish_dependency;
 };
@@ -512,8 +508,6 @@ protected:
 
     // Maybe this will be transferred to BufferControlBlock.
     std::shared_ptr<QueryStatistics> _query_statistics;
-
-    OpentelemetrySpan _span {};
 };
 
 template <typename LocalStateType>
@@ -551,7 +545,6 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
 
     [[nodiscard]] std::string debug_string(int indentation_level) const override;
-    typename DependencyType::SharedState*& get_shared_state() { return _shared_state; }
 
     virtual std::string id_name() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
 

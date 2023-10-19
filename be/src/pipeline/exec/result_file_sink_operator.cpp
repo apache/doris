@@ -72,6 +72,7 @@ ResultFileSinkOperatorX::ResultFileSinkOperatorX(
 }
 
 Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::init(tsink));
     auto& sink = tsink.result_file_sink;
     CHECK(sink.__isset.file_options);
     _file_opts.reset(new vectorized::ResultFileOptions(sink.file_options));
