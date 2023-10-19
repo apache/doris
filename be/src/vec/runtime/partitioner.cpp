@@ -55,12 +55,12 @@ Status Partitioner<HashValueType>::do_partitioning(RuntimeState* state, Block* b
     return Status::OK();
 }
 
-void BucketHashPartitioner::_do_hash(const ColumnPtr& column, uint32_t* result, int idx) const {
+void BucketHashPartitioner::_do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const {
     column->update_crcs_with_value(result, _partition_expr_ctxs[idx]->root()->type().type,
                                    column->size());
 }
 
-void HashPartitioner::_do_hash(const ColumnPtr& column, uint64_t* result, int /*idx*/) const {
+void HashPartitioner::_do_hash(const ColumnPtr& column, uint64_t* __restrict result, int /*idx*/) const {
     column->update_hashes_with_value(result);
 }
 

@@ -76,7 +76,8 @@ protected:
         return Status::OK();
     }
 
-    virtual void _do_hash(const ColumnPtr& column, HashValueType* result, int idx) const = 0;
+    virtual void _do_hash(const ColumnPtr& column, HashValueType* __restrict result,
+                          int idx) const = 0;
 
     VExprContextSPtrs _partition_expr_ctxs;
     mutable std::vector<HashValueType> _hash_vals;
@@ -87,7 +88,8 @@ public:
     HashPartitioner(int partition_count) : Partitioner<uint64_t>(partition_count) {}
     ~HashPartitioner() override = default;
 
-    void _do_hash(const ColumnPtr& column, uint64_t* result, int idx) const override;
+private:
+    void _do_hash(const ColumnPtr& column, uint64_t* __restrict result, int idx) const override;
 };
 
 class BucketHashPartitioner final : public Partitioner<uint32_t> {
@@ -95,7 +97,8 @@ public:
     BucketHashPartitioner(int partition_count) : Partitioner<uint32_t>(partition_count) {}
     ~BucketHashPartitioner() override = default;
 
-    void _do_hash(const ColumnPtr& column, uint32_t* result, int idx) const override;
+private:
+    void _do_hash(const ColumnPtr& column, uint32_t* __restrict result, int idx) const override;
 };
 
 } // namespace vectorized
