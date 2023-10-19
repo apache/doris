@@ -45,7 +45,7 @@ public class ShowUserPropertyStmtTest {
 
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        ShowUserPropertyStmt stmt = new ShowUserPropertyStmt("testUser", "%load_cluster%");
+        ShowUserPropertyStmt stmt = new ShowUserPropertyStmt("testUser", "%load_cluster%", false);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW PROPERTY FOR 'testCluster:testUser' LIKE '%load_cluster%'", stmt.toString());
     }
