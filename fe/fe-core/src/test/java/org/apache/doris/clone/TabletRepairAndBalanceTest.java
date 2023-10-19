@@ -500,7 +500,7 @@ public class TabletRepairAndBalanceTest {
         Assert.assertTrue(checkReplicaBad(oneTablet, oneReplica));
 
 
-        //test decommission backend by ids
+        //test cancel decommission backend by ids
 
         String stmtStr4 = "alter system decommission backend \"" + be.getHost() + ":" + be.getHeartbeatPort() + "\"";
         stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr4, connectContext);
