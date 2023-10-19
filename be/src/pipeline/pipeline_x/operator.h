@@ -45,14 +45,14 @@ namespace doris::pipeline {
 struct LocalStateInfo {
     RuntimeProfile* parent_profile;
     const std::vector<TScanRangeParams> scan_ranges;
-    Dependency* dependency;
+    std::vector<DependencySPtr>& dependencys;
 };
 
 // This struct is used only for initializing local sink state.
 struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile;
     const int sender_id;
-    Dependency* dependency;
+    std::vector<DependencySPtr>& dependencys;
     const TDataSink& tsink;
 };
 
@@ -93,10 +93,6 @@ public:
 
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
     RuntimeProfile::Counter* rows_returned_counter() { return _rows_returned_counter; }
-    RuntimeProfile::Counter* rows_returned_rate() { return _rows_returned_rate; }
-    RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
-    RuntimeProfile::Counter* projection_timer() { return _projection_timer; }
-    RuntimeProfile::Counter* wait_for_dependency_timer() { return _wait_for_dependency_timer; }
     RuntimeProfile::Counter* blocks_returned_counter() { return _blocks_returned_counter; }
 
     OperatorXBase* parent() { return _parent; }
@@ -123,10 +119,9 @@ protected:
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _blocks_returned_counter;
-    RuntimeProfile::Counter* _rows_returned_rate;
     RuntimeProfile::Counter* _wait_for_dependency_timer;
-    // Account for peak memory used by this node
     RuntimeProfile::Counter* _memory_used_counter;
+    RuntimeProfile::Counter* _wait_for_finish_dependency_timer;
     RuntimeProfile::Counter* _projection_timer;
     // Account for peak memory used by this node
     RuntimeProfile::Counter* _peak_memory_usage_counter;
@@ -232,8 +227,6 @@ public:
 
     virtual Status setup_local_state(RuntimeState* state, LocalStateInfo& info) = 0;
 
-    virtual Status setup_local_states(RuntimeState* state, std::vector<LocalStateInfo>& infos) = 0;
-
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this))
@@ -306,7 +299,6 @@ public:
     ~OperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
-    Status setup_local_states(RuntimeState* state, std::vector<LocalStateInfo>& info) override;
     using LocalState = LocalStateType;
 };
 
@@ -394,6 +386,7 @@ protected:
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _wait_for_dependency_timer;
+    RuntimeProfile::Counter* _wait_for_finish_dependency_timer;
 
     std::shared_ptr<FinishDependency> _finish_dependency;
 };
@@ -419,8 +412,7 @@ public:
     Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
 
-    virtual Status setup_local_states(RuntimeState* state,
-                                      std::vector<LocalSinkStateInfo>& infos) = 0;
+    virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
 
     template <class TARGET>
     TARGET& cast() {
@@ -516,8 +508,6 @@ protected:
 
     // Maybe this will be transferred to BufferControlBlock.
     std::shared_ptr<QueryStatistics> _query_statistics;
-
-    OpentelemetrySpan _span {};
 };
 
 template <typename LocalStateType>
@@ -532,7 +522,7 @@ public:
             : DataSinkOperatorXBase(id, node_id, sources) {}
     ~DataSinkOperatorX() override = default;
 
-    Status setup_local_states(RuntimeState* state, std::vector<LocalSinkStateInfo>& infos) override;
+    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
     void get_dependency(std::vector<DependencySPtr>& dependency) override;
 
     using LocalState = LocalStateType;
@@ -555,7 +545,6 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
 
     [[nodiscard]] std::string debug_string(int indentation_level) const override;
-    typename DependencyType::SharedState*& get_shared_state() { return _shared_state; }
 
     virtual std::string id_name() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
 

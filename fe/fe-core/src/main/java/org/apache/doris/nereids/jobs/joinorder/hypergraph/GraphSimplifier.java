@@ -418,14 +418,18 @@ public class GraphSimplifier {
 
     private SimplificationStep orderJoin(Pair<Statistics, Edge> edge1Before2,
                                          Pair<Statistics, Edge> edge2Before1, int edgeIndex1, int edgeIndex2) {
-        Edge edge = processMissedEdges(edgeIndex1, edgeIndex2, edge1Before2.second);
-        Cost cost1Before2 = calCost(edge, edge1Before2.first,
+        // TODO: Consider miss edges when construct join.
+        // considering
+        //          a
+        //         /  \
+        //        b  - c
+        // when constructing edge_ab before edge_bc. edge_ac should be added on top join
+        Cost cost1Before2 = calCost(edge1Before2.second, edge1Before2.first,
                 cacheStats.get(edge1Before2.second.getLeftExtendedNodes()),
                 cacheStats.get(edge1Before2.second.getRightExtendedNodes()));
-        edge = processMissedEdges(edgeIndex1, edgeIndex2, edge2Before1.second);
-        Cost cost2Before1 = calCost(edge, edge1Before2.first,
-                cacheStats.get(edge1Before2.second.getLeftExtendedNodes()),
-                cacheStats.get(edge1Before2.second.getRightExtendedNodes()));
+        Cost cost2Before1 = calCost(edge2Before1.second, edge2Before1.first,
+                cacheStats.get(edge2Before1.second.getLeftExtendedNodes()),
+                cacheStats.get(edge2Before1.second.getRightExtendedNodes()));
         double benefit = Double.MAX_VALUE;
         SimplificationStep step;
         // Choose the plan with smaller cost and make the simplification step to replace the old edge by it.
@@ -505,10 +509,10 @@ public class GraphSimplifier {
                 Edge edge2 = graph.getEdge(j);
                 if (edge1.isSub(edge2)) {
                     Preconditions.checkArgument(circleDetector.tryAddDirectedEdge(i, j),
-                            String.format("Edge %s violates Edge %s", edge1, edge2));
+                            "Edge %s violates Edge %s", edge1, edge2);
                 } else if (edge2.isSub(edge1)) {
                     Preconditions.checkArgument(circleDetector.tryAddDirectedEdge(j, i),
-                            String.format("Edge %s violates Edge %s", edge2, edge1));
+                            "Edge %s violates Edge %s", edge2, edge1);
                 }
             }
         }

@@ -77,10 +77,12 @@ public:
               _pool(pool) {};
 
     Status init(const TDataSink& thrift_sink) override {
+        RETURN_IF_ERROR(Base::init(thrift_sink));
         // From the thrift expressions create the real exprs.
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
         return Status::OK();
     }
+
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::prepare(state));
         return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);

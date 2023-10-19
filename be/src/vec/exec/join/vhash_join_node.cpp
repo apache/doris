@@ -502,11 +502,11 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
         _probe_columns.resize(probe_expr_ctxs_sz);
 
         std::vector<int> res_col_ids(probe_expr_ctxs_sz);
-        RETURN_IF_ERROR(
-                _do_evaluate(*input_block, _probe_expr_ctxs, *_probe_expr_call_timer, res_col_ids));
         if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
             _probe_column_convert_to_null = _convert_block_to_null(*input_block);
         }
+        RETURN_IF_ERROR(
+                _do_evaluate(*input_block, _probe_expr_ctxs, *_probe_expr_call_timer, res_col_ids));
         // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
         //  so we have to initialize this flag by the first probe block.
         if (!_has_set_need_null_map_for_probe) {
@@ -1082,61 +1082,8 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                     return;
                 }
 
-                bool use_fixed_key = true;
-                bool has_null = false;
-                size_t key_byte_size = 0;
-                size_t bitmap_size = get_bitmap_size(_build_expr_ctxs.size());
-
-                _probe_key_sz.resize(_probe_expr_ctxs.size());
-                _build_key_sz.resize(_build_expr_ctxs.size());
-
-                for (int i = 0; i < _build_expr_ctxs.size(); ++i) {
-                    const auto vexpr = _build_expr_ctxs[i]->root();
-                    const auto& data_type = vexpr->data_type();
-
-                    if (!data_type->have_maximum_size_of_value()) {
-                        use_fixed_key = false;
-                        break;
-                    }
-
-                    auto is_null = data_type->is_nullable();
-                    has_null |= is_null;
-                    _build_key_sz[i] =
-                            data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
-                    _probe_key_sz[i] = _build_key_sz[i];
-                    key_byte_size += _probe_key_sz[i];
-                }
-
-                if (bitmap_size + key_byte_size > sizeof(UInt256)) {
-                    use_fixed_key = false;
-                }
-
-                if (use_fixed_key) {
-                    // TODO: may we should support uint256 in the future
-                    if (has_null) {
-                        if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
-                            _hash_table_variants
-                                    ->emplace<I64FixedKeyHashTableContext<true, RowRefListType>>();
-                        } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
-                            _hash_table_variants
-                                    ->emplace<I128FixedKeyHashTableContext<true, RowRefListType>>();
-                        } else {
-                            _hash_table_variants
-                                    ->emplace<I256FixedKeyHashTableContext<true, RowRefListType>>();
-                        }
-                    } else {
-                        if (key_byte_size <= sizeof(UInt64)) {
-                            _hash_table_variants
-                                    ->emplace<I64FixedKeyHashTableContext<false, RowRefListType>>();
-                        } else if (key_byte_size <= sizeof(UInt128)) {
-                            _hash_table_variants->emplace<
-                                    I128FixedKeyHashTableContext<false, RowRefListType>>();
-                        } else {
-                            _hash_table_variants->emplace<
-                                    I256FixedKeyHashTableContext<false, RowRefListType>>();
-                        }
-                    }
-                } else {
+                if (!try_get_hash_map_context_fixed<PartitionedHashMap, HashCRC32, RowRefListType>(
+                            *_hash_table_variants, _build_expr_ctxs)) {
                     _hash_table_variants->emplace<SerializedHashTableContext<RowRefListType>>();
                 }
             },
