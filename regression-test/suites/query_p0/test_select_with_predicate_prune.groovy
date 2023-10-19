@@ -25,7 +25,11 @@ suite("test_select_with_predicate_prune") {
             birthday date not null
         )
         duplicate key(`id`)
-        AUTO PARTITION BY LIST (`birthday`)()
+        PARTITION BY RANGE (`birthday`)(
+            PARTITION `p20201001` VALUES LESS THAN ("2020-10-02"),
+            PARTITION `p20201002` VALUES LESS THAN ("2020-10-03"),
+            PARTITION `p20201003` VALUES LESS THAN ("2020-10-04")
+        )
         DISTRIBUTED BY HASH(`id`) buckets 1
         PROPERTIES
         (
