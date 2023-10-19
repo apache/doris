@@ -186,8 +186,7 @@ public:
     Status capture_consistent_rowsets(const Version& spec_version,
                                       std::vector<RowsetSharedPtr>* rowsets) const;
     // If skip_missing_version is true, skip versions if they are missing.
-    Status capture_rs_readers(const Version& spec_version,
-                              std::vector<RowSetSplits>* rs_splits,
+    Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                               bool skip_missing_version = false) const;
 
     Status capture_rs_readers(const std::vector<Version>& version_path,
