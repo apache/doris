@@ -35,15 +35,15 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
         Status st = Status::create(response.status());
 
         std::stringstream ss;
-        ss << "received response from backend " << _stub->_dst_id;
+        ss << "received response from backend " << _dst_id;
         if (response.success_tablet_ids_size() > 0) {
             ss << ", success tablet ids:";
             for (auto tablet_id : response.success_tablet_ids()) {
                 ss << " " << tablet_id;
             }
-            std::lock_guard<bthread::Mutex> lock(_stub->_success_tablets_mutex);
+            std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
             for (auto tablet_id : response.success_tablet_ids()) {
-                _stub->_success_tablets.push_back(tablet_id);
+                _success_tablets.push_back(tablet_id);
             }
         }
         if (response.failed_tablet_ids_size() > 0) {
@@ -51,9 +51,9 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
             for (auto tablet_id : response.failed_tablet_ids()) {
                 ss << " " << tablet_id;
             }
-            std::lock_guard<bthread::Mutex> lock(_stub->_failed_tablets_mutex);
+            std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
             for (auto tablet_id : response.failed_tablet_ids()) {
-                _stub->_failed_tablets.push_back(tablet_id);
+                _failed_tablets.push_back(tablet_id);
             }
         }
         ss << ", status: " << st;
@@ -113,6 +113,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
         return Status::OK();
     }
     _dst_id = node_info.id;
+    _handler.set_dst_id(_dst_id);
     std::string host_port = get_host_port(node_info.host, node_info.brpc_port);
     brpc::StreamOptions opt;
     opt.max_buf_size = 20 << 20; // 20MB

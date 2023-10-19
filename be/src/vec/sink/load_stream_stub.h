@@ -108,10 +108,28 @@ private:
             return Status::OK();
         };
 
+        std::vector<int64_t> success_tablets() {
+            std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
+            return _success_tablets;
+        }
+
+        std::vector<int64_t> failed_tablets() {
+            std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
+            return _failed_tablets;
+        }
+
+        void set_dst_id(int64_t dst_id) { _dst_id = dst_id; }
+
     private:
+        int64_t _dst_id = -1; // for logging
         std::atomic<bool> _is_closed;
         bthread::Mutex _mutex;
         bthread::ConditionVariable _close_cv;
+
+        bthread::Mutex _success_tablets_mutex;
+        bthread::Mutex _failed_tablets_mutex;
+        std::vector<int64_t> _success_tablets;
+        std::vector<int64_t> _failed_tablets;
     };
 
 public:
@@ -166,13 +184,11 @@ public:
     }
 
     std::vector<int64_t> success_tablets() {
-        std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
-        return _success_tablets;
+        return _handler.success_tablets();
     }
 
     std::vector<int64_t> failed_tablets() {
-        std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
-        return _failed_tablets;
+        return _handler.failed_tablets();
     }
 
     brpc::StreamId stream_id() const { return _stream_id; }
@@ -201,11 +217,6 @@ protected:
     int64_t _src_id = -1; // source backend_id
     int64_t _dst_id = -1; // destination backend_id
     LoadStreamReplyHandler _handler;
-
-    bthread::Mutex _success_tablets_mutex;
-    bthread::Mutex _failed_tablets_mutex;
-    std::vector<int64_t> _success_tablets;
-    std::vector<int64_t> _failed_tablets;
 
     std::shared_ptr<IndexToTabletSchema> _tablet_schema_for_index;
     std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
