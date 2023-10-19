@@ -1822,10 +1822,10 @@ IsMutable：true
 
 MasterOnly：true
 
-In some scenarios, there is an unrecoverable metadata problem in the cluster, and the visibleVersion of the data does not match be. In this case, it is still necessary to restore the remaining data (which may cause problems with the correctness of the data). This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
+In some scenarios, there is an unrecoverable metadata problem in the cluster, and the visibleVersion of the data does not match be, or all replicas under a tablet are missing certain versions. In this case, it is still necessary to restore the remaining data (which may cause problems with the correctness of the data). This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
 This configuration has three values:
 * disable : If an exception occurs, an error will be reported normally.
-* ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
+* ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version, if there are missing versions of the actual replica on be, skip the missing version directly, and only return the data of the existing version.
 * ignore_all: In addition to ignore_version, when encountering no queryable replica, skip it directly instead of throwing an exception
 
 #### `min_clone_task_timeout_sec` `And max_clone_task_timeout_sec`
