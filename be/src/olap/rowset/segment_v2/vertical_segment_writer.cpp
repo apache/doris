@@ -292,6 +292,7 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
 // 3. set columns to data convertor and then write all columns
 Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& data) {
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
+    DCHECK(_opts.rowset_ctx->partial_update_info != nullptr);
 
     // create full block and fill with input columns
     auto full_block = _tablet_schema->create_block();
