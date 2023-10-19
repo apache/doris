@@ -21,8 +21,6 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.Maps;
@@ -46,11 +44,7 @@ public class LessThanPartition extends PartitionDefinition {
 
     @Override
     public void validate(Map<String, String> properties) {
-        try {
-            replicaAllocation = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
-        }
+        super.validate(properties);
     }
 
     public String getPartitionName() {
