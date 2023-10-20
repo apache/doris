@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.master.ReportHandler;
@@ -51,8 +52,8 @@ public class RepairVersionTest extends TestWithFeService {
         Config.disable_balance = true;
         Config.disable_tablet_scheduler = true;
         Config.allow_replica_on_same_host = true;
-        Config.tablet_checker_interval_ms = 100;
-        Config.tablet_schedule_interval_ms = 100;
+        FeConstants.tablet_checker_interval_ms = 100;
+        FeConstants.tablet_schedule_interval_ms = 100;
     }
 
     @Override
