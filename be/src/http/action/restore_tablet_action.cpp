@@ -120,7 +120,7 @@ Status RestoreTabletAction::_reload_tablet(const std::string& key, const std::st
     clone_req.__set_tablet_id(tablet_id);
     clone_req.__set_schema_hash(schema_hash);
     Status res = Status::OK();
-    res = _exec_env->storage_engine()->load_header(shard_path, clone_req, /*restore=*/true);
+    res = StorageEngine::instance()->load_header(shard_path, clone_req, /*restore=*/true);
     if (!res.ok()) {
         LOG(WARNING) << "load header failed. status: " << res << ", signature: " << tablet_id;
         // remove tablet data path in data path
