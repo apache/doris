@@ -505,7 +505,7 @@ public:
             RowsetSharedPtr dst_rowset,
             const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
                     location_map);
-    RowsetIdUnorderedSet all_rs_id(int64_t max_version) const;
+    Status all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const;
     void sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
 
     bool check_all_rowset_segment();
@@ -595,7 +595,7 @@ private:
     bool _reconstruct_version_tracker_if_necessary();
     void _init_context_common_fields(RowsetWriterContext& context);
 
-    void _rowset_ids_difference(const RowsetIdUnorderedSet& cur, const RowsetIdUnorderedSet& pre,
+void _rowset_ids_difference(const RowsetIdUnorderedSet& cur, const RowsetIdUnorderedSet& pre,
                                 RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
     Status _load_rowset_segments(const RowsetSharedPtr& rowset,
                                  std::vector<segment_v2::SegmentSharedPtr>* segments);
