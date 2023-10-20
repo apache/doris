@@ -69,11 +69,13 @@ struct StrToDate {
 
     static bool is_variadic() { return false; }
 
-    static DataTypes get_variadic_argument_types() { return {}; }
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         //TODO: it doesn't matter now. maybe sometime we should find the function signature with return_type together
-        return make_nullable(std::make_shared<DataTypeDateTime>());
+        return make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
     }
 
     static StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
