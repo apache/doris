@@ -37,6 +37,7 @@ enum TDataSinkType {
     JDBC_TABLE_SINK,
     MULTI_CAST_DATA_STREAM_SINK,
     GROUP_COMMIT_OLAP_TABLE_SINK,
+    GROUP_COMMIT_BLOCK_SINK,
 }
 
 enum TResultSinkType {
@@ -255,6 +256,7 @@ struct TOlapTableSink {
     18: optional Descriptors.TOlapTableLocationParam slave_location
     19: optional i64 txn_timeout_s // timeout of load txn in second
     20: optional bool write_file_cache
+    21: optional i64 base_schema_version
 }
 
 struct TDataSink {

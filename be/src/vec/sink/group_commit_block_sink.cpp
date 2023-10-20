@@ -26,7 +26,7 @@
 
 namespace doris {
 
-namespace stream_load {
+namespace vectorized {
 
 GroupCommitBlockSink::GroupCommitBlockSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                            const std::vector<TExpr>& texprs, Status* status)
@@ -44,6 +44,9 @@ Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
     _tuple_desc_id = table_sink.tuple_id;
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
+    _db_id = table_sink.db_id;
+    _table_id = table_sink.table_id;
+    _base_schema_version = table_sink.base_schema_version;
     return Status::OK();
 }
 
@@ -77,6 +80,31 @@ Status GroupCommitBlockSink::open(RuntimeState* state) {
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 
+Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
+    if (_load_block_queue) {
+        _load_block_queue->remove_load_id(_load_id);
+    }
+    RETURN_IF_ERROR(DataSink::close(state, close_status));
+    RETURN_IF_ERROR(close_status);
+    // wait to wal
+    int64_t total_rows = 0;
+    int64_t loaded_rows = 0;
+    for (const auto& future_block : _future_blocks) {
+        std::unique_lock<doris::Mutex> l(*(future_block->lock));
+        if (!future_block->is_handled()) {
+            future_block->cv->wait(l);
+        }
+        // future_block->get_status()
+        loaded_rows += future_block->get_loaded_rows();
+        total_rows += future_block->get_total_rows();
+    }
+    state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() + total_rows -
+                                         loaded_rows);
+    state->set_num_rows_load_total(loaded_rows + state->num_rows_load_unselected() +
+                                   state->num_rows_load_filtered());
+    return Status::OK();
+}
+
 Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
@@ -97,9 +125,43 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             state, input_block, block, _output_vexpr_ctxs, rows, has_filtered_rows));
-    block->swap(*input_block);
-    return Status::OK();
+    // add block into block queue
+    return _add_block(state, block);
 }
 
-} // namespace stream_load
+Status GroupCommitBlockSink::_add_block(RuntimeState* state,
+                                        std::shared_ptr<vectorized::Block> block) {
+    if (block->rows() == 0) {
+        return Status::OK();
+    }
+    // add block to queue
+    auto _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
+    {
+        vectorized::IColumn::Selector selector;
+        for (auto i = 0; i < block->rows(); i++) {
+            selector.emplace_back(i);
+        }
+        block->append_to_block_by_selector(_cur_mutable_block.get(), selector);
+    }
+    std::shared_ptr<vectorized::Block> output_block =
+            std::make_shared<vectorized::Block>(_cur_mutable_block->to_block());
+
+    std::shared_ptr<doris::vectorized::FutureBlock> future_block =
+            std::make_shared<doris::vectorized::FutureBlock>();
+    future_block->swap(*(output_block.get()));
+    TUniqueId load_id;
+    load_id.__set_hi(load_id.hi);
+    load_id.__set_lo(load_id.lo);
+    future_block->set_info(_base_schema_version, load_id);
+    if (_load_block_queue == nullptr) {
+        RETURN_IF_ERROR(state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
+                _db_id, _table_id, future_block, _load_block_queue));
+        state->set_import_label(_load_block_queue->label);
+        state->set_wal_id(_load_block_queue->txn_id);
+    }
+    _future_blocks.emplace_back(future_block);
+    return _load_block_queue->add_block(future_block);
+}
+
+} // namespace vectorized
 } // namespace doris

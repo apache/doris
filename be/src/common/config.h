@@ -1162,7 +1162,7 @@ DECLARE_Int32(group_commit_sync_wal_batch);
 
 // This config can be set to limit thread number in group commit insert thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
-DECLARE_mInt32(group_commit_interval_seconds);
+DECLARE_mInt32(group_commit_interval_ms);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
