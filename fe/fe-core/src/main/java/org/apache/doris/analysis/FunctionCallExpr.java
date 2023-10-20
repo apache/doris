@@ -1902,7 +1902,7 @@ public class FunctionCallExpr extends Expr {
                 if (DateLiteral.hasTimePart(child1Result.getStringValue())) {
                     this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
                 } else {
-                    this.type = Type.DATE;
+                    this.type = Type.DATEV2;
                 }
             } else {
                 this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
