@@ -2298,14 +2298,28 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 break;
             // Micro second
             case 'f':
-                tmp = val + min(6, val_end - val);
-                if (!str_to_int64(val, &tmp, &int_value)) {
-                    return false;
+                tmp = val;
+                // when there's still something to the end, fix the scale of ms.
+                while (tmp < val_end && isdigit(*tmp)) {
+                    tmp++;
                 }
-                microsecond = int_value * int_exp10(6 - min(6, val_end - val));
+
+                if (tmp - val > 6) {
+                    const char* tmp2 = val + 6;
+                    if (!str_to_int64(val, &tmp2, &int_value)) {
+                        return false;
+                    }
+                } else {
+                    if (!str_to_int64(val, &tmp, &int_value)) {
+                        return false;
+                    }
+                }
+                if constexpr (is_datetime) {
+                    microsecond = int_value * int_exp10(6 - min(6, tmp - val));
+                    frac_part_used = true;
+                }
                 val = tmp;
                 time_part_used = true;
-                frac_part_used = true;
                 break;
                 // AM/PM
             case 'p':
