@@ -85,10 +85,18 @@ struct MethodBase {
             hash_values[k] = hash_table->hash(keys[k]);
         }
     }
+
     void init_hash_values(size_t num_rows) {
         hash_values.resize(num_rows);
         for (size_t k = 0; k < num_rows; ++k) {
             hash_values[k] = hash_table->hash(keys[k]);
+        }
+    }
+
+    void calculate_bucket(size_t num_rows) {
+        size_t mask = hash_table->get_bucket_mask();
+        for (int i = 0; i < num_rows; i++) {
+            hash_values[i] &= mask;
         }
     }
 
