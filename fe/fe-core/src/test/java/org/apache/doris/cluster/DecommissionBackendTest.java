@@ -108,6 +108,28 @@ public class DecommissionBackendTest extends TestWithFeService {
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
         Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
 
+
+        // decommission backend by id
+        String decommissionByIdStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getId() + "\"";
+        AlterSystemStmt decommissionByIdStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionByIdStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionByIdStmt);
+
+        Assertions.assertEquals(true, srcBackend.isDecommissioned());
+        startTimestamp = System.currentTimeMillis();
+        while (System.currentTimeMillis() - startTimestamp < 90000
+                && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
+            Thread.sleep(1000);
+        }
+
+        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
+
+
+        // 7. add backend
+        addBackendStmtStr = "alter system add backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
+        addBackendStmt = (AlterSystemStmt) parseAndAnalyzeStmt(addBackendStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
+
     }
 
     @Test
