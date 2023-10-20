@@ -76,12 +76,10 @@ struct RowsInBlock {
     size_t num_rows;
 };
 
-using TabletSharedPtr = std::shared_ptr<Tablet>;
-
 class VerticalSegmentWriter {
 public:
     explicit VerticalSegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
-                                   TabletSchemaSPtr tablet_schema, TabletSharedPtr tablet,
+                                   TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                    DataDir* data_dir, uint32_t max_row_per_segment,
                                    const VerticalSegmentWriterOptions& opts,
                                    std::shared_ptr<MowContext> mow_context);
@@ -153,7 +151,7 @@ private:
 private:
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
     DataDir* _data_dir;
     VerticalSegmentWriterOptions _opts;
 
