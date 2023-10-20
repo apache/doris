@@ -447,7 +447,7 @@ Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& ch
                                                int num_channels,
                                                const HashValueType* __restrict channel_ids,
                                                int rows, vectorized::Block* block, bool eos) {
-    std::vector<int> channel2rows[num_channels];
+    std::vector<uint32_t> channel2rows[num_channels];
 
     for (int i = 0; i < rows; i++) {
         channel2rows[channel_ids[i]].emplace_back(i);

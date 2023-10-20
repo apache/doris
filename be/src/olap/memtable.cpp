@@ -166,7 +166,7 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
                                *_pblock, -1);
 }
 
-void MemTable::insert(const vectorized::Block* input_block, const std::vector<int>& row_idxs,
+void MemTable::insert(const vectorized::Block* input_block, const std::vector<uint32_t>& row_idxs,
                       bool is_append) {
     SCOPED_CONSUME_MEM_TRACKER(_insert_mem_tracker_use_hook.get());
     vectorized::Block target_block = *input_block;
@@ -239,7 +239,7 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
 }
 void MemTable::_put_into_output(vectorized::Block& in_block) {
     SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
-    std::vector<int> row_pos_vec;
+    std::vector<uint32_t> row_pos_vec;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_pos_vec.reserve(in_block.rows());
     for (int i = 0; i < _row_in_blocks.size(); i++) {
