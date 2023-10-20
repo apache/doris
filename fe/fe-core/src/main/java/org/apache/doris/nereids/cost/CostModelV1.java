@@ -338,6 +338,18 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         return false;
     }
 
+    private boolean isStatsUnknown(PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
+            Statistics build, Statistics probe) {
+        for (Slot slot : join.getConditionSlot()) {
+            if ((build.columnStatistics().containsKey(slot) && !build.columnStatistics().get(slot).isUnKnown)
+                    || (probe.columnStatistics().containsKey(slot) && !probe.columnStatistics().get(slot).isUnKnown)) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
     @Override
     public Cost visitPhysicalNestedLoopJoin(
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin,
@@ -346,7 +358,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Preconditions.checkState(context.arity() == 2);
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
-
+        if (isStatsUnknown(nestedLoopJoin, leftStatistics, rightStatistics)) {
+            return CostV1.of(rightStatistics.getRowCount() + 1 / leftStatistics.getRowCount(),
+                    rightStatistics.getRowCount(),
+                    0);
+        }
         return CostV1.of(
                 leftStatistics.getRowCount() * rightStatistics.getRowCount(),
                 rightStatistics.getRowCount(),
