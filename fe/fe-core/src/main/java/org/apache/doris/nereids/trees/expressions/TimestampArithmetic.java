@@ -172,10 +172,10 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
     public void checkLegalityBeforeTypeCoercion() {
         children().forEach(c -> {
             if (c.getDataType().isObjectType()) {
-                throw new AnalysisException("in predicate could not contains object type: " + this.toSql());
+                throw new AnalysisException("timestamp arithmetic could not contains object type: " + this.toSql());
             }
             if (c.getDataType().isComplexType()) {
-                throw new AnalysisException("in predicate could not contains complex type: " + this.toSql());
+                throw new AnalysisException("timestamp arithmetic could not contains complex type: " + this.toSql());
             }
         });
     }
