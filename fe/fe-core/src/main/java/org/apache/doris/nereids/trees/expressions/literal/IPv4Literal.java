@@ -18,17 +18,23 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IPv4Type;
+
+import java.util.regex.Pattern;
 
 /**
  * Represents IPv4 literal
  */
 public class IPv4Literal extends Literal {
 
+    private static final Pattern IPV4_STD_REGEX =
+            Pattern.compile("^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$");
+
     private long value;
 
-    public IPv4Literal(String ipv4) {
+    public IPv4Literal(String ipv4) throws AnalysisException {
         super(IPv4Type.INSTANCE);
         init(ipv4);
     }
@@ -53,7 +59,9 @@ public class IPv4Literal extends Literal {
         return new org.apache.doris.analysis.IPv4Literal(value);
     }
 
-    void init(String ipv4) {
+    void init(String ipv4) throws AnalysisException {
+        checkValueValid(ipv4);
+
         String[] parts = ipv4.split("\\.");
         if (parts.length != 4) {
             return;
@@ -65,13 +73,21 @@ public class IPv4Literal extends Literal {
             try {
                 octet = Short.parseShort(parts[i]);
             } catch (NumberFormatException e) {
-                return;
+                throw new AnalysisException("Invalid IPv4 format.");
             }
             if (octet < 0 || octet > 255) {
-                return;
+                throw new AnalysisException("Invalid IPv4 format.");
             }
             value = (value << 8) | octet;
         }
         this.value = value;
+    }
+
+    private void checkValueValid(String ipv4) throws AnalysisException {
+        if (ipv4.length() > 15) {
+            throw new AnalysisException("The length of IPv4 must not exceed 15.");
+        } else if (!IPV4_STD_REGEX.matcher(ipv4).matches()) {
+            throw new AnalysisException("Invalid IPv4 format.");
+        }
     }
 }
