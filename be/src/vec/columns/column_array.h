@@ -219,8 +219,8 @@ public:
         callback(data);
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* __restrict indices_begin,
+                             const uint32_t* __restrict indices_end) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);

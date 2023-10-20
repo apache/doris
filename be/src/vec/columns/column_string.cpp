@@ -124,8 +124,8 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
     }
 }
 
-void ColumnString::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                       const int* indices_end) {
+void ColumnString::insert_indices_from(const IColumn& src, const uint32_t* __restrict indices_begin,
+                                       const uint32_t* __restrict indices_end) {
     const ColumnString& src_str = assert_cast<const ColumnString&>(src);
     auto src_offset_data = src_str.offsets.data();
 
@@ -136,10 +136,9 @@ void ColumnString::insert_indices_from(const IColumn& src, const int* indices_be
     offsets.resize(offsets.size() + indices_end - indices_begin);
     auto* dst_offsets_data = offsets.data();
 
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x != -1) {
-            total_chars_size += src_offset_data[*x] - src_offset_data[*x - 1];
-        }
+    for (auto* __restrict x = indices_begin; x != indices_end; ++x) {
+        const auto offset = *x;
+        total_chars_size += src_offset_data[offset] - src_offset_data[offset - 1];
         dst_offsets_data[dst_offsets_pos++] = total_chars_size;
     }
     check_chars_length(total_chars_size, offsets.size());
@@ -150,14 +149,15 @@ void ColumnString::insert_indices_from(const IColumn& src, const int* indices_be
     auto* dst_data_ptr = chars.data();
 
     size_t dst_chars_pos = old_char_size;
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x != -1) {
-            const size_t size_to_append = src_offset_data[*x] - src_offset_data[*x - 1];
-            const size_t offset = src_offset_data[*x - 1];
-            memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
-                                                     src_data_ptr + offset, size_to_append);
-            dst_chars_pos += size_to_append;
-        }
+    for (auto* __restrict x = indices_begin; x != indices_end; ++x) {
+        const auto offset = *x;
+        const auto start = src_offset_data[offset - 1];
+        const auto end = src_offset_data[offset];
+
+        const size_t size_to_append = end - start;
+        memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos, src_data_ptr + start,
+                                                 size_to_append);
+        dst_chars_pos += size_to_append;
     }
 }
 

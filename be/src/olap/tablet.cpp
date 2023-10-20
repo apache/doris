@@ -2911,7 +2911,7 @@ void Tablet::sort_block(vectorized::Block& in_block, vectorized::Block& output_b
                                      << " r_pos: " << r->_row_pos;
                   return value < 0;
               });
-    std::vector<int> row_pos_vec;
+    std::vector<uint32_t> row_pos_vec;
     row_pos_vec.reserve(in_block.rows());
     for (int i = 0; i < row_in_blocks.size(); i++) {
         row_pos_vec.emplace_back(row_in_blocks[i]->_row_pos);
