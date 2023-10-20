@@ -83,7 +83,7 @@ public class AddReplicaChoseMediumTest extends TestWithFeService {
 
         List<Integer> gotTabletNums = null;
         List<Integer> expectTabletNums = Lists.newArrayList(0, 12, 12, 0);
-        for (int i=0; i<10; i++) {
+        for (int i = 0; i < 10; i++) {
             gotTabletNums = backends.stream().map(it -> invertedIndex.getTabletNumByBackendId(it.getId()))
                     .collect(Collectors.toList());
             if (expectTabletNums.equals(gotTabletNums)) {
