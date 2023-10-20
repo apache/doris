@@ -384,7 +384,7 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
         int32_t c3 = 1;
         columns[2]->insert_data((const char*)&c3, sizeof(c2));
 
-        vectorized::VecDateTimeValue c4;
+        VecDateTimeValue c4;
         c4.from_date_str("2020-07-16 19:39:43", 19);
         int64_t c4_int = c4.to_int64();
         columns[3]->insert_data((const char*)&c4_int, sizeof(c4));

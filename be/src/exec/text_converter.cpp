@@ -193,7 +193,7 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
         break;
     }
     case TYPE_DATE: {
-        vectorized::VecDateTimeValue ts_slot;
+        VecDateTimeValue ts_slot;
         if (!ts_slot.from_date_str(data, len)) {
             parse_result = StringParser::PARSE_FAILURE;
             break;
@@ -205,7 +205,7 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
         break;
     }
     case TYPE_DATEV2: {
-        vectorized::DateV2Value<vectorized::DateV2ValueType> ts_slot;
+        DateV2Value<DateV2ValueType> ts_slot;
         if (!ts_slot.from_date_str(data, len)) {
             parse_result = StringParser::PARSE_FAILURE;
             break;
@@ -217,7 +217,7 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
         break;
     }
     case TYPE_DATETIME: {
-        vectorized::VecDateTimeValue ts_slot;
+        VecDateTimeValue ts_slot;
         if (!ts_slot.from_date_str(data, len)) {
             parse_result = StringParser::PARSE_FAILURE;
             break;
@@ -229,7 +229,7 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
         break;
     }
     case TYPE_DATETIMEV2: {
-        vectorized::DateV2Value<vectorized::DateTimeV2ValueType> ts_slot;
+        DateV2Value<DateTimeV2ValueType> ts_slot;
         if (!ts_slot.from_date_str(data, len)) {
             parse_result = StringParser::PARSE_FAILURE;
             break;

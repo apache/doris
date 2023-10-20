@@ -62,14 +62,10 @@ struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;
-class VecDateTimeValue;
-struct DateTimeV2ValueType;
 template <typename T>
 class ColumnVector;
 template <typename T>
 class DataTypeDecimal;
-template <typename T>
-class DateV2Value;
 template <typename T>
 struct Decimal;
 } // namespace vectorized

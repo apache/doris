@@ -142,8 +142,7 @@ public:
             } else if constexpr (Type == TYPE_DATE) {
                 HybridSetBase::IteratorBase* iter = hybrid_set->begin();
                 while (iter->has_next()) {
-                    const vectorized::VecDateTimeValue* value =
-                            (const vectorized::VecDateTimeValue*)(iter->get_value());
+                    const VecDateTimeValue* value = (const VecDateTimeValue*)(iter->get_value());
                     uint64_t date = value->to_olap_date();
                     _values->insert(&date);
                     iter->next();
@@ -151,8 +150,7 @@ public:
             } else if constexpr (Type == TYPE_DATETIME) {
                 HybridSetBase::IteratorBase* iter = hybrid_set->begin();
                 while (iter->has_next()) {
-                    const vectorized::VecDateTimeValue* value =
-                            (const vectorized::VecDateTimeValue*)(iter->get_value());
+                    const VecDateTimeValue* value = (const VecDateTimeValue*)(iter->get_value());
                     uint64_t date_time = value->to_olap_datetime();
                     _values->insert(&date_time);
                     iter->next();

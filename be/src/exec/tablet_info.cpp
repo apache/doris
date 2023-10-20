@@ -489,7 +489,7 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
         if (TypeDescriptor::from_thrift(t_expr.type).is_date_v2_type()) {
-            vectorized::DateV2Value<doris::vectorized::DateV2ValueType> dt;
+            DateV2Value<DateV2ValueType> dt;
             if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
                                   t_expr.date_literal.value.size())) {
                 std::stringstream ss;
@@ -498,7 +498,7 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
             }
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         } else if (TypeDescriptor::from_thrift(t_expr.type).is_datetime_v2_type()) {
-            vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> dt;
+            DateV2Value<DateTimeV2ValueType> dt;
             if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
                                   t_expr.date_literal.value.size())) {
                 std::stringstream ss;
@@ -507,7 +507,7 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
             }
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         } else {
-            vectorized::VecDateTimeValue dt;
+            VecDateTimeValue dt;
             if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
                                   t_expr.date_literal.value.size())) {
                 std::stringstream ss;

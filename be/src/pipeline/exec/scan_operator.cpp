@@ -852,8 +852,8 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                                                     const std::string& fn_name,
                                                     int slot_ref_child) {
     if constexpr (PrimitiveType == TYPE_DATE) {
-        vectorized::VecDateTimeValue tmp_value;
-        memcpy(&tmp_value, value, sizeof(vectorized::VecDateTimeValue));
+        VecDateTimeValue tmp_value;
+        memcpy(&tmp_value, value, sizeof(VecDateTimeValue));
         if constexpr (IsFixed) {
             if (!tmp_value.check_loss_accuracy_cast_to_date()) {
                 func(temp_range,

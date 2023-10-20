@@ -188,7 +188,7 @@ Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot
 template <typename T, typename RT>
 Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str,
                           RT* slot, const cctz::time_zone& time_zone) {
-    constexpr bool is_datetime_v1 = std::is_same_v<T, vectorized::VecDateTimeValue>;
+    constexpr bool is_datetime_v1 = std::is_same_v<T, VecDateTimeValue>;
     T dt_val;
     if (is_date_str) {
         const std::string str_date = col.GetString();
@@ -656,18 +656,16 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
 
         case TYPE_DATE:
         case TYPE_DATETIME:
-            RETURN_IF_ERROR((fill_date_int<vectorized::VecDateTimeValue, int64_t>(
-                    col, type, pure_doc_value, col_ptr, time_zone)));
+            RETURN_IF_ERROR((fill_date_int<VecDateTimeValue, int64_t>(col, type, pure_doc_value,
+                                                                      col_ptr, time_zone)));
             break;
         case TYPE_DATEV2:
-            RETURN_IF_ERROR(
-                    (fill_date_int<vectorized::DateV2Value<vectorized::DateV2ValueType>, uint32_t>(
-                            col, type, pure_doc_value, col_ptr, time_zone)));
+            RETURN_IF_ERROR((fill_date_int<DateV2Value<DateV2ValueType>, uint32_t>(
+                    col, type, pure_doc_value, col_ptr, time_zone)));
             break;
         case TYPE_DATETIMEV2: {
-            RETURN_IF_ERROR(
-                    (fill_date_int<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>,
-                                   uint64_t>(col, type, pure_doc_value, col_ptr, time_zone)));
+            RETURN_IF_ERROR((fill_date_int<DateV2Value<DateTimeV2ValueType>, uint64_t>(
+                    col, type, pure_doc_value, col_ptr, time_zone)));
             break;
         }
         case TYPE_ARRAY: {
@@ -773,19 +771,15 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 // No need to support date and datetime types.
                 case TYPE_DATEV2: {
                     uint32_t data;
-                    RETURN_IF_ERROR(
-                            (get_date_int<vectorized::DateV2Value<vectorized::DateV2ValueType>,
-                                          uint32_t>(sub_col, sub_type, pure_doc_value, &data,
-                                                    time_zone)));
+                    RETURN_IF_ERROR((get_date_int<DateV2Value<DateV2ValueType>, uint32_t>(
+                            sub_col, sub_type, pure_doc_value, &data, time_zone)));
                     array.push_back(data);
                     break;
                 }
                 case TYPE_DATETIMEV2: {
                     uint64_t data;
-                    RETURN_IF_ERROR(
-                            (get_date_int<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>,
-                                          uint64_t>(sub_col, sub_type, pure_doc_value, &data,
-                                                    time_zone)));
+                    RETURN_IF_ERROR((get_date_int<DateV2Value<DateTimeV2ValueType>, uint64_t>(
+                            sub_col, sub_type, pure_doc_value, &data, time_zone)));
                     array.push_back(data);
                     break;
                 }
