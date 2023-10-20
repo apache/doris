@@ -475,10 +475,8 @@ int MysqlRowBuffer<is_binary_format>::push_datetime(const DateType& data) {
         pos[4] = (uchar)data.hour();
         pos[5] = (uchar)data.minute();
         pos[6] = (uchar)data.second();
-        if constexpr (std::is_same_v<DateType,
-                                     vectorized::DateV2Value<vectorized::DateV2ValueType>> ||
-                      std::is_same_v<DateType,
-                                     vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>) {
+        if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>> ||
+                      std::is_same_v<DateType, DateV2Value<DateTimeV2ValueType>>) {
             int4store(pos + 7, data.microsecond());
             if (data.microsecond()) {
                 length = 11;
@@ -599,21 +597,15 @@ char* MysqlRowBuffer<is_binary_format>::reserved(int64_t size) {
 template class MysqlRowBuffer<true>;
 template class MysqlRowBuffer<false>;
 
-template int
-MysqlRowBuffer<true>::push_vec_datetime<vectorized::DateV2Value<vectorized::DateV2ValueType>>(
-        vectorized::DateV2Value<vectorized::DateV2ValueType>& value);
-template int
-MysqlRowBuffer<true>::push_vec_datetime<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
-        vectorized::DateV2Value<vectorized::DateTimeV2ValueType>& value);
-template int MysqlRowBuffer<true>::push_vec_datetime<vectorized::VecDateTimeValue>(
-        vectorized::VecDateTimeValue& value);
-template int
-MysqlRowBuffer<false>::push_vec_datetime<vectorized::DateV2Value<vectorized::DateV2ValueType>>(
-        vectorized::DateV2Value<vectorized::DateV2ValueType>& value);
-template int
-MysqlRowBuffer<false>::push_vec_datetime<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
-        vectorized::DateV2Value<vectorized::DateTimeV2ValueType>& value);
-template int MysqlRowBuffer<false>::push_vec_datetime<vectorized::VecDateTimeValue>(
-        vectorized::VecDateTimeValue& value);
+template int MysqlRowBuffer<true>::push_vec_datetime<DateV2Value<DateV2ValueType>>(
+        DateV2Value<DateV2ValueType>& value);
+template int MysqlRowBuffer<true>::push_vec_datetime<DateV2Value<DateTimeV2ValueType>>(
+        DateV2Value<DateTimeV2ValueType>& value);
+template int MysqlRowBuffer<true>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value);
+template int MysqlRowBuffer<false>::push_vec_datetime<DateV2Value<DateV2ValueType>>(
+        DateV2Value<DateV2ValueType>& value);
+template int MysqlRowBuffer<false>::push_vec_datetime<DateV2Value<DateTimeV2ValueType>>(
+        DateV2Value<DateTimeV2ValueType>& value);
+template int MysqlRowBuffer<false>::push_vec_datetime<VecDateTimeValue>(VecDateTimeValue& value);
 
 } // namespace doris

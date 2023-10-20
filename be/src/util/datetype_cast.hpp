@@ -52,19 +52,19 @@ template <typename DataType>
 struct DateToDateValueType {};
 template <>
 struct DateToDateValueType<vectorized::DataTypeDate> {
-    using type = vectorized::VecDateTimeValue;
+    using type = VecDateTimeValue;
 };
 template <>
 struct DateToDateValueType<vectorized::DataTypeDateTime> {
-    using type = vectorized::VecDateTimeValue;
+    using type = VecDateTimeValue;
 };
 template <>
 struct DateToDateValueType<vectorized::DataTypeDateV2> {
-    using type = vectorized::DateV2Value<vectorized::DateV2ValueType>;
+    using type = DateV2Value<DateV2ValueType>;
 };
 template <>
 struct DateToDateValueType<vectorized::DataTypeDateTimeV2> {
-    using type = vectorized::DateV2Value<vectorized::DateTimeV2ValueType>;
+    using type = DateV2Value<DateTimeV2ValueType>;
 };
 
 template <typename DataType>
