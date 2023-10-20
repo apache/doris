@@ -202,7 +202,6 @@ TEST(VTimestampFunctionsTest, timediff_test) {
 }
 
 TEST(VTimestampFunctionsTest, convert_tz_test) {
-    GTEST_SKIP() << "Skip temporarily. need fix";
     std::string func_name = "convert_tz";
 
     TimezoneUtils::clear_timezone_caches();

@@ -97,6 +97,7 @@ be/tags
 be/test/olap/test_data/tablet_meta_test.hdr
 be/.devcontainer/
 be/src/apache-orc/
+zoneinfo/
 
 ## tools
 tools/ssb-tools/ssb-data/
