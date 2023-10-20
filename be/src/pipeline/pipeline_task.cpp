@@ -61,6 +61,8 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
     _pipeline_task_watcher.start();
     _query_statistics.reset(new QueryStatistics());
     _sink->set_query_statistics(_query_statistics);
+    _collect_query_statistics_with_every_batch =
+            _pipeline->collect_query_statistics_with_every_batch();
 }
 
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
@@ -297,7 +299,8 @@ Status PipelineTask::execute(bool* eos) {
 
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            if (_data_state == SourceState::FINISHED) {
+            if (_data_state == SourceState::FINISHED ||
+                _collect_query_statistics_with_every_batch) {
                 RETURN_IF_ERROR(_collect_query_statistics());
             }
             auto status = _sink->sink(_state, block, _data_state);

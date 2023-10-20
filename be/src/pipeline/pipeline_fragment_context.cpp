@@ -316,6 +316,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     _root_pipeline = fragment_context->add_pipeline();
     _root_pipeline->set_is_root_pipeline();
+    _root_pipeline->collect_query_statistics_with_every_batch();
     RETURN_IF_ERROR(_build_pipelines(_root_plan, _root_pipeline));
     if (_sink) {
         RETURN_IF_ERROR(_create_sink(request.local_params[idx].sender_id,
