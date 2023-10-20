@@ -60,6 +60,7 @@
 #include "runtime/client_cache.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/network_util.h"
 #include "util/stopwatch.hpp"
@@ -105,6 +106,10 @@ Status EngineCloneTask::execute() {
 }
 
 Status EngineCloneTask::_do_clone() {
+    DBUG_EXECUTE_IF("EngineCloneTask.wait_clone", {
+        auto duration = std::chrono::milliseconds(dp->param("duration", 10 * 1000));
+        std::this_thread::sleep_for(duration);
+    });
     Status status = Status::OK();
     string src_file_path;
     TBackend src_host;
@@ -596,7 +601,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     for (const string& clone_file : clone_file_names) {
         if (local_file_names.find(clone_file) != local_file_names.end()) {
             VLOG_NOTICE << "find same file when clone, skip it. "
-                        << "tablet=" << tablet->full_name() << ", clone_file=" << clone_file;
+                        << "tablet=" << tablet->tablet_id() << ", clone_file=" << clone_file;
             continue;
         }
 
@@ -605,7 +610,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
         if (clone_file.ends_with(".binlog")) {
             if (!contain_binlog) {
                 LOG(WARNING) << "clone binlog file, but not contain binlog metas. "
-                             << "tablet=" << tablet->full_name() << ", clone_file=" << clone_file;
+                             << "tablet=" << tablet->tablet_id() << ", clone_file=" << clone_file;
                 break;
             }
 
@@ -655,7 +660,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
 Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
                                                   const TabletMetaSharedPtr& cloned_tablet_meta,
                                                   int64_t committed_version) {
-    LOG(INFO) << "begin to finish incremental clone. tablet=" << tablet->full_name()
+    LOG(INFO) << "begin to finish incremental clone. tablet=" << tablet->tablet_id()
               << ", committed_version=" << committed_version
               << ", cloned_tablet_replica_id=" << cloned_tablet_meta->replica_id();
 
@@ -664,7 +669,7 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
     std::vector<Version> missed_versions;
     tablet->calc_missed_versions_unlocked(committed_version, &missed_versions);
     VLOG_NOTICE << "get missed versions again when finish incremental clone. "
-                << "tablet=" << tablet->full_name() << ", clone version=" << committed_version
+                << "tablet=" << tablet->tablet_id() << ", clone version=" << committed_version
                 << ", missed_versions_size=" << missed_versions.size();
 
     // check missing versions exist in clone src
@@ -692,7 +697,7 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
 Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
                                            const TabletMetaSharedPtr& cloned_tablet_meta) {
     Version cloned_max_version = cloned_tablet_meta->max_version();
-    LOG(INFO) << "begin to finish full clone. tablet=" << tablet->full_name()
+    LOG(INFO) << "begin to finish full clone. tablet=" << tablet->tablet_id()
               << ", cloned_max_version=" << cloned_max_version;
 
     // Compare the version of local tablet and cloned tablet.

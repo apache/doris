@@ -35,7 +35,6 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
@@ -205,25 +204,22 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        auto date_value = reinterpret_cast<vectorized::VecDateTimeValue*>(src);
+        auto date_value = reinterpret_cast<VecDateTimeValue*>(src);
         char str[MAX_DTVALUE_STR_LEN];
         date_value->to_string(str);
         return str;
     }
     case TYPE_DATEV2: {
-        vectorized::DateV2Value<vectorized::DateV2ValueType> value =
-                binary_cast<uint32_t, doris::vectorized::DateV2Value<vectorized::DateV2ValueType>>(
-                        *(int32_t*)src);
+        DateV2Value<DateV2ValueType> value =
+                binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(int32_t*)src);
 
         char buf[64];
         char* pos = value.to_string(buf);
         return std::string(buf, pos - buf - 1);
     }
     case TYPE_DATETIMEV2: {
-        vectorized::DateV2Value<vectorized::DateTimeV2ValueType> value =
-                binary_cast<uint64_t,
-                            doris::vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
-                        *(int64_t*)src);
+        DateV2Value<DateTimeV2ValueType> value =
+                binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)src);
 
         char buf[64];
         char* pos = value.to_string(buf, type.scale);

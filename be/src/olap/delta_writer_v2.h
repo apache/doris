@@ -34,6 +34,7 @@
 #include "olap/delta_writer_context.h"
 #include "olap/memtable_writer.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
@@ -89,7 +90,6 @@ public:
     int64_t partition_id() const;
 
     int64_t mem_consumption(MemType mem);
-    int64_t active_memtable_mem_consumption();
 
     int64_t tablet_id() { return _req.tablet_id; }
 
@@ -127,6 +127,8 @@ private:
     MonotonicStopWatch _lock_watch;
 
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
+
+    std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 };
 
 } // namespace doris

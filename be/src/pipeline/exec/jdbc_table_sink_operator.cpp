@@ -68,9 +68,9 @@ WriteDependency* JdbcTableSinkOperatorX::wait_for_dependency(RuntimeState* state
     return local_state.write_blocked_by();
 }
 
-bool JdbcTableSinkOperatorX::is_pending_finish(RuntimeState* state) const {
+FinishDependency* JdbcTableSinkOperatorX::finish_blocked_by(RuntimeState* state) const {
     auto& local_state = state->get_sink_local_state(id())->cast<JdbcTableSinkLocalState>();
-    return local_state.is_pending_finish();
+    return local_state._finish_dependency->finish_blocked_by();
 }
 
 } // namespace doris::pipeline

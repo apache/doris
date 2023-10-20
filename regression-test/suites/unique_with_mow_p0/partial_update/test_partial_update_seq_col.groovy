@@ -124,4 +124,35 @@ suite("test_primary_key_partial_update_seq_col", "p0") {
 
     // drop drop
     sql """ DROP TABLE IF EXISTS ${tableName} """
+
+
+    def tableName2 = "nereids_partial_update_native_insert_seq_col2"
+    sql """ DROP TABLE IF EXISTS ${tableName2} """
+    sql """
+            CREATE TABLE ${tableName2} (
+                `id` int(11) NOT NULL COMMENT "用户 ID",
+                `score` int(11) NOT NULL COMMENT "用户得分",
+                `update_time` DATETIMEV2 NULL DEFAULT CURRENT_TIMESTAMP)
+            UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES(
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true",
+                "function_column.sequence_col" = "update_time"
+            )""" 
+    
+    // don't set partial update header, it's a row update streamload
+    // the input data don't contains sequence mapping column but the sequence mapping
+    // column's default value is CURRENT_TIMESTAMP, will load successfully
+    streamLoad {
+        table "${tableName2}"
+
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'columns', 'id,score'
+
+        file 'basic.csv'
+        time 10000 // limit inflight 10s
+    }
+    qt_sql """ select id,score from ${tableName2} order by id;"""
+    sql """ DROP TABLE IF EXISTS ${tableName2}; """
 }

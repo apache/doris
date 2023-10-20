@@ -37,7 +37,7 @@ This statement is used to show the process of converting light schema change pro
 grammar:
 
 ```sql
-SHOW CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS [FROM DATABASE db]
+SHOW CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS [FROM db]
 ```
 
 ### Example
@@ -45,7 +45,7 @@ SHOW CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS [FROM DATABASE db]
 1. View the converting process in db named test 
 
     ```sql
-     SHOW CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS FROM DATABASE test;
+     SHOW CONVERT_LIGHT_SCHEMA_CHANGE_PROCESS FROM test;
     ````
 
 2. View the converting process globally

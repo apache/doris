@@ -68,8 +68,6 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         *result = arrow::float64();
         break;
     case TYPE_LARGEINT:
-        *result = arrow::fixed_size_binary(sizeof(int128_t));
-        break;
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_HLL:
@@ -120,6 +118,10 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         *result = std::make_shared<arrow::StructType>(fields);
         break;
     }
+    case TYPE_VARIANT: {
+        *result = arrow::utf8();
+        break;
+    }
     default:
         return Status::InvalidArgument("Unknown primitive type({})", type.type);
     }
@@ -130,6 +132,20 @@ Status convert_to_arrow_field(SlotDescriptor* desc, std::shared_ptr<arrow::Field
     std::shared_ptr<arrow::DataType> type;
     RETURN_IF_ERROR(convert_to_arrow_type(desc->type(), &type));
     *field = arrow::field(desc->col_name(), type, desc->is_nullable());
+    return Status::OK();
+}
+
+Status convert_block_arrow_schema(const vectorized::Block& block,
+                                  std::shared_ptr<arrow::Schema>* result) {
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    for (const auto& type_and_name : block) {
+        std::shared_ptr<arrow::DataType> arrow_type;
+        RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type->get_type_as_type_descriptor(),
+                                              &arrow_type));
+        fields.push_back(std::make_shared<arrow::Field>(type_and_name.name, arrow_type,
+                                                        type_and_name.type->is_nullable()));
+    }
+    *result = arrow::schema(std::move(fields));
     return Status::OK();
 }
 

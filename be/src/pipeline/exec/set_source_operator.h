@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vset_operation_node.h"
 
 namespace doris {
@@ -38,7 +39,7 @@ private:
 
 public:
     SetSourceOperatorBuilder(int32_t id, ExecNode* set_node);
-    bool is_source() const override { return true; }
+    [[nodiscard]] bool is_source() const override { return true; }
 
     OperatorPtr build_operator() override;
 };
@@ -50,6 +51,64 @@ public:
                       vectorized::VSetOperationNode<is_intersect>* set_node);
 
     Status open(RuntimeState* /*state*/) override { return Status::OK(); }
+};
+
+template <bool is_intersect>
+class SetSourceOperatorX;
+
+template <bool is_intersect>
+class SetSourceLocalState final : public PipelineXLocalState<SetDependency> {
+public:
+    ENABLE_FACTORY_CREATOR(SetSourceLocalState);
+    using Base = PipelineXLocalState<SetDependency>;
+    using Parent = SetSourceOperatorX<is_intersect>;
+    SetSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
+    Status init(RuntimeState* state, LocalStateInfo& infos) override;
+    Status open(RuntimeState* state) override;
+
+private:
+    friend class SetSourceOperatorX<is_intersect>;
+    friend class OperatorX<SetSourceLocalState<is_intersect>>;
+    std::vector<vectorized::MutableColumnPtr> _mutable_cols;
+    //record build column type
+    vectorized::DataTypes _left_table_data_types;
+};
+
+template <bool is_intersect>
+class SetSourceOperatorX final : public OperatorX<SetSourceLocalState<is_intersect>> {
+public:
+    using Base = OperatorX<SetSourceLocalState<is_intersect>>;
+    // for non-delay tempalte instantiation
+    using OperatorXBase::id;
+    using typename Base::LocalState;
+
+    SetSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+            : Base(pool, tnode, descs) {};
+    ~SetSourceOperatorX() override = default;
+
+    Dependency* wait_for_dependency(RuntimeState* state) override {
+        CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+        return local_state._dependency->read_blocked_by();
+    }
+
+    [[nodiscard]] bool is_source() const override { return true; }
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
+
+private:
+    friend class SetSourceLocalState<is_intersect>;
+
+    void _create_mutable_cols(SetSourceLocalState<is_intersect>& local_state,
+                              vectorized::Block* output_block);
+
+    template <typename HashTableContext>
+    Status _get_data_in_hashtable(SetSourceLocalState<is_intersect>& local_state,
+                                  HashTableContext& hash_table_ctx, vectorized::Block* output_block,
+                                  const int batch_size, SourceState& source_state);
+
+    void _add_result_columns(SetSourceLocalState<is_intersect>& local_state,
+                             vectorized::RowRefListWithFlags& value, int& block_size);
 };
 
 } // namespace pipeline

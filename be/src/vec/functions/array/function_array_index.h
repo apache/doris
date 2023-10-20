@@ -70,7 +70,7 @@ struct ArrayCountEqual {
     static constexpr void apply(ResultType& current, size_t j) noexcept { ++current; }
 };
 
-template <typename ConcreteAction>
+template <typename ConcreteAction, bool OldVersion = false>
 class FunctionArrayIndex : public IFunction {
 public:
     using ResultType = typename ConcreteAction::ResultType;
@@ -88,13 +88,20 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        // DCHECK(is_array(arguments[0]));
-        return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
+        if constexpr (OldVersion) {
+            return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
+        } else {
+            if (arguments[0]->is_nullable()) {
+                return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
+            } else {
+                return std::make_shared<DataTypeNumber<ResultType>>();
+            }
+        }
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        return _execute_non_nullable(block, arguments, result, input_rows_count);
+        return _execute_dispatch(block, arguments, result, input_rows_count);
     }
 
 private:
@@ -160,7 +167,14 @@ private:
             }
             dst_data[row] = res;
         }
-        return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+        if constexpr (OldVersion) {
+            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+        } else {
+            if (outer_null_map == nullptr) {
+                return dst;
+            }
+            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+        }
     }
 
     template <typename NestedColumnType, typename RightColumnType>
@@ -217,7 +231,14 @@ private:
             }
             dst_data[row] = res;
         }
-        return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+        if constexpr (OldVersion) {
+            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+        } else {
+            if (outer_null_map == nullptr) {
+                return dst;
+            }
+            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
+        }
     }
 
     template <typename NestedColumnType>
@@ -234,11 +255,15 @@ private:
         return nullptr;
     }
 
-    Status _execute_non_nullable(Block& block, const ColumnNumbers& arguments, size_t result,
-                                 size_t input_rows_count) const {
+    Status _execute_dispatch(Block& block, const ColumnNumbers& arguments, size_t result,
+                             size_t input_rows_count) const {
         // extract array offsets and nested data
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        if (!is_array(remove_nullable(block.get_by_position(arguments[0]).type))) {
+            return Status::InvalidArgument(get_name() + " first argument must be array, but got " +
+                                           block.get_by_position(arguments[0]).type->get_name());
+        }
         const ColumnArray* array_column = nullptr;
         const UInt8* array_null_map = nullptr;
         if (left_column->is_nullable()) {
