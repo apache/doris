@@ -200,7 +200,7 @@ Status GroupCommitTable::_create_group_commit_load(
     std::regex reg("-");
     std::string label = "group_commit_" + std::regex_replace(load_id.to_string(), reg, "_");
     std::stringstream ss;
-    ss << "insert into table_id(" << _table_id << ") WITH LABEL " << label
+    ss << "insert into doris_internal_table_id(" << _table_id << ") WITH LABEL " << label
        << " select * from group_commit(\"table_id\"=\"" << _table_id << "\")";
     request.__set_load_sql(ss.str());
     request.__set_loadId(tload_id);
