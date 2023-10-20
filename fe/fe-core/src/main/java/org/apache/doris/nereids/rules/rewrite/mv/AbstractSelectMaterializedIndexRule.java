@@ -571,14 +571,6 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
 
         @Override
-        public Expression visitAlias(Alias alias, Void context) {
-            if (mvNameToMvSlot.containsKey(alias.toSlot().toSql())) {
-                return mvNameToMvSlot.get(alias.toSlot().toSql());
-            }
-            return visit(alias, context);
-        }
-
-        @Override
         public Expression visitScalarFunction(ScalarFunction scalarFunction, Void context) {
             List<Expression> newChildrenWithoutCast = scalarFunction.children().stream()
                     .map(child -> {

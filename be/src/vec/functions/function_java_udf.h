@@ -114,25 +114,12 @@ private:
     const DataTypes _argument_types;
     const DataTypePtr _return_type;
 
-    struct IntermediateState {
-        size_t buffer_size;
-        size_t row_idx;
-
-        IntermediateState() : buffer_size(0), row_idx(0) {}
-    };
-
     struct JniEnv {
         /// Global class reference to the UdfExecutor Java class and related method IDs. Set in
         /// Init(). These have the lifetime of the process (i.e. 'executor_cl_' is never freed).
         jclass executor_cl;
         jmethodID executor_ctor_id;
         jmethodID executor_evaluate_id;
-        jmethodID executor_convert_basic_argument_id;
-        jmethodID executor_convert_array_argument_id;
-        jmethodID executor_convert_map_argument_id;
-        jmethodID executor_result_basic_batch_id;
-        jmethodID executor_result_array_batch_id;
-        jmethodID executor_result_map_batch_id;
         jmethodID executor_close_id;
     };
 

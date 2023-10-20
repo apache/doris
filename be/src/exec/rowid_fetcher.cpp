@@ -131,6 +131,8 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
     }
     vectorized::DataTypeSerDeSPtrs serdes;
     std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
+    std::vector<std::string> default_values;
+    default_values.resize(_fetch_option.desc->slots().size());
     auto merge_function = [&](const PMultiGetResponse& resp) {
         Status st(Status::create(resp.status()));
         if (!st.ok()) {
@@ -150,12 +152,13 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                 serdes = vectorized::create_data_type_serdes(_fetch_option.desc->slots());
                 for (int i = 0; i < _fetch_option.desc->slots().size(); ++i) {
                     col_uid_to_idx[_fetch_option.desc->slots()[i]->col_unique_id()] = i;
+                    default_values[i] = _fetch_option.desc->slots()[i]->col_default_value();
                 }
             }
             for (int i = 0; i < resp.binary_row_data_size(); ++i) {
                 vectorized::JsonbSerializeUtil::jsonb_to_block(
                         serdes, resp.binary_row_data(i).data(), resp.binary_row_data(i).size(),
-                        col_uid_to_idx, *output_block);
+                        col_uid_to_idx, *output_block, default_values);
             }
             return Status::OK();
         }

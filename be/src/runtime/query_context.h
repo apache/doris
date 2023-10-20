@@ -225,6 +225,18 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
+    void set_task_scheduler(pipeline::TaskScheduler* task_scheduler) {
+        _task_scheduler = task_scheduler;
+    }
+
+    pipeline::TaskScheduler* get_task_scheduler() { return _task_scheduler; }
+
+    void set_scan_task_scheduler(vectorized::SimplifiedScanScheduler* scan_task_scheduler) {
+        _scan_task_scheduler = scan_task_scheduler;
+    }
+
+    vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
+
 public:
     DescriptorTbl* desc_tbl;
     bool set_rsc_info = false;
@@ -283,6 +295,9 @@ private:
     // All pipeline tasks use the same query context to report status. So we need a `_exec_status`
     // to report the real message if failed.
     Status _exec_status = Status::OK();
+
+    pipeline::TaskScheduler* _task_scheduler = nullptr;
+    vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
 };
 
 } // namespace doris

@@ -1159,7 +1159,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 #### `max_bytes_per_broker_scanner`
 
-默认值：500 * 1024 * 1024 * 1024L  （500G）
+默认值：`500 * 1024 * 1024 * 1024L`  （500G）
 
 是否可以动态配置：true
 
@@ -2632,23 +2632,23 @@ SmallFileMgr 中存储的最大文件数
 
 #### `enable_date_conversion`
 
-默认值：false
+默认值：true
 
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为 true，FE 会自动将 Date/Datetime 转换为 DateV2/DatetimeV2(0)。
+FE 会自动将 Date/Datetime 转换为 DateV2/DatetimeV2(0)。
 
 #### `enable_decimal_conversion`
 
-默认值：false
+默认值：true
 
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为 true，FE 将自动将 DecimalV2 转换为 DecimalV3。
+FE 将自动将 DecimalV2 转换为 DecimalV3。
 
 #### `proxy_auth_magic_prefix`
 
