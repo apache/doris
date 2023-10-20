@@ -74,13 +74,13 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
     auto& column_data = assert_cast<ColumnUInt64&>(column);
     UInt64 val = 0;
     if (options.date_olap_format) {
-        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetimev2_value;
+        DateV2Value<DateTimeV2ValueType> datetimev2_value;
         std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
         if (datetimev2_value.from_date_format_str(date_format.data(), date_format.size(),
                                                   slice.data, slice.size)) {
             val = datetimev2_value.to_date_int_val();
         } else {
-            val = doris::vectorized::MIN_DATETIME_V2;
+            val = MIN_DATETIME_V2;
         }
 
     } else if (ReadBuffer rb(slice.data, slice.size);
@@ -99,8 +99,8 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
-        const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>* time_val =
-                (const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*)(&col_data[i]);
+        const DateV2Value<DateTimeV2ValueType>* time_val =
+                (const DateV2Value<DateTimeV2ValueType>*)(&col_data[i]);
         int len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
