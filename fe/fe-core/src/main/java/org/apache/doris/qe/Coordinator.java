@@ -322,9 +322,9 @@ public class Coordinator implements CoordInterface {
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
         // Only enable pipeline query engine in query, not load
         this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
-                && (fragments.size() > 0);
+                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
         this.enablePipelineXEngine = context.getSessionVariable().getEnablePipelineXEngine()
-                && (fragments.size() > 0);
+                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
         this.fasterFloatConvert = context.getSessionVariable().fasterFloatConvert();
 
         initQueryOptions(context);
