@@ -17,7 +17,7 @@
 // This file is copied from
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/scan-node.h
 // and modified by Doris
-// for -test
+
 #pragma once
 
 #include <functional>
