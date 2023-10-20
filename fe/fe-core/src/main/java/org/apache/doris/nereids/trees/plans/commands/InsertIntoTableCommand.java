@@ -29,9 +29,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -189,7 +191,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * @param ctx ctx
      * @param executor executor
      * @param physicalOlapTableSink physicalOlapTableSink
-     *
      * @throws Exception Exception
      */
     public void dealOverwrite(ConnectContext ctx, StmtExecutor executor,
@@ -197,16 +198,28 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         OlapTable targetTable = physicalOlapTableSink.getTargetTable();
         TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, targetTable.getQualifiedDbName(),
                 targetTable.getName());
-        List<String> partitionNames = ((UnboundOlapTableSink<?>) logicalQuery).getPartitions();
-        if (CollectionUtils.isEmpty(partitionNames)) {
-            partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    tableName.getDb() + ": " + tableName.getTbl());
         }
-        List<String> tempPartitionNames = addTempPartition(ctx, tableName, partitionNames);
-        boolean insertRes = insertInto(ctx, executor, tempPartitionNames, tableName);
-        if (!insertRes) {
-            return;
+        ConnectContext.get().setSkipAuth(true);
+        try {
+            List<String> partitionNames = ((UnboundOlapTableSink<?>) logicalQuery).getPartitions();
+            if (CollectionUtils.isEmpty(partitionNames)) {
+                partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
+            }
+            List<String> tempPartitionNames = addTempPartition(ctx, tableName, partitionNames);
+            boolean insertRes = insertInto(ctx, executor, tempPartitionNames, tableName);
+            if (!insertRes) {
+                return;
+            }
+            replacePartition(ctx, tableName, partitionNames, tempPartitionNames);
+        } finally {
+            ConnectContext.get().setSkipAuth(false);
         }
-        replacePartition(ctx, tableName, partitionNames, tempPartitionNames);
+
     }
 
     /**

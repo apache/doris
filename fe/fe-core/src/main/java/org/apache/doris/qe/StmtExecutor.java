@@ -2376,15 +2376,18 @@ public class StmtExecutor {
 
     private void handleIotStmt() {
         ConnectContext.get().setSkipAuth(true);
-        InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
-        if (iotStmt.getPartitionNames().size() == 0) {
-            // insert overwrite table
-            handleOverwriteTable(iotStmt);
-        } else {
-            // insert overwrite table with partition
-            handleOverwritePartition(iotStmt);
+        try {
+            InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
+            if (iotStmt.getPartitionNames().size() == 0) {
+                // insert overwrite table
+                handleOverwriteTable(iotStmt);
+            } else {
+                // insert overwrite table with partition
+                handleOverwritePartition(iotStmt);
+            }
+        } finally {
+            ConnectContext.get().setSkipAuth(false);
         }
-        ConnectContext.get().setSkipAuth(false);
     }
 
     private void handleOverwriteTable(InsertOverwriteTableStmt iotStmt) {
