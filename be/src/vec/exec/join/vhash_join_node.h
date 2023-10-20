@@ -131,8 +131,10 @@ struct ProcessHashTableBuild {
         if (!_parent->runtime_filter_descs().empty()) {
             _parent->_inserted_blocks.insert(&_acquired_block);
         }
+        hash_table_ctx.hash_table->reserve(_rows);
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr);
+        hash_table_ctx.calculate_bucket(_rows);
         SCOPED_TIMER(_parent->_build_table_insert_timer);
         hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.hash_values.data(),
                                          _rows, _state->batch_size());

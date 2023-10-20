@@ -216,18 +216,23 @@ public:
         return phmap::priv::NormalizeCapacity(expect_bucket_size) + 1;
     }
 
+    void reserve(int num_elem) {
+        bucket_size = calc_bucket_size(num_elem + 1);
+        first.resize(bucket_size, 0);
+        next.resize(num_elem);
+    }
+
     void build(const Key* __restrict keys, const size_t* __restrict hash_values, size_t num_elem,
                int batch_size) {
-        max_batch_size = batch_size;
-        bucket_size = calc_bucket_size(num_elem + 1);
+        _batch_size = batch_size;
+        bucket_size = calc_bucket_size(num_elem);
         first.resize(bucket_size, 0);
         next.resize(num_elem);
 
         build_keys = keys;
         for (size_t i = 1; i < num_elem; i++) {
-            uint32_t bucket_num = hash_values[i] & (bucket_size - 1);
-            next[i] = first[bucket_num];
-            first[bucket_num] = i;
+            next[i] = first[hash_values[i]];
+            first[hash_values[i]] = i;
         }
     }
 
@@ -248,18 +253,16 @@ public:
         return std::pair {0, 0};
     }
 
+    size_t get_bucket_mask() { return bucket_size - 1; }
+
 private:
     template <int JoinOpType>
     auto _find_batch_left_semi_anti(const Key* __restrict keys,
                                     const size_t* __restrict hash_values, int probe_idx,
                                     int probe_rows, std::vector<uint32_t>& probe_idxs) {
-        auto matched_cnt = 0;
-        const auto batch_size = max_batch_size;
-
-        while (LIKELY(probe_idx < probe_rows && matched_cnt < batch_size)) {
-            uint32_t bucket_num = hash_values[probe_idx] & (bucket_size - 1);
-            auto build_idx = first[bucket_num];
-
+        int matched_cnt = 0;
+        while (LIKELY(probe_idx < probe_rows && matched_cnt < _batch_size)) {
+            uint32_t build_idx = first[hash_values[probe_idx]];
             while (build_idx) {
                 if (keys[probe_idx] == build_keys[build_idx]) {
                     break;
@@ -279,12 +282,11 @@ private:
                                       const size_t* __restrict hash_values, int probe_idx,
                                       int probe_rows, std::vector<uint32_t>& probe_idxs,
                                       std::vector<uint32_t>& build_idxs) {
-        auto matched_cnt = 0;
-        const auto batch_size = max_batch_size;
+        int matched_cnt = 0;
         uint32_t build_idx = 0;
 
         auto do_the_probe = [&]() {
-            while (build_idx && LIKELY(matched_cnt < batch_size)) {
+            while (build_idx && LIKELY(matched_cnt < _batch_size)) {
                 if (keys[probe_idx] == build_keys[build_idx]) {
                     probe_idxs[matched_cnt] = probe_idx;
                     build_idxs[matched_cnt] = build_idx;
@@ -302,12 +304,7 @@ private:
                 }
             }
 
-            if (matched_cnt == max_batch_size && build_idx) {
-                current_probe_idx = probe_idx;
-                current_build_idx = build_idx;
-            } else {
-                probe_idx++;
-            }
+            probe_idx++;
         };
 
         // some row over the batch_size, need dispose first
@@ -317,17 +314,21 @@ private:
             current_build_idx = 0;
             do_the_probe();
         }
-        while (LIKELY(probe_idx < probe_rows && matched_cnt < batch_size)) {
-            uint32_t bucket_num = hash_values[probe_idx] & (bucket_size - 1);
-            build_idx = first[bucket_num];
+        while (LIKELY(probe_idx < probe_rows && matched_cnt < _batch_size)) {
+            build_idx = first[hash_values[probe_idx]];
             do_the_probe();
+        }
+
+        if (matched_cnt == _batch_size && build_idx) {
+            current_probe_idx = probe_idx - 1;
+            current_build_idx = build_idx;
         }
         return std::pair {probe_idx, matched_cnt};
     }
 
     const Key* __restrict build_keys;
     uint32_t bucket_size = 0;
-    int max_batch_size = 0;
+    int _batch_size = 0;
 
     int current_probe_idx = -1;
     uint32_t current_build_idx = 0;
