@@ -138,13 +138,13 @@ public class VectorTable {
      * @param converters A map of converters. Convert the column values if the type is not defined in ColumnType.
      * The map key is the field ID in VectorTable.
      */
-    public Object[][] getMaterializedData(Map<Integer, ColumnValueConverter> converters) {
+    public Object[][] getMaterializedData(int start, int end, Map<Integer, ColumnValueConverter> converters) {
         if (columns.length == 0) {
             return new Object[0][0];
         }
         Object[][] data = new Object[columns.length][];
         for (int j = 0; j < columns.length; ++j) {
-            Object[] columnData = columns[j].getObjectColumn(0, columns[j].numRows());
+            Object[] columnData = columns[j].getObjectColumn(start, end);
             if (converters.containsKey(j)) {
                 data[j] = converters.get(j).convert(columnData);
             } else {
@@ -152,6 +152,10 @@ public class VectorTable {
             }
         }
         return data;
+    }
+
+    public Object[][] getMaterializedData(Map<Integer, ColumnValueConverter> converters) {
+        return getMaterializedData(0, getNumRows(), converters);
     }
 
     public Object[][] getMaterializedData() {
@@ -164,6 +168,10 @@ public class VectorTable {
 
     public VectorColumn getColumn(int fieldId) {
         return columns[fieldId];
+    }
+
+    public ColumnType getColumnType(int fieldId) {
+        return columnTypes[fieldId];
     }
 
     public ColumnType[] getColumnTypes() {

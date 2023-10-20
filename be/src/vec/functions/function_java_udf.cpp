@@ -138,9 +138,9 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
     jobject output_map = JniUtil::convert_to_java_map(env, output_params);
     long output_address = env->CallLongMethod(jni_ctx->executor, jni_env->executor_evaluate_id,
                                               input_map, output_map);
+    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     env->DeleteLocalRef(input_map);
     env->DeleteLocalRef(output_map);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
 
     return JniConnector::fill_block(&block, {result}, output_address);
 }

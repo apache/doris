@@ -1301,7 +1301,11 @@ public class VectorColumn {
         }
     }
 
-    private Object[] newObjectContainerArray(ColumnType.Type type, int size) {
+    public Object[] newObjectContainerArray(int size) {
+        return newObjectContainerArray(columnType.getType(), size);
+    }
+
+    public Object[] newObjectContainerArray(ColumnType.Type type, int size) {
         switch (type) {
             case BOOLEAN:
                 return new Boolean[size];

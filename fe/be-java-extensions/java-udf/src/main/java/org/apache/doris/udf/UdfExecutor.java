@@ -25,7 +25,6 @@ import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.common.jni.vec.VectorTable;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
-import org.apache.doris.thrift.TPrimitiveType;
 
 import com.esotericsoftware.reflectasm.MethodAccess;
 import com.google.common.base.Joiner;
@@ -36,15 +35,11 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
 public class UdfExecutor extends BaseExecutor {
-    // private static final java.util.logging.Logger LOG =
-    // Logger.getLogger(UdfExecutor.class);
     public static final Logger LOG = Logger.getLogger(UdfExecutor.class);
     // setup by init() and cleared by close()
     private Method method;
@@ -76,78 +71,6 @@ public class UdfExecutor extends BaseExecutor {
         super.close();
     }
 
-    private ColumnValueConverter getInputConverter(TPrimitiveType primitiveType, Class clz) {
-        switch (primitiveType) {
-            case DATE:
-            case DATEV2: {
-                if (java.util.Date.class.equals(clz)) {
-                    return (Object[] columnData) -> {
-                        Object[] result = new java.util.Date[columnData.length];
-                        for (int i = 0; i < columnData.length; ++i) {
-                            if (columnData[i] != null) {
-                                LocalDate v = (LocalDate) columnData[i];
-                                result[i] = new java.util.Date(v.getYear() - 1900, v.getMonthValue() - 1,
-                                        v.getDayOfMonth());
-                            }
-                        }
-                        return result;
-                    };
-                } else if (org.joda.time.LocalDate.class.equals(clz)) {
-                    return (Object[] columnData) -> {
-                        Object[] result = new org.joda.time.LocalDate[columnData.length];
-                        for (int i = 0; i < columnData.length; ++i) {
-                            if (columnData[i] != null) {
-                                LocalDate v = (LocalDate) columnData[i];
-                                result[i] = new org.joda.time.LocalDate(v.getYear(), v.getMonthValue(),
-                                        v.getDayOfMonth());
-                            }
-                        }
-                        return result;
-                    };
-                } else if (!LocalDate.class.equals(clz)) {
-                    throw new RuntimeException("Unsupported date type: " + clz.getCanonicalName());
-                }
-                break;
-            }
-            case DATETIME:
-            case DATETIMEV2: {
-                if (org.joda.time.DateTime.class.equals(clz)) {
-                    return (Object[] columnData) -> {
-                        Object[] result = new org.joda.time.DateTime[columnData.length];
-                        for (int i = 0; i < columnData.length; ++i) {
-                            if (columnData[i] != null) {
-                                LocalDateTime v = (LocalDateTime) columnData[i];
-                                result[i] = new org.joda.time.DateTime(v.getYear(), v.getMonthValue(),
-                                        v.getDayOfMonth(), v.getHour(),
-                                        v.getMinute(), v.getSecond(), v.getNano() / 1000000);
-                            }
-                        }
-                        return result;
-                    };
-                } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
-                    return (Object[] columnData) -> {
-                        Object[] result = new org.joda.time.LocalDateTime[columnData.length];
-                        for (int i = 0; i < columnData.length; ++i) {
-                            if (columnData[i] != null) {
-                                LocalDateTime v = (LocalDateTime) columnData[i];
-                                result[i] = new org.joda.time.LocalDateTime(v.getYear(), v.getMonthValue(),
-                                        v.getDayOfMonth(), v.getHour(),
-                                        v.getMinute(), v.getSecond(), v.getNano() / 1000000);
-                            }
-                        }
-                        return result;
-                    };
-                } else if (!LocalDateTime.class.equals(clz)) {
-                    throw new RuntimeException("Unsupported date type: " + clz.getCanonicalName());
-                }
-                break;
-            }
-            default:
-                break;
-        }
-        return null;
-    }
-
     private Map<Integer, ColumnValueConverter> getInputConverters(int numColumns) {
         Map<Integer, ColumnValueConverter> converters = new HashMap<>();
         for (int j = 0; j < numColumns; ++j) {
@@ -160,74 +83,7 @@ public class UdfExecutor extends BaseExecutor {
     }
 
     private ColumnValueConverter getOutputConverter() {
-        Class clz = method.getReturnType();
-        switch (retType.getPrimitiveType()) {
-            case DATE:
-            case DATEV2: {
-                if (java.util.Date.class.equals(clz)) {
-                    return (Object[] columnData) -> {
-                        Object[] result = new LocalDate[columnData.length];
-                        for (int i = 0; i < columnData.length; ++i) {
-                            if (columnData[i] != null) {
-                                java.util.Date v = (java.util.Date) columnData[i];
-                                result[i] = LocalDate.of(v.getYear() + 1900, v.getMonth() + 1, v.getDate());
-                            }
-                        }
-                        return result;
-                    };
-                } else if (org.joda.time.LocalDate.class.equals(clz)) {
-                    return (Object[] columnData) -> {
-                        Object[] result = new LocalDate[columnData.length];
-                        for (int i = 0; i < columnData.length; ++i) {
-                            if (columnData[i] != null) {
-                                org.joda.time.LocalDate v = (org.joda.time.LocalDate) columnData[i];
-                                result[i] = LocalDate.of(v.getYear(), v.getMonthOfYear(), v.getDayOfMonth());
-                            }
-                        }
-                        return result;
-                    };
-                } else if (!LocalDate.class.equals(clz)) {
-                    throw new RuntimeException("Unsupported date type: " + clz.getCanonicalName());
-                }
-                break;
-            }
-            case DATETIME:
-            case DATETIMEV2: {
-                if (org.joda.time.DateTime.class.equals(clz)) {
-                    return (Object[] columnData) -> {
-                        Object[] result = new LocalDateTime[columnData.length];
-                        for (int i = 0; i < columnData.length; ++i) {
-                            if (columnData[i] != null) {
-                                org.joda.time.DateTime v = (org.joda.time.DateTime) columnData[i];
-                                result[i] = LocalDateTime.of(v.getYear(), v.getMonthOfYear(), v.getDayOfMonth(),
-                                        v.getHourOfDay(),
-                                        v.getMinuteOfHour(), v.getSecondOfMinute(), v.getMillisOfSecond() * 1000000);
-                            }
-                        }
-                        return result;
-                    };
-                } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
-                    return (Object[] columnData) -> {
-                        Object[] result = new LocalDateTime[columnData.length];
-                        for (int i = 0; i < columnData.length; ++i) {
-                            if (columnData[i] != null) {
-                                org.joda.time.LocalDateTime v = (org.joda.time.LocalDateTime) columnData[i];
-                                result[i] = LocalDateTime.of(v.getYear(), v.getMonthOfYear(), v.getDayOfMonth(),
-                                        v.getHourOfDay(),
-                                        v.getMinuteOfHour(), v.getSecondOfMinute(), v.getMillisOfSecond() * 1000000);
-                            }
-                        }
-                        return result;
-                    };
-                } else if (!LocalDateTime.class.equals(clz)) {
-                    throw new RuntimeException("Unsupported date type: " + clz.getCanonicalName());
-                }
-                break;
-            }
-            default:
-                break;
-        }
-        return null;
+        return getOutputConverter(retType.getPrimitiveType(), method.getReturnType());
     }
 
     public long evaluate(Map<String, String> inputParams, Map<String, String> outputParams) throws UdfRuntimeException {
@@ -235,7 +91,16 @@ public class UdfExecutor extends BaseExecutor {
             VectorTable inputTable = VectorTable.createReadableTable(inputParams);
             int numRows = inputTable.getNumRows();
             int numColumns = inputTable.getNumColumns();
-            Object[] result = (Object[]) Array.newInstance(method.getReturnType(), numRows);
+            if (outputTable != null) {
+                outputTable.close();
+            }
+            outputTable = VectorTable.createWritableTable(outputParams, numRows);
+
+            // If the return type is primitive, we can't cast the array of primitive type as array of Object,
+            // so we have to new its wrapped Object.
+            Object[] result = outputTable.getColumnType(0).isPrimitive()
+                    ? outputTable.getColumn(0).newObjectContainerArray(numRows)
+                    : (Object[]) Array.newInstance(method.getReturnType(), numRows);
             Object[][] inputs = inputTable.getMaterializedData(getInputConverters(numColumns));
             Object[] parameters = new Object[numColumns];
             for (int i = 0; i < numRows; ++i) {
@@ -244,13 +109,7 @@ public class UdfExecutor extends BaseExecutor {
                 }
                 result[i] = methodAccess.invoke(udf, evaluateIndex, parameters);
             }
-
-            if (outputTable != null) {
-                outputTable.close();
-            }
-
             boolean isNullable = Boolean.parseBoolean(outputParams.getOrDefault("is_nullable", "true"));
-            outputTable = VectorTable.createWritableTable(outputParams, numRows);
             outputTable.appendData(0, result, getOutputConverter(), isNullable);
             return outputTable.getMetaAddress();
         } catch (Exception e) {
@@ -336,7 +195,8 @@ public class UdfExecutor extends BaseExecutor {
 
             StringBuilder sb = new StringBuilder();
             sb.append("Unable to find evaluate function with the correct signature: ")
-                    .append(className + ".evaluate(")
+                    .append(className)
+                    .append(".evaluate(")
                     .append(Joiner.on(", ").join(parameterTypes))
                     .append(")\n")
                     .append("UDF contains: \n    ")

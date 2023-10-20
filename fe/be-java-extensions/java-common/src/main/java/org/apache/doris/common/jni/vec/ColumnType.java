@@ -171,6 +171,11 @@ public class ColumnType {
         return type == Type.DATETIMEV2;
     }
 
+    public boolean isPrimitive() {
+        return type == Type.BOOLEAN || type == Type.BYTE || type == Type.TINYINT || type == Type.SMALLINT
+                || type == Type.INT || type == Type.BIGINT || type == Type.FLOAT || type == Type.DOUBLE;
+    }
+
     public Type getType() {
         return type;
     }

@@ -38,7 +38,6 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
-import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Set;
@@ -150,6 +149,7 @@ public class UdfUtils {
      * Sets the argument types of a Java UDF or UDAF. Returns true if the argument types specified
      * in the UDF are compatible with the argument types of the evaluate() function loaded
      * from the associated JAR file.
+     *
      * @throws InternalException
      */
     public static Pair<Boolean, JavaUdfDataType[]> setArgTypes(Type[] parameterTypes, Class<?>[] udfArgTypes,
@@ -193,191 +193,6 @@ public class UdfUtils {
         return Pair.of(true, inputArgTypes);
     }
 
-    public static Object convertDateTimeV2ToJavaDateTime(long date, Class clz) {
-        int year = (int) (date >> 46);
-        int yearMonth = (int) (date >> 42);
-        int yearMonthDay = (int) (date >> 37);
-
-        int month = (yearMonth & 0XF);
-        int day = (yearMonthDay & 0X1F);
-
-        int hour = (int) ((date >> 32) & 0X1F);
-        int minute = (int) ((date >> 26) & 0X3F);
-        int second = (int) ((date >> 20) & 0X3F);
-        //here don't need those bits are type = ((minus_type_neg >> 1) & 0x7);
-
-        if (LocalDateTime.class.equals(clz)) {
-            return convertToLocalDateTime(year, month, day, hour, minute, second);
-        } else if (org.joda.time.DateTime.class.equals(clz)) {
-            return convertToJodaDateTime(year, month, day, hour, minute, second);
-        } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
-            return convertToJodaLocalDateTime(year, month, day, hour, minute, second);
-        } else {
-            return null;
-        }
-    }
-
-    /**
-     * input is a 64bit num from backend, and then get year, month, day, hour, minus, second by the order of bits.
-     */
-    public static Object convertDateTimeToJavaDateTime(long date, Class clz) {
-        int year = (int) (date >> 48);
-        int yearMonth = (int) (date >> 40);
-        int yearMonthDay = (int) (date >> 32);
-
-        int month = (yearMonth & 0XFF);
-        int day = (yearMonthDay & 0XFF);
-
-        int hourMinuteSecond = (int) (date % (1 << 31));
-        int minuteTypeNeg = (hourMinuteSecond % (1 << 16));
-
-        int hour = (hourMinuteSecond >> 24);
-        int minute = ((hourMinuteSecond >> 16) & 0XFF);
-        int second = (minuteTypeNeg >> 4);
-        //here don't need those bits are type = ((minus_type_neg >> 1) & 0x7);
-
-        if (LocalDateTime.class.equals(clz)) {
-            return convertToLocalDateTime(year, month, day, hour, minute, second);
-        } else if (org.joda.time.DateTime.class.equals(clz)) {
-            return convertToJodaDateTime(year, month, day, hour, minute, second);
-        } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
-            return convertToJodaLocalDateTime(year, month, day, hour, minute, second);
-        } else {
-            return null;
-        }
-    }
-
-    public static Object convertDateV2ToJavaDate(int date, Class clz) {
-        int year = date >> 9;
-        int month = (date >> 5) & 0XF;
-        int day = date & 0X1F;
-        if (LocalDate.class.equals(clz)) {
-            return convertToLocalDate(year, month, day);
-        } else if (java.util.Date.class.equals(clz)) {
-            return convertToJavaDate(year, month, day);
-        } else if (org.joda.time.LocalDate.class.equals(clz)) {
-            return convertToJodaDate(year, month, day);
-        } else {
-            return null;
-        }
-    }
-
-    public static LocalDateTime convertToLocalDateTime(int year, int month, int day,
-            int hour, int minute, int second) {
-        LocalDateTime value = null;
-        try {
-            value = LocalDateTime.of(year, month, day, hour, minute, second);
-        } catch (DateTimeException e) {
-            LOG.warn("Error occurs when parsing date time value: {}", e);
-        }
-        return value;
-    }
-
-    public static org.joda.time.DateTime convertToJodaDateTime(int year, int month, int day,
-            int hour, int minute, int second) {
-        try {
-            return new org.joda.time.DateTime(year, month, day, hour, minute, second);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    public static org.joda.time.LocalDateTime convertToJodaLocalDateTime(int year, int month, int day,
-            int hour, int minute, int second) {
-        try {
-            return new org.joda.time.LocalDateTime(year, month, day, hour, minute, second);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    public static Object convertDateToJavaDate(long date, Class clz) {
-        int year = (int) (date >> 48);
-        int yearMonth = (int) (date >> 40);
-        int yearMonthDay = (int) (date >> 32);
-
-        int month = (yearMonth & 0XFF);
-        int day = (yearMonthDay & 0XFF);
-        if (LocalDate.class.equals(clz)) {
-            return convertToLocalDate(year, month, day);
-        } else if (java.util.Date.class.equals(clz)) {
-            return convertToJavaDate(year, month, day);
-        } else if (org.joda.time.LocalDate.class.equals(clz)) {
-            return convertToJodaDate(year, month, day);
-        } else {
-            return null;
-        }
-    }
-
-    /**
-     * a 64bit num convertToDate.
-     */
-    public static LocalDate convertToLocalDate(int year, int month, int day) {
-        LocalDate value = null;
-        try {
-            value = LocalDate.of(year, month, day);
-        } catch (DateTimeException e) {
-            LOG.warn("Error occurs when parsing date value: {}", e);
-        }
-        return value;
-    }
-
-    public static org.joda.time.LocalDate convertToJodaDate(int year, int month, int day) {
-        try {
-            return new org.joda.time.LocalDate(year, month, day);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    public static java.util.Date convertToJavaDate(int year, int month, int day) {
-        try {
-            return new java.util.Date(year - 1900, month - 1, day);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /**
-     * input is the second, minute, hours, day , month and year respectively.
-     * and then combining all num to a 64bit value return to backend;
-     */
-    public static long convertToDateTime(Object obj, Class clz) {
-        if (LocalDateTime.class.equals(clz)) {
-            LocalDateTime date = (LocalDateTime) obj;
-            return convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(), date.getHour(),
-                    date.getMinute(), date.getSecond(), false);
-        } else if (org.joda.time.DateTime.class.equals(clz)) {
-            org.joda.time.DateTime date = (org.joda.time.DateTime) obj;
-            return convertToDateTime(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), date.getHourOfDay(),
-                    date.getMinuteOfHour(), date.getSecondOfMinute(), false);
-        } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
-            org.joda.time.LocalDateTime date = (org.joda.time.LocalDateTime) obj;
-            return convertToDateTime(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), date.getHourOfDay(),
-                    date.getMinuteOfHour(), date.getSecondOfMinute(), false);
-        } else {
-            return 0;
-        }
-    }
-
-    public static long convertToDate(Object obj, Class clz) {
-        if (LocalDate.class.equals(clz)) {
-            LocalDate date = (LocalDate) obj;
-            return convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(), 0,
-                    0, 0, true);
-        } else if (java.util.Date.class.equals(clz)) {
-            java.util.Date date = (java.util.Date) obj;
-            return convertToDateTime(date.getYear() + 1900, date.getMonth() + 1, date.getDay(), 0,
-                    0, 0, true);
-        } else if (org.joda.time.LocalDate.class.equals(clz)) {
-            org.joda.time.LocalDate date = (org.joda.time.LocalDate) obj;
-            return convertToDateTime(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), 0,
-                    0, 0, true);
-        } else {
-            return 0;
-        }
-    }
-
     public static long convertToDateTime(int year, int month, int day, int hour, int minute, int second,
             boolean isDate) {
         long time = 0;
@@ -394,52 +209,14 @@ public class UdfUtils {
         return time;
     }
 
-    public static long convertToDateTimeV2(int year, int month, int day, int hour, int minute, int second) {
-        return (long) second << 20 | (long) minute << 26 | (long) hour << 32
-                | (long) day << 37 | (long) month << 42 | (long) year << 46;
-    }
-
     public static long convertToDateTimeV2(
             int year, int month, int day, int hour, int minute, int second, int microsecond) {
         return (long) microsecond | (long) second << 20 | (long) minute << 26 | (long) hour << 32
                 | (long) day << 37 | (long) month << 42 | (long) year << 46;
     }
 
-    public static long convertToDateTimeV2(Object obj, Class clz) {
-        if (LocalDateTime.class.equals(clz)) {
-            LocalDateTime date = (LocalDateTime) obj;
-            return convertToDateTimeV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth(), date.getHour(),
-                    date.getMinute(), date.getSecond());
-        } else if (org.joda.time.DateTime.class.equals(clz)) {
-            org.joda.time.DateTime date = (org.joda.time.DateTime) obj;
-            return convertToDateTimeV2(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), date.getHourOfDay(),
-                    date.getMinuteOfHour(), date.getSecondOfMinute(), date.getMillisOfSecond() * 1000);
-        } else if (org.joda.time.LocalDateTime.class.equals(clz)) {
-            org.joda.time.LocalDateTime date = (org.joda.time.LocalDateTime) obj;
-            return convertToDateTimeV2(date.getYear(), date.getMonthOfYear(), date.getDayOfMonth(), date.getHourOfDay(),
-                    date.getMinuteOfHour(), date.getSecondOfMinute(), date.getMillisOfSecond() * 1000);
-        } else {
-            return 0;
-        }
-    }
-
     public static int convertToDateV2(int year, int month, int day) {
         return (int) (day | (long) month << 5 | (long) year << 9);
-    }
-
-    public static int convertToDateV2(Object obj, Class clz) {
-        if (LocalDate.class.equals(clz)) {
-            LocalDate date = (LocalDate) obj;
-            return convertToDateV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth());
-        } else if (java.util.Date.class.equals(clz)) {
-            java.util.Date date = (java.util.Date) obj;
-            return convertToDateV2(date.getYear(), date.getMonth(), date.getDay());
-        } else if (org.joda.time.LocalDate.class.equals(clz)) {
-            org.joda.time.LocalDate date = (org.joda.time.LocalDate) obj;
-            return convertToDateV2(date.getYear(), date.getDayOfMonth(), date.getDayOfMonth());
-        } else {
-            return 0;
-        }
     }
 
     /**
