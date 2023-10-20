@@ -998,6 +998,7 @@ void VTabletWriter::_send_batch_process() {
 
     bool had_effect = false;
     while (true) {
+        bthread_usleep(config::olap_table_sink_send_interval_ms * 1000);
         // incremental open will temporarily make channels into abnormal state. stop checking when this.
         std::unique_lock<std::mutex> l(_stop_check_channel);
 
@@ -1019,7 +1020,6 @@ void VTabletWriter::_send_batch_process() {
         } else if (running_channels_num != 0) {
             had_effect = true;
         }
-        bthread_usleep(config::olap_table_sink_send_interval_ms * 1000);
     }
 }
 
@@ -1065,7 +1065,7 @@ Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* pr
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
 
-    // start to send batch continually
+    // start to send batch continually. this must be called after _init
     if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {
         return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
     }
