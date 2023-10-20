@@ -562,7 +562,10 @@ void IcebergTableReader::_gen_file_col_names() {
         auto name = _file_col_names[i];
         auto iter = _table_col_to_file_col.find(name);
         if (iter == _table_col_to_file_col.end()) {
-            _all_required_col_names.emplace_back(name);
+            // If the user creates the iceberg table, directly append the parquet file that already exists,
+            // there is no 'iceberg.schema' field in the footer of parquet, the '_table_col_to_file_col' may be empty.
+            // Because we are ignoring case, so, it is converted to lowercase here
+            _all_required_col_names.emplace_back(to_lower(name));
             if (_has_iceberg_schema) {
                 _not_in_file_col_names.emplace_back(name);
             }
