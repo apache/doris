@@ -75,7 +75,7 @@ void ColumnNullable::update_xxHash_with_value(size_t start, size_t end, uint64_t
     }
 }
 
-void ColumnNullable::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnNullable::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                            const uint8_t* __restrict null_data) const {
     if (!has_null()) {
         nested_column->update_crc_with_value(start, end, hash, nullptr);
@@ -118,23 +118,23 @@ void ColumnNullable::update_hashes_with_value(std::vector<SipHash>& hashes,
     }
 }
 
-void ColumnNullable::update_crcs_with_value(std::vector<uint64_t>& hashes,
-                                            doris::PrimitiveType type,
+void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
+                                            uint32_t rows, uint32_t offset,
                                             const uint8_t* __restrict null_data) const {
     DCHECK(null_data == nullptr);
-    auto s = hashes.size();
+    auto s = rows;
     DCHECK(s == size());
     const auto* __restrict real_null_data =
             assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
     if (!has_null()) {
-        nested_column->update_crcs_with_value(hashes, type, nullptr);
+        nested_column->update_crcs_with_value(hashes, type, rows, offset, nullptr);
     } else {
         for (int i = 0; i < s; ++i) {
             if (real_null_data[i] != 0) {
                 hashes[i] = HashUtil::zlib_crc_hash_null(hashes[i]);
             }
         }
-        nested_column->update_crcs_with_value(hashes, type, real_null_data);
+        nested_column->update_crcs_with_value(hashes, type, rows, offset, real_null_data);
     }
 }
 

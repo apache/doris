@@ -82,13 +82,11 @@ TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
 // prepare txn should always be allowed because ingest task will be retried
 // could not distinguish rollup, schema change or base table, prepare txn successfully will allow
 // ingest retried
-Status TxnManager::prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+Status TxnManager::prepare_txn(TPartitionId partition_id, const Tablet& tablet,
                                TTransactionId transaction_id, const PUniqueId& load_id,
                                bool ingest) {
-    const auto& tablet_id = tablet->tablet_id();
-    const auto& tablet_uid = tablet->tablet_uid();
-
-    return prepare_txn(partition_id, transaction_id, tablet_id, tablet_uid, load_id, ingest);
+    return prepare_txn(partition_id, transaction_id, tablet.tablet_id(), tablet.tablet_uid(),
+                       load_id, ingest);
 }
 
 // most used for ut
@@ -150,11 +148,11 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     return Status::OK();
 }
 
-Status TxnManager::commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+Status TxnManager::commit_txn(TPartitionId partition_id, const Tablet& tablet,
                               TTransactionId transaction_id, const PUniqueId& load_id,
                               const RowsetSharedPtr& rowset_ptr, bool is_recovery) {
-    return commit_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
-                      tablet->tablet_id(), tablet->tablet_uid(), load_id, rowset_ptr, is_recovery);
+    return commit_txn(tablet.data_dir()->get_meta(), partition_id, transaction_id,
+                      tablet.tablet_id(), tablet.tablet_uid(), load_id, rowset_ptr, is_recovery);
 }
 
 Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -165,9 +163,9 @@ Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr&
 }
 
 // delete the txn from manager if it is not committed(not have a valid rowset)
-Status TxnManager::rollback_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+Status TxnManager::rollback_txn(TPartitionId partition_id, const Tablet& tablet,
                                 TTransactionId transaction_id) {
-    return rollback_txn(partition_id, transaction_id, tablet->tablet_id(), tablet->tablet_uid());
+    return rollback_txn(partition_id, transaction_id, tablet.tablet_id(), tablet.tablet_uid());
 }
 
 Status TxnManager::delete_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,

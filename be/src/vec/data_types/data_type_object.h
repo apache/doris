@@ -29,6 +29,7 @@
 #include <string>
 
 #include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
 #include "serde/data_type_object_serde.h"
 #include "vec/columns/column_object.h"
 #include "vec/common/assert_cast.h"
@@ -53,7 +54,9 @@ public:
     DataTypeObject(const String& schema_format_, bool is_nullable_);
     const char* get_family_name() const override { return "Variant"; }
     TypeIndex get_type_id() const override { return TypeIndex::VARIANT; }
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_VARIANT; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_VARIANT);
+    }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::VARIANT;
     }

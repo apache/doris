@@ -168,9 +168,10 @@ struct TaskGroupInfo {
     int64_t memory_limit;
     bool enable_memory_overcommit;
     int64_t version;
+    int cpu_hard_limit;
 
     static Status parse_group_info(const TPipelineWorkloadGroup& resource_group,
-                                   TaskGroupInfo* task_group_info, int* query_cpu_hard_limit);
+                                   TaskGroupInfo* task_group_info);
 
 private:
     static bool check_group_info(const TPipelineWorkloadGroup& resource_group);
