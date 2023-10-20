@@ -67,8 +67,9 @@ public class AlterTableStmt extends DdlStmt {
         tbl.analyze(analyzer);
         // disallow external catalog
         Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
-                PrivPredicate.ALTER)) {
+        if (!skipAuth && !Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
+                        PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
