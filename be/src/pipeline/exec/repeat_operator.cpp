@@ -100,7 +100,7 @@ RepeatOperatorX::RepeatOperatorX(ObjectPool* pool, const TPlanNode& tnode,
           _output_tuple_id(tnode.repeat_node.output_tuple_id) {};
 
 bool RepeatOperatorX::need_more_input_data(RuntimeState* state) const {
-    auto& local_state = state->get_local_state(id())->cast<RepeatLocalState>();
+    auto& local_state = state->get_local_state(operator_id())->cast<RepeatLocalState>();
     return !local_state._child_block->rows() && !local_state._child_eos;
 }
 

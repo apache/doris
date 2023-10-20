@@ -1287,7 +1287,7 @@ Dependency* ScanOperatorX<LocalStateType>::wait_for_dependency(RuntimeState* sta
 
 template <typename LocalStateType>
 FinishDependency* ScanOperatorX<LocalStateType>::finish_blocked_by(RuntimeState* state) const {
-    auto& local_state = state->get_local_state(id())->template cast<LocalStateType>();
+    auto& local_state = state->get_local_state(operator_id())->template cast<LocalStateType>();
     return local_state._finish_dependency->finish_blocked_by();
 }
 
@@ -1375,7 +1375,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
 template <typename LocalStateType>
 bool ScanOperatorX<LocalStateType>::runtime_filters_are_ready_or_timeout(
         RuntimeState* state) const {
-    return state->get_local_state(id())
+    return state->get_local_state(operator_id())
             ->template cast<LocalStateType>()
             .runtime_filters_are_ready_or_timeout();
 }

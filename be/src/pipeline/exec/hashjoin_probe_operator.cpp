@@ -428,7 +428,7 @@ Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state
 }
 
 bool HashJoinProbeOperatorX::need_more_input_data(RuntimeState* state) const {
-    auto& local_state = state->get_local_state(id())->cast<HashJoinProbeLocalState>();
+    auto& local_state = state->get_local_state(operator_id())->cast<HashJoinProbeLocalState>();
     return (local_state._probe_block.rows() == 0 ||
             local_state._probe_index == local_state._probe_block.rows()) &&
            !local_state._probe_eos && !local_state._shared_state->short_circuit_for_probe;

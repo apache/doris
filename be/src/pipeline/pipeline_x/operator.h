@@ -22,23 +22,23 @@
 namespace doris::pipeline {
 
 #define CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state)                                 \
-    auto _sptr = state->get_local_state(id());                                          \
+    auto _sptr = state->get_local_state(this->operator_id());                           \
     if (!_sptr) return Status::InternalError("could not find local state id {}", id()); \
     auto& local_state = _sptr->template cast<LocalState>();
 
 #define CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state)                            \
-    auto _sptr = state->get_sink_local_state(id());                                     \
+    auto _sptr = state->get_sink_local_state(this->operator_id());                      \
     if (!_sptr) return Status::InternalError("could not find local state id {}", id()); \
     auto& local_state = _sptr->template cast<LocalState>();
 
-#define CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state) \
-    auto _sptr = state->get_local_state(id());               \
-    if (!_sptr) return nullptr;                              \
+#define CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state)  \
+    auto _sptr = state->get_local_state(this->operator_id()); \
+    if (!_sptr) return nullptr;                               \
     auto& local_state = _sptr->template cast<LocalState>();
 
-#define CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state) \
-    auto _sptr = state->get_sink_local_state(id());               \
-    if (!_sptr) return nullptr;                                   \
+#define CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state)  \
+    auto _sptr = state->get_sink_local_state(this->operator_id()); \
+    if (!_sptr) return nullptr;                                    \
     auto& local_state = _sptr->template cast<LocalState>();
 
 // This struct is used only for initializing local state.
@@ -142,7 +142,6 @@ class OperatorXBase : public OperatorBase {
 public:
     OperatorXBase(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
             : OperatorBase(nullptr),
-              _id(tnode.node_id),
               _node_id(tnode.node_id),
               _type(tnode.node_type),
               _pool(pool),
@@ -156,7 +155,7 @@ public:
     }
 
     OperatorXBase(ObjectPool* pool, int node_id, int id)
-            : OperatorBase(nullptr), _id(id), _node_id(node_id), _pool(pool) {};
+            : OperatorBase(nullptr), _node_id(node_id), _pool(pool) {};
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
     Status init(const TDataSink& tsink) override {
         LOG(FATAL) << "should not reach here!";
@@ -247,9 +246,11 @@ public:
     [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
     [[nodiscard]] RowDescriptor& row_descriptor() { return _row_descriptor; }
 
-    [[nodiscard]] int id() const override { return _id; }
+    [[nodiscard]] int id() const override { return _node_id; }
     [[nodiscard]] int node_id() const { return _node_id; }
 
+    void set_operator_id(int id) { _operator_id = id; }
+    [[nodiscard]] int operator_id() const override { return _operator_id; }
     [[nodiscard]] int64_t limit() const { return _limit; }
 
     [[nodiscard]] const RowDescriptor& row_desc() override {
@@ -269,7 +270,7 @@ protected:
     template <typename Dependency>
     friend class PipelineXLocalState;
     friend class PipelineXLocalStateBase;
-    int _id;
+    int _operator_id;
     const int _node_id; // unique w/in single plan tree
     TPlanNodeType::type _type;
     ObjectPool* _pool;
@@ -393,14 +394,13 @@ protected:
 
 class DataSinkOperatorXBase : public OperatorBase {
 public:
-    DataSinkOperatorXBase(const int id)
-            : OperatorBase(nullptr), _id(id), _node_id(id), _dests_id({id}) {}
+    DataSinkOperatorXBase(const int id) : OperatorBase(nullptr), _node_id(id), _dests_id({id}) {}
 
     DataSinkOperatorXBase(const int id, const int node_id, const int dest_id)
-            : OperatorBase(nullptr), _id(id), _node_id(node_id), _dests_id({dest_id}) {}
+            : OperatorBase(nullptr), _node_id(node_id), _dests_id({dest_id}) {}
 
     DataSinkOperatorXBase(const int id, const int node_id, std::vector<int>& sources)
-            : OperatorBase(nullptr), _id(id), _node_id(node_id), _dests_id(sources) {}
+            : OperatorBase(nullptr), _node_id(node_id), _dests_id(sources) {}
 
     ~DataSinkOperatorXBase() override = default;
 
@@ -470,11 +470,11 @@ public:
     [[nodiscard]] bool is_source() const override { return false; }
 
     virtual Status close(RuntimeState* state, Status exec_status) {
-        return state->get_sink_local_state(id())->close(state, exec_status);
+        return state->get_sink_local_state(operator_id())->close(state, exec_status);
     }
 
     [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
-        return state->get_sink_local_state(id())->try_close(state, exec_status);
+        return state->get_sink_local_state(operator_id())->try_close(state, exec_status);
     }
 
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
@@ -483,7 +483,11 @@ public:
         return nullptr;
     }
 
-    [[nodiscard]] int id() const override { return _id; }
+    [[nodiscard]] int id() const override { return _node_id; }
+
+    void set_operator_id(int id) { _operator_id = id; }
+
+    [[nodiscard]] int operator_id() const override { return _operator_id; }
 
     [[nodiscard]] const std::vector<int>& dests_id() const { return _dests_id; }
 
@@ -501,7 +505,7 @@ protected:
     // _id : the current Operator's ID, which is not visible to the user.
     // _node_id : the plan node ID corresponding to the Operator, which is visible on the profile.
     // _dests_id : the target ID of the sink, for example, in the case of a multi-sink, there are multiple targets.
-    const int _id;
+    int _operator_id;
     const int _node_id;
     std::vector<int> _dests_id;
     std::string _name;

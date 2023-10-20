@@ -178,7 +178,7 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
 
 Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Block* block) {
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
-    auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
+    auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
     DCHECK_LT(local_state._const_expr_list_idx, _const_expr_lists.size());
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
     vectorized::MutableBlock mblock =

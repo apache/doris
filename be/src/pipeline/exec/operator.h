@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "exec/exec_node.h"
 #include "pipeline/pipeline_x/dependency.h"
@@ -259,7 +260,10 @@ public:
 
     virtual std::string debug_string() const;
     virtual int32_t id() const { return _operator_builder->id(); }
-
+    virtual int operator_id() const {
+        LOG_FATAL("OperatorBase do not have  operator_id");
+        return -1;
+    }
     [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
 
 protected:

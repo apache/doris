@@ -90,7 +90,7 @@ public:
     Status open(doris::RuntimeState* state) override;
 
     bool need_more_input_data(RuntimeState* state) const override {
-        auto& local_state = state->get_local_state(id())->cast<TableFunctionLocalState>();
+        auto& local_state = state->get_local_state(operator_id())->cast<TableFunctionLocalState>();
         return !local_state._child_block->rows() &&
                local_state._child_source_state != SourceState::FINISHED;
     }

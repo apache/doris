@@ -151,7 +151,7 @@ public:
     }
 
     bool should_dry_run(RuntimeState* state) override {
-        return _is_broadcast_join && !state->get_sink_local_state(id())
+        return _is_broadcast_join && !state->get_sink_local_state(operator_id())
                                               ->cast<HashJoinBuildSinkLocalState>()
                                               ._should_build_hash_table;
     }

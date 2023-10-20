@@ -98,12 +98,12 @@ std::string PipelineXSinkLocalState<DependencyType>::debug_string(int indentatio
 std::string OperatorXBase::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}{}: id={}", std::string(indentation_level * 2, ' '),
-                   _op_name, _id);
+                   _op_name, id());
     return fmt::to_string(debug_string_buffer);
 }
 
 std::string OperatorXBase::debug_string(RuntimeState* state, int indentation_level) const {
-    return state->get_local_state(id())->debug_string(indentation_level);
+    return state->get_local_state(operator_id())->debug_string(indentation_level);
 }
 
 Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
@@ -160,7 +160,7 @@ Status OperatorXBase::close(RuntimeState* state) {
     if (_child_x && !is_source()) {
         RETURN_IF_ERROR(_child_x->close(state));
     }
-    return state->get_local_state(id())->close(state);
+    return state->get_local_state(operator_id())->close(state);
 }
 
 void PipelineXLocalStateBase::clear_origin_block() {
@@ -169,7 +169,7 @@ void PipelineXLocalStateBase::clear_origin_block() {
 
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
                                      vectorized::Block* output_block) const {
-    auto local_state = state->get_local_state(id());
+    auto local_state = state->get_local_state(operator_id());
     SCOPED_TIMER(local_state->_projection_timer);
     using namespace vectorized;
     vectorized::MutableBlock mutable_block =
@@ -202,7 +202,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
 
 Status OperatorXBase::get_next_after_projects(RuntimeState* state, vectorized::Block* block,
                                               SourceState& source_state) {
-    auto local_state = state->get_local_state(id());
+    auto local_state = state->get_local_state(operator_id());
     if (_output_row_descriptor) {
         local_state->clear_origin_block();
         auto status = get_block(state, &local_state->_origin_block, source_state);
@@ -232,7 +232,7 @@ std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
 
     fmt::format_to(debug_string_buffer, "{}{}: id={}", std::string(indentation_level * 2, ' '),
-                   _name, _id);
+                   _name, id());
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -241,7 +241,7 @@ std::string PipelineXSinkLocalStateBase::debug_string(int indentation_level) con
 }
 
 std::string DataSinkOperatorXBase::debug_string(RuntimeState* state, int indentation_level) const {
-    return state->get_sink_local_state(id())->debug_string(indentation_level);
+    return state->get_local_state(operator_id())->debug_string(indentation_level);
 }
 
 Status DataSinkOperatorXBase::init(const TDataSink& tsink) {
@@ -268,7 +268,7 @@ template <typename LocalStateType>
 Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
                                                             LocalSinkStateInfo& info) {
     auto local_state = LocalStateType::create_shared(this, state);
-    state->emplace_sink_local_state(id(), local_state);
+    state->emplace_sink_local_state(operator_id(), local_state);
     RETURN_IF_ERROR(local_state->init(state, info));
     return Status::OK();
 }
@@ -289,7 +289,7 @@ void DataSinkOperatorX<LocalStateType>::get_dependency(vector<DependencySPtr>& d
 template <typename LocalStateType>
 Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
     auto local_state = LocalStateType::create_shared(state, this);
-    state->emplace_local_state(id(), local_state);
+    state->emplace_local_state(operator_id(), local_state);
     return local_state->init(state, info);
 }
 
@@ -418,7 +418,7 @@ Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vector
 template <typename LocalStateType>
 Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                     SourceState& source_state) {
-    auto& local_state = state->get_local_state(OperatorX<LocalStateType>::id())
+    auto& local_state = state->get_local_state(OperatorX<LocalStateType>::operator_id())
                                 ->template cast<LocalStateType>();
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data();
