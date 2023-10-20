@@ -985,6 +985,7 @@ public class StmtExecutor {
                 queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof InsertOverwriteTableStmt) {
                 InsertOverwriteTableStmt parsedStmt = (InsertOverwriteTableStmt) this.parsedStmt;
+                parsedStmt.analyze(analyzer);
                 queryStmt = parsedStmt.getQueryStmt();
                 queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
@@ -2374,6 +2375,7 @@ public class StmtExecutor {
     }
 
     private void handleIotStmt() {
+        ConnectContext.get().setSkipAuth(true);
         InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
         if (iotStmt.getPartitionNames().size() == 0) {
             // insert overwrite table
@@ -2382,6 +2384,7 @@ public class StmtExecutor {
             // insert overwrite table with partition
             handleOverwritePartition(iotStmt);
         }
+        ConnectContext.get().setSkipAuth(false);
     }
 
     private void handleOverwriteTable(InsertOverwriteTableStmt iotStmt) {
@@ -2393,7 +2396,6 @@ public class StmtExecutor {
             // create a tmp table with uuid
             parsedStmt = new CreateTableLikeStmt(false, tmpTableName, targetTableName, null, false);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
-            parsedStmt.setSkipAuth(true);
             execute();
             // if create tmp table err, return
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
@@ -2412,7 +2414,6 @@ public class StmtExecutor {
             parsedStmt = new NativeInsertStmt(tmpTableName, null, new LabelName(iotStmt.getDb(), iotStmt.getLabel()),
                     iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols());
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
-            parsedStmt.setSkipAuth(true);
             execute();
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
                 LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql());
@@ -2434,7 +2435,6 @@ public class StmtExecutor {
             ops.add(new ReplaceTableClause(tmpTableName.getTbl(), properties));
             parsedStmt = new AlterTableStmt(targetTableName, ops);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
-            parsedStmt.setSkipAuth(true);
             execute();
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
                 LOG.warn("IOT overwrite table error, stmt={}", parsedStmt.toSql());
@@ -2465,7 +2465,6 @@ public class StmtExecutor {
                 ops.add(new AddPartitionLikeClause(tempPartName, partitionName, true));
                 parsedStmt = new AlterTableStmt(targetTableName, ops);
                 parsedStmt.setUserInfo(context.getCurrentUserIdentity());
-                parsedStmt.setSkipAuth(true);
                 execute();
                 if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
                     LOG.warn("IOT create tmp partitions error, stmt={}", originStmt.originStmt);
@@ -2488,7 +2487,6 @@ public class StmtExecutor {
                     new LabelName(iotStmt.getDb(), iotStmt.getLabel()), iotStmt.getQueryStmt(),
                     iotStmt.getHints(), iotStmt.getCols());
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
-            parsedStmt.setSkipAuth(true);
             execute();
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
                 LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql());
@@ -2511,7 +2509,6 @@ public class StmtExecutor {
                     new PartitionNames(true, tempPartitionName), properties));
             parsedStmt = new AlterTableStmt(targetTableName, ops);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
-            parsedStmt.setSkipAuth(true);
             execute();
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
                 LOG.warn("IOT overwrite table partitions error, stmt={}", parsedStmt.toSql());
@@ -2530,7 +2527,6 @@ public class StmtExecutor {
     private void handleIotRollback(TableName table) {
         // insert error drop the tmp table
         DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
-        dropTableStmt.setSkipAuth(true);
         try {
             Analyzer tempAnalyzer = new Analyzer(Env.getCurrentEnv(), context);
             dropTableStmt.analyze(tempAnalyzer);
@@ -2548,7 +2544,6 @@ public class StmtExecutor {
                 List<AlterClause> ops = new ArrayList<>();
                 ops.add(new DropPartitionClause(true, partitionName, true, true));
                 AlterTableStmt dropTablePartitionStmt = new AlterTableStmt(targetTableName, ops);
-                dropTablePartitionStmt.setSkipAuth(true);
                 Analyzer tempAnalyzer = new Analyzer(Env.getCurrentEnv(), context);
                 dropTablePartitionStmt.analyze(tempAnalyzer);
                 DdlExecutor.execute(context.getEnv(), dropTablePartitionStmt);

@@ -80,6 +80,5 @@ public class InsertOverwriteTableStmt extends DdlStmt {
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     getDb() + ": " + getTbl());
         }
-        getQueryStmt().analyze(analyzer);
     }
 }

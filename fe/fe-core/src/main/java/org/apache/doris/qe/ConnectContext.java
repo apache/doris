@@ -190,6 +190,9 @@ public class ConnectContext {
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
+    //internal call like `insert overwrite` not need skipAuth
+    private boolean skipAuth = false;
+
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
             sessionVariable.setQueryTimeoutS(queryTimeout);
@@ -902,6 +905,14 @@ public class ConnectContext {
 
     public Backend getInsertGroupCommit(long tableId) {
         return insertGroupCommitTableToBeMap.get(tableId);
+    }
+
+    public boolean isSkipAuth() {
+        return skipAuth;
+    }
+
+    public void setSkipAuth(boolean skipAuth) {
+        this.skipAuth = skipAuth;
     }
 }
 

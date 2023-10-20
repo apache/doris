@@ -61,8 +61,6 @@ public abstract class StatementBase implements ParseNode {
     // select * from tbl where a = ? and b = ?
     // `?` is the placeholder
     private ArrayList<PlaceHolderExpr> placeholders = new ArrayList<>();
-    //internal call like `insert overwrite` not need skipAuth
-    protected boolean skipAuth = false;
 
     protected StatementBase() { }
 
@@ -246,10 +244,6 @@ public abstract class StatementBase implements ParseNode {
 
     public void setUserInfo(UserIdentity userInfo) {
         this.userInfo = userInfo;
-    }
-
-    public void setSkipAuth(boolean skipAuth) {
-        this.skipAuth = skipAuth;
     }
 
     /**
