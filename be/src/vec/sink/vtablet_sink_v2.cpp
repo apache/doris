@@ -394,7 +394,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             SCOPED_TIMER(_close_load_timer);
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : *streams) {
-                    static_cast<void>(stream->close_wait());
+                    RETURN_IF_ERROR(stream->close_wait());
                 }
             }
         }
