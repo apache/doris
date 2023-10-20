@@ -48,8 +48,9 @@ public:
             if (runtime_filter == nullptr) {
                 return Status::InternalError("runtime filter is nullptr");
             }
-            // cross join has not remote filter
-            if (runtime_filter->has_remote_target()) {
+            // cross join has not remote filter for bitmap filter(non shuffle join)
+            if (runtime_filter->type() == RuntimeFilterType::BITMAP_FILTER &&
+                runtime_filter->has_remote_target()) {
                 return Status::InternalError("cross join runtime filter has remote target");
             }
             _runtime_filters.push_back(runtime_filter);

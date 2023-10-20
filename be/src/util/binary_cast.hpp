@@ -21,7 +21,6 @@
 #include <cstdint>
 #include <type_traits>
 
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "util/types.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -49,19 +48,19 @@ static_assert(sizeof(DecimalV2Value) == sizeof(PackedInt128));
 static_assert(sizeof(DecimalV2Value) == sizeof(__int128_t));
 
 union VecDateTimeInt64Union {
-    doris::vectorized::VecDateTimeValue dt;
+    doris::VecDateTimeValue dt;
     __int64_t i64;
     ~VecDateTimeInt64Union() {}
 };
 
 union DateV2UInt32Union {
-    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> dt;
+    DateV2Value<DateV2ValueType> dt;
     uint32_t ui32;
     ~DateV2UInt32Union() {}
 };
 
 union DateTimeV2UInt64Union {
-    doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> dt;
+    DateV2Value<DateTimeV2ValueType> dt;
     uint64_t ui64;
     ~DateTimeV2UInt64Union() {}
 };
@@ -73,28 +72,20 @@ To binary_cast(From from) {
     constexpr bool from_i64_to_db = match_v<From, int64_t, To, double>;
     constexpr bool from_db_to_i64 = match_v<From, double, To, int64_t>;
     constexpr bool from_db_to_u64 = match_v<From, double, To, uint64_t>;
-    constexpr bool from_i64_to_vec_dt =
-            match_v<From, __int64_t, To, doris::vectorized::VecDateTimeValue>;
-    constexpr bool from_vec_dt_to_i64 =
-            match_v<From, doris::vectorized::VecDateTimeValue, To, __int64_t>;
+    constexpr bool from_i64_to_vec_dt = match_v<From, __int64_t, To, doris::VecDateTimeValue>;
+    constexpr bool from_vec_dt_to_i64 = match_v<From, doris::VecDateTimeValue, To, __int64_t>;
     constexpr bool from_i128_to_decv2 = match_v<From, __int128_t, To, DecimalV2Value>;
     constexpr bool from_decv2_to_i128 = match_v<From, DecimalV2Value, To, __int128_t>;
 
-    constexpr bool from_ui32_to_date_v2 =
-            match_v<From, uint32_t, To,
-                    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>>;
+    constexpr bool from_ui32_to_date_v2 = match_v<From, uint32_t, To, DateV2Value<DateV2ValueType>>;
 
-    constexpr bool from_date_v2_to_ui32 =
-            match_v<From, doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>, To,
-                    uint32_t>;
+    constexpr bool from_date_v2_to_ui32 = match_v<From, DateV2Value<DateV2ValueType>, To, uint32_t>;
 
     constexpr bool from_ui64_to_datetime_v2 =
-            match_v<From, uint64_t, To,
-                    doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>>;
+            match_v<From, uint64_t, To, DateV2Value<DateTimeV2ValueType>>;
 
     constexpr bool from_datetime_v2_to_ui64 =
-            match_v<From, doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>,
-                    To, uint64_t>;
+            match_v<From, DateV2Value<DateTimeV2ValueType>, To, uint64_t>;
 
     static_assert(from_u64_to_db || from_i64_to_db || from_db_to_i64 || from_db_to_u64 ||
                   from_i64_to_vec_dt || from_vec_dt_to_i64 || from_i128_to_decv2 ||

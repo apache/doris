@@ -171,6 +171,10 @@ RuntimeFilterType get_type(int filter_type) {
     }
     case PFilterType::MINMAX_FILTER:
         return RuntimeFilterType::MINMAX_FILTER;
+    case PFilterType::MIN_FILTER:
+        return RuntimeFilterType::MIN_FILTER;
+    case PFilterType::MAX_FILTER:
+        return RuntimeFilterType::MAX_FILTER;
     default:
         return RuntimeFilterType::UNKNOWN_FILTER;
     }
@@ -183,6 +187,10 @@ PFilterType get_type(RuntimeFilterType type) {
         return PFilterType::IN_FILTER;
     case RuntimeFilterType::BLOOM_FILTER:
         return PFilterType::BLOOM_FILTER;
+    case RuntimeFilterType::MIN_FILTER:
+        return PFilterType::MIN_FILTER;
+    case RuntimeFilterType::MAX_FILTER:
+        return PFilterType::MAX_FILTER;
     case RuntimeFilterType::MINMAX_FILTER:
         return PFilterType::MINMAX_FILTER;
     case RuntimeFilterType::IN_OR_BLOOM_FILTER:
@@ -739,7 +747,7 @@ public:
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 auto& string_val_ref = column.stringval();
-                vectorized::VecDateTimeValue datetime_val;
+                VecDateTimeValue datetime_val;
                 datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
                 set->insert(&datetime_val);
             });
@@ -880,8 +888,8 @@ public:
         case TYPE_DATE: {
             auto& min_val_ref = minmax_filter->min_val().stringval();
             auto& max_val_ref = minmax_filter->max_val().stringval();
-            vectorized::VecDateTimeValue min_val;
-            vectorized::VecDateTimeValue max_val;
+            VecDateTimeValue min_val;
+            VecDateTimeValue max_val;
             min_val.from_date_str(min_val_ref.c_str(), min_val_ref.length());
             max_val.from_date_str(max_val_ref.c_str(), max_val_ref.length());
             return _context.minmax_func->assign(&min_val, &max_val);
@@ -1328,6 +1336,8 @@ Status IRuntimeFilter::create_wrapper(QueryContext* query_ctx,
         DCHECK(param->request->has_bloom_filter());
         return (*wrapper)->assign(&param->request->bloom_filter(), param->data);
     }
+    case PFilterType::MIN_FILTER:
+    case PFilterType::MAX_FILTER:
     case PFilterType::MINMAX_FILTER: {
         DCHECK(param->request->has_minmax_filter());
         return (*wrapper)->assign(&param->request->minmax_filter());
@@ -1369,6 +1379,8 @@ Status IRuntimeFilter::_create_wrapper(RuntimeState* state, const T* param, Obje
         DCHECK(param->request->has_bloom_filter());
         return (*wrapper)->assign(&param->request->bloom_filter(), param->data);
     }
+    case PFilterType::MIN_FILTER:
+    case PFilterType::MAX_FILTER:
     case PFilterType::MINMAX_FILTER: {
         DCHECK(param->request->has_minmax_filter());
         return (*wrapper)->assign(&param->request->minmax_filter());
@@ -1443,7 +1455,9 @@ Status IRuntimeFilter::serialize_impl(T* request, void** data, int* len) {
         DCHECK(data != nullptr);
         request->mutable_bloom_filter()->set_filter_length(*len);
         request->mutable_bloom_filter()->set_always_true(false);
-    } else if (real_runtime_filter_type == RuntimeFilterType::MINMAX_FILTER) {
+    } else if (real_runtime_filter_type == RuntimeFilterType::MINMAX_FILTER ||
+               real_runtime_filter_type == RuntimeFilterType::MIN_FILTER ||
+               real_runtime_filter_type == RuntimeFilterType::MAX_FILTER) {
         auto minmax_filter = request->mutable_minmax_filter();
         to_protobuf(minmax_filter);
     } else {
@@ -1515,31 +1529,28 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
         return;
     }
     case TYPE_DATEV2: {
-        batch_copy<vectorized::DateV2Value<vectorized::DateV2ValueType>>(
-                filter, it,
-                [](PColumnValue* column,
-                   const vectorized::DateV2Value<vectorized::DateV2ValueType>* value) {
+        batch_copy<DateV2Value<DateV2ValueType>>(
+                filter, it, [](PColumnValue* column, const DateV2Value<DateV2ValueType>* value) {
                     column->set_intval(*reinterpret_cast<const int32_t*>(value));
                 });
         return;
     }
     case TYPE_DATETIMEV2: {
-        batch_copy<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
+        batch_copy<DateV2Value<DateTimeV2ValueType>>(
                 filter, it,
-                [](PColumnValue* column,
-                   const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>* value) {
+                [](PColumnValue* column, const DateV2Value<DateTimeV2ValueType>* value) {
                     column->set_longval(*reinterpret_cast<const int64_t*>(value));
                 });
         return;
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        batch_copy<vectorized::VecDateTimeValue>(
-                filter, it, [](PColumnValue* column, const vectorized::VecDateTimeValue* value) {
-                    char convert_buffer[30];
-                    value->to_string(convert_buffer);
-                    column->set_stringval(convert_buffer);
-                });
+        batch_copy<VecDateTimeValue>(filter, it,
+                                     [](PColumnValue* column, const VecDateTimeValue* value) {
+                                         char convert_buffer[30];
+                                         value->to_string(convert_buffer);
+                                         column->set_stringval(convert_buffer);
+                                     });
         return;
     }
     case TYPE_DECIMALV2: {
@@ -1586,8 +1597,7 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
     void* min_data = nullptr;
     void* max_data = nullptr;
     static_cast<void>(_wrapper->get_minmax_filter_desc(&min_data, &max_data));
-    DCHECK(min_data != nullptr);
-    DCHECK(max_data != nullptr);
+    DCHECK(min_data != nullptr && max_data != nullptr);
     filter->set_column_type(to_proto(_wrapper->column_type()));
 
     switch (_wrapper->column_type()) {
@@ -1646,9 +1656,9 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
     case TYPE_DATE:
     case TYPE_DATETIME: {
         char convert_buffer[30];
-        reinterpret_cast<const vectorized::VecDateTimeValue*>(min_data)->to_string(convert_buffer);
+        reinterpret_cast<const VecDateTimeValue*>(min_data)->to_string(convert_buffer);
         filter->mutable_min_val()->set_stringval(convert_buffer);
-        reinterpret_cast<const vectorized::VecDateTimeValue*>(max_data)->to_string(convert_buffer);
+        reinterpret_cast<const VecDateTimeValue*>(max_data)->to_string(convert_buffer);
         filter->mutable_max_val()->set_stringval(convert_buffer);
         return;
     }

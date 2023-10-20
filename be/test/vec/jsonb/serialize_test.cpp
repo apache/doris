@@ -308,7 +308,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
         auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
         auto& date_v2_data = column_vector_date_v2->get_data();
         for (int i = 0; i < 1024; ++i) {
-            vectorized::DateV2Value<doris::vectorized::DateV2ValueType> value;
+            DateV2Value<DateV2ValueType> value;
             value.from_date((uint32_t)((2022 << 9) | (6 << 5) | 6));
             date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
         }

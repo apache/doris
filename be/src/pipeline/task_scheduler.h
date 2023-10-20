@@ -46,17 +46,15 @@ namespace doris::pipeline {
 
 class BlockedTaskScheduler {
 public:
-    explicit BlockedTaskScheduler(std::shared_ptr<TaskQueue> task_queue);
+    explicit BlockedTaskScheduler();
 
     ~BlockedTaskScheduler() = default;
 
-    Status start();
+    Status start(std::string sche_name);
     void shutdown();
     Status add_blocked_task(PipelineTask* task);
 
 private:
-    std::shared_ptr<TaskQueue> _task_queue;
-
     std::mutex _task_mutex;
     std::condition_variable _task_cond;
     std::list<PipelineTask*> _blocked_tasks;
