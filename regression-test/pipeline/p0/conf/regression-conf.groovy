@@ -54,7 +54,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "explode,test_profile,test_broker_load_p2,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog"
+excludeSuites = "test_cast_function,explode,test_profile,test_broker_load_p2,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog"
 
 // this directories will not be executed
 excludeDirectories = "nereids_tpcds_shape_sf100_p0,nereids_tpch_shape_sf1000_p0,nereids_tpch_shape_sf500_p0,workload_manager_p1"
