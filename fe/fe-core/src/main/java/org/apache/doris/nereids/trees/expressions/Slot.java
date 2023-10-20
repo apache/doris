@@ -52,4 +52,8 @@ public abstract class Slot extends NamedExpression implements LeafExpression {
     public Slot withExprId(ExprId exprId) {
         throw new RuntimeException("Do not implement");
     }
+
+    public String getInternalName() {
+        throw new RuntimeException("Do not implement");
+    }
 }
