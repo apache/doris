@@ -18,10 +18,8 @@
 #pragma once
 
 #include <butil/macros.h>
-#include <gen_cpp/olap_file.pb.h>
-#include <gen_cpp/segment_v2.pb.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -31,6 +29,7 @@
 #include <vector>
 
 #include "common/status.h" // Status
+#include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
 #include "gutil/strings/substitute.h"
@@ -93,22 +92,22 @@ public:
     Status batch_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
     Status write_batch();
 
-    size_t inverted_index_file_size() const { return _inverted_index_file_size; }
-    uint32_t num_rows_written() const { return _num_rows_written; }
-    int64_t num_rows_filtered() const { return _num_rows_filtered; }
-    uint32_t row_count() const { return _row_count; }
+    [[nodiscard]] std::string data_dir_path() const {
+        return _data_dir == nullptr ? "" : _data_dir->path();
+    }
+    [[nodiscard]] size_t inverted_index_file_size() const { return _inverted_index_file_size; }
+    [[nodiscard]] uint32_t num_rows_written() const { return _num_rows_written; }
+    [[nodiscard]] int64_t num_rows_filtered() const { return _num_rows_filtered; }
+    [[nodiscard]] uint32_t row_count() const { return _row_count; }
+    [[nodiscard]] uint32_t segment_id() const { return _segment_id; }
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
-
-    uint32_t segment_id() { return _segment_id; }
 
     Status finalize_columns_index(uint64_t* index_size);
     Status finalize_footer(uint64_t* segment_file_size);
 
     Slice min_encoded_key();
     Slice max_encoded_key();
-
-    std::string data_dir_path() const { return _data_dir == nullptr ? "" : _data_dir->path(); }
 
     void clear();
 
