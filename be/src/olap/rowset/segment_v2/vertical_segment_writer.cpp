@@ -877,16 +877,14 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     RETURN_IF_ERROR(_write_bloom_filter_index());
 
     *index_size = _file_writer->bytes_appended() - index_start;
-    if (_has_key) {
-        if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
-            RETURN_IF_ERROR(_write_primary_key_index());
-            // IndexedColumnWriter write data pages mixed with segment data, we should use
-            // the stat from primary key index builder.
-            *index_size += _primary_key_index_builder->disk_size();
-        } else {
-            RETURN_IF_ERROR(_write_short_key_index());
-            *index_size = _file_writer->bytes_appended() - index_start;
-        }
+    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
+        RETURN_IF_ERROR(_write_primary_key_index());
+        // IndexedColumnWriter write data pages mixed with segment data, we should use
+        // the stat from primary key index builder.
+        *index_size += _primary_key_index_builder->disk_size();
+    } else {
+        RETURN_IF_ERROR(_write_short_key_index());
+        *index_size = _file_writer->bytes_appended() - index_start;
     }
     _inverted_index_file_size = _calculate_inverted_index_file_size();
     // reset all column writers and data_conveter

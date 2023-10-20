@@ -192,7 +192,6 @@ private:
     PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
-    bool _has_key = true;
     std::vector<RowsInBlock> _batched_blocks;
 };
 
