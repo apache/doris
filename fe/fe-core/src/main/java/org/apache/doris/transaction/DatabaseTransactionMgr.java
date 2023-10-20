@@ -51,6 +51,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.ClearTransactionTask;
@@ -1791,6 +1792,21 @@ public class DatabaseTransactionMgr {
                 }
             }
         }
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
+        Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
+        tableIdToTotalNumDeltaRows
+                        .forEach((tableId, numRows) -> {
+                            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                            if (table != null) {
+                                short replicaNum = table.getTableProperty()
+                                        .getReplicaAllocation()
+                                        .getTotalReplicaNum();
+                                tableIdToNumDeltaRows.put(tableId, numRows / replicaNum);
+                            }
+                        });
+        LOG.debug("table id to loaded rows:{}", tableIdToNumDeltaRows);
+        tableIdToNumDeltaRows.forEach(analysisManager::updateUpdatedRows);
         return true;
     }
 
