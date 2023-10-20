@@ -238,9 +238,9 @@ public:
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
     /// Warning:
-    ///       if *indices == -1 means the row is null, only use in outer join, do not use in any other place
-    virtual void insert_indices_from(const IColumn& src, const int* indices_begin,
-                                     const int* indices_end) = 0;
+    ///       if *indices == 0 means the row is null, only use in outer join, do not use in any other place
+    virtual void insert_indices_from(const IColumn& src, const uint32* __restrict indices_begin,
+                                     const uint32_t* __restrict indices_end) = 0;
 
     /// Appends data located in specified memory chunk if it is possible (throws an exception if it cannot be implemented).
     /// Is used to optimize some computations (in aggregation, for example).

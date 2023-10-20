@@ -99,7 +99,7 @@ struct ProcessHashTableProbe {
     std::vector<StringRef> _probe_keys;
 
     std::vector<uint32_t> _probe_indexs;
-    std::vector<int> _build_block_rows;
+    std::vector<uint32_t> _build_block_rows;
     std::vector<int> _build_blocks_locs;
     // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
     ColumnUInt8::Container* _tuple_is_null_left_flags;
