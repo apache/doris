@@ -331,11 +331,13 @@ public class NativeInsertStmt extends InsertStmt {
         }
 
         // Check privilege
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tblName.getDb(),
-                tblName.getTbl(), PrivPredicate.LOAD)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tblName.getCtl(), tblName.getDb(),
+                        tblName.getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(), tblName.getDb() + ": " + tblName.getTbl());
+                    ConnectContext.get().getRemoteIP(),
+                    tblName.getCtl() + ": " + tblName.getDb() + ": " + tblName.getTbl());
         }
 
         // check partition
