@@ -27,6 +27,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Expression for alias, such as col1 as c1.
@@ -73,7 +74,8 @@ public class Alias extends NamedExpression implements UnaryExpression {
         return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier,
                 child() instanceof SlotReference
                         ? ((SlotReference) child()).getColumn().orElse(null)
-                        : null);
+                        : null,
+                nameFromChild ? Optional.of(child().toString()) : Optional.of(name));
     }
 
     @Override

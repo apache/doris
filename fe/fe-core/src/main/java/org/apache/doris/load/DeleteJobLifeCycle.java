@@ -15,28 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/core/future_block.h"
+package org.apache.doris.load;
 
-#include <tuple>
+public interface DeleteJobLifeCycle {
 
-namespace doris::vectorized {
+    /**
+     * @return txn id
+     */
+    long beginTxn() throws Exception;
 
-void FutureBlock::set_info(int64_t schema_version, const TUniqueId& load_id) {
-    this->_schema_version = schema_version;
-    this->_load_id = load_id;
+    /**
+     * dispatch push tasks in an async way
+     */
+    void dispatch() throws Exception;
+
+    /**
+     * called after dispatch, waiting for quorum to be finished
+     */
+    void await() throws Exception;
+
+    /**
+     * commit job
+     * @return commit msg
+     */
+    String commit() throws Exception;
+
+    void cancel(String reason) throws Exception;
+
+    void cleanUp() throws Exception;
 }
-
-void FutureBlock::set_result(Status status, int64_t total_rows, int64_t loaded_rows) {
-    auto result = std::make_tuple(true, status, total_rows, loaded_rows);
-    result.swap(*_result);
-}
-
-void FutureBlock::swap_future_block(std::shared_ptr<FutureBlock> other) {
-    Block::swap(*other.get());
-    set_info(other->_schema_version, other->_load_id);
-    lock = other->lock;
-    cv = other->cv;
-    _result = other->_result;
-}
-
-} // namespace doris::vectorized
