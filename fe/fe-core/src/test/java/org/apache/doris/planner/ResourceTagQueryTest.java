@@ -43,7 +43,6 @@ import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
-import org.apache.doris.thrift.TDiskType;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -121,7 +120,6 @@ public class ResourceTagQueryTest {
             tDisk1.setDiskAvailableCapacity(tDisk1.disk_total_capacity - tDisk1.data_used_capacity);
             tDisk1.setPathHash(random.nextLong());
             tDisk1.setStorageMedium(TStorageMedium.HDD);
-            tDisk1.setDirType(TDiskType.STORAGE);
             backendDisks.put(tDisk1.getRootPath(), tDisk1);
 
             TDisk tDisk2 = new TDisk();
@@ -132,7 +130,6 @@ public class ResourceTagQueryTest {
             tDisk2.setDiskAvailableCapacity(tDisk2.disk_total_capacity - tDisk2.data_used_capacity);
             tDisk2.setPathHash(random.nextLong());
             tDisk2.setStorageMedium(TStorageMedium.SSD);
-            tDisk2.setDirType(TDiskType.STORAGE);
             backendDisks.put(tDisk2.getRootPath(), tDisk2);
 
             be.updateDisks(backendDisks);
@@ -199,7 +196,7 @@ public class ResourceTagQueryTest {
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
         Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
-        Assert.assertEquals(0, userTags.size());
+        Assert.assertEquals(1, userTags.size());
 
         // set default tag for root
         String setPropStr = "set property for 'root' 'resource_tags.location' = 'default';";

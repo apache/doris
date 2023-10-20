@@ -32,7 +32,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -364,7 +363,7 @@ public class JdbcScanNode extends ExternalScanNode {
 
     private static String handleOracleDateFormat(Expr expr) {
         if (expr.isConstant()
-                && (expr.getType().equals(Type.DATETIME) || expr.getType().equals(Type.DATETIMEV2))) {
+                && (expr.getType().isDatetime() || expr.getType().isDatetimeV2())) {
             return "to_date('" + expr.getStringValue() + "', 'yyyy-mm-dd hh24:mi:ss')";
         }
         return expr.toMySql();

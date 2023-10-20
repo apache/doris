@@ -68,6 +68,7 @@ private:
     RuntimeProfile::Counter* _get_sorted_timer;
     RuntimeProfile::Counter* _get_next_timer;
     int64_t _num_rows_returned;
+    int _sort_idx = 0;
 };
 
 class PartitionSortSourceOperatorX final : public OperatorX<PartitionSortSourceLocalState> {

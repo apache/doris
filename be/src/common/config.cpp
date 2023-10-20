@@ -378,6 +378,12 @@ DEFINE_mDouble(compaction_promotion_ratio, "0.05");
 // rowset will be not given to base compaction. The unit is m byte.
 DEFINE_mInt64(compaction_promotion_min_size_mbytes, "128");
 
+// When output rowset of cumulative compaction total version count (end_version - start_version)
+// exceed this config count, the rowset will be moved to base compaction
+// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
+// related cost on delete bitmap more effectively.
+DEFINE_mInt64(compaction_promotion_version_count, "1000");
+
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
 DEFINE_mInt64(compaction_min_size_mbytes, "64");
@@ -712,7 +718,8 @@ DEFINE_mInt32(zone_map_row_num_threshold, "20");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-DEFINE_Int32(aws_log_level, "3");
+// Default to turn off aws sdk log, because aws sdk errors that need to be cared will be output through Doris logs
+DEFINE_Int32(aws_log_level, "0");
 
 // the buffer size when read data from remote storage like s3
 DEFINE_mInt32(remote_storage_read_buffer_mb, "16");
@@ -1098,10 +1105,14 @@ DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
 
 DEFINE_Bool(exit_on_exception, "false");
+// This config controls whether the s3 file writer would flush cache asynchronously
+DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
 DEFINE_String(doris_cgroup_cpu_path, "");
 DEFINE_Bool(enable_cpu_hard_limit, "false");
+
+DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
 // clang-format off
 #ifdef BE_TEST

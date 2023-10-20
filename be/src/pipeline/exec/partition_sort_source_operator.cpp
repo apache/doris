@@ -52,8 +52,8 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
             local_state._shared_state->blocks_buffer.front().swap(*output_block);
             local_state._shared_state->blocks_buffer.pop();
             //if buffer have no data, block reading and wait for signal again
-            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
-                                                                   output_block->columns()));
+            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
+                    local_state._conjuncts, output_block, output_block->columns()));
             if (local_state._shared_state->blocks_buffer.empty()) {
                 local_state._dependency->block_reading();
             }
@@ -67,13 +67,12 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
     // if we move the _blocks_buffer output at last(behind 286 line),
     // it's maybe eos but not output all data: when _blocks_buffer.empty() and _can_read = false (this: _sort_idx && _partition_sorts.size() are 0)
     RETURN_IF_ERROR(get_sorted_block(state, output_block, local_state));
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
+    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
                                                            output_block->columns()));
     {
         std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
         if (local_state._shared_state->blocks_buffer.empty() &&
-            local_state._shared_state->sort_idx >=
-                    local_state._shared_state->partition_sorts.size()) {
+            local_state._sort_idx >= local_state._shared_state->partition_sorts.size()) {
             source_state = SourceState::FINISHED;
         }
     }
@@ -91,20 +90,18 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
     SCOPED_TIMER(local_state._get_sorted_timer);
     //sorter output data one by one
     bool current_eos = false;
-    if (local_state._shared_state->sort_idx < local_state._shared_state->partition_sorts.size()) {
-        RETURN_IF_ERROR(
-                local_state._shared_state->partition_sorts[local_state._shared_state->sort_idx]
-                        ->get_next(state, output_block, &current_eos));
+    if (local_state._sort_idx < local_state._shared_state->partition_sorts.size()) {
+        RETURN_IF_ERROR(local_state._shared_state->partition_sorts[local_state._sort_idx]->get_next(
+                state, output_block, &current_eos));
     }
     if (current_eos) {
         //current sort have eos, so get next idx
         local_state._shared_state->previous_row->reset();
-        auto rows = local_state._shared_state->partition_sorts[local_state._shared_state->sort_idx]
+        auto rows = local_state._shared_state->partition_sorts[local_state._sort_idx]
                             ->get_output_rows();
         local_state._num_rows_returned += rows;
-        local_state._shared_state->partition_sorts[local_state._shared_state->sort_idx].reset(
-                nullptr);
-        local_state._shared_state->sort_idx++;
+        local_state._shared_state->partition_sorts[local_state._sort_idx].reset(nullptr);
+        local_state._sort_idx++;
     }
 
     return Status::OK();

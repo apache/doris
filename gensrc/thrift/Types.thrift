@@ -51,12 +51,6 @@ enum TStorageMedium {
     REMOTE_CACHE,
 }
 
-enum TDiskType {
-    STORAGE,
-    LOG,
-    DEPLOY
-}
-
 enum TVarType {
     SESSION,
     GLOBAL

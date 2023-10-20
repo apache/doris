@@ -431,6 +431,12 @@ DECLARE_mDouble(compaction_promotion_ratio);
 // rowset will be not given to base compaction. The unit is m byte.
 DECLARE_mInt64(compaction_promotion_min_size_mbytes);
 
+// When output rowset of cumulative compaction total version count (end_version - start_version)
+// exceed this config count, the rowset will be moved to base compaction
+// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
+// related cost on delete bitmap more effectively.
+DECLARE_mInt64(compaction_promotion_version_count);
+
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
 DECLARE_mInt64(compaction_min_size_mbytes);
@@ -1172,6 +1178,11 @@ DECLARE_mBool(exit_on_exception);
 // cgroup
 DECLARE_String(doris_cgroup_cpu_path);
 DECLARE_Bool(enable_cpu_hard_limit);
+// This config controls whether the s3 file writer would flush cache asynchronously
+DECLARE_Bool(enable_flush_file_cache_async);
+
+// Remove predicate that is always true for a segment.
+DECLARE_Bool(ignore_always_true_predicate_for_segment);
 
 #ifdef BE_TEST
 // test s3

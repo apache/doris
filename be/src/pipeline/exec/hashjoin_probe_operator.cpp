@@ -59,10 +59,66 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     return Status::OK();
 }
 
+Status HashJoinProbeLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(JoinProbeLocalState::open(state));
+
+    _process_hashtable_ctx_variants = std::make_unique<HashTableCtxVariants>();
+    auto& p = _parent->cast<HashJoinProbeOperatorX>();
+    std::visit(
+            [&](auto&& join_op_variants, auto have_other_join_conjunct) {
+                using JoinOpType = std::decay_t<decltype(join_op_variants)>;
+                using RowRefListType = std::conditional_t<
+                        have_other_join_conjunct, vectorized::RowRefListWithFlags,
+                        std::conditional_t<JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN ||
+                                                   JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN ||
+                                                   JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
+                                                   JoinOpType::value == TJoinOp::FULL_OUTER_JOIN,
+                                           vectorized::RowRefListWithFlag, vectorized::RowRefList>>;
+                _probe_row_match_iter.emplace<vectorized::ForwardIterator<RowRefListType>>();
+                _outer_join_pull_visited_iter
+                        .emplace<vectorized::ForwardIterator<RowRefListType>>();
+                _process_hashtable_ctx_variants->emplace<vectorized::ProcessHashTableProbe<
+                        JoinOpType::value, HashJoinProbeLocalState>>(this, state->batch_size());
+            },
+            _shared_state->join_op_variants,
+            vectorized::make_bool_variant(p._have_other_join_conjunct));
+    return Status::OK();
+}
+
 void HashJoinProbeLocalState::prepare_for_next() {
     _probe_index = 0;
     _ready_probe = false;
     _prepare_probe_block();
+}
+
+bool HashJoinProbeLocalState::have_other_join_conjunct() const {
+    return _parent->cast<HashJoinProbeOperatorX>()._have_other_join_conjunct;
+}
+
+bool HashJoinProbeLocalState::is_right_semi_anti() const {
+    return _parent->cast<HashJoinProbeOperatorX>()._is_right_semi_anti;
+}
+
+bool HashJoinProbeLocalState::is_outer_join() const {
+    return _parent->cast<HashJoinProbeOperatorX>()._is_outer_join;
+}
+
+std::vector<bool>* HashJoinProbeLocalState::left_output_slot_flags() {
+    return &_parent->cast<HashJoinProbeOperatorX>()._left_output_slot_flags;
+}
+
+std::vector<bool>* HashJoinProbeLocalState::right_output_slot_flags() {
+    return &_parent->cast<HashJoinProbeOperatorX>()._right_output_slot_flags;
+}
+
+vectorized::DataTypes HashJoinProbeLocalState::right_table_data_types() {
+    return _parent->cast<HashJoinProbeOperatorX>()._right_table_data_types;
+}
+
+vectorized::DataTypes HashJoinProbeLocalState::left_table_data_types() {
+    return _parent->cast<HashJoinProbeOperatorX>()._left_table_data_types;
 }
 
 Status HashJoinProbeLocalState::close(RuntimeState* state) {
@@ -111,16 +167,7 @@ void HashJoinProbeLocalState::init_for_probe(RuntimeState* state) {
     if (_probe_inited) {
         return;
     }
-    _process_hashtable_ctx_variants = std::make_unique<vectorized::HashTableCtxVariants>();
-    std::visit(
-            [&](auto&& join_op_variants) {
-                using JoinOpType = std::decay_t<decltype(join_op_variants)>;
-                _probe_context.reset(new vectorized::HashJoinProbeContext(this));
-                _process_hashtable_ctx_variants
-                        ->emplace<vectorized::ProcessHashTableProbe<JoinOpType::value>>(
-                                _probe_context.get(), state->batch_size());
-            },
-            _shared_state->join_op_variants);
+
     _probe_inited = true;
 }
 
@@ -418,12 +465,13 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
         local_state._probe_columns.resize(probe_expr_ctxs_sz);
 
         std::vector<int> res_col_ids(probe_expr_ctxs_sz);
-        RETURN_IF_ERROR(_do_evaluate(*input_block, local_state._probe_expr_ctxs,
-                                     *local_state._probe_expr_call_timer, res_col_ids));
         if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
             local_state._probe_column_convert_to_null =
                     local_state._dependency->convert_block_to_null(*input_block);
         }
+        RETURN_IF_ERROR(_do_evaluate(*input_block, local_state._probe_expr_ctxs,
+                                     *local_state._probe_expr_call_timer, res_col_ids));
+
         // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
         //  so we have to initialize this flag by the first probe block.
         if (!local_state._has_set_need_null_map_for_probe) {
