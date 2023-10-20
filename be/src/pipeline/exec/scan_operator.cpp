@@ -122,11 +122,11 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
 
-    _source_dependency = OrDependency::create_shared(PipelineXLocalState<>::_parent->id());
+    _source_dependency = OrDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
 
-    _open_dependency = OpenDependency::create_shared(PipelineXLocalState<>::_parent->id());
+    _open_dependency = OpenDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
     _source_dependency->add_child(_open_dependency);
-    _eos_dependency = EosDependency::create_shared(PipelineXLocalState<>::_parent->id());
+    _eos_dependency = EosDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
     _source_dependency->add_child(_eos_dependency);
 
     auto& p = _parent->cast<typename Derived::Parent>();
@@ -1178,9 +1178,11 @@ Status ScanLocalState<Derived>::_start_scanners(
     _scanner_ctx = PipScannerContext::create_shared(state(), this, p._output_tuple_desc, scanners,
                                                     p.limit(), state()->scan_queue_mem_limit(),
                                                     p._col_distribute_ids, 1);
-    _scanner_done_dependency = ScannerDoneDependency::create_shared(p.id(), _scanner_ctx.get());
+    _scanner_done_dependency =
+            ScannerDoneDependency::create_shared(p.operator_id(), _scanner_ctx.get());
     _source_dependency->add_child(_scanner_done_dependency);
-    _data_ready_dependency = DataReadyDependency::create_shared(p.id(), _scanner_ctx.get());
+    _data_ready_dependency =
+            DataReadyDependency::create_shared(p.operator_id(), _scanner_ctx.get());
     _source_dependency->add_child(_data_ready_dependency);
 
     _scanner_ctx->set_dependency(_data_ready_dependency, _scanner_done_dependency,
@@ -1265,8 +1267,8 @@ Status ScanLocalState<Derived>::_init_profile() {
 
 template <typename LocalStateType>
 ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                             const DescriptorTbl& descs)
-        : OperatorX<LocalStateType>(pool, tnode, descs),
+                                             int operator_id, const DescriptorTbl& descs)
+        : OperatorX<LocalStateType>(pool, tnode, operator_id, descs),
           _runtime_filter_descs(tnode.runtime_filters) {
     if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
         // Which means the request could be fullfilled in a single segment iterator request.
@@ -1287,7 +1289,7 @@ Dependency* ScanOperatorX<LocalStateType>::wait_for_dependency(RuntimeState* sta
 
 template <typename LocalStateType>
 FinishDependency* ScanOperatorX<LocalStateType>::finish_blocked_by(RuntimeState* state) const {
-    auto& local_state = state->get_local_state(id())->template cast<LocalStateType>();
+    auto& local_state = state->get_local_state(operator_id())->template cast<LocalStateType>();
     return local_state._finish_dependency->finish_blocked_by();
 }
 
@@ -1375,7 +1377,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
 template <typename LocalStateType>
 bool ScanOperatorX<LocalStateType>::runtime_filters_are_ready_or_timeout(
         RuntimeState* state) const {
-    return state->get_local_state(id())
+    return state->get_local_state(operator_id())
             ->template cast<LocalStateType>()
             .runtime_filters_are_ready_or_timeout();
 }

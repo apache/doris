@@ -74,9 +74,9 @@ private:
 class PartitionSortSourceOperatorX final : public OperatorX<PartitionSortSourceLocalState> {
 public:
     using Base = OperatorX<PartitionSortSourceLocalState>;
-    PartitionSortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    PartitionSortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                  const DescriptorTbl& descs)
-            : OperatorX<PartitionSortSourceLocalState>(pool, tnode, descs) {}
+            : OperatorX<PartitionSortSourceLocalState>(pool, tnode, operator_id, descs) {}
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;

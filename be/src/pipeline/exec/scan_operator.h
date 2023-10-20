@@ -118,7 +118,7 @@ class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::Runt
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<>(state, parent),
-              vectorized::RuntimeFilterConsumer(parent->id(), parent->runtime_filter_descs(),
+              vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
                                                 parent->row_descriptor(), _conjuncts) {}
     virtual ~ScanLocalStateBase() = default;
 
@@ -434,10 +434,12 @@ public:
 
     int64_t get_push_down_count() const { return _push_down_count; }
     using OperatorX<LocalStateType>::id;
+    using OperatorX<LocalStateType>::operator_id;
 
 protected:
     using LocalState = LocalStateType;
-    ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                  const DescriptorTbl& descs);
     virtual ~ScanOperatorX() = default;
     template <typename Derived>
     friend class ScanLocalState;

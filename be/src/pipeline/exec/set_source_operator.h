@@ -79,11 +79,12 @@ class SetSourceOperatorX final : public OperatorX<SetSourceLocalState<is_interse
 public:
     using Base = OperatorX<SetSourceLocalState<is_intersect>>;
     // for non-delay tempalte instantiation
-    using OperatorXBase::id;
+    using OperatorXBase::operator_id;
     using typename Base::LocalState;
 
-    SetSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-            : Base(pool, tnode, descs) {};
+    SetSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                       const DescriptorTbl& descs)
+            : Base(pool, tnode, operator_id, descs) {};
     ~SetSourceOperatorX() override = default;
 
     Dependency* wait_for_dependency(RuntimeState* state) override {

@@ -121,8 +121,8 @@ public:
     using Base = OperatorX<MultiCastDataStreamSourceLocalState>;
     MultiCastDataStreamerSourceOperatorX(const int consumer_id, ObjectPool* pool,
                                          const TDataStreamSink& sink,
-                                         const RowDescriptor& row_descriptor, int id)
-            : Base(pool, -1, id),
+                                         const RowDescriptor& row_descriptor, int operator_id)
+            : Base(pool, -1, operator_id),
               _consumer_id(consumer_id),
               _t_data_stream_sink(sink),
               _row_descriptor(row_descriptor) {
@@ -176,7 +176,7 @@ public:
     int dest_id_from_sink() const { return _t_data_stream_sink.dest_node_id; }
 
     bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const override {
-        return state->get_local_state(id())
+        return state->get_local_state(operator_id())
                 ->template cast<MultiCastDataStreamSourceLocalState>()
                 .runtime_filters_are_ready_or_timeout();
     }

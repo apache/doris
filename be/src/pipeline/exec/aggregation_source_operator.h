@@ -116,7 +116,8 @@ protected:
 class AggSourceOperatorX : public OperatorX<AggLocalState> {
 public:
     using Base = OperatorX<AggLocalState>;
-    AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                       const DescriptorTbl& descs);
     ~AggSourceOperatorX() = default;
     Dependency* wait_for_dependency(RuntimeState* state) override;
 

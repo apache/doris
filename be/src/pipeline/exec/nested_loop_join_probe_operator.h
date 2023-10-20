@@ -205,7 +205,7 @@ private:
 class NestedLoopJoinProbeOperatorX final
         : public JoinProbeOperatorX<NestedLoopJoinProbeLocalState> {
 public:
-    NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                  const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;

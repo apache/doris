@@ -79,8 +79,10 @@ private:
 
 class ResultFileSinkOperatorX final : public DataSinkOperatorX<ResultFileSinkLocalState> {
 public:
-    ResultFileSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr);
-    ResultFileSinkOperatorX(const RowDescriptor& row_desc, const TResultFileSink& sink,
+    ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+                            const std::vector<TExpr>& t_output_expr);
+    ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+                            const TResultFileSink& sink,
                             const std::vector<TPlanFragmentDestination>& destinations,
                             bool send_query_statistics_with_every_batch,
                             const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);

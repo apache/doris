@@ -68,9 +68,9 @@ private:
 class OlapTableSinkOperatorX final : public DataSinkOperatorX<OlapTableSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<OlapTableSinkLocalState>;
-    OlapTableSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc,
+    OlapTableSinkOperatorX(ObjectPool* pool, int operator_id, const RowDescriptor& row_desc,
                            const std::vector<TExpr>& t_output_expr, bool group_commit)
-            : Base(0),
+            : Base(operator_id, 0),
               _row_desc(row_desc),
               _t_output_expr(t_output_expr),
               _group_commit(group_commit),
@@ -101,7 +101,8 @@ public:
     }
 
     FinishDependency* finish_blocked_by(RuntimeState* state) const override {
-        auto& local_state = state->get_sink_local_state(id())->cast<OlapTableSinkLocalState>();
+        auto& local_state =
+                state->get_sink_local_state(operator_id())->cast<OlapTableSinkLocalState>();
         return local_state._finish_dependency->finish_blocked_by();
     };
 

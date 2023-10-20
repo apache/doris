@@ -65,12 +65,12 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
             state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
             state->execution_timeout()));
-    _result_sink_dependency = OrDependency::create_shared(_parent->id());
-    _buffer_dependency = ResultBufferDependency::create_shared(_parent->id());
-    _cancel_dependency = CancelDependency::create_shared(_parent->id());
+    _result_sink_dependency = OrDependency::create_shared(_parent->operator_id());
+    _buffer_dependency = ResultBufferDependency::create_shared(_parent->operator_id());
+    _cancel_dependency = CancelDependency::create_shared(_parent->operator_id());
     _result_sink_dependency->add_child(_cancel_dependency);
     _result_sink_dependency->add_child(_buffer_dependency);
-    _queue_dependency = ResultQueueDependency::create_shared(_parent->id());
+    _queue_dependency = ResultQueueDependency::create_shared(_parent->operator_id());
     _result_sink_dependency->add_child(_queue_dependency);
 
     ((PipBufferControlBlock*)_sender.get())
@@ -101,10 +101,10 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-ResultSinkOperatorX::ResultSinkOperatorX(const RowDescriptor& row_desc,
+ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                          const std::vector<TExpr>& t_output_expr,
                                          const TResultSink& sink)
-        : DataSinkOperatorX(0), _row_desc(row_desc), _t_output_expr(t_output_expr) {
+        : DataSinkOperatorX(operator_id, 0), _row_desc(row_desc), _t_output_expr(t_output_expr) {
     if (!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCAL) {
         _sink_type = TResultSinkType::MYSQL_PROTOCAL;
     } else {

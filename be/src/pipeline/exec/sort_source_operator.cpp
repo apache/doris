@@ -36,9 +36,9 @@ Status SortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     return Status::OK();
 }
 
-SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                          const DescriptorTbl& descs)
-        : OperatorX<SortLocalState>(pool, tnode, descs) {}
+        : OperatorX<SortLocalState>(pool, tnode, operator_id, descs) {}
 
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {

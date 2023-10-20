@@ -75,7 +75,8 @@ private:
 
 class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
 public:
-    SortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+                      const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<SortSinkLocalState>::_name);

@@ -114,7 +114,8 @@ private:
 
 class AnalyticSourceOperatorX final : public OperatorX<AnalyticLocalState> {
 public:
-    AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                            const DescriptorTbl& descs);
     Dependency* wait_for_dependency(RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,

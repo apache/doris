@@ -111,7 +111,7 @@ public:
         }
     }
 
-    int next_operator_id() { return --_operator_id; }
+    [[nodiscard]] int next_operator_id() { return _operator_id++; }
 
 private:
     void _close_action() override;
@@ -175,7 +175,7 @@ private:
     // We can guarantee that a plan node ID can correspond to an operator ID,
     // but some operators do not have a corresponding plan node ID.
     // We set these IDs as negative numbers, which are not visible to the user.
-    int _operator_id = -1;
+    int _operator_id = 0;
 };
 
 } // namespace pipeline

@@ -110,7 +110,7 @@ private:
 class DistinctStreamingAggSinkOperatorX final
         : public AggSinkOperatorX<DistinctStreamingAggSinkLocalState> {
 public:
-    DistinctStreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    DistinctStreamingAggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                       const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,

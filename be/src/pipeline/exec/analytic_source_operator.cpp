@@ -331,8 +331,8 @@ Status AnalyticLocalState::output_current_block(vectorized::Block* block) {
 }
 
 AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                                 const DescriptorTbl& descs)
-        : OperatorX<AnalyticLocalState>(pool, tnode, descs),
+                                                 int operator_id, const DescriptorTbl& descs)
+        : OperatorX<AnalyticLocalState>(pool, tnode, operator_id, descs),
           _window(tnode.analytic_node.window),
           _intermediate_tuple_id(tnode.analytic_node.intermediate_tuple_id),
           _output_tuple_id(tnode.analytic_node.output_tuple_id),

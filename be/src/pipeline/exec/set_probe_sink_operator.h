@@ -99,7 +99,7 @@ template <bool is_intersect>
 class SetProbeSinkOperatorX final : public DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>> {
 public:
     using Base = DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>;
-    using DataSinkOperatorXBase::id;
+    using DataSinkOperatorXBase::operator_id;
     using typename Base::LocalState;
 
     friend class SetProbeSinkLocalState<is_intersect>;

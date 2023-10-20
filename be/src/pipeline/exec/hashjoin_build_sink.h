@@ -130,7 +130,7 @@ protected:
 class HashJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
-    HashJoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -151,7 +151,7 @@ public:
     }
 
     bool should_dry_run(RuntimeState* state) override {
-        return _is_broadcast_join && !state->get_sink_local_state(id())
+        return _is_broadcast_join && !state->get_sink_local_state(operator_id())
                                               ->cast<HashJoinBuildSinkLocalState>()
                                               ._should_build_hash_table;
     }

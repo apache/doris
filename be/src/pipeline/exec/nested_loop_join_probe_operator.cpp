@@ -438,8 +438,9 @@ void NestedLoopJoinProbeLocalState::_process_left_child_block(
 }
 
 NestedLoopJoinProbeOperatorX::NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+                                                           int operator_id,
                                                            const DescriptorTbl& descs)
-        : JoinProbeOperatorX<NestedLoopJoinProbeLocalState>(pool, tnode, descs),
+        : JoinProbeOperatorX<NestedLoopJoinProbeLocalState>(pool, tnode, operator_id, descs),
           _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
                                     tnode.nested_loop_join_node.is_output_left_side_only),
           _old_version_flag(!tnode.__isset.nested_loop_join_node) {}
@@ -478,7 +479,8 @@ Status NestedLoopJoinProbeOperatorX::open(RuntimeState* state) {
 }
 
 bool NestedLoopJoinProbeOperatorX::need_more_input_data(RuntimeState* state) const {
-    auto& local_state = state->get_local_state(id())->cast<NestedLoopJoinProbeLocalState>();
+    auto& local_state =
+            state->get_local_state(operator_id())->cast<NestedLoopJoinProbeLocalState>();
     return local_state._need_more_input_data and !local_state._shared_state->left_side_eos and
            local_state._join_block.rows() == 0;
 }
