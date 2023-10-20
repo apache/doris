@@ -450,7 +450,8 @@ void ColumnMap::reserve(size_t n) {
 }
 
 void ColumnMap::resize(size_t n) {
-    get_offsets().resize(n);
+    auto last_off = get_offsets().back();
+    get_offsets().resize_fill(n, last_off);
     keys_column->resize(n);
     values_column->resize(n);
 }

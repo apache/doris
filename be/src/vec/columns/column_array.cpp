@@ -422,7 +422,8 @@ void ColumnArray::reserve(size_t n) {
 
 //please check you real need size in data column, because it's maybe need greater size when data is string column
 void ColumnArray::resize(size_t n) {
-    get_offsets().resize(n);
+    auto last_off = get_offsets().back();
+    get_offsets().resize_fill(n, last_off);
     get_data().resize(n);
 }
 
