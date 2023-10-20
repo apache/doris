@@ -190,6 +190,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -582,6 +583,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(InnerProduct.class, "inner_product"),
             scalar(Instr.class, "instr"),
             scalar(Ipv4NumToString.class, "ipv4numtostring", "inet_ntoa"),
+            scalar(Ipv4StringToNum.class, "ipv4stringtonum", "inet_aton"),
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),

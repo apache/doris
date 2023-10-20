@@ -27,4 +27,8 @@ suite("ip_functions") {
     qt_ip7 "SELECT inet_ntoa(4294967298);"
     qt_ip8 "SELECT inet_ntoa(3232235521);"
 
+    qt_ip9  "SELECT ipv4stringtonum('127.0.0.1');"
+    qt_ip10 "SELECT ipv4stringtonumornull('');"
+    qt_ip11 "SELECT ipv4stringtonumordefault('');"
+    qt_ip12 "SELECT inet_aton('192.168.0.1');"
 }
