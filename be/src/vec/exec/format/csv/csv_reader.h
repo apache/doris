@@ -91,7 +91,7 @@ class BaseCsvTextFieldSplitter : public BaseLineFieldSplitter<BaseCsvTextFieldSp
 public:
     explicit BaseCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
                                       size_t value_sep_len = 1, char trimming_char = 0)
-            : trimming_char(trimming_char), value_sep_len(value_sep_len) {
+            : _trimming_char(trimming_char), _value_sep_len(value_sep_len) {
         if (trim_tailing_space) {
             if (trim_ends) {
                 process_value_func = &BaseCsvTextFieldSplitter::_process_value<true, true>;
@@ -112,8 +112,8 @@ public:
     }
 
 protected:
-    const char trimming_char;
-    const size_t value_sep_len;
+    const char _trimming_char;
+    const size_t _value_sep_len;
     ProcessValueFunc process_value_func;
 
 private:

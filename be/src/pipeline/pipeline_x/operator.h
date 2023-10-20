@@ -109,7 +109,7 @@ protected:
     friend class OperatorXBase;
 
     ObjectPool* _pool;
-    int64_t _num_rows_returned;
+    int64_t _num_rows_returned {0};
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 

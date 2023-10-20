@@ -492,18 +492,18 @@ class AggregateJavaUdaf final
         : public IAggregateFunctionDataHelper<AggregateJavaUdafData, AggregateJavaUdaf> {
 public:
     ENABLE_FACTORY_CREATOR(AggregateJavaUdaf);
-    AggregateJavaUdaf(const TFunction& fn, const DataTypes& argument_types,
+    AggregateJavaUdaf(const TFunction& fn, const DataTypes& argument_types_,
                       const DataTypePtr& return_type)
-            : IAggregateFunctionDataHelper(argument_types),
+            : IAggregateFunctionDataHelper(argument_types_),
               _fn(fn),
               _return_type(return_type),
               _first_created(true),
               _exec_place(nullptr) {}
     ~AggregateJavaUdaf() override = default;
 
-    static AggregateFunctionPtr create(const TFunction& fn, const DataTypes& argument_types,
+    static AggregateFunctionPtr create(const TFunction& fn, const DataTypes& argument_types_,
                                        const DataTypePtr& return_type) {
-        return std::make_shared<AggregateJavaUdaf>(fn, argument_types, return_type);
+        return std::make_shared<AggregateJavaUdaf>(fn, argument_types_, return_type);
     }
     //Note: The condition is added because maybe the BE can't find java-udaf impl jar
     //So need to check as soon as possible, before call Data function

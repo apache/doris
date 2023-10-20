@@ -425,12 +425,12 @@ class AggregateFunctionCollect
 public:
     using BaseHelper = IAggregateFunctionHelper<AggregateFunctionCollect<Data, HasLimit, ShowNull>>;
 
-    AggregateFunctionCollect(const DataTypes& argument_types,
+    AggregateFunctionCollect(const DataTypes& argument_types_,
                              UInt64 max_size_ = std::numeric_limits<UInt64>::max())
             : IAggregateFunctionDataHelper<Data,
                                            AggregateFunctionCollect<Data, HasLimit, ShowNull>>(
-                      {argument_types}),
-              return_type(argument_types[0]) {}
+                      {argument_types_}),
+              return_type(argument_types_[0]) {}
 
     std::string get_name() const override {
         if constexpr (ShowNull::value) {

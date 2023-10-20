@@ -186,7 +186,15 @@ private:
     const int _consumer_id;
     const TDataStreamSink _t_data_stream_sink;
     vectorized::VExprContextSPtrs _output_expr_contexts;
+    // FIXME: non-static data member '_row_descriptor' of 'MultiCastDataStreamerSourceOperatorX' shadows member inherited from type 'OperatorXBase'
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
     const RowDescriptor& _row_descriptor;
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
     const RowDescriptor& _row_desc() { return _row_descriptor; }
 };
 
