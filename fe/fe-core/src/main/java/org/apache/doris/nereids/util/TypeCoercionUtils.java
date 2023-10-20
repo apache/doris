@@ -455,6 +455,9 @@ public class TypeCoercionUtils {
      * process divide
      */
     public static Expression processDivide(Divide divide, Expression left, Expression right) {
+        // check
+        divide.checkLegalityBeforeTypeCoercion();
+
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
         DataType t2 = TypeCoercionUtils.getNumResultType(right.getDataType());
 
@@ -496,6 +499,9 @@ public class TypeCoercionUtils {
      * process divide
      */
     public static Expression processIntegralDivide(IntegralDivide divide, Expression left, Expression right) {
+        // check
+        divide.checkLegalityBeforeTypeCoercion();
+
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
         DataType t2 = TypeCoercionUtils.getNumResultType(right.getDataType());
         left = castIfNotSameType(left, t1);
@@ -525,6 +531,9 @@ public class TypeCoercionUtils {
      */
     public static Expression processBinaryArithmetic(BinaryArithmetic binaryArithmetic,
             Expression left, Expression right) {
+        // check
+        binaryArithmetic.checkLegalityBeforeTypeCoercion();
+
         // characterLiteralTypeCoercion
         // we do this because string is cast to double by default
         // but if string literal could be cast to small type, we could use smaller type than double.
@@ -629,6 +638,9 @@ public class TypeCoercionUtils {
      */
     public static Expression processTimestampArithmetic(TimestampArithmetic timestampArithmetic,
             Expression left, Expression right) {
+        // check
+        timestampArithmetic.checkLegalityBeforeTypeCoercion();
+
         // left
         DataType leftType = left.getDataType();
 
@@ -675,6 +687,9 @@ public class TypeCoercionUtils {
      */
     public static Expression processComparisonPredicate(ComparisonPredicate comparisonPredicate,
             Expression left, Expression right) {
+        // check
+        comparisonPredicate.checkLegalityBeforeTypeCoercion();
+
         // same type
         if (left.getDataType().equals(right.getDataType())) {
             return comparisonPredicate.withChildren(left, right);
@@ -699,6 +714,9 @@ public class TypeCoercionUtils {
      * process in predicate type coercion.
      */
     public static Expression processInPredicate(InPredicate inPredicate) {
+        // check
+        inPredicate.checkLegalityBeforeTypeCoercion();
+
         if (inPredicate.getOptions().stream().map(Expression::getDataType)
                 .allMatch(dt -> dt.equals(inPredicate.getCompareExpr().getDataType()))) {
             return inPredicate;
@@ -723,6 +741,9 @@ public class TypeCoercionUtils {
      * process case when type coercion.
      */
     public static Expression processCaseWhen(CaseWhen caseWhen) {
+        // check
+        caseWhen.checkLegalityBeforeTypeCoercion();
+
         // type coercion
         List<DataType> dataTypesForCoercion = caseWhen.dataTypesForCoercion();
         if (dataTypesForCoercion.size() <= 1) {
@@ -767,6 +788,9 @@ public class TypeCoercionUtils {
      * process compound predicate type coercion.
      */
     public static Expression processCompoundPredicate(CompoundPredicate compoundPredicate) {
+        // check
+        compoundPredicate.checkLegalityBeforeTypeCoercion();
+
         compoundPredicate.children().forEach(e -> {
                     if (!e.getDataType().isBooleanType() && !e.getDataType().isNullType()
                             && !(e instanceof SubqueryExpr)) {

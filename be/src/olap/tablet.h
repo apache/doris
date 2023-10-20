@@ -191,11 +191,6 @@ public:
     Status capture_rs_readers(const std::vector<Version>& version_path,
                               std::vector<RowSetSplits>* rs_splits) const;
 
-    const std::vector<RowsetMetaSharedPtr> delete_predicates() {
-        return _tablet_meta->delete_predicates();
-    }
-    bool version_for_delete_predicate(const Version& version);
-
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
@@ -256,6 +251,11 @@ public:
     int64_t last_full_compaction_success_time() { return _last_full_compaction_success_millis; }
     void set_last_full_compaction_success_time(int64_t millis) {
         _last_full_compaction_success_millis = millis;
+    }
+
+    int64_t last_base_compaction_schedule_time() { return _last_base_compaction_schedule_millis; }
+    void set_last_base_compaction_schedule_time(int64_t millis) {
+        _last_base_compaction_schedule_millis = millis;
     }
 
     void delete_all_files();
@@ -326,6 +326,12 @@ public:
     std::shared_ptr<CumulativeCompactionPolicy> get_cumulative_compaction_policy() {
         return _cumulative_compaction_policy;
     }
+
+    void set_last_base_compaction_status(std::string status) {
+        _last_base_compaction_status = status;
+    }
+
+    std::string get_last_base_compaction_status() { return _last_base_compaction_status; }
 
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
@@ -657,10 +663,13 @@ private:
     std::atomic<int64_t> _last_base_compaction_success_millis;
     // timestamp of last full compaction success
     std::atomic<int64_t> _last_full_compaction_success_millis;
+    // timestamp of last base compaction schedule time
+    std::atomic<int64_t> _last_base_compaction_schedule_millis;
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int64_t> _cumulative_promotion_size;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
+    std::string _last_base_compaction_status;
 
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;

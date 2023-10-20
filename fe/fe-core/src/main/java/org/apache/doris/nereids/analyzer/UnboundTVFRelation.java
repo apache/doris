@@ -22,8 +22,8 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -41,13 +41,13 @@ import java.util.Optional;
 public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, Unbound {
 
     private final String functionName;
-    private final TVFProperties properties;
+    private final Properties properties;
 
-    public UnboundTVFRelation(RelationId id, String functionName, TVFProperties properties) {
+    public UnboundTVFRelation(RelationId id, String functionName, Properties properties) {
         this(id, functionName, properties, Optional.empty(), Optional.empty());
     }
 
-    public UnboundTVFRelation(RelationId id, String functionName, TVFProperties properties,
+    public UnboundTVFRelation(RelationId id, String functionName, Properties properties,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_UNBOUND_TVF_RELATION, groupExpression, logicalProperties);
         this.functionName = Objects.requireNonNull(functionName, "functionName can not be null");
@@ -58,7 +58,7 @@ public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, 
         return functionName;
     }
 
-    public TVFProperties getProperties() {
+    public Properties getProperties() {
         return properties;
     }
 

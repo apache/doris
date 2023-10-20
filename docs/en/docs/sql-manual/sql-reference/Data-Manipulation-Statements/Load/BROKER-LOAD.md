@@ -198,7 +198,7 @@ WITH BROKER broker_name
     
   - `load_to_single_tablet`
   
-    Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. The number of tasks for the job depends on the overall concurrency. This parameter can only be set when loading data into the OLAP table with random partition.
+    Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. The number of tasks for the job depends on the overall concurrency. This parameter can only be set when loading data into the OLAP table with random bucketing.
     
   - <version since="dev" type="inline"> priority </version>
     

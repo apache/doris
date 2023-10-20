@@ -77,7 +77,6 @@ public:
 
     std::string get_name() const override;
     const char* get_family_name() const override { return "Map"; }
-    TypeIndex get_data_type() const override { return TypeIndex::Map; }
 
     void for_each_subcolumn(ColumnCallback callback) override {
         callback(keys_column);
@@ -114,7 +113,6 @@ public:
 
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
     void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;

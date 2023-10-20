@@ -59,7 +59,7 @@ statement
 
 identifierOrText
     : errorCapturingIdentifier
-    | STRING
+    | STRING_LITERAL
     ;
 
 userIdentify
@@ -89,7 +89,7 @@ planType
 outFileClause
     : INTO OUTFILE filePath=constant
         (FORMAT AS format=identifier)?
-        (PROPERTIES LEFT_PAREN properties+=tvfProperty (COMMA properties+=tvfProperty)* RIGHT_PAREN)?
+        (PROPERTIES LEFT_PAREN properties+=property (COMMA properties+=property)* RIGHT_PAREN)?
     ;
 
 query
@@ -259,18 +259,18 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition? tableAlias relationHint? lateralView*           #tableName
+    : multipartIdentifier specifiedPartition? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
-      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
+      (properties+=property (COMMA properties+=property)*)?
       RIGHT_PAREN tableAlias                                                                  #tableValuedFunction
     ;
 
-tvfProperty
-    : key=tvfPropertyItem EQ value=tvfPropertyItem
+property
+    : key=propertyItem EQ value=propertyItem
     ;
 
-tvfPropertyItem : identifier | constant ;
+propertyItem : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?
@@ -435,10 +435,10 @@ specifiedPartition
 constant
     : NULL                                                                                     #nullLiteral
     | interval                                                                                 #intervalLiteral
-    | type=(DATE | DATEV2 | TIMESTAMP) STRING                                                  #typeConstructor
+    | type=(DATE | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING                                                                                   #stringLiteral
+    | STRING_LITERAL                                                                           #stringLiteral
     ;
 
 comparisonOperator
@@ -468,7 +468,7 @@ dataType
 primitiveColType:
     | type=TINYINT
     | type=SMALLINT
-    | (SIGNED | UNSIGNED)? type=INT
+    | (SIGNED | UNSIGNED)? type=(INT | INTEGER)
     | type=BIGINT
     | type=LARGEINT
     | type=BOOLEAN
@@ -492,6 +492,15 @@ primitiveColType:
     | type=DECIMAL
     | type=DECIMALV3
     | type=ALL
+    ;
+
+sample
+    : TABLESAMPLE LEFT_PAREN sampleMethod? RIGHT_PAREN (REPEATABLE seed=INTEGER_VALUE)?
+    ;
+
+sampleMethod
+    : percentage=INTEGER_VALUE PERCENT                              #sampleByPercentile
+    | INTEGER_VALUE ROWS                                            #sampleByRows
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`

@@ -127,7 +127,6 @@ public:
     const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
-    TypeIndex get_data_type() const override { return TypeIndex::Array; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
     void resize(size_t n) override;
@@ -252,7 +251,6 @@ public:
         offsets->clear();
     }
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     size_t get_number_of_dimensions() const {
         const auto* nested_array = check_and_get_column<ColumnArray>(*data);
         if (!nested_array) {

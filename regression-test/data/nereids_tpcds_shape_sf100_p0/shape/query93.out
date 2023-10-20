@@ -16,6 +16,6 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[store_returns]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter((cast(r_reason_desc as VARCHAR(*)) = 'duplicate purchase'))
+------------------------filter((reason.r_reason_desc = 'duplicate purchase'))
 --------------------------PhysicalOlapScan[reason]
 

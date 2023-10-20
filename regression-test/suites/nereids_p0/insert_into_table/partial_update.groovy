@@ -43,6 +43,10 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
     // existing rows should be updated and new rows should be inserted with unmentioned columns filled with default or null value
     sql """insert into ${tableName}(id,score) values(2,400),(1,200),(4,400)"""
     qt_1 """ select * from ${tableName} order by id; """
+    test {
+        sql """insert into ${tableName} values(2,400),(1,200),(4,400)"""
+        exception "You must explicitly specify the columns to be updated when updating partial columns using the INSERT statement."
+    }
     sql "set enable_unique_key_partial_update=false;"
     sql "sync;"
     sql """ DROP TABLE IF EXISTS ${tableName} """

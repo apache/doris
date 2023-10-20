@@ -14,15 +14,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----PhysicalTopN
 ------PhysicalTopN
 --------PhysicalProject
-----------hashAgg[GLOBAL]
+----------hashAgg[DISTINCT_GLOBAL]
 ------------PhysicalDistribute
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](ws1.ws_ship_date_sk = date_dim.d_date_sk)
+--------------hashAgg[DISTINCT_LOCAL]
+----------------hashAgg[GLOBAL]
+------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------filter((date_dim.d_date >= 1999-02-01)(date_dim.d_date <= days_add(cast('1999-2-01' as DATEV2), INTERVAL 60 DAY)))
-------------------------PhysicalOlapScan[date_dim]
---------------------PhysicalDistribute
 ----------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = web_returns.wr_order_number)
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](web_returns.wr_order_number = ws_wh.ws_order_number)
@@ -38,15 +35,20 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------------------PhysicalDistribute
 ----------------------------hashJoin[INNER_JOIN](ws1.ws_web_site_sk = web_site.web_site_sk)
-------------------------------hashJoin[INNER_JOIN](ws1.ws_ship_addr_sk = customer_address.ca_address_sk)
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[web_sales]
+------------------------------hashJoin[INNER_JOIN](ws1.ws_ship_date_sk = date_dim.d_date_sk)
+--------------------------------hashJoin[INNER_JOIN](ws1.ws_ship_addr_sk = customer_address.ca_address_sk)
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[web_sales]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------filter((customer_address.ca_state = 'NC'))
+----------------------------------------PhysicalOlapScan[customer_address]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter((cast(ca_state as VARCHAR(*)) = 'NC'))
---------------------------------------PhysicalOlapScan[customer_address]
+------------------------------------filter((date_dim.d_date >= '1999-02-01')(date_dim.d_date <= '1999-04-02'))
+--------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((cast(web_company_name as VARCHAR(*)) = 'pri'))
+----------------------------------filter((web_site.web_company_name = 'pri'))
 ------------------------------------PhysicalOlapScan[web_site]
 

@@ -7461,7 +7461,6 @@ false
 30	-9223372036854775808	[null,null,null]
 31	18446744073709551615	[null,null,null]
 
-
 -- !sql_json_length --
 1
 

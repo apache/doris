@@ -2178,6 +2178,13 @@ public class Config extends ConfigBase {
     })
     public static int autobucket_min_buckets = 1;
 
+    @ConfField
+    public static int full_auto_analyze_simultaneously_running_task_num = 1;
+
+    @ConfField
+    public static final int period_analyze_simultaneously_running_task_num = 1;
+
+
     @ConfField(mutable = true, description = {
             "Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，"
             + "请修改这个字段，为 doris 内置的 mysql database 更换一个名字",
@@ -2185,4 +2192,11 @@ public class Config extends ConfigBase {
             + "If this database conflicts with a user's own database, please modify this field to replace "
             + "the name of the Doris built-in MySQL database with a different name."})
     public static String mysqldb_replace_name = "mysql";
+    @ConfField(description = {
+        "设置允许跨域访问的特定域名,默认允许任何域名跨域访问",
+        "Set the specific domain name that allows cross-domain access. "
+            + "By default, any domain name is allowed cross-domain access"
+    })
+    public static String access_control_allowed_origin_domain = "*";
+
 }

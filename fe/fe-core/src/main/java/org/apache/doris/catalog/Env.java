@@ -199,6 +199,7 @@ import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.persist.meta.MetaWriter;
+import org.apache.doris.planner.SingleTabletLoadRecorderMgr;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
@@ -211,7 +212,7 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.StatisticsAutoAnalyzer;
+import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.statistics.query.QueryStats;
@@ -308,6 +309,7 @@ public class Env {
     private LoadManager loadManager;
     private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
+    private SingleTabletLoadRecorderMgr singleTabletLoadRecorderMgr;
     private RoutineLoadManager routineLoadManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
@@ -457,7 +459,7 @@ public class Env {
      */
     private final LoadManagerAdapter loadManagerAdapter;
 
-    private StatisticsAutoAnalyzer statisticsAutoAnalyzer;
+    private StatisticsAutoCollector statisticsAutoCollector;
 
     private HiveTransactionMgr hiveTransactionMgr;
 
@@ -640,6 +642,7 @@ public class Env {
         this.progressManager = new ProgressManager();
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
                 Config.fetch_stream_load_record_interval_second * 1000L);
+        this.singleTabletLoadRecorderMgr = new SingleTabletLoadRecorderMgr();
         this.loadEtlChecker = new LoadEtlChecker(loadManager);
         this.loadLoadingChecker = new LoadLoadingChecker(loadManager);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
@@ -663,7 +666,7 @@ public class Env {
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
         this.analysisManager = new AnalysisManager();
         this.statisticsCleaner = new StatisticsCleaner();
-        this.statisticsAutoAnalyzer = new StatisticsAutoAnalyzer();
+        this.statisticsAutoCollector = new StatisticsAutoCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.queryStats = new QueryStats();
@@ -907,8 +910,8 @@ public class Env {
         if (statisticsCleaner != null) {
             statisticsCleaner.start();
         }
-        if (statisticsAutoAnalyzer != null) {
-            statisticsAutoAnalyzer.start();
+        if (statisticsAutoCollector != null) {
+            statisticsAutoCollector.start();
         }
     }
 
@@ -1491,6 +1494,7 @@ public class Env {
             cooldownConfHandler.start();
         }
         streamLoadRecordMgr.start();
+        singleTabletLoadRecorderMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         new InternalSchemaInitializer().start();
         if (Config.enable_hms_events_incremental_sync) {
@@ -1888,10 +1892,8 @@ public class Env {
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
         recycleBin.readFields(dis);
-        if (!isCheckpointThread()) {
-            // add tablet in Recycle bin to TabletInvertedIndex
-            recycleBin.addTabletToInvertedIndex();
-        }
+        // add tablet in Recycle bin to TabletInvertedIndex
+        recycleBin.addTabletToInvertedIndex();
         // create DatabaseTransactionMgr for db in recycle bin.
         // these dbs do not exist in `idToDb` of the catalog.
         for (Long dbId : recycleBin.getAllDbIds()) {
@@ -3680,6 +3682,10 @@ public class Env {
         return streamLoadRecordMgr;
     }
 
+    public SingleTabletLoadRecorderMgr getSingleTabletLoadRecorderMgr() {
+        return singleTabletLoadRecorderMgr;
+    }
+
     public IcebergTableCreationRecordMgr getIcebergTableCreationRecordMgr() {
         return getInternalCatalog().getIcebergTableCreationRecordMgr();
     }
@@ -5281,7 +5287,7 @@ public class Env {
             }
         }
 
-        if (!isReplay) {
+        if (!isReplay && !Env.isCheckpointThread()) {
             // drop all replicas
             AgentBatchTask batchTask = new AgentBatchTask();
             for (Partition partition : olapTable.getAllPartitions()) {
@@ -5305,6 +5311,7 @@ public class Env {
             AgentTaskExecutor.submit(batchTask);
         }
 
+        // TODO: does checkpoint need update colocate index ?
         // colocation
         Env.getCurrentColocateIndex().removeTable(olapTable.getId());
     }
@@ -5421,10 +5428,6 @@ public class Env {
         return loadManagerAdapter;
     }
 
-    public StatisticsAutoAnalyzer getStatisticsAutoAnalyzer() {
-        return statisticsAutoAnalyzer;
-    }
-
     public QueryStats getQueryStats() {
         return queryStats;
     }
@@ -5436,5 +5439,9 @@ public class Env {
 
     public ColumnIdFlushDaemon getColumnIdFlusher() {
         return columnIdFlusher;
+    }
+
+    public StatisticsAutoCollector getStatisticsAutoCollector() {
+        return statisticsAutoCollector;
     }
 }

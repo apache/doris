@@ -82,7 +82,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
      * when the job is cancelled. Although it is meaningless to continue segcompaction when the job
      * is cancelled, the objects involved in the job should be preserved during segcompaction to
      * avoid crashs for memory issues. */
-    wait_flying_segcompaction();
+    WARN_IF_ERROR(wait_flying_segcompaction(), "segment compaction failed");
 
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
     if (!_already_built) {       // abnormal exit, remove all files generated
@@ -439,7 +439,7 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     // just to make sure it matches with _num_segment
     _next_segment_id = _num_segment.load();
     // append key_bounds to current rowset
-    rowset->get_segments_key_bounds(&_segments_encoded_key_bounds);
+    RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
@@ -547,7 +547,11 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         }
 
         if (_segcompaction_worker.get_file_writer()) {
-            _segcompaction_worker.get_file_writer()->close();
+            status = _segcompaction_worker.get_file_writer()->close();
+            if (!status.ok()) {
+                LOG(WARNING) << "close segment compaction worker failed" << status;
+                return nullptr;
+            }
         }
     }
     // When building a rowset, we must ensure that the current _segment_writer has been
@@ -720,7 +724,7 @@ Status BetaRowsetWriter::_do_create_segment_writer(
                 _context.data_dir, _context.max_rows_per_segment, writer_options,
                 _context.mow_context));
         if (_segcompaction_worker.get_file_writer() != nullptr) {
-            _segcompaction_worker.get_file_writer()->close();
+            RETURN_IF_ERROR(_segcompaction_worker.get_file_writer()->close());
         }
         _segcompaction_worker.get_file_writer().reset(file_writer.release());
     } else {

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.nereids.util.StandardDateFormat;
 
 import java.time.LocalDateTime;
 
@@ -50,16 +51,23 @@ public class DateV2Literal extends DateLiteral {
         return visitor.visitDateV2Literal(this, context);
     }
 
-    public Expression plusDays(int days) {
-        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusDays(days));
+    public Expression plusDays(long days) {
+        return fromJavaDateType(DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusDays(days));
     }
 
-    public Expression plusMonths(int months) {
-        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusMonths(months));
+    public Expression plusMonths(long months) {
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusMonths(months));
     }
 
-    public Expression plusYears(int years) {
-        return fromJavaDateType(DateUtils.getTime(DATE_FORMATTER, getStringValue()).plusYears(years));
+    public Expression plusWeeks(long weeks) {
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusWeeks(weeks));
+    }
+
+    public Expression plusYears(long years) {
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusYears(years));
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {

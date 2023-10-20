@@ -30,8 +30,8 @@ set -eo pipefail
 build_version_prefix="doris"
 build_version_major=2
 build_version_minor=0
-build_version_patch=2
-build_version_rc_version="rc05"
+build_version_patch=3
+build_version_rc_version="rc01dev"
 
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}-${build_version_rc_version}"
 

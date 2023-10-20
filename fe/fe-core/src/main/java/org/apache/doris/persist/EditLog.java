@@ -82,6 +82,8 @@ import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -594,6 +596,11 @@ public class EditLog {
                     env.getColocateTableIndex().replayMarkGroupStable(info);
                     break;
                 }
+                case OperationType.OP_COLOCATE_MOD_REPLICA_ALLOC: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    env.getColocateTableIndex().replayModifyReplicaAlloc(info);
+                    break;
+                }
                 case OperationType.OP_MODIFY_TABLE_COLOCATE: {
                     final TablePropertyInfo info = (TablePropertyInfo) journal.getData();
                     env.replayModifyTableColocate(info);
@@ -870,6 +877,11 @@ public class EditLog {
                     env.getCatalogMgr().replayAlterCatalogName(log);
                     break;
                 }
+                case OperationType.OP_ALTER_CATALOG_COMMENT: {
+                    CatalogLog log = (CatalogLog) journal.getData();
+                    env.getCatalogMgr().replayAlterCatalogComment(log);
+                    break;
+                }
                 case OperationType.OP_ALTER_CATALOG_PROPS: {
                     CatalogLog log = (CatalogLog) journal.getData();
                     env.getCatalogMgr().replayAlterCatalogProps(log, null, true);
@@ -1026,11 +1038,19 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_JOB: {
-                    env.getAnalysisManager().replayCreateAnalysisJob((AnalysisInfo) journal.getData());
+                    AnalysisInfo info = (AnalysisInfo) journal.getData();
+                    if (AnalysisManager.needAbandon(info)) {
+                        break;
+                    }
+                    env.getAnalysisManager().replayCreateAnalysisJob(info);
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_TASK: {
-                    env.getAnalysisManager().replayCreateAnalysisTask((AnalysisInfo) journal.getData());
+                    AnalysisInfo info = (AnalysisInfo) journal.getData();
+                    if (AnalysisManager.needAbandon(info)) {
+                        break;
+                    }
+                    env.getAnalysisManager().replayCreateAnalysisTask(info);
                     break;
                 }
                 case OperationType.OP_DELETE_ANALYSIS_JOB: {
@@ -1060,16 +1080,16 @@ public class EditLog {
                     env.getBinlogManager().addBarrierLog(log, logId);
                     break;
                 }
-                // For backward compatible with 2.0.3
                 case OperationType.OP_UPDATE_TABLE_STATS: {
+                    env.getAnalysisManager().replayUpdateTableStatsStatus((TableStatsMeta) journal.getData());
                     break;
                 }
-                // For backward compatible with 2.0.3
                 case OperationType.OP_PERSIST_AUTO_JOB: {
+                    env.getAnalysisManager().replayPersistSysJob((AnalysisInfo) journal.getData());
                     break;
                 }
-                // For backward compatible with 2.0.3
                 case OperationType.OP_DELETE_TABLE_STATS: {
+                    env.getAnalysisManager().replayTableStatsDeletion((TableStatsDeletionLog) journal.getData());
                     break;
                 }
                 default: {
@@ -1492,6 +1512,10 @@ public class EditLog {
         Env.getCurrentEnv().getBinlogManager().addTruncateTable(info, logId);
     }
 
+    public void logColocateModifyRepliaAlloc(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_MOD_REPLICA_ALLOC, info);
+    }
+
     public void logColocateAddTable(ColocatePersistInfo info) {
         logEdit(OperationType.OP_COLOCATE_ADD_TABLE, info);
     }
@@ -1874,5 +1898,17 @@ public class EditLog {
         Env.getCurrentEnv().getBinlogManager().addBarrierLog(log, logId);
         LOG.info("logId {}, barrier {}", logId, log);
         return logId;
+    }
+
+    public void logCreateTableStats(TableStatsMeta tableStats) {
+        logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
+    }
+
+    public void logAutoJob(AnalysisInfo analysisInfo) {
+        logEdit(OperationType.OP_PERSIST_AUTO_JOB, analysisInfo);
+    }
+
+    public void logDeleteTableStats(TableStatsDeletionLog log) {
+        logEdit(OperationType.OP_DELETE_TABLE_STATS, log);
     }
 }

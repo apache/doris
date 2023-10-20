@@ -45,7 +45,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -89,7 +88,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     );
 
     private static final Set<Class<? extends PhysicalPlan>> SPJ_PLAN = ImmutableSet.of(
-            PhysicalOlapScan.class,
+            PhysicalRelation.class,
             PhysicalProject.class,
             PhysicalFilter.class,
             PhysicalDistribute.class,
@@ -636,13 +635,17 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             } else if (!checkCanPushDownIntoBasicTable(project)) {
                 return;
             } else {
-                Map<Slot, PhysicalOlapScan> pushDownBasicTableInfos = getPushDownBasicTablesInfos(project,
+                Map<Slot, PhysicalRelation> pushDownBasicTableInfos = getPushDownBasicTablesInfos(project,
                         (SlotReference) targetExpr, aliasTransferMap);
                 if (!pushDownBasicTableInfos.isEmpty()) {
                     List<Slot> targetList = new ArrayList<>();
-                    for (Map.Entry<Slot, PhysicalOlapScan> entry : pushDownBasicTableInfos.entrySet()) {
+                    for (Map.Entry<Slot, PhysicalRelation> entry : pushDownBasicTableInfos.entrySet()) {
                         Slot targetSlot = entry.getKey();
-                        PhysicalOlapScan scan = entry.getValue();
+                        PhysicalRelation scan = entry.getValue();
+                        Preconditions.checkState(scan != null, "scan is null");
+                        if (!checkPhysicalRelationType(scan)) {
+                            continue;
+                        }
                         targetList.add(targetSlot);
                         ctx.addJoinToTargetMap(join, targetSlot.getExprId());
                         ctx.setTargetsOnScanNode(scan.getRelationId(), targetSlot);
@@ -686,13 +689,13 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         return plans.stream().allMatch(p -> SPJ_PLAN.stream().anyMatch(c -> c.isInstance(p)));
     }
 
-    private Map<Slot, PhysicalOlapScan> getPushDownBasicTablesInfos(PhysicalPlan root, SlotReference slot,
+    private Map<Slot, PhysicalRelation> getPushDownBasicTablesInfos(PhysicalPlan root, SlotReference slot,
             Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap) {
-        Map<Slot, PhysicalOlapScan> basicTableInfos = new HashMap<>();
+        Map<Slot, PhysicalRelation> basicTableInfos = new HashMap<>();
         Set<PhysicalHashJoin> joins = new HashSet<>();
         ExprId exprId = slot.getExprId();
-        if (aliasTransferMap.get(slot) != null && aliasTransferMap.get(slot).first instanceof PhysicalOlapScan) {
-            basicTableInfos.put(slot, (PhysicalOlapScan) aliasTransferMap.get(slot).first);
+        if (aliasTransferMap.get(slot) != null) {
+            basicTableInfos.put(slot, aliasTransferMap.get(slot).first);
         }
         // try to find propagation condition from join
         getAllJoinInfo(root, joins);
@@ -703,12 +706,12 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     SlotReference leftSlot = (SlotReference) ((EqualTo) equalTo).left();
                     SlotReference rightSlot = (SlotReference) ((EqualTo) equalTo).right();
                     if (leftSlot.getExprId() == exprId && aliasTransferMap.get(rightSlot) != null) {
-                        PhysicalOlapScan rightTable = (PhysicalOlapScan) aliasTransferMap.get(rightSlot).first;
+                        PhysicalRelation rightTable = aliasTransferMap.get(rightSlot).first;
                         if (rightTable != null) {
                             basicTableInfos.put(rightSlot, rightTable);
                         }
                     } else if (rightSlot.getExprId() == exprId && aliasTransferMap.get(leftSlot) != null) {
-                        PhysicalOlapScan leftTable = (PhysicalOlapScan) aliasTransferMap.get(leftSlot).first;
+                        PhysicalRelation leftTable = aliasTransferMap.get(leftSlot).first;
                         if (leftTable != null) {
                             basicTableInfos.put(leftSlot, leftTable);
                         }

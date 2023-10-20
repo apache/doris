@@ -74,6 +74,8 @@ public abstract class ExternalCatalog
             implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalCatalog.class);
 
+    public static final String ENABLE_AUTO_ANALYZE = "enable.auto.analyze";
+
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
     protected long id;
@@ -409,7 +411,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
-        modifyComment(props);
         catalogProperty.modifyCatalogProps(props);
         notifyPropertiesUpdated(props);
     }
@@ -420,11 +421,6 @@ public abstract class ExternalCatalog
 
     public void rollBackCatalogProps(Map<String, String> props) {
         catalogProperty.rollBackCatalogProps(props);
-    }
-
-    private void modifyComment(Map<String, String> props) {
-        setComment(props.getOrDefault("comment", comment));
-        props.remove("comment");
     }
 
     public long getLastUpdateTime() {
@@ -602,5 +598,18 @@ public abstract class ExternalCatalog
     @Override
     public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
         return new ConcurrentHashMap<>(idToDb);
+    }
+
+    @Override
+    public boolean enableAutoAnalyze() {
+        // By default, external catalog disables auto analyze, uses could set catalog property to enable it:
+        // "enable.auto.analyze" = true
+        Map<String, String> properties = catalogProperty.getProperties();
+        boolean ret = false;
+        if (properties.containsKey(ENABLE_AUTO_ANALYZE)
+                && properties.get(ENABLE_AUTO_ANALYZE).equalsIgnoreCase("true")) {
+            ret = true;
+        }
+        return ret;
     }
 }

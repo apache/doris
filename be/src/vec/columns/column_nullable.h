@@ -115,8 +115,6 @@ public:
     UInt64 get64(size_t n) const override { return nested_column->get64(n); }
     StringRef get_data_at(size_t n) const override;
 
-    TypeIndex get_data_type() const override { return TypeIndex::Nullable; }
-
     /// Will insert null value if pos=nullptr
     void insert_data(const char* pos, size_t length) override;
 

@@ -286,7 +286,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
 }
 
 Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) {
-    if (is_local() && num_segments() > 0) [[unlikely]] {
+    if (!is_local() && num_segments() > 0) [[unlikely]] {
         DCHECK(false) << rowset_id();
         return Status::NotSupported("cannot copy remote files, rowset_id={}",
                                     rowset_id().to_string());

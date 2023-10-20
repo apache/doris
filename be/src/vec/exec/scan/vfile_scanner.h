@@ -137,6 +137,7 @@ protected:
     // For load task
     vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
     std::unique_ptr<RowDescriptor> _src_row_desc;
+    std::unique_ptr<RowDescriptor> _dest_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
     // owned by scan node

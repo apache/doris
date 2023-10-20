@@ -141,32 +141,7 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
       系统会使用用户指定的数据导入数据。在上述用例中，导入数据中最后一列数据为__DORIS_SEQUENCE_COL__。
       ```
 
-23. load_to_single_tablet: 布尔类型，为true表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分区的 olap 表导数的时候设置。
-
-    RETURN VALUES
-        导入完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
-        Status: 导入最后的状态。
-            Success：表示导入成功，数据已经可见；
-            Publish Timeout：表述导入作业已经成功Commit，但是由于某种原因并不能立即可见。用户可以视作已经成功不必重试导入
-            Label Already Exists: 表明该Label已经被其他作业占用，可能是导入成功，也可能是正在导入。
-            用户需要通过get label state命令来确定后续的操作
-            其他：此次导入失败，用户可以指定Label重试此次作业
-        Message: 导入状态详细的说明。失败时会返回具体的失败原因。
-        NumberTotalRows: 从数据流中读取到的总行数
-        NumberLoadedRows: 此次导入的数据行数，只有在Success时有效
-        NumberFilteredRows: 此次导入过滤掉的行数，即数据质量不合格的行数
-        NumberUnselectedRows: 此次导入，通过 where 条件被过滤掉的行数
-        LoadBytes: 此次导入的源文件数据量大小
-        LoadTimeMs: 此次导入所用的时间
-        BeginTxnTimeMs: 向Fe请求开始一个事务所花费的时间，单位毫秒。
-        StreamLoadPutTimeMs: 向Fe请求获取导入数据执行计划所花费的时间，单位毫秒。
-        ReadDataTimeMs: 读取数据所花费的时间，单位毫秒。
-        WriteDataTimeMs: 执行写入数据操作所花费的时间，单位毫秒。
-        CommitAndPublishTimeMs: 向Fe请求提交并且发布事务所花费的时间，单位毫秒。
-        ErrorURL: 被过滤数据的具体内容，仅保留前1000条
-
-ERRORS:
-        可以通过以下语句查看导入错误详细信息：
+24. load_to_single_tablet: 布尔类型，为true表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分桶的 olap 表导数的时候设置。
 
        ```
         SHOW LOAD WARNINGS ON 'url'

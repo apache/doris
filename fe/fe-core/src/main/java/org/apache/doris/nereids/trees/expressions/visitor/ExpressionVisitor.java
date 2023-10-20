@@ -63,12 +63,12 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
@@ -116,6 +116,10 @@ public abstract class ExpressionVisitor<R, C>
         WindowFunctionVisitor<R, C> {
 
     public abstract R visit(Expression expr, C context);
+
+    public R visitProperties(Properties properties, C context) {
+        return visit(properties, context);
+    }
 
     @Override
     public R visitAggregateFunction(AggregateFunction aggregateFunction, C context) {
@@ -408,10 +412,6 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitVariableDesc(VariableDesc variableDesc, C context) {
         return visit(variableDesc, context);
-    }
-
-    public R visitTVFProperties(TVFProperties tvfProperties, C context) {
-        return visit(tvfProperties, context);
     }
 
     public R visitInterval(Interval interval, C context) {

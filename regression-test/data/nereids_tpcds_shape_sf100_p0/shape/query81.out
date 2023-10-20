@@ -7,10 +7,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((catalog_returns.cr_returning_addr_sk = customer_address.ca_address_sk))otherCondition=()
+--------------hashJoin[INNER_JOIN](catalog_returns.cr_returning_addr_sk = customer_address.ca_address_sk)
 ----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((catalog_returns.cr_returned_date_sk = date_dim.d_date_sk))otherCondition=()
+--------------------hashJoin[INNER_JOIN](catalog_returns.cr_returned_date_sk = date_dim.d_date_sk)
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[catalog_returns]
 ----------------------PhysicalDistribute
@@ -32,11 +32,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](customer_address.ca_address_sk = customer.c_current_addr_sk)
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[customer]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((cast(ca_state as VARCHAR(*)) = 'CA'))
+--------------------------PhysicalOlapScan[customer]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter((customer_address.ca_state = 'CA'))
 ----------------------------PhysicalOlapScan[customer_address]
 --------------PhysicalDistribute
 ----------------hashAgg[GLOBAL]

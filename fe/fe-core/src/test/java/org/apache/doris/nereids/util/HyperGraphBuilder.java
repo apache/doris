@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
@@ -26,6 +27,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.StatisticsCacheKey;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -58,14 +61,14 @@ public class HyperGraphBuilder {
     private final HashMap<BitSet, LogicalPlan> plans = new HashMap<>();
     private final HashMap<BitSet, List<Integer>> schemas = new HashMap<>();
 
-    private final ImmutableList<JoinType> fullJoinTypes = ImmutableList.of(
+    private ImmutableList<JoinType> fullJoinTypes = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.RIGHT_OUTER_JOIN,
             JoinType.FULL_OUTER_JOIN
     );
 
-    private final ImmutableList<JoinType> leftFullJoinTypes = ImmutableList.of(
+    private ImmutableList<JoinType> leftFullJoinTypes = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.RIGHT_OUTER_JOIN,
@@ -75,7 +78,7 @@ public class HyperGraphBuilder {
             JoinType.NULL_AWARE_LEFT_ANTI_JOIN
     );
 
-    private final ImmutableList<JoinType> rightFullJoinTypes = ImmutableList.of(
+    private ImmutableList<JoinType> rightFullJoinTypes = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.RIGHT_OUTER_JOIN,
@@ -84,10 +87,30 @@ public class HyperGraphBuilder {
             JoinType.RIGHT_ANTI_JOIN
     );
 
+    public HyperGraphBuilder() {}
+
+    public HyperGraphBuilder(Set<JoinType> validJoinType) {
+        fullJoinTypes = fullJoinTypes.stream()
+                .filter(validJoinType::contains)
+                .collect(ImmutableList.toImmutableList());
+        leftFullJoinTypes = leftFullJoinTypes.stream()
+                .filter(validJoinType::contains)
+                .collect(ImmutableList.toImmutableList());
+        rightFullJoinTypes = rightFullJoinTypes.stream()
+                .filter(validJoinType::contains)
+                .collect(ImmutableList.toImmutableList());
+    }
+
     public HyperGraph build() {
         assert plans.size() == 1 : "there are cross join";
         Plan plan = plans.values().iterator().next();
         return buildHyperGraph(plan);
+    }
+
+    public Plan buildPlan() {
+        assert plans.size() == 1 : "there are cross join";
+        Plan plan = plans.values().iterator().next();
+        return plan;
     }
 
     public Plan buildJoinPlan() {
@@ -166,9 +189,14 @@ public class HyperGraphBuilder {
         for (Group group : context.getMemo().getGroups()) {
             GroupExpression groupExpression = group.getLogicalExpression();
             if (groupExpression.getPlan() instanceof LogicalOlapScan) {
+                LogicalOlapScan scan = (LogicalOlapScan) groupExpression.getPlan();
                 Statistics stats = injectRowcount((LogicalOlapScan) groupExpression.getPlan());
-                groupExpression.setStatDerived(true);
-                group.setStatistics(stats);
+                for (Expression expr : stats.columnStatistics().keySet()) {
+                    SlotReference slot = (SlotReference) expr;
+                    Env.getCurrentEnv().getStatisticsCache().putCache(
+                            new StatisticsCacheKey(scan.getTable().getId(), -1, slot.getName()),
+                            stats.columnStatistics().get(expr));
+                }
             }
         }
     }
@@ -313,8 +341,8 @@ public class HyperGraphBuilder {
         for (Slot slot : scanPlan.getOutput()) {
             slotIdToColumnStats.put(slot,
                     new ColumnStatistic(count, count, null, 1, 0, 0, 0,
-                            count, 1, null, null, true, null,
-                            new Date().toString()));
+                            count, null, null, true, null,
+                            new Date().toString(), null));
         }
         return new Statistics(count, slotIdToColumnStats);
     }
@@ -364,7 +392,7 @@ public class HyperGraphBuilder {
         return hashConjunts;
     }
 
-    public Set<List<Integer>> evaluate(Plan plan) {
+    public Set<List<String>> evaluate(Plan plan) {
         JoinEvaluator evaluator = new JoinEvaluator(rowCounts);
         Map<Slot, List<Integer>> res = evaluator.evaluate(plan);
         int rowCount = 0;
@@ -376,11 +404,12 @@ public class HyperGraphBuilder {
                         (slot1, slot2) ->
                                 String.CASE_INSENSITIVE_ORDER.compare(slot1.toString(), slot2.toString()))
                 .collect(Collectors.toList());
-        Set<List<Integer>> tuples = new HashSet<>();
+        Set<List<String>> tuples = new HashSet<>();
+        tuples.add(keySet.stream().map(s -> s.toString()).collect(Collectors.toList()));
         for (int i = 0; i < rowCount; i++) {
-            List<Integer> tuple = new ArrayList<>();
+            List<String> tuple = new ArrayList<>();
             for (Slot key : keySet) {
-                tuple.add(res.get(key).get(i));
+                tuple.add(String.valueOf(res.get(key).get(i)));
             }
             tuples.add(tuple);
         }

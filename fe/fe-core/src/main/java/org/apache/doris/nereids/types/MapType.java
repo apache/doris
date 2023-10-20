@@ -29,6 +29,8 @@ public class MapType extends DataType {
 
     public static final MapType INSTANCE = new MapType();
 
+    public static final MapType SYSTEM_DEFAULT = new MapType();
+
     public static final int WIDTH = 24;
 
     private MapType() {

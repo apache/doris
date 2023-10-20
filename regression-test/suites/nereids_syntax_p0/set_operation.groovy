@@ -86,16 +86,16 @@ suite("test_nereids_set_operation") {
     sql """
         insert into setOperationTableNotNullable values
         (1, 0, 0),
-        (1, 1, 3), 
-        (1, 1, 2), 
-        (1, 1, 1), 
-        (2, 2, 0), 
-        (2, 2, 6), 
-        (2, 2, 4), 
-        (2, 2, 2), 
-        (3, 0, 0), 
-        (3, 3, 9), 
-        (3, 3, 6), 
+        (1, 1, 3),
+        (1, 1, 2),
+        (1, 1, 1),
+        (2, 2, 0),
+        (2, 2, 6),
+        (2, 2, 4),
+        (2, 2, 2),
+        (3, 0, 0),
+        (3, 3, 9),
+        (3, 3, 6),
         (3, 3, 3);
     """
 
@@ -131,19 +131,19 @@ suite("test_nereids_set_operation") {
 
     // mix
     order_qt_select17 """
-            select k1, k3 from setOperationTableNotNullable union all 
+            select k1, k3 from setOperationTableNotNullable union all
             select k1, k5 from setOperationTable except
             select k2, k1 from setOperationTableNotNullable
             """
 
     order_qt_select18 """
-            select k1, k3 from setOperationTableNotNullable union all 
+            select k1, k3 from setOperationTableNotNullable union all
             (select k1, k5 from setOperationTable union
             select k2, k1 from setOperationTableNotNullable)
     """
 
     order_qt_select19 """
-            (select k1, k3 from setOperationTableNotNullable union all 
+            (select k1, k3 from setOperationTableNotNullable union all
             select k1, k5 from setOperationTable) union
             select k2, k1 from setOperationTableNotNullable
     """
@@ -155,8 +155,8 @@ suite("test_nereids_set_operation") {
     order_qt_select21 """            select * from (select k1, k2 from setOperationTableNotNullable union select k1, k5 from setOperationTable) t;
     """
 
-    order_qt_select24 """select * from (select 1 a, 2 b 
-		    union all select 3, 4 
+    order_qt_select24 """select * from (select 1 a, 2 b
+		    union all select 3, 4
 		    union all select 10, 20) t where a<b order by a, b"""
 
     order_qt_select25 """
@@ -205,7 +205,7 @@ suite("test_nereids_set_operation") {
     // test_union_bug
     // PALO-3617
     qt_union36 """select * from (select 1 as a, 2 as b union select 3, 3) c where a = 1"""
-    
+
     // cast类型
     def res5 = sql"""(select k1, k2 from setOperationTable) union (select k2, cast(k1 as int) from setOperationTable)
        order by k1, k2"""
@@ -228,10 +228,10 @@ suite("test_nereids_set_operation") {
     qt_union39 """(select  k1 from setOperationTable order by k1) union all (select k1 from setOperationTableNotNullable order by k1) order by k1;"""
 
     order_qt_union40 """
-        SELECT k1 FROM setOperationTable WHERE k2 = 2 
-        INTERSECT 
-        SELECT k1 FROM setOperationTable WHERE k1 = 1 
-        UNION 
+        SELECT k1 FROM setOperationTable WHERE k2 = 2
+        INTERSECT
+        SELECT k1 FROM setOperationTable WHERE k1 = 1
+        UNION
         SELECT k1 FROM setOperationTable WHERE k3 = 2
     """
 
@@ -256,27 +256,27 @@ suite("test_nereids_set_operation") {
     """
 
     order_qt_select43 """
-        SELECT * FROM (select k1, k3 from setOperationTableNotNullable order by k3 union all 
+        SELECT * FROM (select k1, k3 from setOperationTableNotNullable order by k3 union all
             select k1, k5 from setOperationTable) t;
     """
 
     order_qt_select44 """
-    select k1, k3 from setOperationTableNotNullable order by k3 union all 
+    select k1, k3 from setOperationTableNotNullable order by k3 union all
             select k1, k5 from setOperationTable
     """
 
     order_qt_select45 """
-    (select k1, k3 from setOperationTableNotNullable order by k3) union all 
+    (select k1, k3 from setOperationTableNotNullable order by k3) union all
             (select k1, k5 from setOperationTable)
     """
 
     order_qt_select46 """
-    (with cte AS (select k1, k3 from setOperationTableNotNullable) select * from cte order by k3) union all 
+    (with cte AS (select k1, k3 from setOperationTableNotNullable) select * from cte order by k3) union all
             (select k1, k5 from setOperationTable)
     """
 
     order_qt_union43 """select '2020-05-25' day from test_table union all select day from test_table;"""
-    
+
     qt_union44 """
         select * from
             (select day from test_table
@@ -289,5 +289,43 @@ suite("test_nereids_set_operation") {
     // test union distinct column prune
     qt_union45 """
         select count(*) from (select 1, 2 union select 1,1 ) a;
+    """
+
+    def tables = [
+            "dwd_daytable",
+    ]
+
+    for (String table_name in tables) {
+        sql """DROP TABLE IF EXISTS ${table_name}"""
+        sql  new File("""${context.file.parent}/ddl/${table_name}.sql""").text
+
+        streamLoad {
+            table "${table_name}"
+            set 'max_filter_ratio', '1'
+            file """${table_name}.csv"""
+            //time 10000 // limit inflight 10s
+            // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
+            // if declared a check callback, the default check condition will ignore.
+            // So you must check all condition
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows
+                        + json.NumberFilteredRows)
+                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+            }
+            def loadRowCount = sql "select count(*) from ${table_name};"
+            logger.info("select count(*) from ${loadRowCount};")
+        }
+    }
+
+    order_qt_check_child_col_order """
+        select avg(tap), potno from dwd_daytable where potno=3601 and ddate >= '2023-08-01' group by potno limit 10
+        union
+        select avg(tap), potno from dwd_daytable where potno=3602 and ddate >= '2023-08-01' group by potno limit 10;
     """
 }

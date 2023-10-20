@@ -99,7 +99,7 @@ protected:
 
     virtual void _init_short_circuit_for_probe() {
         _short_circuit_for_probe = false;
-        _short_circuit_for_probe_and_additional_data = false;
+        _empty_right_table_need_probe_dispose = false;
     }
 
     TJoinOp::type _join_op;
@@ -128,7 +128,7 @@ protected:
     bool _short_circuit_for_probe = false;
 
     // for some join, when build side rows is empty, we could return directly by add some additional null data in probe table.
-    bool _short_circuit_for_probe_and_additional_data = false;
+    bool _empty_right_table_need_probe_dispose = false;
     std::unique_ptr<RowDescriptor> _output_row_desc;
     std::unique_ptr<RowDescriptor> _intermediate_row_desc;
     // output expr

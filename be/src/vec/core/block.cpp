@@ -84,7 +84,8 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
     }
 }
 
-Block::Block(const PBlock& pblock) {
+Status Block::deserialize(const PBlock& pblock) {
+    swap(Block());
     int be_exec_version = pblock.has_be_exec_version() ? pblock.be_exec_version() : 0;
     CHECK(BeExecVersionManager::check_be_exec_version(be_exec_version));
 
@@ -98,11 +99,12 @@ Block::Block(const PBlock& pblock) {
         size_t uncompressed_size = 0;
         if (pblock.has_compression_type() && pblock.has_uncompressed_size()) {
             BlockCompressionCodec* codec;
-            get_block_compression_codec(pblock.compression_type(), &codec);
+            RETURN_IF_ERROR(get_block_compression_codec(pblock.compression_type(), &codec));
             uncompressed_size = pblock.uncompressed_size();
             compression_scratch.resize(uncompressed_size);
             Slice decompressed_slice(compression_scratch);
-            codec->decompress(Slice(compressed_data, compressed_size), &decompressed_slice);
+            RETURN_IF_ERROR(codec->decompress(Slice(compressed_data, compressed_size),
+                                              &decompressed_slice));
             DCHECK(uncompressed_size == decompressed_slice.size);
         } else {
             bool success = snappy::GetUncompressedLength(compressed_data, compressed_size,
@@ -126,6 +128,8 @@ Block::Block(const PBlock& pblock) {
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
+
+    return Status::OK();
 }
 
 void Block::initialize_index_by_name() {
@@ -672,6 +676,14 @@ void Block::clear() {
     data.clear();
     index_by_name.clear();
     row_same_bit.clear();
+}
+
+std::string Block::print_use_count() {
+    std::stringstream ss;
+    for (auto& d : data) {
+        ss << ", [" << d.name << ", " << d.column->use_count() << "]";
+    }
+    return ss.str();
 }
 
 void Block::clear_column_data(int column_size) noexcept {

@@ -44,9 +44,9 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -324,11 +324,11 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     public Boolean visitPhysicalSetOperation(PhysicalSetOperation setOperation, Void context) {
         // process must shuffle
         visit(setOperation, context);
-        // process set operation
+        // union with only constant exprs list
         if (children.isEmpty()) {
             return true;
         }
-
+        // process set operation
         PhysicalProperties requiredProperty = requiredProperties.get(0);
         DistributionSpec requiredDistributionSpec = requiredProperty.getDistributionSpec();
         if (requiredDistributionSpec instanceof DistributionSpecGather) {
@@ -379,6 +379,15 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         return true;
     }
 
+    /**
+     * check both side real output hash key order are same or not.
+     *
+     * @param notShuffleSideOutput not shuffle side real output used hash spec
+     * @param shuffleSideOutput  shuffle side real output used hash spec
+     * @param notShuffleSideRequired not shuffle side required used hash spec
+     * @param shuffleSideRequired shuffle side required hash spec
+     * @return true if same
+     */
     private boolean bothSideShuffleKeysAreSameOrder(
             DistributionSpecHash notShuffleSideOutput, DistributionSpecHash shuffleSideOutput,
             DistributionSpecHash notShuffleSideRequired, DistributionSpecHash shuffleSideRequired) {
@@ -386,9 +395,22 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                 calAnotherSideRequiredShuffleIds(notShuffleSideOutput, notShuffleSideRequired, shuffleSideRequired));
     }
 
+    /**
+     * calculate the shuffle side hash key right orders.
+     * For example,
+     * if not shuffle side real hash key is 1 2 3.
+     * the requirement of hash key of not shuffle side is 3 2 1.
+     * the requirement of hash key of shuffle side is 6 5 4.
+     * then we should let the shuffle side real output hash key order as 4 5 6
+     *
+     * @param notShuffleSideOutput not shuffle side real output used hash spec
+     * @param notShuffleSideRequired not shuffle side required used hash spec
+     * @param shuffleSideRequired shuffle side required hash spec
+     * @return shuffle side real output used hash key order
+     */
     private List<ExprId> calAnotherSideRequiredShuffleIds(DistributionSpecHash notShuffleSideOutput,
             DistributionSpecHash notShuffleSideRequired, DistributionSpecHash shuffleSideRequired) {
-        List<ExprId> rightShuffleIds = new ArrayList<>();
+        ImmutableList.Builder<ExprId> rightShuffleIds = ImmutableList.builder();
         for (ExprId scanId : notShuffleSideOutput.getOrderedShuffledColumns()) {
             int index = notShuffleSideRequired.getOrderedShuffledColumns().indexOf(scanId);
             if (index == -1) {
@@ -401,12 +423,23 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                     }
                 }
             }
-            Preconditions.checkArgument(index != -1);
+            Preconditions.checkState(index != -1, "index could not be -1");
             rightShuffleIds.add(shuffleSideRequired.getOrderedShuffledColumns().get(index));
         }
-        return rightShuffleIds;
+        return rightShuffleIds.build();
     }
 
+    /**
+     * generate shuffle side real output should follow PhysicalProperties. More info could see
+     * calAnotherSideRequiredShuffleIds's comment.
+     *
+     * @param shuffleType real output shuffle type
+     * @param notShuffleSideOutput not shuffle side real output used hash spec
+     * @param shuffleSideOutput  shuffle side real output used hash spec
+     * @param notShuffleSideRequired not shuffle side required used hash spec
+     * @param shuffleSideRequired shuffle side required hash spec
+     * @return shuffle side new required hash spec
+     */
     private PhysicalProperties calAnotherSideRequired(ShuffleType shuffleType,
             DistributionSpecHash notShuffleSideOutput, DistributionSpecHash shuffleSideOutput,
             DistributionSpecHash notShuffleSideRequired, DistributionSpecHash shuffleSideRequired) {

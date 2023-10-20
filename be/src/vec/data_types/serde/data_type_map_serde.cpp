@@ -196,7 +196,8 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
     }
     // empty map
     if (slice.size == 2) {
-        offsets.push_back(offsets.back());
+        auto last_off = offsets.back();
+        offsets.push_back(last_off);
         return Status::OK();
     }
 

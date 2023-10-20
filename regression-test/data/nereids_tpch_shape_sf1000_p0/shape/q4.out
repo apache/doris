@@ -13,6 +13,6 @@ PhysicalResultSink
 --------------------filter((lineitem.l_commitdate < lineitem.l_receiptdate))
 ----------------------PhysicalOlapScan[lineitem]
 ------------------PhysicalProject
---------------------filter((orders.o_orderdate >= 1993-07-01)(orders.o_orderdate < 1993-10-01))
+--------------------filter((orders.o_orderdate >= '1993-07-01')(orders.o_orderdate < '1993-10-01'))
 ----------------------PhysicalOlapScan[orders]
 

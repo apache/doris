@@ -70,7 +70,7 @@ suite("nereids_function") {
 
     // numbers: table valued function
     test {
-        sql "select `number` from numbers(number = 10, backend_num = 1)"
+        sql "select `number` from numbers(number = 10)"
         result([[0L], [1L], [2L], [3L], [4L], [5L], [6L], [7L], [8L], [9L]])
     }
 
@@ -91,7 +91,7 @@ suite("nereids_function") {
     qt_subquery3 """ select a.number from numbers("number" = "10") a where number in (select number from numbers("number" = "10") b where a.number=b.number); """
 
     test {
-        sql """select `number` from numbers("number" = -1, 'backend_num' = `1`)"""
+        sql """select `number` from numbers("number" = "-1")"""
         result([])
     }
 
@@ -121,7 +121,7 @@ suite("nereids_function") {
     }
 
     test {
-        sql """select "1" == "123", "%%" == "%%" """
+        sql """select "1" = "123", "%%" = "%%" """
         result([[false, true]])
     }
     
