@@ -135,7 +135,7 @@ struct ProcessHashTableBuild {
                                             null_map ? null_map->data() : nullptr);
         SCOPED_TIMER(_parent->_build_table_insert_timer);
         hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.hash_values.data(),
-                                         _rows);
+                                         _rows, _state->batch_size());
         return Status::OK();
     }
 

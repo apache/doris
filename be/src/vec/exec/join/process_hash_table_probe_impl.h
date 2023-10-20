@@ -203,7 +203,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
     int last_probe_index = probe_index;
 
     int current_offset = 0;
-    bool all_match_one = true;
+    bool all_match_one = false;
     size_t probe_size = 0;
 
     auto& probe_row_match_iter = _probe_row_match<Mapped, with_other_conjuncts>(
@@ -232,9 +232,10 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
 
     {
         SCOPED_TIMER(_search_hashtable_timer);
-        auto [new_probe_idx, new_current_offset] = hash_table_ctx.hash_table->find_batch(
-                hash_table_ctx.keys, hash_table_ctx.hash_values.data(), probe_index, probe_rows,
-                _probe_indexs, _build_block_rows);
+        auto [new_probe_idx, new_current_offset] =
+                hash_table_ctx.hash_table->template find_batch<JoinOpType>(
+                        hash_table_ctx.keys, hash_table_ctx.hash_values.data(), probe_index,
+                        probe_rows, _probe_indexs, _build_block_rows);
         probe_index = new_probe_idx;
         current_offset = new_current_offset;
         probe_size = probe_index - last_probe_index;

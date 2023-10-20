@@ -380,8 +380,8 @@ public:
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32* __restrict indices_begin,
+                             const uint32* __restrict indices_end) override;
 
     void fill(const value_type& element, size_t num) {
         auto old_size = data.size();

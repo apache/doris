@@ -497,8 +497,9 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         return Status::OK();
     }
 
-    std::unordered_map<int64_t /* tablet_id */, std::vector<int> /* row index */> tablet_to_rowidxs;
-    for (int i = 0; i < request.tablet_ids_size(); ++i) {
+    std::unordered_map<int64_t /* tablet_id */, std::vector<uint32_t> /* row index */>
+            tablet_to_rowidxs;
+    for (uint32_t i = 0; i < request.tablet_ids_size(); ++i) {
         if (request.is_single_tablet_block()) {
             break;
         }
@@ -510,7 +511,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         }
         auto it = tablet_to_rowidxs.find(tablet_id);
         if (it == tablet_to_rowidxs.end()) {
-            tablet_to_rowidxs.emplace(tablet_id, std::initializer_list<int> {i});
+            tablet_to_rowidxs.emplace(tablet_id, std::initializer_list<uint32_t> {i});
         } else {
             it->second.emplace_back(i);
         }

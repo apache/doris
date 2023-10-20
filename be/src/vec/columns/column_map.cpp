@@ -185,14 +185,10 @@ void ColumnMap::insert_from(const IColumn& src_, size_t n) {
     get_offsets().push_back(get_offsets().back() + size);
 }
 
-void ColumnMap::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                    const int* indices_end) {
+void ColumnMap::insert_indices_from(const IColumn& src, const uint32_t* __restrict indices_begin,
+                                    const uint32_t* __restrict indices_end) {
     for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x == -1) {
-            ColumnMap::insert_default();
-        } else {
-            ColumnMap::insert_from(src, *x);
-        }
+        ColumnMap::insert_from(src, *x);
     }
 }
 

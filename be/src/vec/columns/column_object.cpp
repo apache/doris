@@ -666,14 +666,11 @@ void ColumnObject::get(size_t n, Field& res) const {
     }
 }
 
-Status ColumnObject::try_insert_indices_from(const IColumn& src, const int* indices_begin,
-                                             const int* indices_end) {
+Status ColumnObject::try_insert_indices_from(const IColumn& src,
+                                             const uint32_t* __restrict indices_begin,
+                                             const uint32_t* __restrict indices_end) {
     for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x == -1) {
-            ColumnObject::insert_default();
-        } else {
-            ColumnObject::try_insert_from(src, *x);
-        }
+        ColumnObject::try_insert_from(src, *x);
     }
     finalize();
     return Status::OK();
@@ -992,8 +989,8 @@ void ColumnObject::append_data_by_selector(MutableColumnPtr& res,
                                    });
 }
 
-void ColumnObject::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                       const int* indices_end) {
+void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* __restrict indices_begin,
+                                       const uint32_t* __restrict indices_end) {
     // insert_indices_from with alignment
     const ColumnObject& src_column = *check_and_get_column<ColumnObject>(src);
     align_variant_by_name_and_type(*this, src_column, indices_end - indices_begin,
