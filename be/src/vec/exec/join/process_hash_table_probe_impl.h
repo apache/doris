@@ -137,50 +137,16 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
         _visited_map.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
         _same_to_prev.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
     }
-    _probe_indexs.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
-    _build_block_rows.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
+    _probe_indexs.resize(_batch_size);
+    _build_block_rows.resize(_batch_size);
 
     if (!_parent->_ready_probe) {
         _parent->_ready_probe = true;
         hash_table_ctx.reset();
         hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map);
+        hash_table_ctx.calculate_bucket(probe_rows);
     }
     return typename HashTableType::State(_parent->_probe_columns);
-}
-
-template <int JoinOpType, typename Parent>
-template <typename Mapped, bool with_other_join_conjuncts>
-ForwardIterator<Mapped>& ProcessHashTableProbe<JoinOpType, Parent>::_probe_row_match(
-        int& current_offset, int& probe_index, size_t& probe_size, bool& all_match_one) {
-    auto& probe_row_match_iter = std::get<ForwardIterator<Mapped>>(_parent->_probe_row_match_iter);
-    if (!probe_row_match_iter.ok()) {
-        return probe_row_match_iter;
-    }
-
-    SCOPED_TIMER(_search_hashtable_timer);
-    for (; probe_row_match_iter.ok() && current_offset < _batch_size; ++probe_row_match_iter) {
-        _emplace_element(probe_row_match_iter->row_num, current_offset);
-        _probe_indexs.emplace_back(probe_index);
-        if constexpr (with_other_join_conjuncts) {
-            _visited_map.emplace_back(&probe_row_match_iter->visited);
-        }
-    }
-
-    _row_count_from_last_probe = current_offset;
-    all_match_one &= (current_offset == 1);
-    if (!probe_row_match_iter.ok()) {
-        ++probe_index;
-    }
-    probe_size = 1;
-
-    return probe_row_match_iter;
-}
-
-template <int JoinOpType, typename Parent>
-void ProcessHashTableProbe<JoinOpType, Parent>::_emplace_element(int32_t block_row,
-                                                                 int& current_offset) {
-    _build_block_rows.emplace_back(block_row);
-    current_offset++;
 }
 
 template <int JoinOpType, typename Parent>
@@ -193,8 +159,6 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
                                                              size_t probe_rows) {
     auto& probe_index = _parent->_probe_index;
 
-    using Mapped = typename HashTableType::Mapped;
-
     _init_probe_side<HashTableType>(hash_table_ctx, probe_rows, with_other_conjuncts,
                                     need_null_map_for_probe ? null_map->data() : nullptr);
 
@@ -206,9 +170,6 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
     bool all_match_one = false;
     size_t probe_size = 0;
 
-    auto& probe_row_match_iter = _probe_row_match<Mapped, with_other_conjuncts>(
-            current_offset, probe_index, probe_size, all_match_one);
-
     // If not(which means it excceed batch size), probe_index is not increased and
     // remaining matched rows for the current probe row will be
     // handled in the next call of this function
@@ -216,14 +177,6 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
 
     // Is the last sub block of splitted block
     bool is_the_last_sub_block = false;
-
-    if (with_other_conjuncts && probe_size != 0) {
-        is_the_last_sub_block = !probe_row_match_iter.ok();
-        _same_to_prev.emplace_back(false);
-        for (int i = 0; i < current_offset - 1; ++i) {
-            _same_to_prev.emplace_back(true);
-        }
-    }
 
     std::unique_ptr<ColumnFilterHelper> mark_column;
     if (is_mark_join) {
