@@ -151,7 +151,7 @@ public class TabletScheduler extends MasterDaemon {
 
     public TabletScheduler(Env env, SystemInfoService infoService, TabletInvertedIndex invertedIndex,
                            TabletSchedulerStat stat, String rebalancerType) {
-        super("tablet scheduler", FeConstants.tablet_schedule_interval_ms);
+        super("tablet scheduler", Config.tablet_schedule_interval_ms);
         this.env = env;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
@@ -168,6 +168,10 @@ public class TabletScheduler extends MasterDaemon {
 
     public TabletSchedulerStat getStat() {
         return stat;
+    }
+
+    public Rebalancer getRebalancer() {
+        return rebalancer;
     }
 
     /*
@@ -1138,7 +1142,7 @@ public class TabletScheduler extends MasterDaemon {
         // it will also delete replica from tablet inverted index.
         tabletCtx.deleteReplica(replica);
 
-        if (force) {
+        if (force || FeConstants.runningUnitTest) {
             // send the delete replica task.
             // also, this may not be necessary, but delete it will make things simpler.
             // NOTICE: only delete the replica from meta may not work. sometimes we can depend on tablet report

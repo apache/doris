@@ -8,10 +8,10 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_call_center_sk = call_center.cc_call_center_sk))otherCondition=()
+----------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk))otherCondition=()
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_ship_mode_sk = ship_mode.sm_ship_mode_sk))otherCondition=()
-----------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk))otherCondition=()
+----------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_call_center_sk = call_center.cc_call_center_sk))otherCondition=()
 ------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_ship_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[catalog_sales]
@@ -21,11 +21,11 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[warehouse]
+----------------------------PhysicalOlapScan[call_center]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[ship_mode]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[call_center]
+----------------------PhysicalOlapScan[warehouse]
 

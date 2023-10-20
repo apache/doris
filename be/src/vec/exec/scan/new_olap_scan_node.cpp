@@ -462,11 +462,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     // TODO: some tablet may do not have segment, may need split segment all case
     if (_shared_scan_opt && _scan_ranges.size() < config::doris_scanner_thread_pool_thread_num) {
         for (auto&& scan_range : _scan_ranges) {
-            auto tablet_id = scan_range->tablet_id;
-            auto [tablet, status] =
-                    StorageEngine::instance()->tablet_manager()->get_tablet_and_status(tablet_id,
-                                                                                       true);
-            RETURN_IF_ERROR(status);
+            auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
 
             is_dup_mow_key =
                     tablet->keys_type() == DUP_KEYS || (tablet->keys_type() == UNIQUE_KEYS &&
@@ -610,11 +606,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
             return Status::OK();
         };
         for (auto& scan_range : _scan_ranges) {
-            auto tablet_id = scan_range->tablet_id;
-            auto [tablet, status] =
-                    StorageEngine::instance()->tablet_manager()->get_tablet_and_status(tablet_id,
-                                                                                       true);
-            RETURN_IF_ERROR(status);
+            auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
 
             std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &_cond_ranges;
             int size_based_scanners_per_tablet = 1;

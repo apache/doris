@@ -399,6 +399,20 @@ suite("nereids_agg_fn") {
 	qt_sql_bitmap_intersect_Bitmap_agg_phase_4_notnull '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), bitmap_intersect(bitmap_hash(kbint)) from fn_test'''
 
+    // bitmap_agg
+    qt_sql_bitmap_agg_tinyint """
+        select bitmap_count(b) from (select kbool, bitmap_agg(ktint) b from fn_test group by kbool) a order by kbool
+    """
+    qt_sql_bitmap_agg_smallint """
+        select bitmap_count(b) from (select kbool, bitmap_agg(ksint) b from fn_test group by kbool) a order by kbool
+    """
+    qt_sql_bitmap_agg_int """
+        select bitmap_count(b) from (select kbool, bitmap_agg(kint) b from fn_test group by kbool) a order by kbool
+    """
+    qt_sql_bitmap_agg_bigint """
+        select bitmap_count(b) from (select kbool, bitmap_agg(kbint) b from fn_test group by kbool) a order by kbool
+    """
+
 	qt_sql_bitmap_union_Bitmap_gb '''
 		select bitmap_union(bitmap_hash(kbint)) from fn_test group by kbool order by kbool'''
 	qt_sql_bitmap_union_Bitmap '''
@@ -549,6 +563,8 @@ suite("nereids_agg_fn") {
 	qt_sql_count_agg_phase_4_notnull '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), count() from fn_test'''
 
+	qt_sql_count_array_gb '''
+        select count(kaint) from fn_test group by kbool order by kbool'''
 	qt_sql_count_AnyData_gb '''
 		select count(kint) from fn_test group by kbool order by kbool'''
 	qt_sql_count_AnyData '''
@@ -2748,5 +2764,11 @@ suite("nereids_agg_fn") {
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), window_funnel(3600 * 3, 'default', kdtmv2s1, kint = 1, kint = 2) from fn_test'''
 
 	qt_max_null "select max(null) from fn_test;"
+
+    qt_sql_map_agg '''
+		select id,map_agg(kint,kstr) from fn_test group by id order by id'''
+
+    qt_sql_map_agg_not_nullable '''
+		select id,map_agg(kint,kstr) from fn_test_not_nullable group by id order by id'''
 
 }

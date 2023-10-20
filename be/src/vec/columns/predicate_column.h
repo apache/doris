@@ -48,18 +48,6 @@ private:
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
 
-    uint64_t get_date_at(uint16_t idx) {
-        const T val = data[idx];
-        const char* val_ptr = reinterpret_cast<const char*>(&val);
-        uint64_t value = 0;
-        value = *(unsigned char*)(val_ptr + 2);
-        value <<= 8;
-        value |= *(unsigned char*)(val_ptr + 1);
-        value <<= 8;
-        value |= *(unsigned char*)(val_ptr);
-        return value;
-    }
-
     void insert_date_to_res_column(const uint16_t* sel, size_t sel_size,
                                    ColumnVector<Int64>* res_ptr) {
         res_ptr->reserve(sel_size);
@@ -348,8 +336,6 @@ public:
     size_t byte_size() const override { return data.size() * sizeof(T); }
 
     size_t allocated_bytes() const override { return byte_size(); }
-
-    void protect() override {}
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {

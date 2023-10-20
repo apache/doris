@@ -58,30 +58,15 @@ using PartitionedHashMap =
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
 using PHPartitionedHashMap = PartitionedHashMapTable<PHHashMap<Key, Mapped, Hash, true>>;
 
-template <typename Key, typename Mapped, typename Hash>
-struct HashTableTraits<PartitionedHashMap<Key, Mapped, Hash>> {
-    static constexpr bool is_phmap = false;
-    static constexpr bool is_string_hash_table = false;
-    static constexpr bool is_partitioned_table = true;
-};
-
-template <template <typename> class Derived, typename Key, typename Mapped, typename Hash>
-struct HashTableTraits<Derived<PartitionedHashMap<Key, Mapped, Hash>>> {
-    static constexpr bool is_phmap = false;
-    static constexpr bool is_string_hash_table = false;
-    static constexpr bool is_partitioned_table = true;
-};
+template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
+using PHNormalHashMap = PHHashMap<Key, Mapped, Hash, false>;
 
 template <typename Key, typename Mapped, typename Hash>
 struct HashTableTraits<PHPartitionedHashMap<Key, Mapped, Hash>> {
     static constexpr bool is_phmap = true;
-    static constexpr bool is_string_hash_table = false;
-    static constexpr bool is_partitioned_table = true;
 };
 
 template <template <typename> class Derived, typename Key, typename Mapped, typename Hash>
 struct HashTableTraits<Derived<PHPartitionedHashMap<Key, Mapped, Hash>>> {
     static constexpr bool is_phmap = true;
-    static constexpr bool is_string_hash_table = false;
-    static constexpr bool is_partitioned_table = true;
 };

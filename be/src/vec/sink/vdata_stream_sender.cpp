@@ -427,10 +427,14 @@ VDataStreamSender::~VDataStreamSender() {
 Status VDataStreamSender::init(const TDataSink& tsink) {
     RETURN_IF_ERROR(DataSink::init(tsink));
     const TDataStreamSink& t_stream_sink = tsink.stream_sink;
-    if (_part_type == TPartitionType::HASH_PARTITIONED ||
-        _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(VExpr::create_expr_trees(t_stream_sink.output_partition.partition_exprs,
-                                                 _partition_expr_ctxs));
+    if (_part_type == TPartitionType::HASH_PARTITIONED) {
+        _partition_count = _channels.size();
+        _partitioner.reset(new HashPartitioner(_channels.size()));
+        RETURN_IF_ERROR(_partitioner->init(t_stream_sink.output_partition.partition_exprs));
+    } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+        _partition_count = _channel_shared_ptrs.size();
+        _partitioner.reset(new BucketHashPartitioner(_channel_shared_ptrs.size()));
+        RETURN_IF_ERROR(_partitioner->init(t_stream_sink.output_partition.partition_exprs));
     } else if (_part_type == TPartitionType::RANGE_PARTITIONED) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
     } else {
@@ -460,9 +464,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
         shuffle(_channels.begin(), _channels.end(), g);
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc));
-    } else {
-        RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc));
+        RETURN_IF_ERROR(_partitioner->prepare(state, _row_desc));
     }
 
     _bytes_sent_counter = ADD_COUNTER(profile(), "BytesSent", TUnit::BYTES);
@@ -501,7 +503,10 @@ Status VDataStreamSender::open(RuntimeState* state) {
     }
     _only_local_exchange = local_size == _channels.size();
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-    RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
+    if (_part_type == TPartitionType::HASH_PARTITIONED ||
+        _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+        RETURN_IF_ERROR(_partitioner->open(state));
+    }
 
     _compression_type = state->fragement_transmission_compression_type();
     return Status::OK();
@@ -624,67 +629,17 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         _current_channel_idx = (_current_channel_idx + 1) % _channels.size();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        // will only copy schema
-        // we don't want send temp columns
-        auto column_to_keep = block->columns();
-
-        int result_size = _partition_expr_ctxs.size();
-        int result[result_size];
-
-        // vectorized calculate hash
-        int rows = block->rows();
-        auto element_size = _part_type == TPartitionType::HASH_PARTITIONED
-                                    ? _channels.size()
-                                    : _channel_shared_ptrs.size();
-        std::vector<uint64_t> hash_vals(rows);
-        auto* __restrict hashes = hash_vals.data();
-
-        if (rows > 0) {
-            {
-                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                RETURN_IF_ERROR(get_partition_column_result(block, result));
-            }
-            // TODO: after we support new shuffle hash method, should simple the code
-            if (_part_type == TPartitionType::HASH_PARTITIONED) {
-                SCOPED_TIMER(_split_block_hash_compute_timer);
-                // result[j] means column index, i means rows index, here to calculate the xxhash value
-                for (int j = 0; j < result_size; ++j) {
-                    // complex type most not implement get_data_at() method which column_const will call
-                    unpack_if_const(block->get_by_position(result[j]).column)
-                            .first->update_hashes_with_value(hashes);
-                }
-
-                for (int i = 0; i < rows; i++) {
-                    hashes[i] = hashes[i] % element_size;
-                }
-
-                {
-                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                    Block::erase_useless_column(block, column_to_keep);
-                }
-            } else {
-                for (int j = 0; j < result_size; ++j) {
-                    // complex type most not implement get_data_at() method which column_const will call
-                    unpack_if_const(block->get_by_position(result[j]).column)
-                            .first->update_crcs_with_value(
-                                    hash_vals, _partition_expr_ctxs[j]->root()->type().type);
-                }
-                for (int i = 0; i < rows; i++) {
-                    hashes[i] = hashes[i] % element_size;
-                }
-
-                {
-                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                    Block::erase_useless_column(block, column_to_keep);
-                }
-            }
-        }
+        auto rows = block->rows();
+        SCOPED_TIMER(_split_block_hash_compute_timer);
+        RETURN_IF_ERROR(_partitioner->do_partitioning(state, block, _mem_tracker.get()));
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
-            RETURN_IF_ERROR(channel_add_rows(state, _channels, element_size, hashes, rows, block,
-                                             _enable_pipeline_exec ? eos : false));
+            RETURN_IF_ERROR(channel_add_rows(state, _channels, _partition_count,
+                                             (uint64_t*)_partitioner->get_hash_values(), rows,
+                                             block, _enable_pipeline_exec ? eos : false));
         } else {
-            RETURN_IF_ERROR(channel_add_rows(state, _channel_shared_ptrs, element_size, hashes,
-                                             rows, block, _enable_pipeline_exec ? eos : false));
+            RETURN_IF_ERROR(channel_add_rows(state, _channel_shared_ptrs, _partition_count,
+                                             (uint32_t*)_partitioner->get_hash_values(), rows,
+                                             block, _enable_pipeline_exec ? eos : false));
         }
     } else {
         // Range partition

@@ -34,6 +34,7 @@
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/bit_cast.h"
+#include "vec/common/memcpy_small.h"
 #include "vec/common/nan_utils.h"
 #include "vec/common/radix_sort.h"
 #include "vec/common/sip_hash.h"
@@ -66,18 +67,17 @@ template <typename T>
 void ColumnVector<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                     size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+        memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
         keys[i].size += sizeof(T);
     }
 }
 
 template <typename T>
 void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                                  const uint8_t* null_map,
-                                                  size_t max_row_byte_size) const {
+                                                  const uint8_t* null_map) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
-            memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+            memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
             keys[i].size += sizeof(T);
         }
     }
@@ -168,9 +168,10 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
 }
 
 template <typename T>
-void ColumnVector<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type,
+                                             uint32_t rows, uint32_t offset,
                                              const uint8_t* __restrict null_data) const {
-    auto s = hashes.size();
+    auto s = rows;
     DCHECK(s == size());
 
     if constexpr (!std::is_same_v<T, Int64>) {

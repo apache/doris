@@ -184,6 +184,8 @@ public:
         _previous_schedule_id = id;
     }
 
+    virtual void release_dependency() {}
+
     bool has_dependency();
 
     OperatorPtr get_root() { return _root; }
@@ -193,6 +195,7 @@ public:
     taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
 
     void set_task_queue(TaskQueue* task_queue);
+    TaskQueue* get_task_queue() { return _task_queue; }
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
     static constexpr auto THREAD_TIME_SLICE_US = 100000L; // 100ms

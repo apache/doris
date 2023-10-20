@@ -17,8 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -37,8 +35,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.text.ParseException;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -91,14 +87,14 @@ public class AnalysisInfo implements Writable {
     @SerializedName("taskIds")
     public final List<Long> taskIds;
 
-    @SerializedName("catalogName")
-    public final String catalogName;
+    @SerializedName("catalogId")
+    public final long catalogId;
 
-    @SerializedName("dbName")
-    public final String dbName;
+    @SerializedName("dbId")
+    public final long dbId;
 
-    @SerializedName("tblName")
-    public final String tblName;
+    @SerializedName("tblId")
+    public final long tblId;
 
     // TODO: Map here is wired, List is enough
     @SerializedName("colToPartitions")
@@ -183,19 +179,23 @@ public class AnalysisInfo implements Writable {
     @SerializedName("forceFull")
     public final boolean forceFull;
 
-    public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, String catalogName, String dbName, String tblName,
+    @SerializedName("usingSqlForPartitionColumn")
+    public final boolean usingSqlForPartitionColumn;
+
+    public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, long sampleRows, int maxBucketNum, long periodTimeInMs, String message,
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
-            boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull) {
+            boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
+            boolean usingSqlForPartitionColumn) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
-        this.catalogName = catalogName;
-        this.dbName = dbName;
-        this.tblName = tblName;
+        this.catalogId = catalogId;
+        this.dbId = dbId;
+        this.tblId = tblId;
         this.colToPartitions = colToPartitions;
         this.partitionNames = partitionNames;
         this.colName = colName;
@@ -223,15 +223,16 @@ public class AnalysisInfo implements Writable {
             this.cronExprStr = cronExpression.getCronExpression();
         }
         this.forceFull = forceFull;
+        this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
     }
 
     @Override
     public String toString() {
         StringJoiner sj = new StringJoiner("\n", getClass().getName() + ":\n", "\n");
         sj.add("JobId: " + jobId);
-        sj.add("CatalogName: " + catalogName);
-        sj.add("DBName: " + dbName);
-        sj.add("TableName: " + tblName);
+        sj.add("catalogId: " + catalogId);
+        sj.add("dbId: " + dbId);
+        sj.add("TableName: " + tblId);
         sj.add("ColumnName: " + colName);
         sj.add("TaskType: " + analysisType);
         sj.add("TaskMode: " + analysisMode);
@@ -263,6 +264,7 @@ public class AnalysisInfo implements Writable {
             sj.add("cronExpr: " + cronExprStr);
         }
         sj.add("forceFull: " + forceFull);
+        sj.add("usingSqlForPartitionColumn: " + usingSqlForPartitionColumn);
         return sj.toString();
     }
 
@@ -291,7 +293,8 @@ public class AnalysisInfo implements Writable {
             return null;
         }
         Gson gson = new Gson();
-        Type type = new TypeToken<Map<String, Set<String>>>() {}.getType();
+        Type type = new TypeToken<Map<String, Set<String>>>() {
+        }.getType();
         return gson.fromJson(colToPartitionStr, type);
     }
 
@@ -302,53 +305,15 @@ public class AnalysisInfo implements Writable {
     }
 
     public static AnalysisInfo read(DataInput dataInput) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_123) {
-            AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
-            analysisInfoBuilder.setJobId(dataInput.readLong());
-            long taskId = dataInput.readLong();
-            analysisInfoBuilder.setTaskId(taskId);
-            analysisInfoBuilder.setCatalogName(Text.readString(dataInput));
-            analysisInfoBuilder.setDbName(Text.readString(dataInput));
-            analysisInfoBuilder.setTblName(Text.readString(dataInput));
-            int size = dataInput.readInt();
-            Map<String, Set<String>> colToPartitions = new HashMap<>();
-            for (int i = 0; i < size; i++) {
-                String k = Text.readString(dataInput);
-                int partSize = dataInput.readInt();
-                Set<String> parts = new HashSet<>();
-                for (int j = 0; j < partSize; j++) {
-                    parts.add(Text.readString(dataInput));
-                }
-                colToPartitions.put(k, parts);
+        String json = Text.readString(dataInput);
+        AnalysisInfo analysisInfo = GsonUtils.GSON.fromJson(json, AnalysisInfo.class);
+        if (analysisInfo.cronExprStr != null) {
+            try {
+                analysisInfo.cronExpression = new CronExpression(analysisInfo.cronExprStr);
+            } catch (ParseException e) {
+                LOG.warn("Cron expression of job is invalid, there is a bug", e);
             }
-            analysisInfoBuilder.setColToPartitions(colToPartitions);
-            analysisInfoBuilder.setColName(Text.readString(dataInput));
-            analysisInfoBuilder.setIndexId(dataInput.readLong());
-            analysisInfoBuilder.setJobType(JobType.valueOf(Text.readString(dataInput)));
-            analysisInfoBuilder.setAnalysisMode(AnalysisMode.valueOf(Text.readString(dataInput)));
-            analysisInfoBuilder.setAnalysisMethod(AnalysisMethod.valueOf(Text.readString(dataInput)));
-            analysisInfoBuilder.setAnalysisType(AnalysisType.valueOf(Text.readString(dataInput)));
-            analysisInfoBuilder.setSamplePercent(dataInput.readInt());
-            analysisInfoBuilder.setSampleRows(dataInput.readInt());
-            analysisInfoBuilder.setMaxBucketNum(dataInput.readInt());
-            analysisInfoBuilder.setPeriodTimeInMs(dataInput.readLong());
-            analysisInfoBuilder.setLastExecTimeInMs(dataInput.readLong());
-            analysisInfoBuilder.setState(AnalysisState.valueOf(Text.readString(dataInput)));
-            analysisInfoBuilder.setScheduleType(ScheduleType.valueOf(Text.readString(dataInput)));
-            analysisInfoBuilder.setMessage(Text.readString(dataInput));
-            analysisInfoBuilder.setExternalTableLevelTask(dataInput.readBoolean());
-            return analysisInfoBuilder.build();
-        } else {
-            String json = Text.readString(dataInput);
-            AnalysisInfo analysisInfo = GsonUtils.GSON.fromJson(json, AnalysisInfo.class);
-            if (analysisInfo.cronExprStr != null) {
-                try {
-                    analysisInfo.cronExpression = new CronExpression(analysisInfo.cronExprStr);
-                } catch (ParseException e) {
-                    LOG.warn("Cron expression of job is invalid, there is a bug", e);
-                }
-            }
-            return analysisInfo;
         }
+        return analysisInfo;
     }
 }

@@ -280,6 +280,7 @@ E(ENTRY_NOT_FOUND, -6011);
 constexpr bool capture_stacktrace(int code) {
     return code != ErrorCode::OK
         && code != ErrorCode::END_OF_FILE
+        && code != ErrorCode::DATA_QUALITY_ERROR
         && code != ErrorCode::MEM_LIMIT_EXCEEDED
         && code != ErrorCode::TRY_LOCK_FAILED
         && code != ErrorCode::TOO_MANY_SEGMENTS
@@ -406,10 +407,10 @@ public:
 
     static Status OK() { return Status(); }
 
-#define ERROR_CTOR(name, code)                                                 \
-    template <typename... Args>                                                \
-    static Status name(std::string_view msg, Args&&... args) {                 \
-        return Error<ErrorCode::code, true>(msg, std::forward<Args>(args)...); \
+#define ERROR_CTOR(name, code)                                                       \
+    template <bool stacktrace = true, typename... Args>                              \
+    static Status name(std::string_view msg, Args&&... args) {                       \
+        return Error<ErrorCode::code, stacktrace>(msg, std::forward<Args>(args)...); \
     }
 
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
@@ -599,5 +600,18 @@ using Result = expected<T, Status>;
             return unexpected(std::move(_status_)); \
         }                                           \
     } while (false)
+
+// clang-format off
+#define DORIS_TRY(stmt)                                              \
+    ({                                                               \
+        auto&& res = (stmt);                                         \
+        using T = std::decay_t<decltype(res)>;                       \
+        static_assert(tl::detail::is_expected<T>::value);            \
+        if (!res.has_value()) [[unlikely]] {                         \
+            return std::forward<T>(res).error();                     \
+        }                                                            \
+        std::forward<T>(res).value();                                \
+    });
+// clang-format on
 
 } // namespace doris

@@ -29,7 +29,7 @@ class ExecNode;
 
 namespace vectorized {
 template <class HashTableContext, bool is_intersected>
-struct HashTableBuildX;
+struct HashTableBuild;
 }
 
 namespace pipeline {
@@ -74,15 +74,18 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
+    int64_t* mem_used() { return &_shared_state->mem_used; };
+
 private:
     friend class SetSinkOperatorX<is_intersect>;
     template <class HashTableContext, bool is_intersected>
-    friend struct vectorized::HashTableBuildX;
+    friend struct vectorized::HashTableBuild;
 
     RuntimeProfile::Counter* _build_timer; // time to build hash table
     vectorized::MutableBlock _mutable_block;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
+    vectorized::Arena _arena;
 };
 
 template <bool is_intersect>

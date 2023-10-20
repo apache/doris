@@ -282,7 +282,7 @@ void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& has
     }
 }
 
-void ColumnMap::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnMap::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                       const uint8_t* __restrict null_data) const {
     auto& offsets = get_offsets();
     if (null_data) {
@@ -328,9 +328,9 @@ void ColumnMap::update_hashes_with_value(uint64_t* hashes, const uint8_t* null_d
     }
 }
 
-void ColumnMap::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
-                                       const uint8_t* __restrict null_data) const {
-    auto s = hash.size();
+void ColumnMap::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                       uint32_t offset, const uint8_t* __restrict null_data) const {
+    auto s = rows;
     DCHECK(s == size());
 
     if (null_data) {
@@ -463,12 +463,6 @@ size_t ColumnMap::byte_size() const {
 size_t ColumnMap::allocated_bytes() const {
     return keys_column->allocated_bytes() + values_column->allocated_bytes() +
            get_offsets().allocated_bytes();
-}
-
-void ColumnMap::protect() {
-    offsets_column->protect();
-    keys_column->protect();
-    values_column->protect();
 }
 
 } // namespace doris::vectorized

@@ -372,11 +372,11 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     if (!_rpc_channel_is_idle[id]) {
         _busy_channels--;
+        _rpc_channel_is_idle[id] = true;
         if (_finish_dependency && _busy_channels == 0) {
             _finish_dependency->set_ready_to_finish();
         }
     }
-    _rpc_channel_is_idle[id] = true;
 }
 
 template <typename Parent>
@@ -392,11 +392,11 @@ void ExchangeSinkBuffer<Parent>::_set_receiver_eof(InstanceLoId id) {
     _instance_to_receiver_eof[id] = true;
     if (!_rpc_channel_is_idle[id]) {
         _busy_channels--;
+        _rpc_channel_is_idle[id] = true;
         if (_finish_dependency && _busy_channels == 0) {
             _finish_dependency->set_ready_to_finish();
         }
     }
-    _rpc_channel_is_idle[id] = true;
 }
 
 template <typename Parent>

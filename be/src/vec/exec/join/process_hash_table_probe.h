@@ -37,9 +37,9 @@ using MutableColumns = std::vector<MutableColumnPtr>;
 using NullMap = ColumnUInt8::Container;
 using ConstNullMapPtr = const NullMap*;
 
-template <int JoinOpType>
+template <int JoinOpType, typename Parent>
 struct ProcessHashTableProbe {
-    ProcessHashTableProbe(HashJoinProbeContext* join_context, int batch_size);
+    ProcessHashTableProbe(Parent* parent, int batch_size);
     ~ProcessHashTableProbe() = default;
 
     // output build side result column
@@ -75,20 +75,16 @@ struct ProcessHashTableProbe {
                                                UInt8* __restrict null_map_data,
                                                UInt8* __restrict filter_map, Block* output_block);
 
-    void _pre_serialize_key(const ColumnRawPtrs& key_columns, const size_t key_rows,
-                            std::vector<StringRef>& serialized_keys);
-
     void _emplace_element(int8_t block_offset, int32_t block_row, int& current_offset);
 
-    template <typename KeyGetter>
-    KeyGetter _init_probe_side(size_t probe_rows, bool with_other_join_conjuncts);
+    template <typename HashTableType>
+    typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
+                                                   bool with_other_join_conjuncts,
+                                                   const uint8_t* null_map);
 
     template <typename Mapped, bool with_other_join_conjuncts>
     ForwardIterator<Mapped>& _probe_row_match(int& current_offset, int& probe_index,
                                               size_t& probe_size, bool& all_match_one);
-
-    template <bool need_null_map_for_probe, typename HashTableType, typename Keys>
-    void _probe_hash(const Keys& keys, HashTableType& hash_table_ctx, ConstNullMapPtr null_map);
 
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
@@ -96,9 +92,9 @@ struct ProcessHashTableProbe {
     Status process_data_in_hashtable(HashTableType& hash_table_ctx, MutableBlock& mutable_block,
                                      Block* output_block, bool* eos);
 
-    vectorized::HashJoinProbeContext* _join_context;
+    Parent* _parent;
     const int _batch_size;
-    const std::vector<Block>& _build_blocks;
+    std::shared_ptr<std::vector<Block>> _build_blocks;
     std::unique_ptr<Arena> _arena;
     std::vector<StringRef> _probe_keys;
 
@@ -114,7 +110,6 @@ struct ProcessHashTableProbe {
     size_t _serialized_key_buffer_size {0};
     uint8_t* _serialized_key_buffer;
     std::unique_ptr<Arena> _serialize_key_arena;
-    std::vector<size_t> _probe_side_hash_values;
     std::vector<char> _probe_side_find_result;
 
     std::vector<bool*> _visited_map;
@@ -123,6 +118,12 @@ struct ProcessHashTableProbe {
     int _right_col_idx;
     int _right_col_len;
     int _row_count_from_last_probe;
+
+    bool _have_other_join_conjunct;
+    bool _is_right_semi_anti;
+    std::vector<bool>* _left_output_slot_flags;
+    std::vector<bool>* _right_output_slot_flags;
+    bool* _has_null_in_build_side;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _search_hashtable_timer;

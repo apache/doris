@@ -71,6 +71,39 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_compact_DateV2 "select array_compact(kadtv2) from fn_test"
     order_qt_sql_array_compact_DateV2_notnull "select array_compact(kadtv2) from fn_test_not_nullable"
 
+    // array_concat
+    order_qt_sql_array_concat_Double "select array_concat(kadbl, kadbl) from fn_test"
+    order_qt_sql_array_concat_Double_notnull "select array_concat(kadbl, kadbl) from fn_test_not_nullable"
+    order_qt_sql_array_concat_Float "select array_concat(kafloat, kafloat) from fn_test"
+    order_qt_sql_array_concat_Float_notnull "select array_concat(kafloat, kafloat) from fn_test_not_nullable"
+    order_qt_sql_array_concat_LargeInt "select array_concat(kalint, kalint) from fn_test"
+    order_qt_sql_array_concat_LargeInt_notnull "select array_concat(kalint, kalint) from fn_test_not_nullable"
+    order_qt_sql_array_concat_BigInt "select array_concat(kabint, kabint) from fn_test"
+    order_qt_sql_array_concat_BigInt_notnull "select array_concat(kabint, kabint) from fn_test_not_nullable"
+    order_qt_sql_array_concat_SmallInt "select array_concat(kasint, kasint) from fn_test"
+    order_qt_sql_array_concat_SmallInt_notnull "select array_concat(kasint, kasint) from fn_test_not_nullable"
+    order_qt_sql_array_concat_Integer "select array_concat(kaint, kaint) from fn_test"
+    order_qt_sql_array_concat_Integer_notnull "select array_concat(kaint, kaint) from fn_test_not_nullable"
+    order_qt_sql_array_concat_TinyInt "select array_concat(katint, katint) from fn_test"
+    order_qt_sql_array_concat_TinyInt_notnull "select array_concat(katint, katint) from fn_test_not_nullable"
+    order_qt_sql_array_concat_DecimalV3 "select array_concat(kadcml, kadcml) from fn_test"
+    order_qt_sql_array_concat_DecimalV3_notnull "select array_concat(kadcml, kadcml) from fn_test_not_nullable"
+
+    order_qt_sql_array_concat_Boolean "select array_concat(kabool, kabool) from fn_test"
+    order_qt_sql_array_concat_Boolean_notnull "select array_concat(kabool, kabool) from fn_test_not_nullable"
+
+    order_qt_sql_array_concat_Char "select array_concat(kachr, kachr) from fn_test"
+    order_qt_sql_array_concat_Char_notnull "select array_concat(kachr, kachr) from fn_test_not_nullable"
+    order_qt_sql_array_concat_Varchar "select array_concat(kavchr, kavchr) from fn_test"
+    order_qt_sql_array_concat_Varchar_notnull "select array_concat(kavchr, kavchr) from fn_test_not_nullable"
+    order_qt_sql_array_concat_String "select array_concat(kastr, kastr) from fn_test"
+    order_qt_sql_array_concat_String_notnull "select array_concat(kastr, kastr) from fn_test_not_nullable"
+
+    order_qt_sql_array_concat_DatetimeV2 "select array_concat(kadtmv2, kadtmv2) from fn_test"
+    order_qt_sql_array_concat_DatetimeV2_notnull "select array_concat(kadtmv2, kadtmv2) from fn_test_not_nullable"
+    order_qt_sql_array_concat_DateV2 "select array_concat(kadtv2, kadtv2) from fn_test"
+    order_qt_sql_array_concat_DateV2_notnull "select array_concat(kadtv2, kadtv2) from fn_test_not_nullable"
+
     // array_difference
     order_qt_sql_array_difference_Double "select array_difference(kadbl) from fn_test"
     order_qt_sql_array_difference_Double_notnull "select array_difference(kadbl) from fn_test_not_nullable"
@@ -516,6 +549,72 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_product_TinyInt_notnull "select array_product(katint) from fn_test_not_nullable"
     order_qt_sql_array_product_DecimalV3 "select array_product(kadcml) from fn_test"
     order_qt_sql_array_product_DecimalV3_notnull "select array_product(kadcml) from fn_test_not_nullable"
+
+    // array_pushback
+    order_qt_sql_array_pushback_Double "select array_pushback(kadbl, kdbl) from fn_test"
+    order_qt_sql_array_pushback_Double_notnull "select array_pushback(kadbl, kdbl) from fn_test_not_nullable"
+    order_qt_sql_array_pushback_Float "select array_pushback(kafloat, kfloat) from fn_test"
+    order_qt_sql_array_pushback_Float_notnull "select array_pushback(kafloat, kfloat) from fn_test_not_nullable"
+    order_qt_sql_array_pushback_LargeInt "select array_pushback(kalint, klint) from fn_test"
+    order_qt_sql_array_pushback_LargeInt_notnull "select array_pushback(kalint, klint) from fn_test_not_nullable"
+    order_qt_sql_array_pushback_BigInt "select array_pushback(kabint, kbint) from fn_test"
+    order_qt_sql_array_pushback_BigInt_notnull "select array_pushback(kabint, kbint) from fn_test_not_nullable"
+    order_qt_sql_array_pushback_SmallInt "select array_pushback(kasint, ksint) from fn_test"
+    order_qt_sql_array_pushback_SmallInt_notnull "select array_pushback(kasint, ksint) from fn_test_not_nullable"
+    order_qt_sql_array_pushback_Integer "select array_pushback(kaint, kint) from fn_test"
+    order_qt_sql_array_pushback_Integer_notnull "select array_pushback(kaint, kint) from fn_test_not_nullable"
+    order_qt_sql_array_pushback_TinyInt "select array_pushback(katint, ktint) from fn_test"
+    order_qt_sql_array_pushback_TinyInt_notnull "select array_pushback(katint, ktint) from fn_test_not_nullable"
+    order_qt_sql_array_pushback_DecimalV3 "select array_pushback(kadcml, kdcmls1) from fn_test"
+    order_qt_sql_array_pushback_DecimalV3_notnull "select array_pushback(kadcml, kdcmls1) from fn_test_not_nullable"
+
+    order_qt_sql_array_pushback_Boolean "select array_pushback(kabool, kbool) from fn_test"
+    order_qt_sql_array_pushback_Boolean_notnull "select array_pushback(kabool, kbool) from fn_test_not_nullable"
+
+    order_qt_sql_array_pushback_Char "select array_pushback(kachr, kchrs1) from fn_test"
+    order_qt_sql_array_pushback_Char_notnull "select array_pushback(kachr, kchrs1) from fn_test_not_nullable"
+    order_qt_sql_array_pushback_Varchar "select array_pushback(kavchr, kvchrs1) from fn_test"
+    order_qt_sql_array_pushback_Varchar_notnull "select array_pushback(kavchr, kvchrs1) from fn_test_not_nullable"
+    order_qt_sql_array_pushback_String "select array_pushback(kastr, kstr) from fn_test"
+    order_qt_sql_array_pushback_String_notnull "select array_pushback(kastr, kstr) from fn_test_not_nullable"
+
+    order_qt_sql_array_pushback_DatetimeV2 "select array_pushback(kadtmv2, kdtmv2s1) from fn_test"
+    order_qt_sql_array_pushback_DatetimeV2_notnull "select array_pushback(kadtmv2, kdtmv2s1) from fn_test_not_nullable"
+    order_qt_sql_array_pushback_DateV2 "select array_pushback(kadtv2, kdtv2) from fn_test"
+    order_qt_sql_array_pushback_DateV2_notnull "select array_pushback(kadtv2, kdtv2) from fn_test_not_nullable"
+
+    // array_pushfront
+    order_qt_sql_array_pushfront_Double "select array_pushfront(kadbl, kdbl) from fn_test"
+    order_qt_sql_array_pushfront_Double_notnull "select array_pushfront(kadbl, kdbl) from fn_test_not_nullable"
+    order_qt_sql_array_pushfront_Float "select array_pushfront(kafloat, kfloat) from fn_test"
+    order_qt_sql_array_pushfront_Float_notnull "select array_pushfront(kafloat, kfloat) from fn_test_not_nullable"
+    order_qt_sql_array_pushfront_LargeInt "select array_pushfront(kalint, klint) from fn_test"
+    order_qt_sql_array_pushfront_LargeInt_notnull "select array_pushfront(kalint, klint) from fn_test_not_nullable"
+    order_qt_sql_array_pushfront_BigInt "select array_pushfront(kabint, kbint) from fn_test"
+    order_qt_sql_array_pushfront_BigInt_notnull "select array_pushfront(kabint, kbint) from fn_test_not_nullable"
+    order_qt_sql_array_pushfront_SmallInt "select array_pushfront(kasint, ksint) from fn_test"
+    order_qt_sql_array_pushfront_SmallInt_notnull "select array_pushfront(kasint, ksint) from fn_test_not_nullable"
+    order_qt_sql_array_pushfront_Integer "select array_pushfront(kaint, kint) from fn_test"
+    order_qt_sql_array_pushfront_Integer_notnull "select array_pushfront(kaint, kint) from fn_test_not_nullable"
+    order_qt_sql_array_pushfront_TinyInt "select array_pushfront(katint, ktint) from fn_test"
+    order_qt_sql_array_pushfront_TinyInt_notnull "select array_pushfront(katint, ktint) from fn_test_not_nullable"
+    order_qt_sql_array_pushfront_DecimalV3 "select array_pushfront(kadcml, kdcmls1) from fn_test"
+    order_qt_sql_array_pushfront_DecimalV3_notnull "select array_pushfront(kadcml, kdcmls1) from fn_test_not_nullable"
+
+    order_qt_sql_array_pushfront_Boolean "select array_pushfront(kabool, kbool) from fn_test"
+    order_qt_sql_array_pushfront_Boolean_notnull "select array_pushfront(kabool, kbool) from fn_test_not_nullable"
+
+    order_qt_sql_array_pushfront_Char "select array_pushfront(kachr, kchrs1) from fn_test"
+    order_qt_sql_array_pushfront_Char_notnull "select array_pushfront(kachr, kchrs1) from fn_test_not_nullable"
+    order_qt_sql_array_pushfront_Varchar "select array_pushfront(kavchr, kvchrs1) from fn_test"
+    order_qt_sql_array_pushfront_Varchar_notnull "select array_pushfront(kavchr, kvchrs1) from fn_test_not_nullable"
+    order_qt_sql_array_pushfront_String "select array_pushfront(kastr, kstr) from fn_test"
+    order_qt_sql_array_pushfront_String_notnull "select array_pushfront(kastr, kstr) from fn_test_not_nullable"
+
+    order_qt_sql_array_pushfront_DatetimeV2 "select array_pushfront(kadtmv2, kdtmv2s1) from fn_test"
+    order_qt_sql_array_pushfront_DatetimeV2_notnull "select array_pushfront(kadtmv2, kdtmv2s1) from fn_test_not_nullable"
+    order_qt_sql_array_pushfront_DateV2 "select array_pushfront(kadtv2, kdtv2) from fn_test"
+    order_qt_sql_array_pushfront_DateV2_notnull "select array_pushfront(kadtv2, kdtv2) from fn_test_not_nullable"
 
     // array_range
     order_qt_sql_array_range_one_param "select array_range(kint) from fn_test"
@@ -1120,5 +1219,45 @@ suite("nereids_scalar_fn_Array") {
         }
     }
 
+    sql "DROP TABLE IF EXISTS test_array_with_scale_type_table"
+    sql """
+        CREATE TABLE IF NOT EXISTS `test_array_with_scale_type_table` (
+        `uid` int(11) NULL COMMENT "",
+        `c_datetimev2` datetimev2(3) NULL COMMENT "",
+        `c_decimal` decimal(8,3) NULL COMMENT "",
+        `c_decimalv3` decimalv3(8,3) NULL COMMENT "",
+        `c_array_datetimev2` ARRAY<datetimev2(3)> NULL COMMENT "",
+        `c_array_decimal` ARRAY<decimal(8,3)> NULL COMMENT "",
+        `c_array_decimalv3` ARRAY<decimalv3(8,3)> NULL COMMENT ""
+        ) ENGINE=OLAP
+    DUPLICATE KEY(`uid`)
+    DISTRIBUTED BY HASH(`uid`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "storage_format" = "V2"
+    )
+    """
+
+    sql """INSERT INTO test_array_with_scale_type_table values
+    (1,"2022-12-01 22:23:24.999999",22.6789,33.6789,["2022-12-01 22:23:24.999999","2022-12-01 23:23:24.999999"],[22.6789,33.6789],[22.6789,33.6789]),
+    (2,"2022-12-02 22:23:24.999999",23.6789,34.6789,["2022-12-02 22:23:24.999999","2022-12-02 23:23:24.999999"],[23.6789,34.6789],[22.6789,34.6789])
+    """
+
+    // array_apply
+    qt_array_apply1 """select array_apply(c_array_datetimev2, "=", '2022-12-02 22:23:24.999999') from test_array_with_scale_type_table"""
+    qt_array_apply2 """select array_apply(c_array_datetimev2, ">", '2022-12-01 22:23:24.999999') from test_array_with_scale_type_table"""
+    qt_array_apply3 """select array_apply(c_array_datetimev2, ">", null) from test_array_with_scale_type_table"""
+    qt_array_apply4 """select array_apply(c_array_decimal, "=", 22.679) from test_array_with_scale_type_table"""
+    qt_array_apply5 """select array_apply(c_array_decimal, ">=", 22.1) from test_array_with_scale_type_table"""
+    qt_array_apply6 """select array_apply(c_array_decimal, ">=", null) from test_array_with_scale_type_table"""
+
+    // array_repeat
+    qt_array_repeat1 """select array_repeat("hello", 2)"""
+    qt_array_repeat2 """select array_repeat(123, 2)"""
+    qt_array_repeat3 """select array_repeat(null, 2)"""
+    qt_array_repeat4 """select array_repeat(3, null)"""
+
+    // array_zip
+    sql "select array_zip([1], ['1'], [1.0])"
 
 }

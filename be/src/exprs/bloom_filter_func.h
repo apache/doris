@@ -434,11 +434,6 @@ struct DateFindOp : public CommonFindOp<vectorized::VecDateTimeValue> {
 
         vectorized::VecDateTimeValue date_value;
         date_value.from_olap_date(value);
-        // So confusing here. For join node with condition (a.date_col = b.date_col), the actual
-        // expression is CAST(a.date_col AS DATETIME) = CAST(b.date_col AS DATETIME). So we build
-        // this bloom filter by CAST(a.date_col AS DATETIME) and also need to probe this bloom
-        // filter by a datetime value.
-        date_value.set_type(TimeType::TIME_DATETIME);
 
         return bloom_filter.test(Slice((char*)&date_value, sizeof(vectorized::VecDateTimeValue)));
     }

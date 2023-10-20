@@ -55,6 +55,7 @@
 #endif
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "bvar/bvar.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -97,6 +98,13 @@ namespace doris {
 class TExpr;
 
 namespace vectorized {
+
+bvar::Adder<int64_t> g_sink_write_bytes;
+bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte",
+                                                                    &g_sink_write_bytes, 60);
+bvar::Adder<int64_t> g_sink_write_rows;
+bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_rows_per_second("sink_throughput_row",
+                                                                   &g_sink_write_rows, 60);
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
     SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());
@@ -1335,7 +1343,7 @@ Status VTabletWriter::_single_partition_generate(RuntimeState* state, vectorized
     uint32_t tablet_index = 0;
     bool stop_processing = false;
     for (int32_t i = 0; i < num_rows; ++i) {
-        if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
+        if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_map()[i]) {
             continue;
         }
         bool is_continue = false;
@@ -1365,7 +1373,7 @@ Status VTabletWriter::_single_partition_generate(RuntimeState* state, vectorized
             auto& selector = channel_to_payload[j][channel.get()].first;
             auto& tablet_ids = channel_to_payload[j][channel.get()].second;
             for (int32_t i = 0; i < num_rows; ++i) {
-                if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
+                if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_map()[i]) {
                     continue;
                 }
                 selector->push_back(i);
@@ -1704,7 +1712,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
 
             // try to find tablet and save missing value
             for (int i = 0; i < num_rows; ++i) {
-                if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
+                if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_map()[i]) {
                     continue;
                 }
                 const VOlapTablePartition* partition = nullptr;
@@ -1753,7 +1761,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
             }    // creating done
         } else { // not auto partition
             for (int i = 0; i < num_rows; ++i) {
-                if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
+                if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_map()[i]) {
                     continue;
                 }
                 const VOlapTablePartition* partition = nullptr;
@@ -1786,7 +1794,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
             vectorized::IColumn::Filter& filter_col =
                     static_cast<vectorized::ColumnUInt8*>(filter.get())->get_data();
             for (size_t i = 0; i < filter_col.size(); ++i) {
-                filter_data[i] = !_block_convertor->filter_bitmap().Get(i);
+                filter_data[i] = !_block_convertor->filter_map()[i];
             }
             RETURN_IF_CATCH_EXCEPTION(vectorized::Block::filter_block_internal(
                     block.get(), filter_col, block->columns()));
@@ -1822,6 +1830,9 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     for (const auto& index_channel : _channels) {
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
     }
+
+    g_sink_write_bytes << bytes;
+    g_sink_write_rows << rows;
     return Status::OK();
 }
 
@@ -1838,8 +1849,7 @@ Status VTabletWriter::write_wal(OlapTableBlockConvertor* block_convertor,
         auto cloneBlock = block->clone_without_columns();
         auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
         for (int i = 0; i < num_rows; ++i) {
-            if (block_convertor->num_filtered_rows() > 0 &&
-                block_convertor->filter_bitmap().Get(i)) {
+            if (block_convertor->num_filtered_rows() > 0 && block_convertor->filter_map()[i]) {
                 continue;
             }
             if (tablet_finder->num_filtered_rows() > 0 && tablet_finder->filter_bitmap().Get(i)) {

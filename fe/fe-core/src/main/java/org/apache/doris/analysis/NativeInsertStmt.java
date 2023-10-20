@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -89,6 +90,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -442,6 +444,23 @@ public class NativeInsertStmt extends InsertStmt {
                     targetPartitionIds.add(part.getId());
                 }
             }
+
+            if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null && targetColumnNames != null) {
+                Optional<String> foundCol = targetColumnNames.stream()
+                            .filter(c -> c.equalsIgnoreCase(olapTable.getSequenceMapCol())).findAny();
+                Optional<Column> seqCol = olapTable.getFullSchema().stream()
+                                .filter(col -> col.getName().equals(olapTable.getSequenceMapCol()))
+                                .findFirst();
+                if (seqCol.isPresent() && !foundCol.isPresent() && !isPartialUpdate && !isFromDeleteOrUpdateStmt
+                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+                    if (seqCol.get().getDefaultValue() == null
+                                    || !seqCol.get().getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                        throw new AnalysisException("Table " + olapTable.getName()
+                                + " has sequence column, need to specify the sequence column");
+                    }
+                }
+            }
+
             if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
                     && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
                 partialUpdateCols.add(Column.SEQUENCE_COL);
@@ -507,6 +526,11 @@ public class NativeInsertStmt extends InsertStmt {
         Set<String> mentionedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         List<String> realTargetColumnNames;
         if (targetColumnNames == null) {
+            if (!isFromDeleteOrUpdateStmt
+                    && analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+                throw new AnalysisException("You must explicitly specify the columns to be updated when "
+                        + "updating partial columns using the INSERT statement.");
+            }
             // the mentioned columns are columns which are visible to user, so here we use
             // getBaseSchema(), not getFullSchema()
             for (Column col : targetTable.getBaseSchema(false)) {

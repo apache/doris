@@ -180,6 +180,7 @@ import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -480,7 +481,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     break;
                 case HIVE:
                     scanNode = new HiveScanNode(fileScan.translatePlanNodeId(), tupleDescriptor, false);
-                    ((HiveScanNode) scanNode).setSelectedPartitions(fileScan.getSelectedPartitions());
+                    HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
+                    hiveScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
+                    if (fileScan.getTableSample().isPresent()) {
+                        hiveScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
+                                fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
+                    }
                     break;
                 default:
                     throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
@@ -1387,7 +1393,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         .getRuntimeFilterOfHashJoinNode(nestedLoopJoin);
                 filters.forEach(filter -> runtimeFilterTranslator
                         .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));
-                if (!filters.isEmpty()) {
+                if (filters.stream().anyMatch(filter -> filter.getType() == TRuntimeFilterType.BITMAP)) {
                     nestedLoopJoinNode.setOutputLeftSideOnly(true);
                 }
             });

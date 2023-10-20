@@ -553,10 +553,8 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
         DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
         DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
         Array k1, k2, v1, v2, k3, v3;
-        k1.push_back(Null());
         k1.push_back("doris");
         k1.push_back("clever amory");
-        v1.push_back(11);
         v1.push_back(Null());
         v1.push_back(30);
         k2.push_back("hello amory");
@@ -568,9 +566,7 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
         v2.push_back(6);
         v2.push_back(7);
         k3.push_back("test");
-        k3.push_back(Null());
         v3.push_back(11);
-        v3.push_back(30);
         Map m1, m2, m3;
         m1.push_back(k1);
         m1.push_back(v1);

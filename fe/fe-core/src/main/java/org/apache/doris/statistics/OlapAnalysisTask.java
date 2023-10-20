@@ -54,7 +54,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     //  NDV should only be computed for the relevant partition.
     private static final String ANALYZE_COLUMN_SQL_TEMPLATE = INSERT_COL_STATISTICS
             + "     (SELECT NDV(`${colName}`) AS ndv "
-            + "     FROM `${dbName}`.`${tblName}`) t2\n";
+            + "     FROM `${dbName}`.`${tblName}`) t2";
 
     private static final String COLLECT_PARTITION_STATS_SQL_TEMPLATE =
             " SELECT "
@@ -73,22 +73,22 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                     + "${dataSizeFunction} AS data_size, "
                     + "NOW() FROM `${dbName}`.`${tblName}` PARTITION ${partitionName}";
 
-    private static final String SAMPLE_COLUMN_SQL_TEMPLATE = "SELECT \n"
-            + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, \n"
-            + "${catalogId} AS catalog_id, \n"
-            + "${dbId} AS db_id, \n"
-            + "${tblId} AS tbl_id, \n"
-            + "${idxId} AS idx_id, \n"
-            + "'${colId}' AS col_id, \n"
-            + "NULL AS part_id, \n"
-            + "COUNT(1) * ${scaleFactor} AS row_count, \n"
-            + "NDV(`${colName}`) * ${scaleFactor}  AS ndv, \n"
-            + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor} AS null_count, \n"
-            + "MIN(`${colName}`) AS min, \n"
-            + "MAX(`${colName}`) AS max, \n"
-            + "${dataSizeFunction} * ${scaleFactor} AS data_size, \n"
-            + "NOW()\n"
-            + "FROM `${dbName}`.`${tblName}`\n"
+    private static final String SAMPLE_COLUMN_SQL_TEMPLATE = "SELECT "
+            + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
+            + "${catalogId} AS catalog_id, "
+            + "${dbId} AS db_id, "
+            + "${tblId} AS tbl_id, "
+            + "${idxId} AS idx_id, "
+            + "'${colId}' AS col_id, "
+            + "NULL AS part_id, "
+            + "ROUND(COUNT(1) * ${scaleFactor}) AS row_count, "
+            + NDV_SAMPLE_TEMPLATE
+            + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor} AS null_count, "
+            + "NULL AS min, "
+            + "NULL AS max, "
+            + "${dataSizeFunction} * ${scaleFactor} AS data_size, "
+            + "NOW() "
+            + "FROM `${dbName}`.`${tblName}`"
             + "${tablets}";
 
     // cache stats for each partition, it would be inserted into column_statistics in a batch.
@@ -137,9 +137,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("idxId", String.valueOf(info.indexId));
             params.put("colId", String.valueOf(info.colName));
             params.put("dataSizeFunction", getDataSizeFunction(col));
-            params.put("dbName", info.dbName);
-            params.put("colName", String.valueOf(info.colName));
-            params.put("tblName", String.valueOf(info.tblName));
+            params.put("dbName", db.getFullName());
+            params.put("colName", info.colName);
+            params.put("tblName", tbl.getName());
             params.put("scaleFactor", String.valueOf(scaleFactor));
             params.put("tablets", tabletStr.isEmpty() ? "" : String.format("TABLET(%s)", tabletStr));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -207,9 +207,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("idxId", String.valueOf(info.indexId));
         params.put("colId", String.valueOf(info.colName));
         params.put("dataSizeFunction", getDataSizeFunction(col));
-        params.put("dbName", info.dbName);
+        params.put("dbName", db.getFullName());
         params.put("colName", String.valueOf(info.colName));
-        params.put("tblName", String.valueOf(info.tblName));
+        params.put("tblName", String.valueOf(tbl.getName()));
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
@@ -249,7 +249,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 QueryState queryState = r.connectContext.getState();
                 if (queryState.getStateType().equals(MysqlStateType.ERR)) {
                     throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
-                            info.catalogName, info.dbName, info.colName, partitionCollectSQL,
+                            catalog.getName(), db.getFullName(), info.colName, partitionCollectSQL,
                             queryState.getErrorMessage()));
                 }
             }

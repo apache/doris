@@ -39,8 +39,10 @@
 #include <utility>
 #include <vector>
 
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "runtime/large_int_value.h"
+#include "util/arrow/row_batch.h"
 #include "util/arrow/utils.h"
 #include "util/jsonb_utils.h"
 #include "util/types.h"
@@ -389,8 +391,13 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
             return to_doris_status(arrow_st);
         }
         _cur_builder = builder.get();
-        _cur_type->get_serde()->write_column_to_arrow(*_cur_col, nullptr, _cur_builder, _cur_start,
-                                                      _cur_start + _cur_rows);
+        try {
+            _cur_type->get_serde()->write_column_to_arrow(*_cur_col, nullptr, _cur_builder,
+                                                          _cur_start, _cur_start + _cur_rows);
+        } catch (std::exception& e) {
+            return Status::InternalError("Fail to convert block data to arrow data, error: {}",
+                                         e.what());
+        }
         arrow_st = _cur_builder->Finish(&_arrays[_cur_field_idx]);
         if (!arrow_st.ok()) {
             return to_doris_status(arrow_st);

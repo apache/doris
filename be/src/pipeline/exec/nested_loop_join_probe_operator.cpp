@@ -73,12 +73,6 @@ Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
     }
     _child_block->clear();
 
-    vectorized::Blocks tmp_build_blocks;
-    _shared_state->build_blocks.swap(tmp_build_blocks);
-
-    vectorized::MutableColumns tmp_build_side_visited_flags;
-    _shared_state->build_side_visited_flags.swap(tmp_build_side_visited_flags);
-
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;
     return JoinProbeLocalState<NestedLoopJoinDependency, NestedLoopJoinProbeLocalState>::close(
