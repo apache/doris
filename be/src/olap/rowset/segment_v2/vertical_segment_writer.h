@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <butil/macros.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -84,6 +82,9 @@ public:
                                    std::shared_ptr<MowContext> mow_context);
     ~VerticalSegmentWriter();
 
+    VerticalSegmentWriter(const VerticalSegmentWriter&) = delete;
+    const VerticalSegmentWriter& operator=(const VerticalSegmentWriter&) = delete;
+
     Status init();
 
     // Add one block to batch, memory is owned by the caller.
@@ -112,7 +113,6 @@ public:
     void clear();
 
 private:
-    DISALLOW_COPY_AND_ASSIGN(VerticalSegmentWriter);
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
     Status _create_column_writer(uint32_t cid, const TabletColumn& column);
     void _handle_delete_sign_col(const vectorized::Block* block, size_t row_pos, size_t num_rows,
