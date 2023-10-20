@@ -154,7 +154,7 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
         *ret_cumulative_point = prev_version + 1;
     }
     VLOG_NOTICE << "cumulative compaction time serires policy, calculate cumulative point value = "
-                << *ret_cumulative_point << " tablet = " << tablet->full_name();
+                << *ret_cumulative_point << " tablet = " << tablet->tablet_id();
 }
 
 int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
