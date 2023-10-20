@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
@@ -664,6 +665,7 @@ public class Function implements Writable {
         }
         IOUtils.writeOptionString(output, libUrl);
         IOUtils.writeOptionString(output, checksum);
+        output.writeUTF(nullableMode.toString());
     }
 
     @Override
@@ -697,6 +699,9 @@ public class Function implements Writable {
         boolean hasChecksum = input.readBoolean();
         if (hasChecksum) {
             checksum = Text.readString(input);
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_126) {
+            nullableMode = NullableMode.valueOf(input.readUTF());
         }
     }
 
