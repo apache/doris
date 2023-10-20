@@ -125,7 +125,7 @@ public:
                     hashes[i] = hashes[i] % element_size;
                 }
 
-                std::vector<int> channel2rows[element_size];
+                std::vector<uint32_t> channel2rows[element_size];
                 for (int i = 0; i < rows; i++) {
                     channel2rows[hashes[i]].emplace_back(i);
                 }
@@ -231,10 +231,10 @@ private:
     std::shared_ptr<DataReadyDependency> _data_dependency = nullptr;
 
     void _add_rows_colocate_blocks(vectorized::Block* block, int loc,
-                                   const std::vector<int>& rows) {
+                                   const std::vector<uint32_t>& rows) {
         int row_wait_add = rows.size();
         const int batch_size = _batch_size;
-        const int* begin = &rows[0];
+        const uint32_t* begin = &rows[0];
         std::lock_guard<std::mutex> l(*_colocate_block_mutexs[loc]);
 
         while (row_wait_add > 0) {

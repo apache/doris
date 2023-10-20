@@ -180,7 +180,7 @@ public:
                _flush_mem_tracker->consumption();
     }
     // insert tuple from (row_pos) to (row_pos+num_rows)
-    void insert(const vectorized::Block* block, const std::vector<int>& row_idxs,
+    void insert(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
                 bool is_append = false);
 
     void shrink_memtable_by_agg();

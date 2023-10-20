@@ -255,7 +255,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(vectorized::MutableB
                             .data();
             const auto num_rows = cur_block.rows();
 
-            std::vector<int> selector(num_rows);
+            std::vector<uint32_t> selector(num_rows);
             size_t selector_idx = 0;
             for (size_t j = 0; j < num_rows; j++) {
                 if constexpr (IsSemi) {

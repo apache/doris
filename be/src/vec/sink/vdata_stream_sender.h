@@ -78,7 +78,7 @@ class BlockSerializer {
 public:
     BlockSerializer(Parent* parent, bool is_local = true);
     Status next_serialized_block(Block* src, PBlock* dest, int num_receivers, bool* serialized,
-                                 bool eos, const std::vector<int>* rows = nullptr);
+                                 bool eos, const std::vector<uint32_t>* rows = nullptr);
     Status serialize_block(PBlock* dest, int num_receivers = 1);
     Status serialize_block(const Block* src, PBlock* dest, int num_receivers = 1);
 
@@ -283,7 +283,7 @@ public:
         return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
     }
 
-    virtual Status add_rows(Block* block, const std::vector<int>& row, bool eos);
+    virtual Status add_rows(Block* block, const std::vector<uint32_t>& row, bool eos);
 
     virtual Status send_current_block(bool eos, Status exec_status);
 
@@ -423,7 +423,7 @@ Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channe
                                            int num_channels,
                                            const HashValueType* __restrict channel_ids, int rows,
                                            Block* block, bool eos) {
-    std::vector<int> channel2rows[num_channels];
+    std::vector<uint32_t> channel2rows[num_channels];
 
     for (int i = 0; i < rows; i++) {
         channel2rows[channel_ids[i]].emplace_back(i);
@@ -515,7 +515,7 @@ public:
         return Status::OK();
     }
 
-    Status add_rows(Block* block, const std::vector<int>& rows, bool eos) override {
+    Status add_rows(Block* block, const std::vector<uint32_t>& rows, bool eos) override {
         if (Channel<Parent>::_fragment_instance_id.lo == -1) {
             return Status::OK();
         }

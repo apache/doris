@@ -225,8 +225,8 @@ void ColumnStruct::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTy
     }
 }
 
-void ColumnStruct::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                       const int* indices_end) {
+void ColumnStruct::insert_indices_from(const IColumn& src, const uint32_t* __restrict indices_begin,
+                                       const uint32_t* __restrict indices_end) {
     const ColumnStruct& src_concrete = assert_cast<const ColumnStruct&>(src);
     for (size_t i = 0; i < columns.size(); ++i) {
         columns[i]->insert_indices_from(src_concrete.get_column(i), indices_begin, indices_end);

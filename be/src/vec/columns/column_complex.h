@@ -184,18 +184,14 @@ public:
         data.insert(data.end(), st, ed);
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* __restrict indices_begin,
+                             const uint32_t* __restrict indices_end) override {
         const Self& src_vec = assert_cast<const Self&>(src);
         auto new_size = indices_end - indices_begin;
 
         for (int i = 0; i < new_size; ++i) {
             auto offset = *(indices_begin + i);
-            if (offset == -1) {
-                data.emplace_back(T {});
-            } else {
-                data.emplace_back(src_vec.get_element(offset));
-            }
+            data.emplace_back(src_vec.get_element(offset));
         }
     }
 

@@ -83,8 +83,8 @@ public:
         return res;
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* __restrict indices_begin,
+                             const uint32_t* __restrict indices_end) override {
         const Self& src_vec = assert_cast<const Self&>(src);
         auto origin_size = size();
         auto new_size = indices_end - indices_begin;
@@ -96,12 +96,8 @@ public:
 
         for (int i = 0; i < new_size; ++i) {
             int offset = indices_begin[i];
-            if (offset > -1) {
-                memcpy(&_data[(origin_size + i) * _item_size], &src_vec._data[offset * _item_size],
-                       _item_size);
-            } else {
-                memset(&_data[(origin_size + i) * _item_size], 0, _item_size);
-            }
+            memcpy(&_data[(origin_size + i) * _item_size], &src_vec._data[offset * _item_size],
+                   _item_size);
         }
     }
 
