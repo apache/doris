@@ -634,10 +634,6 @@ private:
     std::shared_mutex _migration_lock;
     std::mutex _build_inverted_index_lock;
 
-    // TODO(lingbin): There is a _meta_lock TabletMeta too, there should be a comment to
-    // explain how these two locks work together.
-    mutable std::shared_mutex _meta_lock;
-
     // In unique key table with MoW, we should guarantee that only one
     // writer can update rowset and delete bitmap at the same time.
     // We use a separate lock rather than _meta_lock, to avoid blocking read queries
