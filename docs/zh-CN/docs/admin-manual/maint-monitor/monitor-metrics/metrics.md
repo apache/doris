@@ -279,7 +279,7 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_stream_load`| {type="load_rows"} | Num | stream load 最终导入的行数累计值| 包括 stream load 和 routine load 任务 | P0 |
 |`doris_be_stream_load`| {type="receive_bytes"}|字节 | stream load 接收的字节数累计值| 包括 stream load 从 http 接收的数据，以及 routine load 从kafka 读取的数据| P0 |
 |`doris_be_tablet_base_max_compaction_score`| | Num | 当前最大的 Base Compaction Score | 该数值实时变化，有可能丢失峰值数据。数值越高，表示 compaction 堆积越严重 | P0 |
-|`doris_be_tablet_base_max_compaction_score`| | Num | 同上。当前最大的 Cumulative Compaction Score | |
+|`doris_be_tablet_cumulative_max_compaction_score`| | Num | 同上。当前最大的 Cumulative Compaction Score | |
 |`doris_be_tablet_version_num_distribution`| | Num | tablet version 数量的直方。| 用于反映 tablet version 数量的分布 | P0 |
 |`doris_be_thrift_connections_total`| | Num | 创建过的 thrift 连接数的累计值。如 `{name="heartbeat"}` 表示心跳服务的连接数累计| 此数值为 BE 作为服务端的 thrift server 的连接 |
 |`doris_be_thrift_current_connections`| | Num | 当前 thrift 连接数。如 `{name="heartbeat"}` 表示心跳服务的当前连接数。| 同上 |

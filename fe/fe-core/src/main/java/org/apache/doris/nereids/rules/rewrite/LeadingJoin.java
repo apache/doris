@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -41,7 +42,12 @@ public class LeadingJoin extends DefaultPlanRewriter<LeadingContext> implements 
                     (LeadingHint) leadingHint, ((LeadingHint) leadingHint)
                         .getLeadingTableBitmap(jobContext.getCascadesContext().getTables())));
             if (leadingHint.isSuccess()) {
-                jobContext.getCascadesContext().getConnectContext().getSessionVariable().setDisableJoinReorder(true);
+                try {
+                    jobContext.getCascadesContext().getConnectContext().getSessionVariable()
+                            .disableNereidsJoinReorderOnce();
+                } catch (DdlException e) {
+                    throw new RuntimeException(e);
+                }
             } else {
                 return plan;
             }

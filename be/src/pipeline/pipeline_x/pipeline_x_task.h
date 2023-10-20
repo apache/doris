@@ -101,25 +101,24 @@ public:
     std::string debug_string() override;
 
     bool is_pending_finish() override {
-        bool source_ret = _source->is_pending_finish(_state);
-        if (source_ret) {
-            return true;
-        } else {
-            set_src_pending_finish_time();
+        for (auto& op : _operators) {
+            auto dep = op->finish_blocked_by(_state);
+            if (dep != nullptr) {
+                dep->start_finish_watcher();
+                return true;
+            }
         }
-
-        bool sink_ret = _sink->is_pending_finish(_state);
-        if (sink_ret) {
+        auto dep = _sink->finish_blocked_by(_state);
+        if (dep != nullptr) {
+            dep->start_finish_watcher();
             return true;
-        } else {
-            set_dst_pending_finish_time();
         }
         return false;
     }
 
     std::vector<DependencySPtr>& get_downstream_dependency() { return _downstream_dependency; }
 
-    void set_upstream_dependency(std::vector<DependencySPtr>& multi_upstream_dependency) {
+    void add_upstream_dependency(std::vector<DependencySPtr>& multi_upstream_dependency) {
         for (auto dep : multi_upstream_dependency) {
             int dst_id = dep->id();
             if (!_upstream_dependency.contains(dst_id)) {
@@ -128,6 +127,11 @@ public:
                 _upstream_dependency[dst_id].push_back(dep);
             }
         }
+    }
+
+    void release_dependency() override {
+        std::vector<DependencySPtr> {}.swap(_downstream_dependency);
+        DependencyMap {}.swap(_upstream_dependency);
     }
 
     std::vector<DependencySPtr>& get_upstream_dependency(int id) {

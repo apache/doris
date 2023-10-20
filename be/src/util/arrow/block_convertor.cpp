@@ -39,8 +39,10 @@
 #include <utility>
 #include <vector>
 
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "runtime/large_int_value.h"
+#include "util/arrow/row_batch.h"
 #include "util/arrow/utils.h"
 #include "util/jsonb_utils.h"
 #include "util/types.h"
@@ -127,26 +129,23 @@ public:
             case vectorized::TypeIndex::Date:
             case vectorized::TypeIndex::DateTime: {
                 char buf[64];
-                const vectorized::VecDateTimeValue* time_val =
-                        (const vectorized::VecDateTimeValue*)(data_ref.data);
+                const VecDateTimeValue* time_val = (const VecDateTimeValue*)(data_ref.data);
                 int len = time_val->to_buffer(buf);
                 ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
             }
             case vectorized::TypeIndex::DateV2: {
                 char buf[64];
-                const vectorized::DateV2Value<vectorized::DateV2ValueType>* time_val =
-                        (const vectorized::DateV2Value<
-                                vectorized::DateV2ValueType>*)(data_ref.data);
+                const DateV2Value<DateV2ValueType>* time_val =
+                        (const DateV2Value<DateV2ValueType>*)(data_ref.data);
                 int len = time_val->to_buffer(buf);
                 ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
             }
             case vectorized::TypeIndex::DateTimeV2: {
                 char buf[64];
-                const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>* time_val =
-                        (const vectorized::DateV2Value<
-                                vectorized::DateTimeV2ValueType>*)(data_ref.data);
+                const DateV2Value<DateTimeV2ValueType>* time_val =
+                        (const DateV2Value<DateTimeV2ValueType>*)(data_ref.data);
                 int len = time_val->to_buffer(buf);
                 ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
@@ -389,8 +388,13 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
             return to_doris_status(arrow_st);
         }
         _cur_builder = builder.get();
-        _cur_type->get_serde()->write_column_to_arrow(*_cur_col, nullptr, _cur_builder, _cur_start,
-                                                      _cur_start + _cur_rows);
+        try {
+            _cur_type->get_serde()->write_column_to_arrow(*_cur_col, nullptr, _cur_builder,
+                                                          _cur_start, _cur_start + _cur_rows);
+        } catch (std::exception& e) {
+            return Status::InternalError("Fail to convert block data to arrow data, error: {}",
+                                         e.what());
+        }
         arrow_st = _cur_builder->Finish(&_arrays[_cur_field_idx]);
         if (!arrow_st.ok()) {
             return to_doris_status(arrow_st);

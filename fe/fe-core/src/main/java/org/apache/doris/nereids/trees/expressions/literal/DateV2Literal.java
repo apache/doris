@@ -60,6 +60,11 @@ public class DateV2Literal extends DateLiteral {
                 DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusMonths(months));
     }
 
+    public Expression plusWeeks(long weeks) {
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusWeeks(weeks));
+    }
+
     public Expression plusYears(long years) {
         return fromJavaDateType(
                 DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusYears(years));

@@ -144,7 +144,7 @@ public class EsRestClient {
     /**
      * Get all index.
      **/
-    public List<String> getIndices() {
+    public List<String> getIndices(boolean includeHiddenIndex) {
         String indexes = execute("_cat/indices?h=index&format=json&s=index:asc");
         if (indexes == null) {
             throw new DorisEsException("get es indexes error");
@@ -154,9 +154,14 @@ public class EsRestClient {
         jsonNodes.forEach(json -> {
             // es 7.17 has .geoip_databases, but _mapping response 400.
             String index = json.get("index").asText();
-            if (!index.startsWith(".")) {
+            if (includeHiddenIndex) {
                 ret.add(index);
+            } else {
+                if (!index.startsWith(".")) {
+                    ret.add(index);
+                }
             }
+
         });
         return ret;
     }
@@ -186,8 +191,8 @@ public class EsRestClient {
     /**
      * Returns the merge of index and alias
      **/
-    public List<String> listTable() {
-        List<String> indices = getIndices().stream().distinct().collect(Collectors.toList());
+    public List<String> listTable(boolean includeHiddenIndex) {
+        List<String> indices = getIndices(includeHiddenIndex).stream().distinct().collect(Collectors.toList());
         getAliases().entrySet().stream().filter(e -> indices.contains(e.getKey())).flatMap(e -> e.getValue().stream())
                 .distinct().forEach(indices::add);
         return indices;

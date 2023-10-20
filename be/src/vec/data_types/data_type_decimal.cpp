@@ -150,7 +150,6 @@ template <typename T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {
     if constexpr (IsDecimalV2<T>) {
         auto col = ColumnDecimal128::create(0, scale);
-        col->set_decimalv2_type();
         return col;
     } else {
         return ColumnType::create(0, scale);

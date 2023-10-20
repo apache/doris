@@ -148,11 +148,11 @@ public class PartitionSortNode extends PlanNode {
 
         TPartTopNPhase pTopNPhase;
         if (phase == PartitionTopnPhase.ONE_PHASE_GLOBAL_PTOPN) {
-            pTopNPhase = TPartTopNPhase.ONE_PAHSE_GLOBAL;
+            pTopNPhase = TPartTopNPhase.ONE_PHASE_GLOBAL;
         } else if (phase == PartitionTopnPhase.TWO_PHASE_LOCAL_PTOPN) {
-            pTopNPhase = TPartTopNPhase.TWO_PAHSE_LOCAL;
+            pTopNPhase = TPartTopNPhase.TWO_PHASE_LOCAL;
         } else if (phase == PartitionTopnPhase.TWO_PHASE_GLOBAL_PTOPN) {
-            pTopNPhase = TPartTopNPhase.TWO_PAHSE_GLOBAL;
+            pTopNPhase = TPartTopNPhase.TWO_PHASE_GLOBAL;
         } else {
             pTopNPhase = TPartTopNPhase.UNKNOWN;
         }

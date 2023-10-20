@@ -280,8 +280,7 @@ public abstract class ExternalCatalog
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
-        long currentTime = System.currentTimeMillis();
-        lastUpdateTime = currentTime;
+        lastUpdateTime = System.currentTimeMillis();
         initCatalogLog.setLastUpdateTime(lastUpdateTime);
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
@@ -414,7 +413,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
-        modifyComment(props);
         catalogProperty.modifyCatalogProps(props);
         notifyPropertiesUpdated(props);
     }
@@ -425,11 +423,6 @@ public abstract class ExternalCatalog
 
     public void rollBackCatalogProps(Map<String, String> props) {
         catalogProperty.rollBackCatalogProps(props);
-    }
-
-    private void modifyComment(Map<String, String> props) {
-        setComment(props.getOrDefault("comment", comment));
-        props.remove("comment");
     }
 
     public long getLastUpdateTime() {
@@ -598,6 +591,14 @@ public abstract class ExternalCatalog
             ret = false;
         }
         return ret;
+    }
+
+    public String bindBrokerName() {
+        Map<String, String> properties = catalogProperty.getProperties();
+        if (properties.containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
+            return properties.get(HMSExternalCatalog.BIND_BROKER_NAME);
+        }
+        return null;
     }
 
     @Override

@@ -211,6 +211,14 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _pool(new ObjectPool) {}
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
+    auto status = _init_impl(opts);
+    if (!status.ok() && !config::disable_segment_cache) {
+        _segment->remove_from_segment_cache();
+    }
+    return status;
+}
+
+Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     // get file handle from file descriptor of segment
     if (_inited) {
         return Status::OK();
@@ -1572,8 +1580,6 @@ void SegmentIterator::_init_current_block(
                 current_columns[cid]->set_date_type();
             } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                 current_columns[cid]->set_datetime_type();
-            } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
-                current_columns[cid]->set_decimalv2_type();
             }
             current_columns[cid]->reserve(_opts.block_row_max);
         }
@@ -1595,28 +1601,19 @@ void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
 Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
                                                bool set_block_rowid) {
     SCOPED_RAW_TIMER(&_opts.stats->first_read_ns);
+
     do {
-        uint32_t range_from;
-        uint32_t range_to;
+        uint32_t range_from = 0;
+        uint32_t range_to = 0;
         bool has_next_range =
                 _range_iter->next_range(nrows_read_limit - nrows_read, &range_from, &range_to);
         if (!has_next_range) {
             break;
         }
-        if (_cur_rowid == 0 || _cur_rowid != range_from) {
-            _cur_rowid = range_from;
-            _opts.stats->block_first_read_seek_num += 1;
-            if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
-                SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
-                RETURN_IF_ERROR(_seek_columns(_first_read_column_ids, _cur_rowid));
-            } else {
-                RETURN_IF_ERROR(_seek_columns(_first_read_column_ids, _cur_rowid));
-            }
-        }
+
         size_t rows_to_read = range_to - range_from;
-        RETURN_IF_ERROR(
-                _read_columns(_first_read_column_ids, _current_return_columns, rows_to_read));
-        _cur_rowid += rows_to_read;
+        _cur_rowid = range_to;
+
         if (set_block_rowid) {
             // Here use std::iota is better performance than for-loop, maybe for-loop is not vectorized
             auto start = _block_rowids.data() + nrows_read;
@@ -1628,8 +1625,26 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         }
 
         _split_row_ranges.emplace_back(std::pair {range_from, range_to});
-        // if _opts.read_orderby_key_reverse is true, only read one range for fast reverse purpose
     } while (nrows_read < nrows_read_limit && !_opts.read_orderby_key_reverse);
+
+    for (auto cid : _first_read_column_ids) {
+        auto& column = _current_return_columns[cid];
+        if (_prune_column(cid, column, true, nrows_read)) {
+            continue;
+        }
+        for (auto& range : _split_row_ranges) {
+            size_t nrows = range.second - range.first;
+
+            RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
+            size_t rows_read = nrows;
+            RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
+            if (rows_read != nrows) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("nrows({}) != rows_read({})", nrows,
+                                                                rows_read);
+            }
+        }
+    }
+
     return Status::OK();
 }
 
@@ -1769,8 +1784,11 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
-    RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); });
-    return Status::OK();
+    auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); }); }();
+    if (!status.ok()) {
+        _segment->remove_from_segment_cache();
+    }
+    return status;
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {

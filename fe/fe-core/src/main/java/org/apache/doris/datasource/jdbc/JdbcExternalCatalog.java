@@ -19,6 +19,7 @@ package org.apache.doris.datasource.jdbc;
 
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -125,6 +126,12 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     public String getLowerCaseTableNames() {
+        // Forced to true if Config.lower_case_table_names has a value of 1 or 2
+        if (Config.lower_case_table_names == 1 || Config.lower_case_table_names == 2) {
+            return "true";
+        }
+
+        // Otherwise, it defaults to false
         return catalogProperty.getOrDefault(JdbcResource.LOWER_CASE_TABLE_NAMES, "false");
     }
 

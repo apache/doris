@@ -33,16 +33,16 @@ class Arena;
 
 class DataTypeBitMapSerDe : public DataTypeSerDe {
 public:
-    void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
-                                    FormatOptions& options) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "write_column_to_pb with type " + column.get_name());
+    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                      FormatOptions& options,
+                                      int nesting_level = 1) const override {
+        return Status::NotSupported("serialize_one_cell_to_json with type [{}]", column.get_name());
     }
 
-    void serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                  BufferWritable& bw, FormatOptions& options) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "write_column_to_pb with type " + column.get_name());
+    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                    BufferWritable& bw, FormatOptions& options,
+                                    int nesting_level = 1) const override {
+        return Status::NotSupported("serialize_column_to_json with type [{}]", column.get_name());
     }
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,

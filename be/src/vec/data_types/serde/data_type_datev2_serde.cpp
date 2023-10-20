@@ -27,15 +27,16 @@
 namespace doris {
 namespace vectorized {
 
-void DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                   int end_idx, BufferWritable& bw,
-                                                   FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                     int end_idx, BufferWritable& bw,
+                                                     FormatOptions& options,
+                                                     int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                     BufferWritable& bw,
-                                                     FormatOptions& options) const {
+Status DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                       BufferWritable& bw, FormatOptions& options,
+                                                       int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -47,6 +48,7 @@ void DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, int 
     char* pos = val.to_string(buf);
     // DateTime to_string the end is /0
     bw.write(buf, pos - buf - 1);
+    return Status::OK();
 }
 
 Status DataTypeDateV2SerDe::deserialize_column_from_json_vector(IColumn& column,
@@ -69,7 +71,7 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
         if (nullptr != res) {
             val = ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
         } else {
-            val = doris::vectorized::MIN_DATE_V2;
+            val = MIN_DATE_V2;
         }
     } else if (ReadBuffer rb(slice.data, slice.size); !read_date_v2_text_impl<UInt32>(val, rb)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
@@ -86,8 +88,8 @@ void DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const Nul
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
-        const vectorized::DateV2Value<vectorized::DateV2ValueType>* time_val =
-                (const vectorized::DateV2Value<vectorized::DateV2ValueType>*)(&col_data[i]);
+        const DateV2Value<DateV2ValueType>* time_val =
+                (const DateV2Value<DateV2ValueType>*)(&col_data[i]);
         int len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),

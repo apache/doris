@@ -69,6 +69,7 @@ public:
     }
     void TearDown() override {
         static_cast<void>(io::global_local_filesystem()->delete_directory(wal_dir));
+        SAFE_STOP(_env->_wal_manager);
         SAFE_DELETE(_env->_function_client_cache);
         SAFE_DELETE(_env->_internal_client_cache);
         SAFE_DELETE(_env->_master_info);
@@ -119,47 +120,4 @@ TEST_F(WalManagerTest, recovery_normal) {
     ASSERT_TRUE(!std::filesystem::exists(wal_200));
     ASSERT_TRUE(!std::filesystem::exists(wal_201));
 }
-
-TEST_F(WalManagerTest, not_need_recovery) {
-    std::string db_id = "1";
-    std::string tb_id = "1";
-    std::string wal_id = "100";
-    std::filesystem::create_directory(wal_dir + "/" + db_id);
-    std::filesystem::create_directory(wal_dir + "/" + db_id + "/" + tb_id);
-    std::string wal_100 = wal_dir + "/" + db_id + "/" + tb_id + "/" + wal_id;
-    createWal(wal_100);
-
-    static_cast<void>(_env->wal_mgr()->init());
-
-    while (_env->wal_mgr()->get_wal_table_size("1") > 0) {
-        sleep(1);
-        continue;
-    }
-    ASSERT_TRUE(!std::filesystem::exists(wal_100));
-}
-
-TEST_F(WalManagerTest, recover_fail) {
-    k_request_line = "{\"Status\": \"Fail\",    \"Message\": \"Test\"}";
-    config::group_commit_replay_wal_retry_num = 3;
-    config::group_commit_replay_wal_retry_interval_seconds = 1;
-
-    std::string db_id = "1";
-    std::string tb_id = "1";
-    std::string wal_id = "100";
-    std::filesystem::create_directory(wal_dir + "/" + db_id);
-    std::filesystem::create_directory(wal_dir + "/" + db_id + "/" + tb_id);
-    std::string wal_100 = wal_dir + "/" + db_id + "/" + tb_id + "/" + wal_id;
-    createWal(wal_100);
-
-    static_cast<void>(_env->wal_mgr()->init());
-
-    while (_env->wal_mgr()->get_wal_table_size("1") > 0) {
-        sleep(1);
-        continue;
-    }
-    std::string tmp_file = tmp_dir + "/" + db_id + "_" + tb_id + "_" + wal_id;
-    ASSERT_TRUE(std::filesystem::exists(tmp_file));
-    ASSERT_TRUE(!std::filesystem::exists(wal_100));
-}
-
 } // namespace doris

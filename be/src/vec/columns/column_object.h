@@ -266,8 +266,6 @@ public:
     /// Part of interface
     const char* get_family_name() const override { return "Variant"; }
 
-    TypeIndex get_data_type() const override { return TypeIndex::VARIANT; }
-
     size_t size() const override;
 
     MutableColumnPtr clone_resized(size_t new_size) const override;
@@ -368,10 +366,6 @@ public:
     }
 
     void replace_column_data_default(size_t self_row) override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
-
-    void get_extremes(Field& min, Field& max) const override {
         LOG(FATAL) << "should not call the method in column object";
     }
 

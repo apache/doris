@@ -183,3 +183,27 @@ be参数`remove_unused_remote_files_interval_sec` 可以设置冷数据的垃圾
 
 - 目前暂无方式查询特定storage policy 关联的表。
 - 一些远端占用指标更新获取不够完善
+
+## 常见问题
+
+1. ERROR 1105 (HY000): errCode = 2, detailMessage = Failed to create repository: connect to s3 failed: Unable to marshall request to JSON: host must not be null.
+
+S3 SDK 默认使用 virtual-hosted style 方式。但某些对象存储系统(如：minio)可能没开启或没支持 virtual-hosted style 方式的访问，此时我们可以添加 use_path_style 参数来强制使用 path style 方式：
+
+```text
+CREATE RESOURCE "remote_s3"
+PROPERTIES
+(
+    "type" = "s3",
+    "s3.endpoint" = "bj.s3.com",
+    "s3.region" = "bj",
+    "s3.bucket" = "test-bucket",
+    "s3.root.path" = "path/to/root",
+    "s3.access_key" = "bbb",
+    "s3.secret_key" = "aaaa",
+    "s3.connection.maximum" = "50",
+    "s3.connection.request.timeout" = "3000",
+    "s3.connection.timeout" = "1000",
+    "use_path_style" = "true"
+);
+```

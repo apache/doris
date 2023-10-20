@@ -82,6 +82,10 @@ class Suite implements GroovyInterceptable {
         return value == null ? defaultValue : value
     }
 
+    String getSuiteConf(String key, String defaultValue = null) {
+        return getConf("suites." + name + "." + key, defaultValue)
+    }
+
     Properties getConfs(String prefix) {
         Properties p = new Properties()
         for (String name : context.config.otherConfigs.stringPropertyNames()) {
@@ -154,11 +158,20 @@ class Suite implements GroovyInterceptable {
     }
 
     public <T> ListenableFuture<T> thread(String threadName = null, Closure<T> actionSupplier) {
+        def connInfo = context.threadLocalConn.get()
         return MoreExecutors.listeningDecorator(context.actionExecutors).submit((Callable<T>) {
             long startTime = System.currentTimeMillis()
             def originThreadName = Thread.currentThread().name
             try {
                 Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
+                if (connInfo != null) {
+                    def newConnInfo = new ConnectionInfo()
+                    newConnInfo.conn = DriverManager.getConnection(connInfo.conn.getMetaData().getURL(),
+                            connInfo.username, connInfo.password)
+                    newConnInfo.username = connInfo.username
+                    newConnInfo.password = connInfo.password
+                    context.threadLocalConn.set(newConnInfo)
+                }
                 context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
 
                 return actionSupplier.call()
@@ -552,7 +565,7 @@ class Suite implements GroovyInterceptable {
     }
 
     List<List<Object>> hive_docker(String sqlStr, boolean isOrder = false){
-        String cleanedSqlStr = sqlStr.replaceAll(/;+$/, '')
+        String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getHiveDockerConnection(), cleanedSqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
@@ -561,7 +574,7 @@ class Suite implements GroovyInterceptable {
     }
 
     List<List<Object>> hive_remote(String sqlStr, boolean isOrder = false){
-        String cleanedSqlStr = sqlStr.replaceAll(/;+$/, '')
+        String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getHiveRemoteConnection(), cleanedSqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
@@ -573,9 +586,23 @@ class Suite implements GroovyInterceptable {
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
-                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
+                if (tag.contains("hive_docker")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(),  (PreparedStatement) arg)
+                }else if (tag.contains("hive_remote")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(),  (PreparedStatement) arg)
+                }
+                else{
+                    tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
+                }
             } else {
-                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
+                if (tag.contains("hive_docker")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(), (String) arg)
+                }else if (tag.contains("hive_remote")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
+                }
+                else{
+                    tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
+                }
             }
             def (result, meta) = tupleResult
             if (isOrder) {
@@ -597,9 +624,23 @@ class Suite implements GroovyInterceptable {
             OutputUtils.TagBlockIterator expectCsvResults = context.getOutputIterator().next()
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
-                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
+                if (tag.contains("hive_docker")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(),  (PreparedStatement) arg)
+                }else if (tag.contains("hive_remote")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(),  (PreparedStatement) arg)
+                }
+                else{
+                    tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
+                }
             } else {
-                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
+                if (tag.contains("hive_docker")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(), (String) arg)
+                }else if (tag.contains("hive_remote")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
+                }
+                else{
+                    tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
+                }
             }
             def (realResults, meta) = tupleResult
             if (isOrder) {
@@ -628,6 +669,14 @@ class Suite implements GroovyInterceptable {
 
     void quickTest(String tag, String sql, boolean isOrder = false) {
         logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
+        if (tag.contains("hive_docker")) {
+            String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
+            sql = cleanedSqlStr
+        }
+        if (tag.contains("hive_remote")) {
+            String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
+            sql = cleanedSqlStr
+        }
         quickRunTest(tag, sql, isOrder) 
     }
 

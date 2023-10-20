@@ -32,16 +32,18 @@ namespace doris {
 namespace vectorized {
 
 template <typename T>
-void DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                       int end_idx, BufferWritable& bw,
-                                                       FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                         int end_idx, BufferWritable& bw,
+                                                         FormatOptions& options,
+                                                         int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
 template <typename T>
-void DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                         BufferWritable& bw,
-                                                         FormatOptions& options) const {
+Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                           BufferWritable& bw,
+                                                           FormatOptions& options,
+                                                           int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -55,6 +57,7 @@ void DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column, 
         auto length = col.get_element(row_num).to_string(buf, scale, scale_multiplier);
         bw.write(buf, length);
     }
+    return Status::OK();
 }
 
 template <typename T>

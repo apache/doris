@@ -88,7 +88,7 @@ Status FullCompaction::execute_compact_impl() {
     _tablet->cumulative_compaction_policy()->update_cumulative_point(_tablet.get(), _input_rowsets,
                                                                      _output_rowset, last_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
-                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
+                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
 
     return Status::OK();
 }
@@ -169,6 +169,7 @@ Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedP
 
     std::lock_guard rowset_update_lock(_tablet->get_rowset_update_lock());
     std::lock_guard header_lock(_tablet->get_header_lock());
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     for (const auto& it : _tablet->rowset_map()) {
         const int64_t& cur_version = it.first.first;
         const RowsetSharedPtr& published_rowset = it.second;
