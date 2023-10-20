@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
@@ -49,13 +50,18 @@ public class ArrayAgg extends AggregateFunction
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
-    }
-
-    @Override
     public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new ArrayAgg(distinct, children.get(0));
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitArrayAgg(this, context);
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
     }
 }
