@@ -206,10 +206,6 @@ public class StoragePolicy extends Policy {
                     throw new AnalysisException(String.format(
                         "Missing [%s] in '%s' resource", HdfsResource.HADOOP_FS_NAME, storageResource));
                 }
-                if (!properties.containsKey(HdfsResource.HADOOP_USER_NAME)) {
-                    throw new AnalysisException(String.format(
-                        "Missing [%s] in '%s' resource", HdfsResource.HADOOP_USER_NAME, storageResource));
-                }
                 break;
             default:
                 throw new AnalysisException(
