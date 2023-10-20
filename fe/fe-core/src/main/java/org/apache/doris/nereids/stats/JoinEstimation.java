@@ -74,7 +74,7 @@ public class JoinEstimation {
 
     private static Statistics estimateInnerJoin(Statistics leftStats, Statistics rightStats, Join join) {
         if (hashJoinConditionContainsUnknownColumnStats(leftStats, rightStats, join)) {
-            double rowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
+            double rowCount = leftStats.getRowCount() + rightStats.getRowCount();
             rowCount = Math.max(1, rowCount);
             return new StatisticsBuilder()
                 .setRowCount(rowCount)
@@ -151,7 +151,50 @@ public class JoinEstimation {
             if (ratio.isPresent()) {
                 outputRowCount = Math.max(1, outputRowCount * ratio.get());
             }
-            innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
+        }
+        innerJoinStats = crossJoinStats.withRowCountAndEnforceValid(outputRowCount);
+        return innerJoinStats;
+    }
+
+    private static Statistics estimateNestLoopJoin(Statistics leftStats, Statistics rightStats, Join join) {
+        if (hashJoinConditionContainsUnknownColumnStats(leftStats, rightStats, join)) {
+            double rowCount = (leftStats.getRowCount() + rightStats.getRowCount());
+            // We do more like the nested loop join with one rows than inner join
+            if (leftStats.getRowCount() == 1 || rightStats.getRowCount() == 1) {
+                rowCount *= 0.99;
+            } else {
+                rowCount *= 1.01;
+            }
+            rowCount = Math.max(1, rowCount);
+            return new StatisticsBuilder()
+                    .setRowCount(rowCount)
+                    .putColumnStatistics(leftStats.columnStatistics())
+                    .putColumnStatistics(rightStats.columnStatistics())
+                    .build();
+        }
+        return new StatisticsBuilder()
+                .setRowCount(Math.max(1, leftStats.getRowCount() * rightStats.getRowCount()))
+                .putColumnStatistics(leftStats.columnStatistics())
+                .putColumnStatistics(rightStats.columnStatistics())
+                .build();
+    }
+
+    private static Statistics estimateInnerJoin(Statistics leftStats, Statistics rightStats, Join join) {
+        if (hashJoinConditionContainsUnknownColumnStats(leftStats, rightStats, join)) {
+            double rowCount = leftStats.getRowCount() + rightStats.getRowCount();
+            rowCount = Math.max(1, rowCount);
+            return new StatisticsBuilder()
+                .setRowCount(rowCount)
+                .putColumnStatistics(leftStats.columnStatistics())
+                .putColumnStatistics(rightStats.columnStatistics())
+                .build();
+        }
+
+        Statistics innerJoinStats;
+        if (join.getHashJoinConjuncts().isEmpty()) {
+            innerJoinStats = estimateNestLoopJoin(leftStats, rightStats, join);
+        } else {
+            innerJoinStats = estimateHashJoin(leftStats, rightStats, join);
         }
 
         if (!join.getOtherJoinConjuncts().isEmpty()) {

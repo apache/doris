@@ -34,6 +34,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.Comparator;
@@ -41,6 +42,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Physical hash join plan.
@@ -213,6 +215,11 @@ public class PhysicalHashJoin<
                 return 0;
             }
         }
+    }
+
+    public Set<Slot> getConditionSlot() {
+        return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
+                .flatMap(expr -> expr.getInputSlots().stream()).collect(ImmutableSet.toImmutableSet());
     }
 
     @Override
