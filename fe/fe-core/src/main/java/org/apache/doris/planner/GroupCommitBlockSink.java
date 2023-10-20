@@ -15,28 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/core/future_block.h"
+package org.apache.doris.planner;
 
-#include <tuple>
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.thrift.TDataSinkType;
 
-namespace doris::vectorized {
+import java.util.List;
 
-void FutureBlock::set_info(int64_t schema_version, const TUniqueId& load_id) {
-    this->_schema_version = schema_version;
-    this->_load_id = load_id;
+public class GroupCommitBlockSink extends OlapTableSink {
+
+    public GroupCommitBlockSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds,
+            boolean singleReplicaLoad) {
+        super(dstTable, tupleDescriptor, partitionIds, singleReplicaLoad);
+    }
+
+    protected TDataSinkType getDataSinkType() {
+        return TDataSinkType.GROUP_COMMIT_BLOCK_SINK;
+    }
 }
-
-void FutureBlock::set_result(Status status, int64_t total_rows, int64_t loaded_rows) {
-    auto result = std::make_tuple(true, status, total_rows, loaded_rows);
-    result.swap(*_result);
-}
-
-void FutureBlock::swap_future_block(std::shared_ptr<FutureBlock> other) {
-    Block::swap(*other.get());
-    set_info(other->_schema_version, other->_load_id);
-    lock = other->lock;
-    cv = other->cv;
-    _result = other->_result;
-}
-
-} // namespace doris::vectorized
