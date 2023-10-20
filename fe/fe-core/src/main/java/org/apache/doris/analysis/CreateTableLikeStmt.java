@@ -95,7 +95,7 @@ public class CreateTableLikeStmt extends DdlStmt {
         // disallow external catalog
         Util.prohibitExternalCatalog(existedTableName.getCtl(), this.getClass().getSimpleName());
         ConnectContext ctx = ConnectContext.get();
-        if (!skipAuth && !Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, existedTableName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, existedTableName.getDb(),
                 existedTableName.getTbl(), PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
         }
