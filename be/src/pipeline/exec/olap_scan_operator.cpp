@@ -260,10 +260,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         return Status::OK();
     };
     for (auto& scan_range : _scan_ranges) {
-        auto tablet_id = scan_range->tablet_id;
-        auto [tablet, status] =
-                StorageEngine::instance()->tablet_manager()->get_tablet_and_status(tablet_id, true);
-        RETURN_IF_ERROR(status);
+        auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
 
         std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &_cond_ranges;
         int size_based_scanners_per_tablet = 1;

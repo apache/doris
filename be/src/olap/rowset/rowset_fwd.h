@@ -14,20 +14,18 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/AggregateFunctionSum.cpp
-// and modified by Doris
 
-#include "vec/aggregate_functions/aggregate_function_sum_old.h"
+#pragma once
 
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/helpers.h"
+#include <memory>
 
-namespace doris::vectorized {
-void register_aggregate_function_sum_old(AggregateFunctionSimpleFactory& factory) {
-    factory.register_alternative_function(
-            "sum", creator_with_type::creator<AggregateFunctionSumSimpleOld>, false);
-    factory.register_alternative_function(
-            "sum", creator_with_type::creator<AggregateFunctionSumSimpleOld>, true);
-}
-} // namespace doris::vectorized
+namespace doris {
+
+class Rowset;
+using RowsetSharedPtr = std::shared_ptr<Rowset>;
+class RowsetMeta;
+using RowsetMetaSharedPtr = std::shared_ptr<RowsetMeta>;
+class RowsetReader;
+using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
+
+} // namespace doris

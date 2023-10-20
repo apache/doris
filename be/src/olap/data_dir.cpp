@@ -626,22 +626,23 @@ Status DataDir::load() {
     return Status::OK();
 }
 
-void DataDir::add_pending_ids(const std::string& id) {
-    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
-    _pending_path_ids.insert(id);
-}
+void DataDir::perform_path_gc() {
+    std::unique_lock<std::mutex> lck(_check_path_mutex);
+    _check_path_cv.wait(lck, [this] {
+        return _stop_bg_worker || !_all_tablet_schemahash_paths.empty() ||
+               !_all_check_paths.empty();
+    });
+    if (_stop_bg_worker) {
+        return;
+    }
 
-void DataDir::remove_pending_ids(const std::string& id) {
-    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
-    _pending_path_ids.erase(id);
+    _perform_path_gc_by_tablet();
+    _perform_path_gc_by_rowsetid();
 }
 
 // gc unused tablet schemahash dir
-void DataDir::perform_path_gc_by_tablet() {
-    std::unique_lock<std::mutex> lck(_check_path_mutex);
-    _check_path_cv.wait(
-            lck, [this] { return _stop_bg_worker || !_all_tablet_schemahash_paths.empty(); });
-    if (_stop_bg_worker) {
+void DataDir::_perform_path_gc_by_tablet() {
+    if (_all_tablet_schemahash_paths.empty()) {
         return;
     }
     LOG(INFO) << "start to path gc by tablet schemahash.";
@@ -685,12 +686,10 @@ void DataDir::perform_path_gc_by_tablet() {
     LOG(INFO) << "finished one time path gc by tablet.";
 }
 
-void DataDir::perform_path_gc_by_rowsetid() {
+void DataDir::_perform_path_gc_by_rowsetid() {
     // init the set of valid path
     // validate the path in data dir
-    std::unique_lock<std::mutex> lck(_check_path_mutex);
-    _check_path_cv.wait(lck, [this] { return _stop_bg_worker || !_all_check_paths.empty(); });
-    if (_stop_bg_worker) {
+    if (_all_check_paths.empty()) {
         return;
     }
     LOG(INFO) << "start to path gc by rowsetid.";
@@ -828,11 +827,6 @@ void DataDir::_process_garbage_path(const std::string& path) {
         WARN_IF_ERROR(io::global_local_filesystem()->delete_directory_or_file(path),
                       "remove garbage failed");
     }
-}
-
-bool DataDir::_check_pending_ids(const std::string& id) {
-    std::shared_lock rd_lock(_pending_path_mutex);
-    return _pending_path_ids.find(id) != _pending_path_ids.end();
 }
 
 Status DataDir::update_capacity() {

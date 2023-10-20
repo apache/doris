@@ -447,7 +447,7 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
         Status status = rowset_writer->add_rowset_for_linked_schema_change(rowset_reader->rowset());
         if (!status) {
             LOG(WARNING) << "fail to convert rowset."
-                         << ", new_tablet=" << new_tablet->full_name()
+                         << ", new_tablet=" << new_tablet->tablet_id()
                          << ", version=" << rowset_writer->version().first << "-"
                          << rowset_writer->version().second << ", error status " << status;
             return status;
@@ -604,15 +604,10 @@ Status VSchemaChangeWithSorting::_internal_sorting(
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     RETURN_IF_ERROR(new_tablet->create_rowset_writer(context, &rowset_writer));
 
-    Defer defer {[&]() {
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                   rowset_writer->rowset_id().to_string());
-    }};
-
     RETURN_IF_ERROR(merger.merge(blocks, rowset_writer.get(), &merged_rows));
 
     _add_merged_rows(merged_rows);
-    *rowset = rowset_writer->build();
+    RETURN_IF_ERROR(rowset_writer->build(*rowset));
     return Status::OK();
 }
 
@@ -704,8 +699,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
 
     LOG(INFO) << "finish to validate alter tablet request. begin to convert data from base tablet "
                  "to new tablet"
-              << " base_tablet=" << base_tablet->full_name()
-              << " new_tablet=" << new_tablet->full_name();
+              << " base_tablet=" << base_tablet->tablet_id()
+              << " new_tablet=" << new_tablet->tablet_id();
 
     std::shared_lock base_migration_rlock(base_tablet->get_migration_lock(), std::try_to_lock);
     if (!base_migration_rlock.owns_lock()) {
@@ -775,7 +770,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             // before calculating version_to_be_changed,
             // remove all data from new tablet, prevent to rewrite data(those double pushed when wait)
             LOG(INFO) << "begin to remove all data from new tablet to prevent rewrite."
-                      << " new_tablet=" << new_tablet->full_name();
+                      << " new_tablet=" << new_tablet->tablet_id();
             std::vector<RowsetSharedPtr> rowsets_to_delete;
             std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
             new_tablet->acquire_version_and_rowsets(&version_rowsets);
@@ -834,7 +829,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             res = delete_handler.init(base_tablet_schema, del_preds, end_version);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. base_tablet="
-                             << base_tablet->full_name() << ", end_version=" << end_version;
+                             << base_tablet->tablet_id() << ", end_version=" << end_version;
                 break;
             }
 
@@ -851,7 +846,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             for (auto& rs_split : rs_splits) {
                 res = rs_split.rs_reader->init(&reader_context);
                 if (!res) {
-                    LOG(WARNING) << "failed to init rowset reader: " << base_tablet->full_name();
+                    LOG(WARNING) << "failed to init rowset reader: " << base_tablet->tablet_id();
                     break;
                 }
             }
@@ -1005,8 +1000,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
 
     // if failed convert history data, then just remove the new tablet
     if (!res) {
-        LOG(WARNING) << "failed to alter tablet. base_tablet=" << base_tablet->full_name()
-                     << ", drop new_tablet=" << new_tablet->full_name();
+        LOG(WARNING) << "failed to alter tablet. base_tablet=" << base_tablet->tablet_id()
+                     << ", drop new_tablet=" << new_tablet->tablet_id();
         // do not drop the new tablet and its data. GC thread will
     }
 
@@ -1024,7 +1019,7 @@ Status SchemaChangeHandler::_get_versions_to_be_changed(
     RowsetSharedPtr rowset = base_tablet->rowset_with_max_version();
     if (rowset == nullptr) {
         return Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>("Tablet has no version. base_tablet={}",
-                                                          base_tablet->full_name());
+                                                          base_tablet->tablet_id());
     }
     *max_rowset = rowset;
 
@@ -1036,8 +1031,8 @@ Status SchemaChangeHandler::_get_versions_to_be_changed(
 
 Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams& sc_params) {
     LOG(INFO) << "begin to convert historical rowsets for new_tablet from base_tablet."
-              << " base_tablet=" << sc_params.base_tablet->full_name()
-              << ", new_tablet=" << sc_params.new_tablet->full_name();
+              << " base_tablet=" << sc_params.base_tablet->tablet_id()
+              << ", new_tablet=" << sc_params.new_tablet->tablet_id();
 
     // find end version
     int32_t end_version = -1;
@@ -1058,8 +1053,8 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
     Status res = _parse_request(sc_params, &changer, &sc_sorting, &sc_directly);
     LOG(INFO) << "schema change type, sc_sorting: " << sc_sorting
               << ", sc_directly: " << sc_directly
-              << ", base_tablet=" << sc_params.base_tablet->full_name()
-              << ", new_tablet=" << sc_params.new_tablet->full_name();
+              << ", base_tablet=" << sc_params.base_tablet->tablet_id()
+              << ", new_tablet=" << sc_params.new_tablet->tablet_id();
 
     auto process_alter_exit = [&]() -> Status {
         {
@@ -1074,8 +1069,8 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         }
 
         LOG(INFO) << "finish converting rowsets for new_tablet from base_tablet. "
-                  << "base_tablet=" << sc_params.base_tablet->full_name()
-                  << ", new_tablet=" << sc_params.new_tablet->full_name();
+                  << "base_tablet=" << sc_params.base_tablet->tablet_id()
+                  << ", new_tablet=" << sc_params.new_tablet->tablet_id();
         return res;
     };
 
@@ -1126,36 +1121,32 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
             LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first << "-"
                          << rs_reader->version().second << ", " << res.to_string();
-            new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                       rowset_writer->rowset_id().to_string());
             return process_alter_exit();
         }
-        new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                   rowset_writer->rowset_id().to_string());
         // Add the new version of the data to the header
         // In order to prevent the occurrence of deadlock, we must first lock the old table, and then lock the new table
         std::lock_guard<std::mutex> lock(sc_params.new_tablet->get_push_lock());
-        RowsetSharedPtr new_rowset = rowset_writer->build();
-        if (new_rowset == nullptr) {
+        RowsetSharedPtr new_rowset;
+        if (!(res = rowset_writer->build(new_rowset)).ok()) {
             LOG(WARNING) << "failed to build rowset, exit alter process";
             return process_alter_exit();
         }
         res = sc_params.new_tablet->add_rowset(new_rowset);
         if (res.is<PUSH_VERSION_ALREADY_EXIST>()) {
             LOG(WARNING) << "version already exist, version revert occurred. "
-                         << "tablet=" << sc_params.new_tablet->full_name() << ", version='"
+                         << "tablet=" << sc_params.new_tablet->tablet_id() << ", version='"
                          << rs_reader->version().first << "-" << rs_reader->version().second;
             StorageEngine::instance()->add_unused_rowset(new_rowset);
             res = Status::OK();
         } else if (!res) {
             LOG(WARNING) << "failed to register new version. "
-                         << " tablet=" << sc_params.new_tablet->full_name()
+                         << " tablet=" << sc_params.new_tablet->tablet_id()
                          << ", version=" << rs_reader->version().first << "-"
                          << rs_reader->version().second;
             StorageEngine::instance()->add_unused_rowset(new_rowset);
             return process_alter_exit();
         } else {
-            VLOG_NOTICE << "register new version. tablet=" << sc_params.new_tablet->full_name()
+            VLOG_NOTICE << "register new version. tablet=" << sc_params.new_tablet->tablet_id()
                         << ", version=" << rs_reader->version().first << "-"
                         << rs_reader->version().second;
         }
@@ -1359,7 +1350,7 @@ Status SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_tablet,
                                                    const TAlterTabletReqV2& request) {
     Version max_continuous_version = {-1, 0};
     new_tablet->max_continuous_version_from_beginning(&max_continuous_version);
-    LOG(INFO) << "find max continuous version of tablet=" << new_tablet->full_name()
+    LOG(INFO) << "find max continuous version of tablet=" << new_tablet->tablet_id()
               << ", start_version=" << max_continuous_version.first
               << ", end_version=" << max_continuous_version.second;
     if (max_continuous_version.second < request.alter_version) {

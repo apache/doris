@@ -170,6 +170,10 @@ public class TabletScheduler extends MasterDaemon {
         return stat;
     }
 
+    public Rebalancer getRebalancer() {
+        return rebalancer;
+    }
+
     /*
      * update working slots at the beginning of each round
      */
@@ -1138,7 +1142,7 @@ public class TabletScheduler extends MasterDaemon {
         // it will also delete replica from tablet inverted index.
         tabletCtx.deleteReplica(replica);
 
-        if (force) {
+        if (force || FeConstants.runningUnitTest) {
             // send the delete replica task.
             // also, this may not be necessary, but delete it will make things simpler.
             // NOTICE: only delete the replica from meta may not work. sometimes we can depend on tablet report

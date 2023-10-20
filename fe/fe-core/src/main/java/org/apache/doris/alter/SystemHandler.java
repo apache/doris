@@ -38,6 +38,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -219,8 +220,7 @@ public class SystemHandler extends AlterHandler {
                     hostInfo.getPort());
             if (backend == null) {
                 throw new DdlException("Backend does not exist["
-                        + hostInfo.getHost()
-                        + ":" + hostInfo.getPort() + "]");
+                        + NetUtils.getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
             }
             if (backend.isDecommissioned()) {
                 // already under decommission, ignore it
@@ -271,7 +271,7 @@ public class SystemHandler extends AlterHandler {
                     hostInfo.getPort());
             if (backend == null) {
                 throw new DdlException("Backend does not exist["
-                        + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
+                        + NetUtils.getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
             }
 
             if (!backend.isDecommissioned()) {

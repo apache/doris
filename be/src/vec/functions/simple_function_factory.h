@@ -106,8 +106,8 @@ class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
     using FunctionIsVariadic = phmap::flat_hash_set<std::string>;
-    /// @TEMPORARY: for be_exec_version=2
-    constexpr static int DATETIME_FUNCTION_NEW = 2;
+    /// @TEMPORARY: for be_exec_version=3
+    constexpr static int NEWEST_VERSION_FUNCTION_SUBSTITUTE = 3;
 
 public:
     void register_function(const std::string& name, const Creator& ptr) {
@@ -143,10 +143,10 @@ public:
         function_alias[alias] = name;
     }
 
-    /// @TEMPORARY: for be_exec_version=2
+    /// @TEMPORARY: for be_exec_version=3
     template <class Function>
     void register_alternative_function() {
-        static std::string suffix {"_old_for_version_before_2_0"};
+        static std::string suffix {"_old_for_version_before_3_0"};
         function_to_replace[Function::name] = Function::name + suffix;
         register_function(Function::name + suffix, &createDefaultFunction<Function>);
     }
@@ -186,7 +186,7 @@ private:
     FunctionCreators function_creators;
     FunctionIsVariadic function_variadic_set;
     std::unordered_map<std::string, std::string> function_alias;
-    /// @TEMPORARY: for be_exec_version=2. replace function to old version.
+    /// @TEMPORARY: for be_exec_version=3. replace function to old version.
     std::unordered_map<std::string, std::string> function_to_replace;
 
     template <typename Function>
@@ -194,10 +194,10 @@ private:
         return std::make_shared<DefaultFunctionBuilder>(Function::create());
     }
 
-    /// @TEMPORARY: for be_exec_version=2
+    /// @TEMPORARY: for be_exec_version=3
     void temporary_function_update(int fe_version_now, std::string& name) {
         // replace if fe is old version.
-        if (fe_version_now < DATETIME_FUNCTION_NEW &&
+        if (fe_version_now < NEWEST_VERSION_FUNCTION_SUBSTITUTE &&
             function_to_replace.find(name) != function_to_replace.end()) {
             name = function_to_replace[name];
         }

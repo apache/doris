@@ -17,9 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/internal_service.pb.h>
-#include <gen_cpp/types.pb.h>
 #include <stdint.h>
 
 #include <atomic>
@@ -32,12 +29,10 @@
 #include "common/status.h"
 #include "olap/delta_writer_context.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
-#include "olap/tablet.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet_schema.h"
-#include "util/spinlock.h"
-#include "util/uid_util.h"
+#include "olap/tablet_fwd.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -59,7 +54,7 @@ class Block;
 // This class is NOT thread-safe, external synchronization is required.
 class RowsetBuilder {
 public:
-    RowsetBuilder(const WriteRequest& req, StorageEngine* storage_engine, RuntimeProfile* profile);
+    RowsetBuilder(const WriteRequest& req, RuntimeProfile* profile);
 
     ~RowsetBuilder();
 
@@ -75,16 +70,20 @@ public:
 
     Status cancel();
 
-    std::shared_ptr<RowsetWriter> rowset_writer() const { return _rowset_writer; }
+    const std::shared_ptr<RowsetWriter>& rowset_writer() const { return _rowset_writer; }
 
-    TabletSharedPtr tablet() const { return _tablet; }
+    const BaseTabletSPtr& tablet() const { return _tablet; }
 
-    RowsetSharedPtr rowset() const { return _rowset; }
+    const RowsetSharedPtr& rowset() const { return _rowset; }
 
-    TabletSchemaSPtr tablet_schema() const { return _tablet_schema; }
+    const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 
     // For UT
-    DeleteBitmapPtr get_delete_bitmap() { return _delete_bitmap; }
+    const DeleteBitmapPtr& get_delete_bitmap() { return _delete_bitmap; }
+
+    std::shared_ptr<PartialUpdateInfo> get_partial_update_info() const {
+        return _partial_update_info;
+    }
 
 private:
     void _garbage_collection();
@@ -95,16 +94,20 @@ private:
 
     void _init_profile(RuntimeProfile* profile);
 
+    Status init_mow_context(std::shared_ptr<MowContext>& mow_context);
+
+    Status check_tablet_version_count();
+
+    Status prepare_txn();
+
     bool _is_init = false;
     bool _is_cancelled = false;
     bool _is_committed = false;
     WriteRequest _req;
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
     RowsetSharedPtr _rowset;
     std::shared_ptr<RowsetWriter> _rowset_writer;
     TabletSchemaSPtr _tablet_schema;
-
-    StorageEngine* _storage_engine = nullptr;
 
     std::mutex _lock;
 
@@ -112,6 +115,8 @@ private:
     std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
     // current rowset_ids, used to do diff in publish_version
     RowsetIdUnorderedSet _rowset_ids;
+
+    std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _build_rowset_timer = nullptr;
