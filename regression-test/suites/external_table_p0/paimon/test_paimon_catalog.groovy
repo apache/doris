@@ -78,8 +78,8 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             def c22 = """select * from auto_bucket where dt="d";"""
             def c23 = """select * from complex_tab order by c1;"""
             def c24 = """select * from complex_tab where c1=1;"""
-            def c25 = """select * from complex_tab where c1=2;"""
-            def c26 = """select * from complex_tab where c1=3;"""
+            def c26 = """select array_max(c2) from complex_tab"""
+            def c25 = """select c3['a_test'], c3['b_test'], c3['bbb'], c3['ccc'] from complex_tab"""
 
             String hdfs_port = context.config.otherConfigs.get("hdfs_port")
             String catalog_name = "paimon1"
