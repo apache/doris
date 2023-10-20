@@ -122,7 +122,7 @@ public:
     void set_collect_query_statistics_with_every_batch() {
         _collect_query_statistics_with_every_batch = true;
     }
-    bool collect_query_statistics_with_every_batch() const {
+    [[nodiscard]] bool collect_query_statistics_with_every_batch() const {
         return _collect_query_statistics_with_every_batch;
     }
 
