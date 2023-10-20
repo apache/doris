@@ -872,6 +872,9 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
                 LOG(WARNING) << "tablet:" << tablet_id()
                              << ", version already has been merged. spec_version: " << spec_version;
             }
+            std::string json;
+            get_compaction_status(&json);
+            LOG(WARNING) << status << '\n' << json;
             status = Status::Error<VERSION_ALREADY_MERGED>("missed_versions is empty");
         } else {
             if (version_path != nullptr) {
@@ -1380,7 +1383,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
     return candidate_rowsets;
 }
 
-std::string Tablet::_get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag) {
+std::string Tablet::_get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag) const {
     const Version& ver = rowset->version();
     std::string disk_size = PrettyPrinter::print(
             static_cast<uint64_t>(rowset->rowset_meta()->total_disk_size()), TUnit::BYTES);
@@ -1391,7 +1394,7 @@ std::string Tablet::_get_rowset_info_str(RowsetSharedPtr rowset, bool delete_fla
 }
 
 // For http compaction action
-void Tablet::get_compaction_status(std::string* json_result) {
+void Tablet::get_compaction_status(std::string* json_result) const {
     rapidjson::Document root;
     root.SetObject();
 

@@ -187,7 +187,7 @@ public:
 
     /// Get json document of _stale_version_path_map. Fill the path_id and version_path
     /// list in the document. The parameter path arr is used as return variable.
-    void get_stale_version_path_json_doc(rapidjson::Document& path_arr);
+    void get_stale_version_path_json_doc(rapidjson::Document& path_arr) const;
 
     // Return proportion of orphan vertex in VersionGraph's _version_graph.
     // If a vertex is no longer the starting point of any edge, then this vertex is defined as orphan vertex

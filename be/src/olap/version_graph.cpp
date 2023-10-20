@@ -218,7 +218,7 @@ bool TimestampedVersionTracker::_find_path_from_stale_map(
     return false;
 }
 
-void TimestampedVersionTracker::get_stale_version_path_json_doc(rapidjson::Document& path_arr) {
+void TimestampedVersionTracker::get_stale_version_path_json_doc(rapidjson::Document& path_arr) const {
     auto path_arr_iter = _stale_version_path_map.begin();
 
     // Do loop version path.

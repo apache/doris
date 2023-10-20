@@ -302,7 +302,7 @@ public:
     void generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_meta) const;
 
     // return a json string to show the compaction status of this tablet
-    void get_compaction_status(std::string* json_result);
+    void get_compaction_status(std::string* json_result) const;
 
     Status prepare_compaction_and_calculate_permits(CompactionType compaction_type,
                                                     TabletSharedPtr tablet, int64_t* permits);
@@ -613,7 +613,7 @@ private:
     ////////////////////////////////////////////////////////////////////////////
 
     void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
-    std::string _get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag);
+    std::string _get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag) const;
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
