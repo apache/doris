@@ -295,12 +295,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
         if (in_block->rows() > 0 || source_state == SourceState::FINISHED) {
-            auto st = _sink->sink(state, in_block, source_state == SourceState::FINISHED);
-            // TODO: improvement: if sink returned END_OF_FILE, pipeline task can be finished
-            if (st.template is<ErrorCode::END_OF_FILE>()) {
-                return Status::OK();
-            }
-            return st;
+            return _sink->sink(state, in_block, source_state == SourceState::FINISHED);
         }
         return Status::OK();
     }
