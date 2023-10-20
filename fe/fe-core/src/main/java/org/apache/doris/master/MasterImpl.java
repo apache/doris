@@ -192,7 +192,7 @@ public class MasterImpl {
                     finishRecoverTablet(task);
                     break;
                 case ALTER:
-                    finishAlterTask(task, request);
+                    finishAlterTask(task);
                     break;
                 case ALTER_INVERTED_INDEX:
                     finishAlterInvertedIndexTask(task, request);
@@ -575,7 +575,7 @@ public class MasterImpl {
         return reportHandler.handleReport(request);
     }
 
-    private void finishAlterTask(AgentTask task, TFinishTaskRequest request) {
+    private void finishAlterTask(AgentTask task) {
         AlterReplicaTask alterTask = (AlterReplicaTask) task;
         try {
             if (alterTask.getJobType() == JobType.ROLLUP) {
@@ -584,11 +584,6 @@ public class MasterImpl {
                 Env.getCurrentEnv().getSchemaChangeHandler().handleFinishAlterTask(alterTask);
             }
             alterTask.setFinished(true);
-            if (request.isSetReportVersion()) {
-                long reportVersion = request.getReportVersion();
-                Env.getCurrentSystemInfo().updateBackendReportVersion(
-                        task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
-            }
         } catch (MetaNotFoundException e) {
             LOG.warn("failed to handle finish alter task: {}, {}", task.getSignature(), e.getMessage());
         }
