@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka,mariadb"
+    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse,mariadb"
 else
     while true; do
         case "$1" in
