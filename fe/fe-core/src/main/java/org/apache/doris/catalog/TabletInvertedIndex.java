@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.task.PublishVersionTask;
@@ -41,6 +42,7 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
+import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
 import org.apache.logging.log4j.LogManager;
@@ -714,6 +716,13 @@ public class TabletInvertedIndex {
     // Only build from available bes, exclude colocate tables
     public Map<TStorageMedium, TreeMultimap<Long, PartitionBalanceInfo>> buildPartitionInfoBySkew(
             List<Long> availableBeIds) {
+        Set<Long> dbIds = Sets.newHashSet();
+        Set<Long> tableIds = Sets.newHashSet();
+        Set<Long> partitionIds = Sets.newHashSet();
+        // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
+        if (!FeConstants.runningUnitTest) {
+            Env.getCurrentRecycleBin().getRecycleIds(dbIds, tableIds, partitionIds);
+        }
         long stamp = readLock();
 
         // 1. gen <partitionId-indexId, <beId, replicaCount>>
@@ -733,6 +742,10 @@ public class TabletInvertedIndex {
                 try {
                     Preconditions.checkState(availableBeIds.contains(beId), "dead be " + beId);
                     TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
+                    if (dbIds.contains(tabletMeta.getDbId()) || tableIds.contains(tabletMeta.getTableId())
+                            || partitionIds.contains(tabletMeta.getPartitionId())) {
+                        continue;
+                    }
                     Preconditions.checkNotNull(tabletMeta, "invalid tablet " + tabletId);
                     Preconditions.checkState(
                             !Env.getCurrentColocateIndex().isColocateTable(tabletMeta.getTableId()),
