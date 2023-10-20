@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.MultiPartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -38,7 +37,6 @@ public class StepPartition extends PartitionDefinition {
     private final List<Expression> toExpression;
     private final long unit;
     private final String unitString;
-    private ReplicaAllocation replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
 
     public StepPartition(List<Expression> fromExpression, List<Expression> toExpression, long unit,
             String unitString) {

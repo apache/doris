@@ -195,8 +195,8 @@ public class CreateTableInfo {
             dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
         }
 
-        Preconditions.checkState(!Strings.isNullOrEmpty(ctlName));
-        Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
+        Preconditions.checkState(!Strings.isNullOrEmpty(ctlName), "catalog name is null or empty");
+        Preconditions.checkState(!Strings.isNullOrEmpty(dbName), "database name is null or empty");
         properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(ctlName, dbName, properties);
 
         boolean enableDuplicateWithoutKeysByDefault = false;

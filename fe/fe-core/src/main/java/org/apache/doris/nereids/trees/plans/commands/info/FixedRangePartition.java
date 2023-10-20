@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
-import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
 
@@ -37,7 +36,6 @@ public class FixedRangePartition extends PartitionDefinition {
     private final String partitionName;
     private List<Expression> lowerBounds;
     private List<Expression> upperBounds;
-    private ReplicaAllocation replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
 
     public FixedRangePartition(String partitionName, List<Expression> lowerBounds, List<Expression> upperBounds) {
         this.partitionName = partitionName;

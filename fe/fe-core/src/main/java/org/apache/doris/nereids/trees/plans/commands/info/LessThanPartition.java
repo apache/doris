@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
-import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.Maps;
@@ -35,7 +34,6 @@ import java.util.stream.Collectors;
 public class LessThanPartition extends PartitionDefinition {
     private final String partitionName;
     private final List<Expression> values;
-    private ReplicaAllocation replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
 
     public LessThanPartition(String partitionName, List<Expression> values) {
         this.partitionName = partitionName;
