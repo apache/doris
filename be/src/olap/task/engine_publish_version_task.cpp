@@ -159,7 +159,7 @@ Status EnginePublishVersionTask::finish() {
                     max_version = tablet->max_version_unlocked();
                     tablet_state = tablet->tablet_state();
                 }
-                if (tablet_state == TabletState::TABLET_RUNNING &&
+                if (tablet_state != TabletState::TABLET_NOTREADY &&
                     version.first != max_version.second + 1) {
                     // If a tablet migrates out and back, the previously failed
                     // publish task may retry on the new tablet, so check
