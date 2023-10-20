@@ -1,4 +1,5 @@
 -- database: presto; groups: no_from
+SET enable_nereids_planner = TRUE;
 SELECT 1,
        'a',
        COUNT(),
@@ -14,4 +15,3 @@ SELECT 1,
         COUNT() OVER() AS w_count,
         MAX(7) OVER() AS w_max,
         MIN(8) OVER() AS w_min;
-
