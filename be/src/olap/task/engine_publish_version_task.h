@@ -87,21 +87,26 @@ public:
     EnginePublishVersionTask(
             const TPublishVersionRequest& publish_version_req,
             std::set<TTabletId>* error_tablet_ids, std::map<TTabletId, TVersion>* succ_tablets,
-            std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinous_version_tablets);
-    ~EnginePublishVersionTask() {}
+            std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinous_version_tablets,
+            std::map<TTableId, int64_t>* table_id_to_num_delta_rows);
+    ~EnginePublishVersionTask() override = default;
 
-    virtual Status finish() override;
+    Status finish() override;
 
     void add_error_tablet_id(int64_t tablet_id);
 
     int64_t finish_task();
 
 private:
+    void _calculate_tbl_num_delta_rows(
+            const std::unordered_map<int64_t, int64_t>& tablet_id_to_num_delta_rows);
+
     const TPublishVersionRequest& _publish_version_req;
     std::mutex _tablet_ids_mutex;
     std::set<TTabletId>* _error_tablet_ids;
     std::map<TTabletId, TVersion>* _succ_tablets;
     std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinuous_version_tablets;
+    std::map<TTableId, int64_t>* _table_id_to_num_delta_rows;
 };
 
 class AsyncTabletPublishTask {
