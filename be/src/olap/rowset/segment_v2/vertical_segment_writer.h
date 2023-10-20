@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -27,8 +30,6 @@
 #include <vector>
 
 #include "common/status.h" // Status
-#include "gen_cpp/olap_file.pb.h"
-#include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"

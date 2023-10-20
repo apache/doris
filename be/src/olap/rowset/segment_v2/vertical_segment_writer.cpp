@@ -17,11 +17,11 @@
 
 #include "olap/rowset/segment_v2/vertical_segment_writer.h"
 
-#include <assert.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
 #include <algorithm>
+#include <cassert>
 #include <ostream>
 #include <unordered_map>
 #include <utility>
@@ -269,7 +269,7 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
     if (row_column_id == 0) {
         return;
     }
-    vectorized::ColumnString* row_store_column =
+    auto* row_store_column =
             static_cast<vectorized::ColumnString*>(block.get_by_position(row_column_id)
                                                            .column->assume_mutable_ref()
                                                            .assume_mutable()
@@ -805,7 +805,7 @@ std::string VerticalSegmentWriter::_full_encode_keys(
 
 void VerticalSegmentWriter::_encode_seq_column(
         const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos, string* encoded_keys) {
-    auto field = seq_column->get_data_at(pos);
+    const auto* field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
     // to the minimum value of the corresponding length when the seq column
     // is null
@@ -920,7 +920,7 @@ Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* in
     // write footer
     RETURN_IF_ERROR(finalize_footer(segment_file_size));
 
-    if (timer.elapsed_time() > 5000000000l) {
+    if (timer.elapsed_time() > 5000000000L) {
         LOG(INFO) << "segment flush consumes a lot time_ns " << timer.elapsed_time()
                   << ", segmemt_size " << *segment_file_size;
     }
