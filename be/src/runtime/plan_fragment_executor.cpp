@@ -113,8 +113,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _query_id = params.query_id;
 
     LOG_INFO("PlanFragmentExecutor::prepare")
-            .tag("query_id", _query_id)
-            .tag("instance_id", params.fragment_instance_id)
+            .tag("query_id", print_id(_query_id))
+            .tag("instance_id", print_id(params.fragment_instance_id))
             .tag("backend_num", request.backend_num)
             .tag("pthread_id", (uintptr_t)pthread_self());
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
@@ -249,8 +249,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 Status PlanFragmentExecutor::open() {
     int64_t mem_limit = _runtime_state->query_mem_tracker()->limit();
     LOG_INFO("PlanFragmentExecutor::open")
-            .tag("query_id", _query_id)
-            .tag("instance_id", _runtime_state->fragment_instance_id())
+            .tag("query_id", print_id(_query_id))
+            .tag("instance_id", print_id(_runtime_state->fragment_instance_id()))
             .tag("mem_limit", PrettyPrinter::print(mem_limit, TUnit::BYTES));
 
     // we need to start the profile-reporting thread before calling Open(), since it
@@ -488,7 +488,7 @@ void PlanFragmentExecutor::stop_report_thread() {
 
 void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
     LOG_INFO("PlanFragmentExecutor::cancel")
-            .tag("query_id", _query_id)
+            .tag("query_id", print_id(_query_id))
             .tag("instance_id", _runtime_state->fragment_instance_id())
             .tag("reason", reason)
             .tag("error message", msg);
