@@ -1528,14 +1528,17 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
         std::map<TTabletId, TVersion> succ_tablets;
         // partition_id, tablet_id, publish_version
         std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
+        std::map<TTableId, int64_t> table_id_to_num_delta_rows;
         uint32_t retry_time = 0;
         Status status;
         bool is_task_timeout = false;
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             succ_tablets.clear();
             error_tablet_ids.clear();
+            table_id_to_num_delta_rows.clear();
             EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids,
-                                                 &succ_tablets, &discontinuous_version_tablets);
+                                                 &succ_tablets, &discontinuous_version_tablets,
+                                                 &table_id_to_num_delta_rows);
             status = StorageEngine::instance()->execute_task(&engine_task);
             if (status.ok()) {
                 break;
@@ -1620,7 +1623,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
         finish_task_request.__set_succ_tablets(succ_tablets);
         finish_task_request.__set_error_tablet_ids(
                 std::vector<TTabletId>(error_tablet_ids.begin(), error_tablet_ids.end()));
-
+        finish_task_request.__set_table_id_to_delta_num_rows(table_id_to_num_delta_rows);
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }

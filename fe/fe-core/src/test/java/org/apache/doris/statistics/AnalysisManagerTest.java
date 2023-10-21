@@ -25,6 +25,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -45,10 +47,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
+// CHECKSTYLE OFF
 public class AnalysisManagerTest {
     @Test
     public void testUpdateTaskStatus(@Mocked BaseAnalysisTask task1,
-                                     @Mocked BaseAnalysisTask task2) {
+            @Mocked BaseAnalysisTask task2) {
 
         new MockUp<AnalysisManager>() {
             @Mock
@@ -61,12 +64,22 @@ public class AnalysisManagerTest {
 
         };
 
+        new MockUp<AnalysisInfo>() {
+            @Mock
+            public String toString() {
+                return "";
+            }
+        };
+
         AnalysisInfo job = new AnalysisInfoBuilder().setJobId(1)
-                .setState(AnalysisState.PENDING).setJobType(AnalysisInfo.JobType.MANUAL).build();
+                .setState(AnalysisState.PENDING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(AnalysisInfo.JobType.MANUAL).build();
         AnalysisInfo taskInfo1 = new AnalysisInfoBuilder().setJobId(1)
-                .setTaskId(2).setState(AnalysisState.PENDING).build();
+                .setTaskId(2).setJobType(JobType.MANUAL).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setState(AnalysisState.PENDING).build();
         AnalysisInfo taskInfo2 = new AnalysisInfoBuilder().setJobId(1)
-                .setTaskId(3).setState(AnalysisState.PENDING).build();
+                .setTaskId(3).setAnalysisType(AnalysisType.FUNDAMENTALS).setJobType(JobType.MANUAL)
+                .setState(AnalysisState.PENDING).build();
         AnalysisManager manager = new AnalysisManager();
         manager.replayCreateAnalysisJob(job);
         manager.replayCreateAnalysisTask(taskInfo1);
@@ -139,15 +152,15 @@ public class AnalysisManagerTest {
                         add("p2");
                     }
                 }), new ArrayList<String>() {
-                    {
-                        add("c1");
-                        add("c2");
-                    }
-                }, new AnalyzeProperties(new HashMap<String, String>() {
-                    {
-                        put(AnalyzeProperties.PROPERTY_SYNC, "true");
-                    }
-                }));
+            {
+                add("c1");
+                add("c2");
+            }
+        }, new AnalyzeProperties(new HashMap<String, String>() {
+            {
+                put(AnalyzeProperties.PROPERTY_SYNC, "true");
+            }
+        }));
 
         AnalysisManager analysisManager = new AnalysisManager();
         Assertions.assertNull(analysisManager.buildAndAssignJob(analyzeTblStmt));
@@ -228,16 +241,16 @@ public class AnalysisManagerTest {
                         add("p2");
                     }
                 }), new ArrayList<String>() {
-                    {
-                        add("c1");
-                        add("c2");
-                    }
-                }, new AnalyzeProperties(new HashMap<String, String>() {
-                    {
-                        put(AnalyzeProperties.PROPERTY_SYNC, "false");
-                        put(AnalyzeProperties.PROPERTY_PERIOD_SECONDS, "100");
-                    }
-                }));
+            {
+                add("c1");
+                add("c2");
+            }
+        }, new AnalyzeProperties(new HashMap<String, String>() {
+            {
+                put(AnalyzeProperties.PROPERTY_SYNC, "false");
+                put(AnalyzeProperties.PROPERTY_PERIOD_SECONDS, "100");
+            }
+        }));
         AnalysisManager analysisManager = new AnalysisManager();
         analysisInfo.colToPartitions.put("c1", new HashSet<String>() {
             {
@@ -327,8 +340,11 @@ public class AnalysisManagerTest {
         };
         OlapTable olapTable = new OlapTable();
         TableStatsMeta stats1 = new TableStatsMeta(0, 50, new AnalysisInfoBuilder().setColName("col1").build());
+        stats1.updatedRows.addAndGet(30);
+
         Assertions.assertTrue(olapTable.needReAnalyzeTable(stats1));
         TableStatsMeta stats2 = new TableStatsMeta(0, 190, new AnalysisInfoBuilder().setColName("col1").build());
+        stats2.updatedRows.addAndGet(20);
         Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
 
     }
