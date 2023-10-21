@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ArithmeticFunctionBinder;
@@ -42,11 +41,13 @@ import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -129,6 +130,8 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         Expression left = arithmetic.left().accept(this, context);
         Expression right = arithmetic.right().accept(this, context);
 
+        arithmetic = (TimestampArithmetic) arithmetic.withChildren(left, right);
+
         // bind function
         String funcOpName;
         if (arithmetic.getFuncName() == null) {
@@ -152,7 +155,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     public Expression visitBitNot(BitNot bitNot, ExpressionRewriteContext context) {
         Expression child = bitNot.child().accept(this, context);
         // type coercion
-        if (child.getDataType().toCatalogDataType().getPrimitiveType().ordinal() > PrimitiveType.LARGEINT.ordinal()) {
+        if (!(child.getDataType().isIntegralType() || child.getDataType().isBooleanType())) {
             child = new Cast(child, BigIntType.INSTANCE);
         }
         return bitNot.withChildren(child);
@@ -162,6 +165,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     public Expression visitDivide(Divide divide, ExpressionRewriteContext context) {
         Expression left = divide.left().accept(this, context);
         Expression right = divide.right().accept(this, context);
+        divide = (Divide) divide.withChildren(left, right);
 
         // type coercion
         return TypeCoercionUtils.processDivide(divide, left, right);
@@ -171,6 +175,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     public Expression visitIntegralDivide(IntegralDivide integralDivide, ExpressionRewriteContext context) {
         Expression left = integralDivide.left().accept(this, context);
         Expression right = integralDivide.right().accept(this, context);
+        integralDivide = (IntegralDivide) integralDivide.withChildren(left, right);
 
         // type coercion
         return TypeCoercionUtils.processIntegralDivide(integralDivide, left, right);
@@ -180,6 +185,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     public Expression visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, ExpressionRewriteContext context) {
         Expression left = binaryArithmetic.left().accept(this, context);
         Expression right = binaryArithmetic.right().accept(this, context);
+        binaryArithmetic = (BinaryArithmetic) binaryArithmetic.withChildren(left, right);
         return TypeCoercionUtils.processBinaryArithmetic(binaryArithmetic, left, right);
     }
 
@@ -207,6 +213,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
         Expression left = cp.left().accept(this, context);
         Expression right = cp.right().accept(this, context);
+        cp = (ComparisonPredicate) cp.withChildren(left, right);
         return TypeCoercionUtils.processComparisonPredicate(cp, left, right);
     }
 
@@ -217,6 +224,13 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         CaseWhen newCaseWhen = caseWhen.withChildren(rewrittenChildren);
         newCaseWhen.checkLegalityBeforeTypeCoercion();
         return TypeCoercionUtils.processCaseWhen(newCaseWhen);
+    }
+
+    @Override
+    public Expression visitWhenClause(WhenClause whenClause, ExpressionRewriteContext context) {
+        return whenClause.withChildren(TypeCoercionUtils.castIfNotSameType(
+                whenClause.getOperand().accept(this, context), BooleanType.INSTANCE),
+                whenClause.getResult().accept(this, context));
     }
 
     @Override

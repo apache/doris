@@ -1,6 +1,6 @@
 {
   "version.label": {
-    "message": "dev",
+    "message": "2.0",
     "description": "The label for version current"
   },
   "sidebar.docs.category.Getting Started": {

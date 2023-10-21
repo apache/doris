@@ -39,13 +39,13 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterSimplify("CAST('1' AS VARCHAR)", "'1'",
                 VarcharType.createVarcharType(-1));
         assertRewriteAfterSimplify("CAST(1 AS DECIMAL)", "1",
-                DecimalV3Type.createDecimalV3Type(9, 0));
+                DecimalV3Type.createDecimalV3Type(38, 0));
         assertRewriteAfterSimplify("CAST(1000 AS DECIMAL)", "1000",
-                DecimalV3Type.createDecimalV3Type(9, 0));
+                DecimalV3Type.createDecimalV3Type(38, 0));
         assertRewriteAfterSimplify("CAST(1 AS DECIMALV3)", "1",
-                DecimalV3Type.createDecimalV3Type(9, 0));
+                DecimalV3Type.createDecimalV3Type(38, 0));
         assertRewriteAfterSimplify("CAST(1000 AS DECIMALV3)", "1000",
-                DecimalV3Type.createDecimalV3Type(9, 0));
+                DecimalV3Type.createDecimalV3Type(38, 0));
     }
 
     private void assertRewriteAfterSimplify(String expr, String expected, DataType expectedType) {

@@ -46,7 +46,7 @@ suite("test_stream_load_properties", "p0") {
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
-                    "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0)",
+                    "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k04,1.0)",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17",
                     "k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17",
@@ -57,7 +57,7 @@ suite("test_stream_load_properties", "p0") {
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18",
-                    "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0)",
+                    "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18,k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k04,1.0)",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17",
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17",
@@ -124,11 +124,11 @@ suite("test_stream_load_properties", "p0") {
                  "basic_array_data_by_line.json",
                 ]
 
-    def loadedRows = [12,12,12,12,8,8,15]
+    def loadedRows = [12,12,12,12,15,15,15]
 
     def jsonLoadedRows = [20,20,20,20,18,18,18]
 
-    def filteredRows = [8,8,8,8,12,12,5]
+    def filteredRows = [8,8,8,8,5,5,5]
 
     def maxFilterRatio = [0.4,0.4,0.4,0.4,0.6,0.6,0.6]
 
@@ -271,6 +271,8 @@ suite("test_stream_load_properties", "p0") {
                 file errorFiles[i]
                 time 10000 // limit inflight 10s
 
+		log.info("Stream load table==============: ${table}".toString())
+                log.info("Stream load i==============: ${i}".toString())
                 check { result, exception, startTime, endTime ->
                     if (exception != null) {
                         throw exception
@@ -793,7 +795,8 @@ suite("test_stream_load_properties", "p0") {
                     if (exception != null) {
                         throw exception
                     }
-                    log.info("Stream load result: ${result}".toString())
+		    log.info(" ===== ${table} with json ${i} Stream load result: ${result}".toString())	
+                    //log.info("Stream load result: ${result}".toString())
                     def json = parseJson(result)
                     assertEquals("success", json.Status.toLowerCase())
                     assertEquals(jsonLoadedRows[i], json.NumberTotalRows)

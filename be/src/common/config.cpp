@@ -1085,6 +1085,8 @@ DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
 
 DEFINE_Bool(exit_on_exception, "false")
 
+DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
@@ -1502,7 +1504,6 @@ void set_fuzzy_configs() {
     // random value true or false
     set_fuzzy_config("disable_storage_page_cache", ((rand() % 2) == 0) ? "true" : "false");
     set_fuzzy_config("enable_system_metrics", ((rand() % 2) == 0) ? "true" : "false");
-    set_fuzzy_config("enable_simdjson_reader", ((rand() % 2) == 0) ? "true" : "false");
     // random value from 8 to 48
     // s = set_fuzzy_config("doris_scanner_thread_pool_thread_num", std::to_string((rand() % 41) + 8));
     // LOG(INFO) << s.to_string();

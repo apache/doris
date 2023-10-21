@@ -147,7 +147,6 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             return Status::OK();
         }
     }
-
     if (read_options.use_topn_opt) {
         auto query_ctx = read_options.runtime_state->get_query_ctx();
         auto runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
@@ -175,6 +174,27 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         iter->reset(new SegmentIterator(this->shared_from_this(), schema));
     }
 
+    if (config::ignore_always_true_predicate_for_segment &&
+        read_options.io_ctx.reader_type == ReaderType::READER_QUERY &&
+        !read_options.column_predicates.empty()) {
+        auto pruned_predicates = read_options.column_predicates;
+        auto pruned = false;
+        for (auto& it : _column_readers) {
+            const auto uid = it.first;
+            const auto column_id = read_options.tablet_schema->field_index(uid);
+            if (it.second->prune_predicates_by_zone_map(pruned_predicates, column_id)) {
+                pruned = true;
+            }
+        }
+
+        if (pruned) {
+            auto options_with_pruned_predicates = read_options;
+            options_with_pruned_predicates.column_predicates = pruned_predicates;
+            LOG(INFO) << "column_predicates pruned from " << read_options.column_predicates.size()
+                      << " to " << pruned_predicates.size();
+            return iter->get()->init(options_with_pruned_predicates);
+        }
+    }
     return iter->get()->init(read_options);
 }
 

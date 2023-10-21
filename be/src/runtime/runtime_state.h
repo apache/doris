@@ -146,6 +146,10 @@ public:
         return _process_status;
     }
 
+    bool enable_faster_float_convert() const {
+        return _query_options.__isset.faster_float_convert && _query_options.faster_float_convert;
+    }
+
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
 

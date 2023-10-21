@@ -51,6 +51,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.ClearTransactionTask;
@@ -698,7 +699,11 @@ public class DatabaseTransactionMgr {
         } finally {
             writeUnlock();
             // after state transform
-            transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
+            try {
+                transactionState.afterStateTransform(TransactionStatus.COMMITTED, txnOperated);
+            } catch (Throwable e) {
+                LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
+            }
         }
 
         // update nextVersion because of the failure of persistent transaction resulting in error version
@@ -1063,8 +1068,8 @@ public class DatabaseTransactionMgr {
                 writeUnlock();
                 try {
                     transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
-                } catch (UserException e) {
-                    LOG.warn("afterStateTransform txn {} failed. msg: {}", transactionId, e.getMessage());
+                } catch (Throwable e) {
+                    LOG.warn("afterStateTransform txn {} failed. exception: ", transactionState, e);
                 }
             }
             updateCatalogAfterVisible(transactionState, db);
@@ -1787,6 +1792,21 @@ public class DatabaseTransactionMgr {
                 }
             }
         }
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
+        Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
+        tableIdToTotalNumDeltaRows
+                        .forEach((tableId, numRows) -> {
+                            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                            if (table != null) {
+                                short replicaNum = table.getTableProperty()
+                                        .getReplicaAllocation()
+                                        .getTotalReplicaNum();
+                                tableIdToNumDeltaRows.put(tableId, numRows / replicaNum);
+                            }
+                        });
+        LOG.debug("table id to loaded rows:{}", tableIdToNumDeltaRows);
+        tableIdToNumDeltaRows.forEach(analysisManager::updateUpdatedRows);
         return true;
     }
 

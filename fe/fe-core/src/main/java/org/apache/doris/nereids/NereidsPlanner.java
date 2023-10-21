@@ -240,7 +240,7 @@ public class NereidsPlanner extends Planner {
             // if chooseNthPlan failed, we could get memo to debug
             if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
                 String memo = cascadesContext.getMemo().toString();
-                LOG.info(memo);
+                LOG.info(ConnectContext.get().getQueryIdentifier() + "\n" + memo);
             }
 
             int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
@@ -249,7 +249,7 @@ public class NereidsPlanner extends Planner {
             physicalPlan = postProcess(physicalPlan);
             if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
                 String tree = physicalPlan.treeString();
-                LOG.info(tree);
+                LOG.info(ConnectContext.get().getQueryIdentifier() + "\n" + tree);
             }
             if (explainLevel == ExplainLevel.OPTIMIZED_PLAN
                     || explainLevel == ExplainLevel.ALL_PLAN
