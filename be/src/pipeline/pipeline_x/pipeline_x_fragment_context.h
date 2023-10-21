@@ -113,6 +113,8 @@ public:
 
     [[nodiscard]] int next_operator_id() { return _operator_id++; }
 
+    [[nodiscard]] int max_operator_id() const { return _operator_id << 1; }
+
 private:
     void _close_action() override;
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
