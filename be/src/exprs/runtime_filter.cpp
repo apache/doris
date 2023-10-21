@@ -1311,15 +1311,15 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     } else if (desc->type == TRuntimeFilterType::MIN_MAX) {
         if (desc->__isset.min_max_type) {
             switch (desc->min_max_type) {
-            case TMinMaxRuntimeFilterType::MIN: {
+            case TMinMaxRuntimeFilterType::MIN:
                 _runtime_filter_type = RuntimeFilterType::MIN_FILTER;
-            }
-            case TMinMaxRuntimeFilterType::MAX: {
+                break;
+            case TMinMaxRuntimeFilterType::MAX:
                 _runtime_filter_type = RuntimeFilterType::MAX_FILTER;
-            }
-            case TMinMaxRuntimeFilterType::MIN_MAX: {
+                break;
+            case TMinMaxRuntimeFilterType::MIN_MAX:
                 _runtime_filter_type = RuntimeFilterType::MINMAX_FILTER;
-            }
+                break;
             }
         } else {
             _runtime_filter_type = RuntimeFilterType::MINMAX_FILTER;
