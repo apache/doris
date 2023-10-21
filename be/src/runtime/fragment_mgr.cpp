@@ -526,8 +526,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state,
 #endif
 
     LOG_INFO(func_name)
-            .tag("query_id", exec_state->query_id())
-            .tag("instance_id", exec_state->fragment_instance_id())
+            .tag("query_id", print_id(exec_state->query_id()))
+            .tag("instance_id", print_id(exec_state->fragment_instance_id()))
             .tag("pthread_id", (uintptr_t)pthread_self());
 
     Status st = exec_state->execute();
