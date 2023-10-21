@@ -27,7 +27,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
@@ -77,8 +76,8 @@ enum class RuntimeFilterType {
     BLOOM_FILTER = 2,
     IN_OR_BLOOM_FILTER = 3,
     BITMAP_FILTER = 4,
-    MIN_FILTER = 5, // only min // now only support at local
-    MAX_FILTER = 6  // only max // now only support at local
+    MIN_FILTER = 5, // only min
+    MAX_FILTER = 6  // only max
 };
 
 static RuntimeFilterType get_minmax_filter_type(TMinMaxRuntimeFilterType::type ttype) {

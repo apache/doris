@@ -194,6 +194,17 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToRecycleTime.put(id, recycleTime);
     }
 
+    public synchronized boolean isRecyclePartition(long dbId, long tableId, long partitionId) {
+        return idToDatabase.containsKey(dbId) || idToTable.containsKey(tableId)
+                || idToPartition.containsKey(partitionId);
+    }
+
+    public synchronized void getRecycleIds(Set<Long> dbIds, Set<Long> tableIds, Set<Long> partitionIds) {
+        dbIds.addAll(idToDatabase.keySet());
+        tableIds.addAll(idToTable.keySet());
+        partitionIds.addAll(idToPartition.keySet());
+    }
+
     private synchronized boolean isExpire(long id, long currentTimeMs) {
         long latency = currentTimeMs - idToRecycleTime.get(id);
         return latency > minEraseLatency && latency > Config.catalog_trash_expire_second * 1000L;

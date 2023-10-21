@@ -530,17 +530,11 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
 
 template <typename Derived>
 bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr) {
-    if (slot->type().is_date_type() && expr->type().is_date_type()) {
-        return true;
-    }
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
     }
     if (slot->type().is_array_type()) {
         if (slot->type().children[0].type == expr->type().type) {
-            return true;
-        }
-        if (slot->type().children[0].is_date_type() && expr->type().is_date_type()) {
             return true;
         }
         if (slot->type().children[0].is_string_type() && expr->type().is_string_type()) {
@@ -858,8 +852,8 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                                                     const std::string& fn_name,
                                                     int slot_ref_child) {
     if constexpr (PrimitiveType == TYPE_DATE) {
-        vectorized::VecDateTimeValue tmp_value;
-        memcpy(&tmp_value, value, sizeof(vectorized::VecDateTimeValue));
+        VecDateTimeValue tmp_value;
+        memcpy(&tmp_value, value, sizeof(VecDateTimeValue));
         if constexpr (IsFixed) {
             if (!tmp_value.check_loss_accuracy_cast_to_date()) {
                 func(temp_range,

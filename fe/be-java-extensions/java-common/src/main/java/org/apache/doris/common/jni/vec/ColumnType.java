@@ -45,7 +45,9 @@ public class ColumnType {
         LARGEINT(16),
         FLOAT(4),
         DOUBLE(8),
+        DATE(8),
         DATEV2(4),
+        DATETIME(8),
         DATETIMEV2(8),
         CHAR(-1),
         VARCHAR(-1),
@@ -161,6 +163,19 @@ public class ColumnType {
         return type == Type.STRUCT;
     }
 
+    public boolean isDateV2() {
+        return type == Type.DATEV2;
+    }
+
+    public boolean isDateTimeV2() {
+        return type == Type.DATETIMEV2;
+    }
+
+    public boolean isPrimitive() {
+        return type == Type.BOOLEAN || type == Type.BYTE || type == Type.TINYINT || type == Type.SMALLINT
+                || type == Type.INT || type == Type.BIGINT || type == Type.FLOAT || type == Type.DOUBLE;
+    }
+
     public Type getType() {
         return type;
     }
@@ -264,8 +279,15 @@ public class ColumnType {
             case "double":
                 type = Type.DOUBLE;
                 break;
+            case "datev1":
+                type = Type.DATE;
+                break;
             case "date":
+            case "datev2":
                 type = Type.DATEV2;
+                break;
+            case "datetimev1":
+                type = Type.DATETIME;
                 break;
             case "binary":
             case "bytes":
@@ -275,7 +297,9 @@ public class ColumnType {
                 type = Type.STRING;
                 break;
             default:
-                if (lowerCaseType.startsWith("timestamp")) {
+                if (lowerCaseType.startsWith("timestamp")
+                        || lowerCaseType.startsWith("datetime")
+                        || lowerCaseType.startsWith("datetimev2")) {
                     type = Type.DATETIMEV2;
                     precision = 6; // default
                     Matcher match = digitPattern.matcher(lowerCaseType);

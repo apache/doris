@@ -111,7 +111,7 @@ public:
         }
     }
 
-    int next_operator_id() { return _operator_id++; }
+    int next_operator_id() { return --_operator_id; }
 
 private:
     void _close_action() override;
@@ -172,9 +172,10 @@ private:
     // TODO: Unify `_union_child_pipelines`, `_set_child_pipelines`, `_build_side_pipelines`.
     std::map<int, std::vector<PipelinePtr>> _union_child_pipelines;
     std::map<int, std::vector<PipelinePtr>> _set_child_pipelines;
-    // The number of operators is generally greater than the number of plan nodes,
-    // so we need additional ID and cannot rely solely on plan node ID.
-    int _operator_id = {1000000};
+    // We can guarantee that a plan node ID can correspond to an operator ID,
+    // but some operators do not have a corresponding plan node ID.
+    // We set these IDs as negative numbers, which are not visible to the user.
+    int _operator_id = -1;
 };
 
 } // namespace pipeline

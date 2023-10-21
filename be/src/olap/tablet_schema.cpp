@@ -521,7 +521,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
-    if (type && type->get_type_as_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+    if (type && type->get_type_as_type_descriptor().type == PrimitiveType::TYPE_AGG_STATE) {
         return get_aggregate_function_union(type);
     }
 
@@ -710,9 +710,6 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
-    _partial_update_input_columns.clear();
-    _missing_cids.clear();
-    _update_cids.clear();
     for (auto& column_pb : schema.column()) {
         TabletColumn column;
         column.init_from_pb(column_pb);
@@ -758,23 +755,6 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
     _schema_version = schema.schema_version();
-    _is_partial_update = schema.is_partial_update();
-    for (auto& col_name : schema.partial_update_input_columns()) {
-        _partial_update_input_columns.emplace(col_name);
-    }
-    if (_is_partial_update) {
-        for (auto i = 0; i < _cols.size(); ++i) {
-            if (_partial_update_input_columns.count(_cols[i].name()) == 0) {
-                _missing_cids.emplace_back(i);
-                auto tablet_column = column(i);
-                if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
-                    _can_insert_new_rows_in_partial_update = false;
-                }
-            } else {
-                _update_cids.emplace_back(i);
-            }
-        }
-    }
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
@@ -819,6 +799,9 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
+    _delete_sign_idx = -1;
+    _sequence_col_idx = -1;
+    _version_col_idx = -1;
 
     for (auto& column : index->columns) {
         if (column->is_key()) {
@@ -916,10 +899,6 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
-    tablet_schema_pb->set_is_partial_update(_is_partial_update);
-    for (auto& col : _partial_update_input_columns) {
-        *tablet_schema_pb->add_partial_update_input_columns() = col;
-    }
 }
 
 size_t TabletSchema::row_size() const {
@@ -1103,54 +1082,14 @@ vectorized::Block TabletSchema::create_block(bool ignore_dropped_col) const {
     return block;
 }
 
-vectorized::Block TabletSchema::create_missing_columns_block() {
+vectorized::Block TabletSchema::create_block_by_cids(const std::vector<uint32_t>& cids) {
     vectorized::Block block;
-    for (const auto& cid : _missing_cids) {
+    for (const auto& cid : cids) {
         auto col = _cols[cid];
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
         block.insert({data_type->create_column(), data_type, col.name()});
     }
     return block;
-}
-
-vectorized::Block TabletSchema::create_update_columns_block() {
-    vectorized::Block block;
-    for (const auto& cid : _update_cids) {
-        auto col = _cols[cid];
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
-        block.insert({data_type->create_column(), data_type, col.name()});
-    }
-    return block;
-}
-
-void TabletSchema::set_partial_update_info(bool is_partial_update,
-                                           const std::set<string>& partial_update_input_columns) {
-    _is_partial_update = is_partial_update;
-    _partial_update_input_columns = partial_update_input_columns;
-    _missing_cids.clear();
-    _update_cids.clear();
-    for (auto i = 0; i < _cols.size(); ++i) {
-        if (_partial_update_input_columns.count(_cols[i].name()) == 0) {
-            _missing_cids.emplace_back(i);
-            auto tablet_column = column(i);
-            if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
-                _can_insert_new_rows_in_partial_update = false;
-            }
-        } else {
-            _update_cids.emplace_back(i);
-        }
-    }
-}
-
-bool TabletSchema::is_column_missing(size_t cid) const {
-    DCHECK(cid < _cols.size());
-    if (!_is_partial_update) {
-        return false;
-    }
-    if (_partial_update_input_columns.count(_cols[cid].name()) == 0) {
-        return true;
-    }
-    return false;
 }
 
 bool operator==(const TabletColumn& a, const TabletColumn& b) {

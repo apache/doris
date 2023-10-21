@@ -1918,7 +1918,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
                     ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
                     desc,
-                    ImmutableList.of(),
+                    ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties));
         } else if (ctx.AS() != null) {
             return new CreateTableCommand(Optional.of(visitQuery(ctx.query())), new CreateTableInfo(
@@ -1934,7 +1934,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
                     ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
                     desc,
-                    ImmutableList.of(),
+                    ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties));
         } else {
             throw new AnalysisException("Should contain at least one column in a table");
@@ -2067,7 +2067,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitRollupDefs(RollupDefsContext ctx) {
+    public List<RollupDefinition> visitRollupDefs(RollupDefsContext ctx) {
         return ctx.rollups.stream().map(this::visitRollupDef).collect(Collectors.toList());
     }
 

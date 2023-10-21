@@ -47,13 +47,7 @@ public:
     // Initialize BlockReader with tablet, data version and fetch range.
     Status init(const ReaderParams& read_params) override;
 
-    Status next_block_with_aggregation(Block* block, bool* eof) override {
-        auto res = (this->*_next_block_func)(block, eof);
-        if (UNLIKELY(!res.ok() && !res.is<ErrorCode::END_OF_FILE>())) {
-            _tablet->report_error(res);
-        }
-        return res;
-    }
+    Status next_block_with_aggregation(Block* block, bool* eof) override;
 
     std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
 
