@@ -30,17 +30,21 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -57,6 +61,7 @@ import java.util.stream.Collectors;
  */
 public class CreateTableInfo {
     private final boolean ifNotExists;
+    private String ctlName;
     private String dbName;
     private final String tableName;
     private List<ColumnDefinition> columns;
@@ -77,11 +82,13 @@ public class CreateTableInfo {
     /**
      * constructor for create table
      */
-    public CreateTableInfo(boolean ifNotExists, String dbName, String tableName, List<ColumnDefinition> columns,
-            List<IndexDefinition> indexes, String engineName, KeysType keysType, List<String> keys, String comment,
+    public CreateTableInfo(boolean ifNotExists, String ctlName, String dbName, String tableName,
+            List<ColumnDefinition> columns, List<IndexDefinition> indexes, String engineName,
+            KeysType keysType, List<String> keys, String comment,
             String partitionType, List<String> partitionColumns, List<PartitionDefinition> partitions,
             DistributionDescriptor distribution, List<RollupDefinition> rollups, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
+        this.ctlName = ctlName;
         this.dbName = dbName;
         this.tableName = tableName;
         this.ctasColumns = null;
@@ -102,11 +109,12 @@ public class CreateTableInfo {
     /**
      * constructor for create table as select
      */
-    public CreateTableInfo(boolean ifNotExists, String dbName, String tableName, List<String> cols,
+    public CreateTableInfo(boolean ifNotExists, String ctlName, String dbName, String tableName, List<String> cols,
             String engineName, KeysType keysType, List<String> keys, String comment,
             String partitionType, List<String> partitionColumns, List<PartitionDefinition> partitions,
             DistributionDescriptor distribution, List<RollupDefinition> rollups, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
+        this.ctlName = ctlName;
         this.dbName = dbName;
         this.tableName = tableName;
         this.ctasColumns = cols;
@@ -126,6 +134,10 @@ public class CreateTableInfo {
 
     public List<String> getCtasColumns() {
         return ctasColumns;
+    }
+
+    public String getCtlName() {
+        return ctlName;
     }
 
     public String getDbName() {
@@ -163,19 +175,29 @@ public class CreateTableInfo {
 
         try {
             FeNameFormat.checkTableName(tableName);
-            if (dbName != null) {
-                FeNameFormat.checkDbName(dbName);
-            }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
 
+        // analyze catalog name
+        if (Strings.isNullOrEmpty(ctlName)) {
+            if (ctx.getCurrentCatalog() != null) {
+                ctlName = ctx.getCurrentCatalog().getName();
+            } else {
+                ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
+            }
+        }
+
         // analyze table name
-        if (dbName == null) {
+        if (Strings.isNullOrEmpty(dbName)) {
             dbName = ClusterNamespace.getFullName(ctx.getClusterName(), ctx.getDatabase());
         } else {
             dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
         }
+
+        Preconditions.checkState(!Strings.isNullOrEmpty(ctlName), "catalog name is null or empty");
+        Preconditions.checkState(!Strings.isNullOrEmpty(dbName), "database name is null or empty");
+        properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(ctlName, dbName, properties);
 
         boolean enableDuplicateWithoutKeysByDefault = false;
         if (properties != null) {
@@ -367,14 +389,15 @@ public class CreateTableInfo {
      * check partitions types.
      */
     private boolean checkPartitionsTypes() {
-        if (partitionType.equalsIgnoreCase("RANGE")) {
+        if (partitionType.equalsIgnoreCase(PartitionType.RANGE.name())) {
             if (partitions.stream().allMatch(p -> p instanceof StepPartition)) {
                 return true;
             }
             return partitions.stream().allMatch(p -> (p instanceof LessThanPartition)
                     || (p instanceof FixedRangePartition));
         }
-        return partitionType.equalsIgnoreCase("LIST") && partitions.stream().allMatch(p -> p instanceof InPartition);
+        return partitionType.equalsIgnoreCase(PartitionType.LIST.name())
+                && partitions.stream().allMatch(p -> p instanceof InPartition);
     }
 
     private void validatePartitionColumn(ColumnDefinition column, ConnectContext ctx) {
@@ -395,7 +418,7 @@ public class CreateTableInfo {
         if (!ctx.getSessionVariable().isAllowPartitionColumnNullable() && column.isNullable()) {
             throw new AnalysisException("The partition column must be NOT NULL");
         }
-        if (partitionType.equalsIgnoreCase("LIST") && column.isNullable()) {
+        if (partitionType.equalsIgnoreCase(PartitionType.LIST.name()) && column.isNullable()) {
             throw new AnalysisException("The list partition column must be NOT NULL");
         }
     }
@@ -415,7 +438,7 @@ public class CreateTableInfo {
             List<AllPartitionDesc> partitionDescs = partitions.stream()
                     .map(PartitionDefinition::translateToCatalogStyle).collect(Collectors.toList());
             try {
-                if (partitionType.equals("RANGE")) {
+                if (partitionType.equals(PartitionType.RANGE.name())) {
                     partitionDesc = new RangePartitionDesc(partitionColumns, partitionDescs);
                 } else {
                     partitionDesc = new ListPartitionDesc(partitionColumns, partitionDescs);
