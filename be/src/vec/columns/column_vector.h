@@ -217,8 +217,7 @@ public:
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + value_size * i;
             uint64_t value = *reinterpret_cast<const uint64_t*>(cur_ptr);
-            vectorized::VecDateTimeValue datetime =
-                    VecDateTimeValue::create_from_olap_datetime(value);
+            VecDateTimeValue datetime = VecDateTimeValue::create_from_olap_datetime(value);
             this->insert_data(reinterpret_cast<char*>(&datetime), 0);
         }
     }

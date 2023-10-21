@@ -94,6 +94,8 @@ public class StreamLoadTask implements LoadTaskInfo {
 
     private byte escape = 0;
 
+    private boolean groupCommit = false;
+
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
             TFileCompressType compressType) {
         this.id = id;
@@ -312,6 +314,7 @@ public class StreamLoadTask implements LoadTaskInfo {
                 request.getFileType(), request.getFormatType(),
                 request.getCompressType());
         streamLoadTask.setOptionalFromTSLPutRequest(request);
+        streamLoadTask.setGroupCommit(request.isGroupCommit());
         if (request.isSetFileSize()) {
             streamLoadTask.fileSize = request.getFileSize();
         }
@@ -518,6 +521,14 @@ public class StreamLoadTask implements LoadTaskInfo {
     @Override
     public double getMaxFilterRatio() {
         return maxFilterRatio;
+    }
+
+    public void setGroupCommit(boolean groupCommit) {
+        this.groupCommit = groupCommit;
+    }
+
+    public boolean isGroupCommit() {
+        return groupCommit;
     }
 }
 
