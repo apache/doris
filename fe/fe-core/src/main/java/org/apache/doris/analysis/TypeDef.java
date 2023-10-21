@@ -183,6 +183,18 @@ public class TypeDef implements ParseNode {
     private void analyzeScalarType(ScalarType scalarType)
             throws AnalysisException {
         PrimitiveType type = scalarType.getPrimitiveType();
+        // When string type length is not assigned, it needs to be assigned to 1.
+        if (scalarType.getPrimitiveType().isStringType() && !scalarType.isLengthSet()) {
+            if (scalarType.getPrimitiveType() == PrimitiveType.VARCHAR) {
+                // always set varchar length MAX_VARCHAR_LENGTH
+                scalarType.setLength(ScalarType.MAX_VARCHAR_LENGTH);
+            } else if (scalarType.getPrimitiveType() == PrimitiveType.STRING) {
+                // always set text length MAX_STRING_LENGTH
+                scalarType.setLength(ScalarType.MAX_STRING_LENGTH);
+            } else {
+                scalarType.setLength(1);
+            }
+        }
         switch (type) {
             case CHAR:
             case VARCHAR: {
