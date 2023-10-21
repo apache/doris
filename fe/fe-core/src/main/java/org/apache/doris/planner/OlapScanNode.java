@@ -772,6 +772,11 @@ public class OlapScanNode extends ScanNode {
                 replicas.clear();
                 replicas.add(replica);
             }
+
+            if (skipMissingVersion) {
+                // sort by replica's last success version, higher success version in the front.
+                replicas.sort(Replica.LAST_SUCCESS_VERSION_COMPARATOR);
+            }
             final long coolDownReplicaId = tablet.getCooldownReplicaId();
             // we prefer to query using cooldown replica to make sure the cache is fully utilized
             // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
@@ -833,6 +838,11 @@ public class OlapScanNode extends ScanNode {
                     collectedStat = true;
                 }
                 scanBackendIds.add(backend.getId());
+                // For skipping missing version of tablet, we only select the backend with the highest last
+                // success version replica to save as much data as possible.
+                if (!tabletIsNull && skipMissingVersion) {
+                    break;
+                }
             }
             if (tabletIsNull) {
                 if (Config.recover_with_skip_missing_version.equalsIgnoreCase("ignore_all")) {

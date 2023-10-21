@@ -979,10 +979,11 @@ public class SessionVariable implements Serializable, Writable {
     public boolean skipDeleteBitmap = false;
 
     // In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover.
-    // This config can control the behavior of query. When it is opened, if the replica on be has missing versions,
-    // the query will directly skip this missing version, and only return the data of the existing version. You should
-    // only open it in the emergency scenarios mentioned above, because in normal scenarios, if the query ignores some
-    // missing versions on a replica and another replicas has all versions, the query will return incorrect results.
+    // This config can control the behavior of query. When it is set to `true`, if the replica on be has missing
+    // versions, the query will directly skip this missing version, and only return the data of the existing versions.
+    // In addition, the query will always try to select the one with the highest lastSuccessVersion among all surviving
+    // BE replicas, so as to recover as much data as possible.
+    // You should only open it in the emergency scenarios mentioned above, only used for temporary table recovery queries.
     @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION)
     public boolean skipMissingVersion = false;
 
