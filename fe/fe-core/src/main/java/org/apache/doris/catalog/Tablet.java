@@ -238,7 +238,7 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     // for query
-    public List<Replica> getQueryableReplicas(long visibleVersion) {
+    public List<Replica> getQueryableReplicas(long visibleVersion, boolean allowFailedVersion) {
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
         List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
         for (Replica replica : replicas) {
@@ -247,10 +247,7 @@ public class Tablet extends MetaObject implements Writable {
             }
 
             // Skip the missing version replica
-            // If recover_with_skip_missing_version config is open, dont't skip this replica,
-            // we can skip missing version in BE.
-            if (replica.getLastFailedVersion() > 0
-                    && Config.recover_with_skip_missing_version.equalsIgnoreCase("disable")) {
+            if (replica.getLastFailedVersion() > 0 && !allowFailedVersion) {
                 continue;
             }
 

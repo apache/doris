@@ -293,6 +293,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
 
+    public static final String SKIP_MISSING_VERSION = "skip_missing_version";
+
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
 
     public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
@@ -975,6 +977,14 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
     public boolean skipDeleteBitmap = false;
+
+    // In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover.
+    // This config can control the behavior of query. When it is opened, if the replica on be has missing versions,
+    // the query will directly skip this missing version, and only return the data of the existing version. You should
+    // only open it in the emergency scenarios mentioned above, because in normal scenarios, if the query ignores some
+    // missing versions on a replica and another replicas has all versions, the query will return incorrect results.
+    @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION)
+    public boolean skipMissingVersion = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
@@ -2435,6 +2445,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFasterFloatConvert(fasterFloatConvert);
 
         tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
+
+        tResult.setSkipMissingVersion(skipMissingVersion);
 
         return tResult;
     }

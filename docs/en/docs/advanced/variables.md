@@ -575,6 +575,10 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     For debugging purpose. In Unique Key MoW table, in case of problems of reading data, setting value to `true` will also read deleted data.
 
+* `skip_missing_version`
+
+    In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover. This config can control the behavior of query. When it is opened, if the replica on be has missing versions, the query will directly skip this missing version, and only return the data of the existing version. You should only open it in the emergency scenarios mentioned above, because in normal scenarios, if the query ignores some missing versions on a replica and another replicas has all versions, the query will return incorrect results.
+
 * `default_password_lifetime`
 
 	Default password expiration time. The default value is 0, which means no expiration. The unit is days. This parameter is only enabled if the user's password expiration property has a value of DEFAULT. like:

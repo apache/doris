@@ -563,6 +563,10 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
     用于调试目的。在Unique Key MoW表中，当发现读取表的数据结果有误的时候，把此变量的值设置为`true`，将会把被delete bitmap标记删除的数据当成正常数据读取。
 
+* `skip_missing_version`
+
+    有些极端场景下，表的 Tablet 下的所有的所有副本都有版本缺失，使得这些 Tablet 没有办法被恢复，导致整张表都不能查询。这个变量可以用来控制查询的行为，打设置为`true`时，如果 Be 上的 Replica 有缺失的版本，则查询会直接跳过这些缺失的版本，只返回仍存在版本的数据。这个变量应该只在上述紧急情况下才被设置为`true`，仅用于临时让表恢复查询，因为在正常情况下，如果查询跳过了一个 Replica 的丢失版本，而另一个 Replica 有所有完整的版本，那么查询返回的结果是和正确结果不一致的。
+
 * `default_password_lifetime`
 
  	默认的密码过期时间。默认值为 0，即表示不过期。单位为天。该参数只有当用户的密码过期属性为 DEFAULT 值时，才启用。如：

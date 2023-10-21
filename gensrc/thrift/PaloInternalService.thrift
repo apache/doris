@@ -253,6 +253,8 @@ struct TQueryOptions {
   88: optional bool enable_decimal256 = false;
 
   89: optional bool enable_local_shuffle = false;
+  // For emergency use, skip missing version when reading rowsets
+  88: optional bool skip_missing_version = false;
 }
 
 

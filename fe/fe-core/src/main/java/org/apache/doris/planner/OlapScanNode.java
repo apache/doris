@@ -711,13 +711,17 @@ public class OlapScanNode extends ScanNode {
 
         Set<Tag> allowedTags = Sets.newHashSet();
         boolean needCheckTags = false;
+        boolean skipMissingVersion = false;
+        boolean allowFailedVersion = false;
         if (ConnectContext.get() != null) {
             allowedTags = ConnectContext.get().getResourceTags();
             needCheckTags = ConnectContext.get().isResourceTagsSet();
+            skipMissingVersion = ConnectContext.get().getSessionVariable().skipMissingVersion;
+            allowFailedVersion = skipMissingVersion;
         }
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
-            if (!Config.recover_with_skip_missing_version.equalsIgnoreCase("disable")) {
+            if (!Config.recover_with_skip_missing_version.equalsIgnoreCase("disable") || skipMissingVersion) {
                 long tabletVersion = -1L;
                 for (Replica replica : tablet.getReplicas()) {
                     if (replica.getVersion() > tabletVersion) {
@@ -739,12 +743,8 @@ public class OlapScanNode extends ScanNode {
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
 
-            if (!Config.recover_with_skip_missing_version.equalsIgnoreCase("disable")) {
-                paloRange.setSkipMissingVersion(true);
-            }
-
             // random shuffle List && only collect one copy
-            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion);
+            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion, allowFailedVersion);
             if (replicas.isEmpty()) {
                 LOG.warn("no queryable replica found in tablet {}. visible version {}", tabletId, visibleVersion);
                 StringBuilder sb = new StringBuilder(
