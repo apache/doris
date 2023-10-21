@@ -983,7 +983,7 @@ public class SessionVariable implements Serializable, Writable {
     // versions, the query will directly skip this missing version, and only return the data of the existing versions.
     // In addition, the query will always try to select the one with the highest lastSuccessVersion among all surviving
     // BE replicas, so as to recover as much data as possible.
-    // You should only open it in the emergency scenarios mentioned above, only used for temporary table recovery queries.
+    // You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries.
     @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION)
     public boolean skipMissingVersion = false;
 
