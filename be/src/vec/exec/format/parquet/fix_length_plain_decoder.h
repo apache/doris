@@ -99,18 +99,28 @@ template <tparquet::Type::type PhysicalType>
 template <bool has_filter>
 Status FixLengthPlainDecoder<PhysicalType>::_decode_string(MutableColumnPtr& doris_column,
                                                            ColumnSelectVector& select_vector) {
+    auto& string_column = static_cast<ColumnString&>(*doris_column);
+
+    auto& data = string_column.get_chars();
+    size_t data_index = data.size();
+    data.resize(data_index +
+                _type_length * (select_vector.num_values() - select_vector.num_filtered()));
+    auto& offset = string_column.get_offsets();
+    size_t offset_index = offset.size();
+    offset.resize(offset_index + select_vector.num_values() - select_vector.num_filtered());
+
     ColumnSelectVector::DataReadType read_type;
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            std::vector<StringRef> string_values;
-            string_values.reserve(run_length);
-            for (size_t i = 0; i < run_length; ++i) {
-                char* buf_start = _data->data + _offset;
-                string_values.emplace_back(buf_start, _type_length);
-                _offset += _type_length;
+            memcpy(data.data() + data_index, _data->data + _offset, _type_length * run_length);
+            _offset += _type_length * run_length;
+            data_index += _type_length * run_length;
+
+            for (int i = 0; i < run_length; i++) {
+                offset[offset_index] = offset[offset_index - 1] + _type_length;
+                offset_index++;
             }
-            doris_column->insert_many_strings(&string_values[0], run_length);
             break;
         }
         case ColumnSelectVector::NULL_DATA: {
@@ -134,47 +144,34 @@ template <tparquet::Type::type PhysicalType>
 template <bool has_filter>
 Status FixLengthPlainDecoder<PhysicalType>::_decode_numeric(MutableColumnPtr& doris_column,
                                                             ColumnSelectVector& select_vector) {
-    if constexpr (PhysicalType == tparquet::Type::FIXED_LEN_BYTE_ARRAY ||
-                  PhysicalType == tparquet::Type::BYTE_ARRAY) {
-        return Status::OK();
-    } else {
-        using ColumnType = ParquetConvert::PhysicalTypeTraits<PhysicalType>::ColumnType;
-        using DataType = ParquetConvert::PhysicalTypeTraits<PhysicalType>::DataType;
-
-        auto& column_data = static_cast<ColumnType&>(*doris_column).get_data();
-        size_t data_index = column_data.size();
-        column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
-        ColumnSelectVector::DataReadType read_type;
-        while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
-            switch (read_type) {
-            case ColumnSelectVector::CONTENT: {
-                for (size_t i = 0; i < run_length; ++i) {
-                    char* buf_start = _data->data + _offset;
-                    if constexpr (PhysicalType != tparquet::Type::INT96) {
-                        column_data[data_index++] = *(DataType*)buf_start;
-                    } else {
-                        ParquetInt96 value = *(ParquetInt96*)buf_start;
-                        column_data[data_index++] = value.to_int128();
-                    }
-                    _offset += _type_length;
-                }
-                break;
-            }
-            case ColumnSelectVector::NULL_DATA: {
-                data_index += run_length;
-                break;
-            }
-            case ColumnSelectVector::FILTERED_CONTENT: {
-                _offset += _type_length * run_length;
-                break;
-            }
-            case ColumnSelectVector::FILTERED_NULL: {
-                // do nothing
-                break;
-            }
-            }
+    auto& column_data = reinterpret_cast<ColumnVector<Int8>&>(*doris_column).get_data();
+    size_t data_index = column_data.size();
+    column_data.resize(data_index +
+                       _type_length * (select_vector.num_values() - select_vector.num_filtered()));
+    ColumnSelectVector::DataReadType read_type;
+    while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
+            memcpy(column_data.data() + data_index, _data->data + _offset,
+                   run_length * _type_length);
+            _offset += run_length * _type_length;
+            data_index += run_length * _type_length;
+            break;
         }
-        return Status::OK();
+        case ColumnSelectVector::NULL_DATA: {
+            data_index += run_length;
+            break;
+        }
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            _offset += _type_length * run_length;
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            // do nothing
+            break;
+        }
+        }
     }
+    return Status::OK();
 }
 } // namespace doris::vectorized

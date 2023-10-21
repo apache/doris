@@ -482,127 +482,106 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
                                             ColumnSelectVector& select_vector, size_t batch_size,
                                             size_t* read_rows, bool* eof, bool is_dict_filter) {
     bool need_convert = false;
-    auto& physical_type = _chunk_meta.meta_data.type;
-    DataTypePtr src_type;
+    auto& parquet_physical_type = _chunk_meta.meta_data.type;
+    auto& show_type = _field_schema->type.type;
 
-    RETURN_IF_ERROR(ParquetConvert::convert_data_type_from_parquet(
-            physical_type, _field_schema->type.type, src_type, type, &need_convert));
+    ColumnPtr src_column = ParquetConvert::get_column(parquet_physical_type, show_type,
+                                                      doris_column, type, &need_convert);
 
-    ColumnPtr src_column = doris_column;
-    if (need_convert) {
-        src_column = src_type->create_column();
-    }
-
-    if (_chunk_reader->remaining_num_values() == 0) {
-        if (!_chunk_reader->has_next_page()) {
-            *eof = true;
-            *read_rows = 0;
-            return Status::OK();
-        }
-        RETURN_IF_ERROR(_chunk_reader->next_page());
-    }
-    if (_nested_column) {
-        RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
-        RETURN_IF_ERROR(_read_nested_column(src_column, type, select_vector, batch_size, read_rows,
-                                            eof, is_dict_filter));
-        if (need_convert) {
-            std::unique_ptr<ParquetConvert::ColumnConvert> converter;
-            ParquetConvert::ConvertParams convert_params;
-            convert_params.init(_field_schema, _ctz);
-            convert_params.start_idx = doris_column->size();
-            RETURN_IF_ERROR(ParquetConvert::get_converter(src_type, _field_schema->type.type, type,
-                                                          &converter, &convert_params));
-            RETURN_IF_ERROR(
-                    converter->convert(src_column, const_cast<IColumn*>(doris_column.get())));
-        }
-        return Status::OK();
-    }
-
-    // generate the row ranges that should be read
-    std::list<RowRange> read_ranges;
-    _generate_read_ranges(_current_row_index,
-                          _current_row_index + _chunk_reader->remaining_num_values(), read_ranges);
-    if (read_ranges.size() == 0) {
-        // skip the whole page
-        _current_row_index += _chunk_reader->remaining_num_values();
-        RETURN_IF_ERROR(_chunk_reader->skip_page());
-        *read_rows = 0;
-    } else {
-        bool skip_whole_batch = false;
-        // Determining whether to skip page or batch will increase the calculation time.
-        // When the filtering effect is greater than 60%, it is possible to skip the page or batch.
-        if (select_vector.has_filter() && select_vector.filter_ratio() > 0.6) {
-            // lazy read
-            size_t remaining_num_values = 0;
-            for (auto& range : read_ranges) {
-                remaining_num_values += range.last_row - range.first_row;
-            }
-            if (batch_size >= remaining_num_values &&
-                select_vector.can_filter_all(remaining_num_values)) {
-                // We can skip the whole page if the remaining values is filtered by predicate columns
-                select_vector.skip(remaining_num_values);
-                _current_row_index += _chunk_reader->remaining_num_values();
-                RETURN_IF_ERROR(_chunk_reader->skip_page());
-                *read_rows = remaining_num_values;
-                if (!_chunk_reader->has_next_page()) {
-                    *eof = true;
-                }
-                if (need_convert) {
-                    std::unique_ptr<ParquetConvert::ColumnConvert> converter;
-                    ParquetConvert::ConvertParams convert_params;
-                    convert_params.init(_field_schema, _ctz);
-                    convert_params.start_idx = doris_column->size();
-                    RETURN_IF_ERROR(ParquetConvert::get_converter(
-                            src_type, _field_schema->type.type, type, &converter, &convert_params));
-                    RETURN_IF_ERROR(converter->convert(src_column,
-                                                       const_cast<IColumn*>(doris_column.get())));
-                }
-
+    do {
+        if (_chunk_reader->remaining_num_values() == 0) {
+            if (!_chunk_reader->has_next_page()) {
+                *eof = true;
+                *read_rows = 0;
                 return Status::OK();
             }
-            skip_whole_batch =
-                    batch_size <= remaining_num_values && select_vector.can_filter_all(batch_size);
-            if (skip_whole_batch) {
-                select_vector.skip(batch_size);
-            }
+            RETURN_IF_ERROR(_chunk_reader->next_page());
         }
-        // load page data to decode or skip values
-        RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
-        size_t has_read = 0;
-        for (auto& range : read_ranges) {
-            // generate the skipped values
-            size_t skip_values = range.first_row - _current_row_index;
-            RETURN_IF_ERROR(_skip_values(skip_values));
-            _current_row_index += skip_values;
-            // generate the read values
-            size_t read_values =
-                    std::min((size_t)(range.last_row - range.first_row), batch_size - has_read);
-            if (skip_whole_batch) {
-                RETURN_IF_ERROR(_skip_values(read_values));
-            } else {
-                RETURN_IF_ERROR(
-                        _read_values(read_values, src_column, type, select_vector, is_dict_filter));
-            }
-            has_read += read_values;
-            _current_row_index += read_values;
-            if (has_read == batch_size) {
-                break;
-            }
+        if (_nested_column) {
+            RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
+            RETURN_IF_ERROR(_read_nested_column(src_column, type, select_vector, batch_size,
+                                                read_rows, eof, is_dict_filter));
+            break;
         }
-        *read_rows = has_read;
-    }
 
-    if (_chunk_reader->remaining_num_values() == 0 && !_chunk_reader->has_next_page()) {
-        *eof = true;
-    }
+        // generate the row ranges that should be read
+        std::list<RowRange> read_ranges;
+        _generate_read_ranges(_current_row_index,
+                              _current_row_index + _chunk_reader->remaining_num_values(),
+                              read_ranges);
+        if (read_ranges.size() == 0) {
+            // skip the whole page
+            _current_row_index += _chunk_reader->remaining_num_values();
+            RETURN_IF_ERROR(_chunk_reader->skip_page());
+            *read_rows = 0;
+        } else {
+            bool skip_whole_batch = false;
+            // Determining whether to skip page or batch will increase the calculation time.
+            // When the filtering effect is greater than 60%, it is possible to skip the page or batch.
+            if (select_vector.has_filter() && select_vector.filter_ratio() > 0.6) {
+                // lazy read
+                size_t remaining_num_values = 0;
+                for (auto& range : read_ranges) {
+                    remaining_num_values += range.last_row - range.first_row;
+                }
+                if (batch_size >= remaining_num_values &&
+                    select_vector.can_filter_all(remaining_num_values)) {
+                    // We can skip the whole page if the remaining values is filtered by predicate columns
+                    select_vector.skip(remaining_num_values);
+                    _current_row_index += _chunk_reader->remaining_num_values();
+                    RETURN_IF_ERROR(_chunk_reader->skip_page());
+                    *read_rows = remaining_num_values;
+                    if (!_chunk_reader->has_next_page()) {
+                        *eof = true;
+                    }
+                    break;
+                }
+                skip_whole_batch = batch_size <= remaining_num_values &&
+                                   select_vector.can_filter_all(batch_size);
+                if (skip_whole_batch) {
+                    select_vector.skip(batch_size);
+                }
+            }
+            // load page data to decode or skip values
+            RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
+            size_t has_read = 0;
+            for (auto& range : read_ranges) {
+                // generate the skipped values
+                size_t skip_values = range.first_row - _current_row_index;
+                RETURN_IF_ERROR(_skip_values(skip_values));
+                _current_row_index += skip_values;
+                // generate the read values
+                size_t read_values =
+                        std::min((size_t)(range.last_row - range.first_row), batch_size - has_read);
+                if (skip_whole_batch) {
+                    RETURN_IF_ERROR(_skip_values(read_values));
+                } else {
+                    RETURN_IF_ERROR(_read_values(read_values, src_column, type, select_vector,
+                                                 is_dict_filter));
+                }
+                has_read += read_values;
+                _current_row_index += read_values;
+                if (has_read == batch_size) {
+                    break;
+                }
+            }
+            *read_rows = has_read;
+        }
+
+        if (_chunk_reader->remaining_num_values() == 0 && !_chunk_reader->has_next_page()) {
+            *eof = true;
+        }
+    } while (0);
+
     if (need_convert) {
         std::unique_ptr<ParquetConvert::ColumnConvert> converter;
         ParquetConvert::ConvertParams convert_params;
         convert_params.init(_field_schema, _ctz);
         convert_params.start_idx = doris_column->size();
-        RETURN_IF_ERROR(ParquetConvert::get_converter(src_type, _field_schema->type.type, type,
+        RETURN_IF_ERROR(ParquetConvert::get_converter(parquet_physical_type, show_type, type,
                                                       &converter, &convert_params));
-        RETURN_IF_ERROR(converter->convert(src_column, const_cast<IColumn*>(doris_column.get())));
+        auto x = doris_column->assume_mutable();
+        RETURN_IF_ERROR(converter->convert(src_column, x));
     }
 
     return Status::OK();

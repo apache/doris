@@ -19,85 +19,64 @@
 
 #include <cctz/time_zone.h>
 
+#include "vec/columns/column_nullable.h"
 namespace doris::vectorized {
 namespace ParquetConvert {
 const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
 
-Status convert_data_type_from_parquet(tparquet::Type::type parquet_type, PrimitiveType show_type,
-                                      vectorized::DataTypePtr& ans_data_type, DataTypePtr& src_type,
-                                      bool* need_convert) {
-    if (is_complex_type(src_type)) {
-        *need_convert = false;
-        return Status::OK();
-    }
-    switch (parquet_type) {
+ColumnPtr get_column(tparquet::Type::type parquet_physical_type, PrimitiveType show_type,
+                     ColumnPtr& doris_column, DataTypePtr& doris_type, bool* need_convert) {
+    ColumnPtr ans_column = doris_column;
+    DataTypePtr tmp_data_type;
+
+    switch (parquet_physical_type) {
     case tparquet::Type::type::BOOLEAN:
-        ans_data_type = std::make_shared<DataTypeUInt8>();
+        tmp_data_type = std::make_shared<DataTypeUInt8>();
         break;
     case tparquet::Type::type::INT32:
-        ans_data_type = std::make_shared<DataTypeInt32>();
+        tmp_data_type = std::make_shared<DataTypeInt32>();
         break;
     case tparquet::Type::type::INT64:
-        ans_data_type = std::make_shared<DataTypeInt64>();
+        tmp_data_type = std::make_shared<DataTypeInt64>();
         break;
     case tparquet::Type::type::FLOAT:
-        ans_data_type = std::make_shared<DataTypeFloat32>();
+        tmp_data_type = std::make_shared<DataTypeFloat32>();
         break;
     case tparquet::Type::type::DOUBLE:
-        ans_data_type = std::make_shared<DataTypeFloat64>();
+        tmp_data_type = std::make_shared<DataTypeFloat64>();
         break;
     case tparquet::Type::type::BYTE_ARRAY:
     case tparquet::Type::type::FIXED_LEN_BYTE_ARRAY:
-        ans_data_type = std::make_shared<DataTypeString>();
+        tmp_data_type = std::make_shared<DataTypeString>();
         break;
     case tparquet::Type::type::INT96:
-        ans_data_type = std::make_shared<DataTypeInt128>();
+        tmp_data_type = std::make_shared<DataTypeInt8>();
         break;
-    default:
-        return Status::IOError("Can't read parquet type : {}", parquet_type);
     }
-    if (ans_data_type->get_type_id() == src_type->get_type_id()) {
-        if (ans_data_type->get_type_id() == TypeIndex::String &&
-            show_type == PrimitiveType::TYPE_DECIMAL64) {
+
+    if (tmp_data_type->get_type_id() == remove_nullable(doris_type)->get_type_id()) {
+        if (tmp_data_type->get_type_id() == TypeIndex::String &&
+            (show_type == PrimitiveType::TYPE_DECIMAL32 ||
+             show_type == PrimitiveType::TYPE_DECIMAL64 ||
+             show_type == PrimitiveType::TYPE_DECIMALV2 ||
+             show_type == PrimitiveType::TYPE_DECIMAL128I)) {
             *need_convert = true;
-            return Status::OK();
-        }
-        *need_convert = false;
-        return Status::OK();
-    }
-
-    if (src_type->is_nullable()) {
-        auto& nested_src_type =
-                static_cast<const DataTypeNullable*>(src_type.get())->get_nested_type();
-        auto sub = ans_data_type;
-        ans_data_type = std::make_shared<DataTypeNullable>(ans_data_type);
-
-        if (nested_src_type->get_type_id() == sub->get_type_id()) {
-            if (sub->get_type_id() == TypeIndex::String &&
-                show_type == PrimitiveType::TYPE_DECIMAL64) {
-                *need_convert = true;
-                return Status::OK();
-            }
+            ans_column = tmp_data_type->create_column();
+        } else {
             *need_convert = false;
-            return Status::OK();
         }
-    }
-
-    *need_convert = true;
-    return Status::OK();
-}
-
-Status get_converter(std::shared_ptr<const IDataType> src_type, PrimitiveType show_type,
-                     std::shared_ptr<const IDataType> dst_type,
-                     std::unique_ptr<ColumnConvert>* converter, ConvertParams* convert_param) {
-    if (src_type->is_nullable()) {
-        auto src = reinterpret_cast<const DataTypeNullable*>(src_type.get())->get_nested_type();
-        auto dst = reinterpret_cast<const DataTypeNullable*>(dst_type.get())->get_nested_type();
-
-        return get_converter_impl<true>(src, show_type, dst, converter, convert_param);
     } else {
-        return get_converter_impl<false>(src_type, show_type, dst_type, converter, convert_param);
+        ans_column = tmp_data_type->create_column();
+        *need_convert = true;
     }
+
+    if (*need_convert && doris_type->is_nullable()) {
+        auto doris_nullable_column = static_cast<const ColumnNullable*>(doris_column.get());
+        ans_column = ColumnNullable::create(ans_column,
+                                            doris_nullable_column->get_null_map_column_ptr());
+    }
+    return ans_column;
 }
+
 } // namespace ParquetConvert
 } // namespace doris::vectorized

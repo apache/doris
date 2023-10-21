@@ -57,6 +57,12 @@ struct PhysicalTypeTraits<tparquet::Type::INT32> {
 };
 
 template <>
+struct PhysicalTypeTraits<tparquet::Type::BOOLEAN> {
+    using DataType = uint8;
+    using ColumnType = ColumnVector<DataType>;
+};
+
+template <>
 struct PhysicalTypeTraits<tparquet::Type::INT64> {
     using DataType = int64_t;
     using ColumnType = ColumnVector<DataType>;
@@ -88,19 +94,15 @@ struct PhysicalTypeTraits<tparquet::Type::FIXED_LEN_BYTE_ARRAY> {
 
 template <>
 struct PhysicalTypeTraits<tparquet::Type::INT96> {
-    using DataType = Int128;
-    using ColumnType = ColumnVector<DataType>;
+    using DataType = ParquetInt96;
+    using ColumnType = ColumnVector<Int8>;
 };
 
 #define FOR_LOGICAL_NUMERIC_TYPES(M)        \
     M(TypeIndex::Int8, Int8, Int32)         \
-    M(TypeIndex::UInt8, UInt8, Int32)       \
     M(TypeIndex::Int16, Int16, Int32)       \
-    M(TypeIndex::UInt16, UInt16, Int32)     \
     M(TypeIndex::Int32, Int32, Int32)       \
-    M(TypeIndex::UInt32, UInt32, Int32)     \
     M(TypeIndex::Int64, Int64, Int64)       \
-    M(TypeIndex::UInt64, UInt64, Int64)     \
     M(TypeIndex::Float32, Float32, Float32) \
     M(TypeIndex::Float64, Float64, Float64)
 
@@ -187,103 +189,77 @@ struct ConvertParams {
     }
 };
 
-Status convert_data_type_from_parquet(tparquet::Type::type parquet_type, PrimitiveType,
-                                      vectorized::DataTypePtr& ans_data_type, DataTypePtr& src_type,
-                                      bool* need_convert);
+ColumnPtr get_column(tparquet::Type::type parquet_physical_type, PrimitiveType show_type,
+                     ColumnPtr& doris_column, DataTypePtr& doris_type, bool* need_convert);
 
 struct ColumnConvert {
-    virtual Status convert(const IColumn* src_col, IColumn* dst_col) { return Status::OK(); }
+    virtual Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) { return Status::OK(); }
 
     virtual ~ColumnConvert() = default;
 
-    void convert_null(const IColumn** src_col, IColumn** dst_col) const {
-        size_t rows = (*src_col)->size();
-        if ((*src_col)->is_nullable()) {
-            auto src_nullable_column = static_cast<const ColumnNullable*>(*src_col);
-            auto dst_nullable_column = static_cast<ColumnNullable*>(*dst_col);
-            auto& src_null_data = src_nullable_column->get_null_map_column().get_data();
-            dst_nullable_column->get_null_map_column().resize(_convert_params->start_idx + rows);
-            auto& dst_null_data = dst_nullable_column->get_null_map_column().get_data();
-            for (auto j = 0; j < rows; j++) {
-                dst_null_data[_convert_params->start_idx + j] = src_null_data[j];
-            }
-
-            *src_col = &src_nullable_column->get_nested_column();
-            *dst_col = &dst_nullable_column->get_nested_column();
-        }
+    void convert_null(ColumnPtr& src_col, MutableColumnPtr& dst_col) {
+        src_col = remove_nullable(src_col);
+        dst_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
     }
 
 public:
     ConvertParams* _convert_params;
 };
 
-template <typename src_type, typename dst_type, bool is_nullable>
-struct NumberColumnConvert : public ColumnConvert {
-    Status convert(const IColumn* src_col, IColumn* dst_col) override;
-};
+template <tparquet::Type::type parquet_physical_type, typename dst_type>
+struct NumberToNumberConvert : public ColumnConvert {
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        using ColumnType = typename PhysicalTypeTraits<parquet_physical_type>::ColumnType;
+        convert_null(src_col, dst_col);
 
-template <typename src_type, typename dst_type, bool is_nullable>
-Status NumberColumnConvert<src_type, dst_type, is_nullable>::convert(const IColumn* src_col,
-                                                                     IColumn* dst_col) {
-    size_t rows = src_col->size();
-    if constexpr (is_nullable) {
-        convert_null(&src_col, &dst_col);
-    }
-    auto& src_data = static_cast<const ColumnVector<src_type>*>(src_col)->get_data();
-    dst_col->resize(_convert_params->start_idx + rows);
-    auto& data = static_cast<ColumnVector<dst_type>*>(dst_col)->get_data();
-
-    for (int i = 0; i < rows; i++) {
-        dst_type value = static_cast<dst_type>(src_data[i]);
-        data[_convert_params->start_idx + i] = value;
-    }
-
-    return Status::OK();
-}
-template <typename src_type, bool is_nullable>
-struct NumberColumnToStringConvert : public ColumnConvert {
-    Status convert(const IColumn* src_col, IColumn* dst_col) override;
-};
-
-template <typename src_type, bool is_nullable>
-Status NumberColumnToStringConvert<src_type, is_nullable>::convert(const IColumn* src_col,
-                                                                   IColumn* dst_col) {
-    size_t rows = src_col->size();
-    if constexpr (is_nullable) {
-        convert_null(&src_col, &dst_col);
-    }
-    auto& src_data = static_cast<const ColumnVector<src_type>*>(src_col)->get_data();
-    auto str_col = static_cast<ColumnString*>(dst_col);
-    for (int i = 0; i < rows; i++) {
-        std::string value = std::to_string(src_data[i]);
-        str_col->insert_data(value.data(), value.size());
-    }
-    return Status::OK();
-}
-
-template <bool is_nullable>
-struct int128totimestamp : public ColumnConvert {
-public:
-    [[nodiscard]] static uint64_t to_timestamp_micros(uint32_t hi, uint64_t lo) {
-        return (hi - ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS) * ParquetInt96::MICROS_IN_DAY +
-               lo / ParquetInt96::NANOS_PER_MICROSECOND;
-    }
-    Status convert(const IColumn* src_col, IColumn* dst_col) override {
         size_t rows = src_col->size();
-        if constexpr (is_nullable) {
-            convert_null(&src_col, &dst_col);
-        }
-        auto& src_data = static_cast<const ColumnVector<Int128>*>(src_col)->get_data();
+        auto& src_data = static_cast<const ColumnType*>(src_col.get())->get_data();
+
         dst_col->resize(_convert_params->start_idx + rows);
-        auto& data = static_cast<ColumnVector<UInt64>*>(dst_col)->get_data();
+        auto& data = static_cast<ColumnVector<dst_type>&>(*dst_col.get()).get_data();
+        for (int i = 0; i < rows; i++) {
+            dst_type value = static_cast<dst_type>(src_data[i]);
+            data[_convert_params->start_idx + i] = value;
+        }
+
+        return Status::OK();
+    }
+};
+
+template <tparquet::Type::type parquet_physical_type>
+struct NumberToStringConvert : public ColumnConvert {
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        using ColumnType = typename PhysicalTypeTraits<parquet_physical_type>::ColumnType;
+        convert_null(src_col, dst_col);
+
+        size_t rows = src_col->size();
+        auto& src_data = static_cast<const ColumnType*>(src_col.get())->get_data();
+
+        auto str_col = static_cast<ColumnString*>(dst_col.get());
+        for (int i = 0; i < rows; i++) {
+            std::string value = std::to_string(src_data[i]);
+            str_col->insert_data(value.data(), value.size());
+        }
+        return Status::OK();
+    }
+};
+
+struct Int96toTimestamp : public ColumnConvert {
+public:
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        convert_null(src_col, dst_col);
+
+        size_t rows = src_col->size() / sizeof(ParquetInt96);
+        auto& src_data = static_cast<const ColumnVector<Int8>*>(src_col.get())->get_data();
+        auto ParquetInt96_data = (ParquetInt96*)src_data.data();
+        dst_col->resize(_convert_params->start_idx + rows);
+        auto& data = static_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
 
         for (int i = 0; i < rows; i++) {
-            __int128 x = src_data[i];
-            uint32_t hi = x >> 64;
-            uint64_t lo = (x << 64) >> 64;
+            ParquetInt96 x = ParquetInt96_data[i];
             auto& num = data[_convert_params->start_idx + i];
             auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
-            int64_t micros = to_timestamp_micros(hi, lo);
+            int64_t micros = x.to_timestamp_micros();
             value.from_unixtime(micros / 1000000, *_convert_params->ctz);
             value.set_microsecond(micros % 1000000);
         }
@@ -291,21 +267,19 @@ public:
     }
 };
 
-template <bool is_nullable>
-struct int64totimestamp : public ColumnConvert {
+struct Int64ToTimestamp : public ColumnConvert {
 public:
-    Status convert(const IColumn* src_col, IColumn* dst_col) override {
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        convert_null(src_col, dst_col);
+
         size_t rows = src_col->size();
-        if constexpr (is_nullable) {
-            convert_null(&src_col, &dst_col);
-        }
         dst_col->resize(_convert_params->start_idx + rows);
 
-        auto& src_data = static_cast<const ColumnVector<Int64>*>(src_col)->get_data();
-        auto& data = static_cast<ColumnVector<UInt64>*>(dst_col)->get_data();
+        auto& src_data = static_cast<const ColumnVector<Int64>*>(src_col.get())->get_data();
+        auto& data = static_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
+
         for (int i = 0; i < rows; i++) {
             int64 x = src_data[i];
-            dst_col = static_cast<ColumnVector<UInt64>*>(dst_col);
             auto& num = data[_convert_params->start_idx + i];
             auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
             value.from_unixtime(x / _convert_params->second_mask, *_convert_params->ctz);
@@ -316,18 +290,16 @@ public:
     }
 };
 
-template <bool is_nullable>
-class int32todate : public ColumnConvert {
+class Int32ToDate : public ColumnConvert {
 public:
-    Status convert(const IColumn* src_col, IColumn* dst_col) override {
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        convert_null(src_col, dst_col);
+
         size_t rows = src_col->size();
-        if constexpr (is_nullable) {
-            convert_null(&src_col, &dst_col);
-        }
         dst_col->resize(_convert_params->start_idx + rows);
 
-        auto& src_data = static_cast<const ColumnVector<int32>*>(src_col)->get_data();
-        auto& data = static_cast<ColumnDateV2*>(dst_col)->get_data();
+        auto& src_data = static_cast<const ColumnVector<int32>*>(src_col.get())->get_data();
+        auto& data = static_cast<ColumnDateV2*>(dst_col.get())->get_data();
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
 
         for (int i = 0; i < rows; i++) {
@@ -341,25 +313,24 @@ public:
     }
 };
 
-template <typename DecimalType, bool is_nullable, DecimalScaleParams::ScaleType ScaleType>
-class stringtodecimal : public ColumnConvert {
+template <typename DecimalType, typename ValueCopyType, DecimalScaleParams::ScaleType ScaleType>
+class StringToDecimal : public ColumnConvert {
 public:
-    Status convert(const IColumn* src_col, IColumn* dst_col) override {
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        convert_null(src_col, dst_col);
+
         size_t rows = src_col->size();
-        if constexpr (is_nullable) {
-            convert_null(&src_col, &dst_col);
-        }
         DecimalScaleParams& scale_params = _convert_params->decimal_scale;
-        auto buf = static_cast<const ColumnString*>(src_col)->get_chars().data();
-        auto& offset = static_cast<const ColumnString*>(src_col)->get_offsets();
+        auto buf = static_cast<const ColumnString*>(src_col.get())->get_chars().data();
+        auto& offset = static_cast<const ColumnString*>(src_col.get())->get_offsets();
         dst_col->resize(_convert_params->start_idx + rows);
 
-        auto& data = static_cast<ColumnDecimal<DecimalType>*>(dst_col)->get_data();
+        auto& data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data();
         for (int i = 0; i < rows; i++) {
             int len = offset[i] - offset[i - 1];
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
             // the unscaled number must be encoded as two's complement using big-endian byte order.
-            Int128 value = 0;
+            ValueCopyType value = 0;
             memcpy(reinterpret_cast<char*>(&value), buf + offset[i - 1], len);
             value = BitUtil::big_endian_to_host(value);
             value = value >> ((sizeof(value) - len) * 8);
@@ -380,25 +351,25 @@ public:
         return Status::OK();
     }
 };
-template <typename NumberType, typename DecimalPhysicalType, bool is_nullable,
+template <typename NumberType, typename DecimalPhysicalType, typename ValueCopyType,
           DecimalScaleParams::ScaleType ScaleType>
-class numbertodecimal : public ColumnConvert {
+class NumberToDecimal : public ColumnConvert {
 public:
-    Status convert(const IColumn* src_col, IColumn* dst_col) override {
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        convert_null(src_col, dst_col);
+
         size_t rows = src_col->size();
-        if constexpr (is_nullable) {
-            convert_null(&src_col, &dst_col);
-        }
-        auto* src_data = static_cast<const ColumnVector<NumberType>*>(src_col)->get_data().data();
+        auto* src_data =
+                static_cast<const ColumnVector<NumberType>*>(src_col.get())->get_data().data();
         dst_col->resize(_convert_params->start_idx + rows);
 
         DecimalScaleParams& scale_params = _convert_params->decimal_scale;
-        auto* data = static_cast<ColumnDecimal<Decimal<DecimalPhysicalType>>*>(dst_col)
+        auto* data = static_cast<ColumnDecimal<Decimal<DecimalPhysicalType>>*>(dst_col.get())
                              ->get_data()
                              .data();
 
         for (int i = 0; i < rows; i++) {
-            Int128 value = src_data[i];
+            ValueCopyType value = src_data[i];
             if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
                 value *= scale_params.scale_factor;
             } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
@@ -410,18 +381,17 @@ public:
     }
 };
 
-template <bool is_nullable>
-class stringtodecimalstring : public ColumnConvert {
+class StringToDecimalString : public ColumnConvert {
 public:
-    Status convert(const IColumn* src_col, IColumn* dst_col) override {
-        size_t rows = src_col->size();
-        if constexpr (is_nullable) {
-            convert_null(&src_col, &dst_col);
-        }
-        auto buf = static_cast<const ColumnString*>(src_col)->get_chars().data();
-        auto& offset = static_cast<const ColumnString*>(src_col)->get_offsets();
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        convert_null(src_col, dst_col);
 
-        auto data = static_cast<ColumnString*>(dst_col);
+        size_t rows = src_col->size();
+
+        auto buf = static_cast<const ColumnString*>(src_col.get())->get_chars().data();
+        auto& offset = static_cast<const ColumnString*>(src_col.get())->get_offsets();
+
+        auto data = static_cast<ColumnString*>(dst_col.get());
         for (int i = 0; i < rows; i++) {
             int len = offset[i] - offset[i - 1];
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
@@ -438,162 +408,163 @@ public:
     }
 };
 
-template <bool is_nullable>
-class int128totimestampstring : public ColumnConvert {
+class Int96ToTimestampString : public ColumnConvert {
 public:
-    Status convert(const IColumn* src_col, IColumn* dst_col) override {
-        size_t rows = src_col->size();
-        if constexpr (is_nullable) {
-            convert_null(&src_col, &dst_col);
-        }
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        convert_null(src_col, dst_col);
 
-        auto& src_data = static_cast<const ColumnVector<Int128>*>(src_col)->get_data();
-        auto data = static_cast<ColumnString*>(dst_col);
+        auto& src_data = static_cast<const ColumnVector<Int8>*>(src_col.get())->get_data();
+        auto dst_data = static_cast<ColumnString*>(dst_col.get());
 
+        size_t rows = src_col->size() / sizeof(ParquetInt96);
+        ParquetInt96* data = (ParquetInt96*)src_data.data();
+
+        std::string buf;
+        buf.resize(50);
         for (int i = 0; i < rows; i++) {
-            __int128 x = src_data[i];
-            uint32_t hi = x >> 64;
-            uint64_t lo = (x << 64) >> 64;
             uint64_t num = 0;
             auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
-            int64_t micros = int128totimestamp<is_nullable>::to_timestamp_micros(hi, lo);
+            int64_t micros = data[i].to_timestamp_micros();
             value.from_unixtime(micros / 1000000, *_convert_params->ctz);
             value.set_microsecond(micros % 1000000);
-            std::string buf;
-            buf.resize(20);
             char* end = value.to_string(buf.data());
-            data->insert_data(buf.data(), end - buf.data());
+            dst_data->insert_data(buf.data(), end - buf.data());
         }
-
         return Status::OK();
     }
 };
 
-template <bool is_nullable = true>
-inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
-                                 PrimitiveType show_type,
-                                 std::shared_ptr<const IDataType> dst_data_type,
-                                 std::unique_ptr<ColumnConvert>* converter,
-                                 ConvertParams* convert_params) {
-    auto src_type = src_data_type->get_type_id();
-    auto dst_type = dst_data_type->get_type_id();
+inline Status get_converter(tparquet::Type::type parquet_physical_type, PrimitiveType show_type,
+                            std::shared_ptr<const IDataType> dst_data_type,
+                            std::unique_ptr<ColumnConvert>* converter,
+                            ConvertParams* convert_params) {
+    auto dst_type = remove_nullable(dst_data_type)->get_type_id();
     switch (dst_type) {
-#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE)                                    \
-    case NUMERIC_TYPE:                                                                             \
-        switch (src_type) {                                                                        \
-        case TypeIndex::UInt8:                                                                     \
-            *converter =                                                                           \
-                    std::make_unique<NumberColumnConvert<UInt8, CPP_NUMERIC_TYPE, is_nullable>>(); \
-            break;                                                                                 \
-        case TypeIndex::Int32:                                                                     \
-            *converter =                                                                           \
-                    std::make_unique<NumberColumnConvert<Int32, CPP_NUMERIC_TYPE, is_nullable>>(); \
-            break;                                                                                 \
-        case TypeIndex::Int64:                                                                     \
-            *converter =                                                                           \
-                    std::make_unique<NumberColumnConvert<Int64, CPP_NUMERIC_TYPE, is_nullable>>(); \
-            break;                                                                                 \
-        case TypeIndex::Float32:                                                                   \
-            *converter = std::make_unique<                                                         \
-                    NumberColumnConvert<Float32, CPP_NUMERIC_TYPE, is_nullable>>();                \
-            break;                                                                                 \
-        case TypeIndex::Float64:                                                                   \
-            *converter = std::make_unique<                                                         \
-                    NumberColumnConvert<Float64, CPP_NUMERIC_TYPE, is_nullable>>();                \
-            break;                                                                                 \
-        case TypeIndex::Int128:                                                                    \
-            *converter = std::make_unique<                                                         \
-                    NumberColumnConvert<Int128, CPP_NUMERIC_TYPE, is_nullable>>();                 \
-            break;                                                                                 \
-        default:                                                                                   \
-            break;                                                                                 \
-        }                                                                                          \
+#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE)                          \
+    case NUMERIC_TYPE:                                                                   \
+        switch (parquet_physical_type) {                                                 \
+        case tparquet::Type::BOOLEAN:                                                    \
+            *converter = std::make_unique<                                               \
+                    NumberToNumberConvert<tparquet::Type::BOOLEAN, CPP_NUMERIC_TYPE>>(); \
+            break;                                                                       \
+        case tparquet::Type::INT32:                                                      \
+            *converter = std::make_unique<                                               \
+                    NumberToNumberConvert<tparquet::Type::INT32, CPP_NUMERIC_TYPE>>();   \
+            break;                                                                       \
+        case tparquet::Type::INT64:                                                      \
+            *converter = std::make_unique<                                               \
+                    NumberToNumberConvert<tparquet::Type::INT64, CPP_NUMERIC_TYPE>>();   \
+            break;                                                                       \
+        case tparquet::Type::FLOAT:                                                      \
+            *converter = std::make_unique<                                               \
+                    NumberToNumberConvert<tparquet::Type::FLOAT, CPP_NUMERIC_TYPE>>();   \
+            break;                                                                       \
+        case tparquet::Type::DOUBLE:                                                     \
+            *converter = std::make_unique<                                               \
+                    NumberToNumberConvert<tparquet::Type::DOUBLE, CPP_NUMERIC_TYPE>>();  \
+            break;                                                                       \
+        default:                                                                         \
+            break;                                                                       \
+        }                                                                                \
         break;
         FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
 
     case TypeIndex::String: {
-        if (src_type == TypeIndex::String) {
+        if (tparquet::Type::FIXED_LEN_BYTE_ARRAY == parquet_physical_type) {
             if (show_type == PrimitiveType::TYPE_DECIMAL64) {
-                *converter = std::make_unique<stringtodecimalstring<is_nullable>>();
+                *converter = std::make_unique<StringToDecimalString>();
                 break;
             }
-        } else if (src_type == TypeIndex::Int128) {
-            *converter = std::make_unique<int128totimestampstring<is_nullable>>();
+        } else if (tparquet::Type::INT96 == parquet_physical_type) {
+            *converter = std::make_unique<Int96ToTimestampString>();
             break;
         }
 
-        switch (src_type) {
-#define DISPATCH1(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE)                                \
-    case NUMERIC_TYPE:                                                                          \
-        *converter =                                                                            \
-                std::make_unique<NumberColumnToStringConvert<CPP_NUMERIC_TYPE, is_nullable>>(); \
-        break;
-            FOR_LOGICAL_NUMERIC_TYPES(DISPATCH1)
-#undef DISPATCH1
-        default:
-            break;
+        if (parquet_physical_type == tparquet::Type::BOOLEAN) {
+            *converter = std::make_unique<NumberToStringConvert<tparquet::Type::BOOLEAN>>();
+        } else if (parquet_physical_type == tparquet::Type::INT32) {
+            *converter = std::make_unique<NumberToStringConvert<tparquet::Type::INT32>>();
+
+        } else if (parquet_physical_type == tparquet::Type::INT64) {
+            *converter = std::make_unique<NumberToStringConvert<tparquet::Type::INT64>>();
+
+        } else if (parquet_physical_type == tparquet::Type::FLOAT) {
+            *converter = std::make_unique<NumberToStringConvert<tparquet::Type::FLOAT>>();
+
+        } else if (parquet_physical_type == tparquet::Type::DOUBLE) {
+            *converter = std::make_unique<NumberToStringConvert<tparquet::Type::DOUBLE>>();
         }
+
         break;
     }
     case TypeIndex::DateV2:
-        if (src_type == TypeIndex::Int32) {
-            *converter = std::make_unique<int32todate<is_nullable>>();
+        if (tparquet::Type::INT32 == parquet_physical_type) {
+            *converter = std::make_unique<Int32ToDate>();
         }
         break;
     case TypeIndex::DateTimeV2:
-        if (src_type == TypeIndex::Int128) {
-            *converter = std::make_unique<int128totimestamp<is_nullable>>();
-        } else if (src_type == TypeIndex::Int64) {
-            *converter = std::make_unique<int64totimestamp<is_nullable>>();
+        if (tparquet::Type::INT96 == parquet_physical_type) {
+            *converter = std::make_unique<Int96toTimestamp>();
+        } else if (tparquet::Type::INT64 == parquet_physical_type) {
+            *converter = std::make_unique<Int64ToTimestamp>();
         }
         break;
 #define DISPATCH2(TypeIndex_DECIMAL_TYPE, DECIMAL_TYPE, PRIMARY_TYPE)                             \
     case TypeIndex_DECIMAL_TYPE: {                                                                \
         convert_params->init_decimal_converter<PRIMARY_TYPE>(dst_data_type);                      \
         DecimalScaleParams& scale_params = convert_params->decimal_scale;                         \
-        if (src_type == TypeIndex::Int128) {                                                      \
+        if (tparquet::Type::FIXED_LEN_BYTE_ARRAY == parquet_physical_type) {                      \
+            size_t string_length = convert_params->field_schema->parquet_schema.type_length;      \
+            if (string_length <= 8) {                                                             \
+                if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                    \
+                    *converter =                                                                  \
+                            std::make_unique<StringToDecimal<DECIMAL_TYPE, int64_t,               \
+                                                             DecimalScaleParams::SCALE_UP>>();    \
+                } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {           \
+                    *converter =                                                                  \
+                            std::make_unique<StringToDecimal<DECIMAL_TYPE, int64_t,               \
+                                                             DecimalScaleParams::SCALE_DOWN>>();  \
+                } else {                                                                          \
+                    *converter =                                                                  \
+                            std::make_unique<StringToDecimal<DECIMAL_TYPE, int64_t,               \
+                                                             DecimalScaleParams::NO_SCALE>>();    \
+                }                                                                                 \
+            } else if (string_length <= 16) {                                                     \
+                if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                    \
+                    *converter =                                                                  \
+                            std::make_unique<StringToDecimal<DECIMAL_TYPE, int128_t,              \
+                                                             DecimalScaleParams::SCALE_UP>>();    \
+                } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {           \
+                    *converter =                                                                  \
+                            std::make_unique<StringToDecimal<DECIMAL_TYPE, int128_t,              \
+                                                             DecimalScaleParams::SCALE_DOWN>>();  \
+                } else {                                                                          \
+                    *converter =                                                                  \
+                            std::make_unique<StringToDecimal<DECIMAL_TYPE, int128_t,              \
+                                                             DecimalScaleParams::NO_SCALE>>();    \
+                }                                                                                 \
+            }                                                                                     \
+        } else if (tparquet::Type::INT32 == parquet_physical_type) {                              \
             if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                        \
-                *converter = std::make_unique<numbertodecimal<Int128, PRIMARY_TYPE, is_nullable,  \
+                *converter = std::make_unique<NumberToDecimal<Int32, PRIMARY_TYPE, int64_t,       \
                                                               DecimalScaleParams::SCALE_UP>>();   \
             } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {               \
-                *converter = std::make_unique<numbertodecimal<Int128, PRIMARY_TYPE, is_nullable,  \
+                *converter = std::make_unique<NumberToDecimal<Int32, PRIMARY_TYPE, int64_t,       \
                                                               DecimalScaleParams::SCALE_DOWN>>(); \
             } else {                                                                              \
-                *converter = std::make_unique<numbertodecimal<Int128, PRIMARY_TYPE, is_nullable,  \
+                *converter = std::make_unique<NumberToDecimal<Int32, PRIMARY_TYPE, int64_t,       \
                                                               DecimalScaleParams::NO_SCALE>>();   \
             }                                                                                     \
-        } else if (src_type == TypeIndex::String) {                                               \
+        } else if (tparquet::Type::INT64 == parquet_physical_type) {                              \
             if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                        \
-                *converter = std::make_unique<stringtodecimal<DECIMAL_TYPE, is_nullable,          \
+                *converter = std::make_unique<NumberToDecimal<Int64, PRIMARY_TYPE, int64_t,       \
                                                               DecimalScaleParams::SCALE_UP>>();   \
             } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {               \
-                *converter = std::make_unique<stringtodecimal<DECIMAL_TYPE, is_nullable,          \
+                *converter = std::make_unique<NumberToDecimal<Int64, PRIMARY_TYPE, int64_t,       \
                                                               DecimalScaleParams::SCALE_DOWN>>(); \
             } else {                                                                              \
-                *converter = std::make_unique<stringtodecimal<DECIMAL_TYPE, is_nullable,          \
-                                                              DecimalScaleParams::NO_SCALE>>();   \
-            }                                                                                     \
-        } else if (src_type == TypeIndex::Int32) {                                                \
-            if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                        \
-                *converter = std::make_unique<numbertodecimal<Int32, PRIMARY_TYPE, is_nullable,   \
-                                                              DecimalScaleParams::SCALE_UP>>();   \
-            } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {               \
-                *converter = std::make_unique<numbertodecimal<Int32, PRIMARY_TYPE, is_nullable,   \
-                                                              DecimalScaleParams::SCALE_DOWN>>(); \
-            } else {                                                                              \
-                *converter = std::make_unique<numbertodecimal<Int32, PRIMARY_TYPE, is_nullable,   \
-                                                              DecimalScaleParams::NO_SCALE>>();   \
-            }                                                                                     \
-        } else if (src_type == TypeIndex::Int64) {                                                \
-            if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                        \
-                *converter = std::make_unique<numbertodecimal<Int64, PRIMARY_TYPE, is_nullable,   \
-                                                              DecimalScaleParams::SCALE_UP>>();   \
-            } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {               \
-                *converter = std::make_unique<numbertodecimal<Int64, PRIMARY_TYPE, is_nullable,   \
-                                                              DecimalScaleParams::SCALE_DOWN>>(); \
-            } else {                                                                              \
-                *converter = std::make_unique<numbertodecimal<Int64, PRIMARY_TYPE, is_nullable,   \
+                *converter = std::make_unique<NumberToDecimal<Int64, PRIMARY_TYPE, int64_t,       \
                                                               DecimalScaleParams::NO_SCALE>>();   \
             }                                                                                     \
         }                                                                                         \
@@ -607,16 +578,13 @@ inline Status get_converter_impl(std::shared_ptr<const IDataType> src_data_type,
     }
 
     if (*converter == nullptr) {
-        return Status::NotSupported("Can't cast type {} to type {}", getTypeName(src_type),
+        return Status::NotSupported("Can't cast type parquet physical {} to doris logical type {}",
+                                    tparquet::to_string(parquet_physical_type),
                                     getTypeName(dst_type));
     }
     (*converter)->_convert_params = convert_params;
     return Status::OK();
 }
-
-Status get_converter(std::shared_ptr<const IDataType> src_type, PrimitiveType show_type,
-                     std::shared_ptr<const IDataType> dst_type,
-                     std::unique_ptr<ColumnConvert>* converter, ConvertParams* convert_param);
 
 }; // namespace ParquetConvert
 

@@ -83,13 +83,7 @@ public:
         char* dict_item_address = reinterpret_cast<char*>(_dict.get());
         _dict_items.resize(num_values);
         for (size_t i = 0; i < num_values; ++i) {
-            if (PhysicalType == tparquet::Type::INT96) {
-                ParquetInt96 value = *(ParquetInt96*)dict_item_address;
-                _dict_items[i] = value.to_int128();
-
-            } else {
-                _dict_items[i] = *(DataType*)dict_item_address;
-            }
+            _dict_items[i] = *(DataType*)dict_item_address;
             dict_item_address += _type_length;
         }
         return Status::OK();
@@ -98,17 +92,18 @@ public:
 protected:
     template <bool has_filter>
     Status _decode_numeric(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector) {
-        auto& column_data = static_cast<ColumnType&>(*doris_column).get_data();
+        auto& column_data = reinterpret_cast<ColumnVector<Int8>&>(*doris_column).get_data();
         size_t data_index = column_data.size();
-        column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+        column_data.resize(data_index + _type_length * (select_vector.num_values() -
+                                                        select_vector.num_filtered()));
         size_t dict_index = 0;
+        DataType* data = (DataType*)column_data.data();
         ColumnSelectVector::DataReadType read_type;
         while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
                 for (size_t i = 0; i < run_length; ++i) {
-                    column_data[data_index++] =
-                            static_cast<DataType>(_dict_items[_indexes[dict_index++]]);
+                    data[data_index++] = _dict_items[_indexes[dict_index++]];
                 }
                 break;
             }
