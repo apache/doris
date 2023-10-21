@@ -242,11 +242,8 @@ public class SystemInfoServiceTest {
         clearAllBackend();
         AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
         stmt.analyze(analyzer);
-        AddBackendClause stmt1 = new AddBackendClause(Lists.newArrayList("192.168.0.2:1234"));
-        stmt1.analyze(analyzer);
         try {
             Env.getCurrentSystemInfo().addBackends(stmt.getHostInfos(), true);
-            Env.getCurrentSystemInfo().addBackends(stmt1.getHostInfos(), true);
         } catch (DdlException e) {
             e.printStackTrace();
         }
@@ -265,19 +262,30 @@ public class SystemInfoServiceTest {
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("does not exist"));
         }
+    }
 
-        // drop by id
-        DropBackendClause dropStmtById = new DropBackendClause(Lists.newArrayList(String.valueOf(Env.getCurrentSystemInfo().getBackendIdByHost("192.168.0.2"))));
-        dropStmtById.analyze(analyzer);
+    @Test
+    public void removeBackendTestByBackendId() throws UserException {
+        clearAllBackend();
+        AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
+        stmt.analyze(analyzer);
         try {
-            Env.getCurrentSystemInfo().dropBackendsByIds(dropStmtById.getIds());
+            Env.getCurrentSystemInfo().addBackends(stmt.getHostInfos(), true);
+        } catch (DdlException e) {
+            e.printStackTrace();
+        }
+
+        DropBackendClause dropStmt = new DropBackendClause(Lists.newArrayList(String.valueOf(backendId)));
+        dropStmt.analyze(analyzer);
+        try {
+            Env.getCurrentSystemInfo().dropBackends(dropStmt.getHostInfos());
         } catch (DdlException e) {
             e.printStackTrace();
             Assert.fail();
         }
 
         try {
-            Env.getCurrentSystemInfo().dropBackendsByIds(dropStmtById.getIds());
+            Env.getCurrentSystemInfo().dropBackends(dropStmt.getHostInfos());
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("does not exist"));
         }
