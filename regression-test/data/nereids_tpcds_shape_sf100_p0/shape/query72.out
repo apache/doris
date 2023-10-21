@@ -13,7 +13,53 @@ PhysicalResultSink
 --------------------PhysicalOlapScan[catalog_returns]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[LEFT_OUTER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)
+----------------------hashJoin[INNER_JOIN](warehouse.w_warehouse_sk = inventory.inv_warehouse_sk)
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = inventory.inv_item_sk)(inventory.inv_date_sk = d2.d_date_sk)(inventory.inv_quantity_on_hand < catalog_sales.cs_quantity)
+----------------------------PhysicalDistribute
+------------------------------PhysicalOlapScan[inventory]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------hashJoin[INNER_JOIN](d1.d_week_seq = d2.d_week_seq)
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------hashJoin[LEFT_OUTER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)
+----------------------------------------PhysicalProject
+------------------------------------------hashJoin[INNER_JOIN](item.i_item_sk = catalog_sales.cs_item_sk)
+--------------------------------------------PhysicalDistribute
+----------------------------------------------PhysicalProject
+------------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_ship_date_sk = d3.d_date_sk)(d3.d_date > cast((cast(d_date as BIGINT) + 5) as DATEV2))
+--------------------------------------------------PhysicalDistribute
+----------------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)
+------------------------------------------------------PhysicalDistribute
+--------------------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = d1.d_date_sk)
+----------------------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_hdemo_sk = household_demographics.hd_demo_sk)
+------------------------------------------------------------PhysicalProject
+--------------------------------------------------------------PhysicalOlapScan[catalog_sales]
+------------------------------------------------------------PhysicalDistribute
+--------------------------------------------------------------PhysicalProject
+----------------------------------------------------------------filter((cast(hd_buy_potential as VARCHAR(*)) = '501-1000'))
+------------------------------------------------------------------PhysicalOlapScan[household_demographics]
+----------------------------------------------------------PhysicalDistribute
+------------------------------------------------------------PhysicalProject
+--------------------------------------------------------------filter((d1.d_year = 2002))
+----------------------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------------------PhysicalDistribute
+--------------------------------------------------------PhysicalProject
+----------------------------------------------------------filter((cast(cd_marital_status as VARCHAR(*)) = 'W'))
+------------------------------------------------------------PhysicalOlapScan[customer_demographics]
+--------------------------------------------------PhysicalDistribute
+----------------------------------------------------PhysicalProject
+------------------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------------PhysicalDistribute
+----------------------------------------------PhysicalProject
+------------------------------------------------PhysicalOlapScan[item]
+----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[promotion]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN](warehouse.w_warehouse_sk = inventory.inv_warehouse_sk)
