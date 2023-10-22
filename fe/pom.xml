@@ -1444,15 +1444,16 @@ under the License.
                     <configuration>
                         <ratchetFrom>origin/master</ratchetFrom>
                         <java>
-                            <eclipse>
-                                <!--suppress MavenModelInspection -->
-                                <file>${maven.multiModuleProjectDirectory}/check/spotless/spotless.xml</file>
-                            </eclipse>
+                            <googleJavaFormat>
+                                <version>1.7</version>
+                                <style>AOSP</style>
+                            </googleJavaFormat>
                             <licenseHeader>
                                 <!--suppress MavenModelInspection -->
                                 <file>${maven.multiModuleProjectDirectory}/check/spotless/copyright.txt</file>
                             </licenseHeader>
                             <removeUnusedImports />
+                            <trimTrailingWhitespace />
                         </java>
                         <pom>
                             <sortPom>
