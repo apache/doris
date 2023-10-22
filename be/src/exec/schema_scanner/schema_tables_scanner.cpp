@@ -255,7 +255,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     { static_cast<void>(fill_dest_column_for_range(block, 13, null_datas)); }
     // creation_time
     {
-        vectorized::VecDateTimeValue srcs[table_num];
+        VecDateTimeValue srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             if (tbl_status.__isset.create_time) {
@@ -274,7 +274,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // update_time
     {
-        vectorized::VecDateTimeValue srcs[table_num];
+        VecDateTimeValue srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             if (tbl_status.__isset.update_time) {
@@ -293,7 +293,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // check_time
     {
-        vectorized::VecDateTimeValue srcs[table_num];
+        VecDateTimeValue srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             if (tbl_status.__isset.last_check_time) {
