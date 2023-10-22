@@ -30,7 +30,7 @@ under the License.
 
 
 
-[Flink Doris Connector](https://github.com/apache/doris-flink-connector) 可以支持通过 Flink 操作（读取、插入、修改、删除） Doris 中存储的数据。本文档介绍如何通过Flink如果通过Datastream和SQL操作Doris。
+[Flink Doris Connector](https://github.com/apache/doris-flink-connector) 可以支持通过 Flink 操作（读取、插入、修改、删除） Doris 中存储的数据。本文档介绍Flink如何通过Datastream和SQL操作Doris。
 
 >**注意：**
 >
