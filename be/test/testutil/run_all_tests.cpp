@@ -39,6 +39,7 @@
 #include "util/mem_info.h"
 
 int main(int argc, char** argv) {
+    doris::ThreadLocalHandle::handle_thread_local();
     doris::ExecEnv::GetInstance()->init_mem_tracker();
     doris::thread_context()->thread_mem_tracker_mgr->init();
     doris::ExecEnv::GetInstance()->set_cache_manager(doris::CacheManager::create_global_instance());

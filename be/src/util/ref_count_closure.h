@@ -39,7 +39,6 @@ public:
     bool unref() { return _refs.fetch_sub(1) == 1; }
 
     void Run() override {
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         if (unref()) {
             delete this;
         }

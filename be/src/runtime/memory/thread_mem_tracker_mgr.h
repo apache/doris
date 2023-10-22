@@ -40,11 +40,13 @@ namespace doris {
 // Memory Hook is counted in the memory tracker of the current thread.
 class ThreadMemTrackerMgr {
 public:
-    ThreadMemTrackerMgr() {}
+    ThreadMemTrackerMgr() = default;
 
     ~ThreadMemTrackerMgr() {
         // if _init == false, exec env is not initialized when init(). and never consumed mem tracker once.
-        if (_init) flush_untracked_mem();
+        if (_init) {
+            flush_untracked_mem();
+        }
     }
 
     bool init();
@@ -77,7 +79,7 @@ public:
     // such as calling LOG/iostream/sstream/stringstream/etc. related methods,
     // must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
     // Returns whether the memory exceeds limit, and will consume mem trcker no matter whether the limit is exceeded.
-    void consume(int64_t size, bool large_memory_check = false);
+    void consume(int64_t size, int skip_large_memory_check = 0);
     void flush_untracked_mem();
 
     bool is_attach_query() { return _fragment_instance_id != TUniqueId(); }
@@ -92,7 +94,7 @@ public:
     }
 
     void disable_wait_gc() { _wait_gc = false; }
-    bool wait_gc() { return _wait_gc; }
+    [[nodiscard]] bool wait_gc() const { return _wait_gc; }
     void cancel_instance(const std::string& exceed_msg);
 
     std::string print_debug_string() {
@@ -161,7 +163,7 @@ inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
     _consumer_tracker_stack.pop_back();
 }
 
-inline void ThreadMemTrackerMgr::consume(int64_t size, bool large_memory_check) {
+inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_check) {
     _untracked_mem += size;
     if (!ExecEnv::ready()) {
         return;
@@ -176,7 +178,7 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, bool large_memory_check) 
         flush_untracked_mem();
     }
 
-    if (large_memory_check && doris::config::large_memory_check_bytes > 0 &&
+    if (skip_large_memory_check == 0 && doris::config::large_memory_check_bytes > 0 &&
         size > doris::config::large_memory_check_bytes) {
         _stop_consume = true;
         LOG(WARNING) << fmt::format(

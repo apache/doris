@@ -480,6 +480,8 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
+    doris::ThreadLocalHandle::handle_thread_local();
+
     // init exec env
     auto exec_env(doris::ExecEnv::GetInstance());
     status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, broken_paths);
@@ -583,6 +585,7 @@ int main(int argc, char** argv) {
     brpc_service.reset(nullptr);
     LOG(INFO) << "Brpc service stopped";
     exec_env->destroy();
+    doris::ThreadLocalHandle::release_thread_local();
     LOG(INFO) << "Doris main exited.";
     return 0;
 }

@@ -274,13 +274,13 @@ Status LocalFileSystem::md5sum_impl(const Path& file, std::string* md5sum) {
         return Status::InternalError("failed to stat file {}: {}", file.native(), err);
     }
     size_t file_len = statbuf.st_size;
-    CONSUME_THREAD_MEM_TRACKER(file_len);
+    CONSUME_MEM_TRACKER(file_len);
     void* buf = mmap(nullptr, file_len, PROT_READ, MAP_SHARED, fd, 0);
 
     unsigned char result[MD5_DIGEST_LENGTH];
     MD5((unsigned char*)buf, file_len, result);
     munmap(buf, file_len);
-    RELEASE_THREAD_MEM_TRACKER(file_len);
+    RELEASE_MEM_TRACKER(file_len);
 
     std::stringstream ss;
     for (int32_t i = 0; i < MD5_DIGEST_LENGTH; i++) {

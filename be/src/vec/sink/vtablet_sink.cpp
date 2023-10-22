@@ -78,7 +78,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "service/brpc.h"
 #include "util/binary_cast.hpp"
