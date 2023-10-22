@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+  http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
+<!DOCTYPE suppressions PUBLIC
+        "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+        "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+
+<suppressions>
+    <!-- Excludes test files from having Javadocs for classes and methods -->
+    <suppress files="[\\/]jmockit[\\/]" checks=".*" />
+    <suppress files="[\\/]test[\\/]" checks="MissingJavadocMethod" />
+    <suppress files="[\\/]test[\\/]" checks="MissingJavadocType" />
+    <suppress files="[\\/]test[\\/]" checks="LineLength" />
+
+    <!-- Suppress some rules except nereids -->
+    <!-- Java doc -->
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="AtclauseOrder" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="JavadocMethod" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="JavadocParagraph" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="JavadocStyle" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="JavadocTagContinuationIndentation" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="InvalidJavadocPosition" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="MissingJavadocMethod" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="MissingJavadocType" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="NonEmptyAtclauseDescription" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="RequireEmptyLineBeforeBlockTagGroup" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="SummaryJavadoc" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="SingleLineJavadoc" />
+
+    <!-- other -->
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="DeclarationOrder" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="OverloadMethodsDeclarationOrder" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="SingleSpaceSeparator" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="VariableDeclarationUsageDistance" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/](?!nereids)[^\\/]+[\\/]|DorisFE\.java" checks="EmptyLineSeparator" id="forNereids" />
+
+    <!-- exclude rules for special files -->
+    <suppress files="org[\\/]apache[\\/]doris[\\/]load[\\/]loadv2[\\/]dpp[\\/]ColumnParser\.java" checks="OneTopLevelClass" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/]load[\\/]loadv2[\\/]dpp[\\/]SparkRDDAggregator\.java" checks="OneTopLevelClass" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/]catalog[\\/]FunctionSet\.java" checks="LineLength" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/]common[\\/]ErrorCode\.java" checks="LineLength" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/]udf[\\/]UdafExecutor\.java" checks="NoFinalizer" />
+    <suppress files="org[\\/]apache[\\/]doris[\\/]udf[\\/]UdfExecutor\.java" checks="NoFinalizer" />
+
+    <!-- ignore hive meta store client copied from hive/aliyun/aws -->
+    <suppress files="HiveMetaStoreClient\.java" checks="[a-zA-Z0-9]*"/>
+    <suppress files="[\\/]com[\\/]amazonaws[\\/]glue[\\/]catalog[\\/]" checks="[a-zA-Z0-9]*"/>
+    <suppress files="[\\/]com[\\/]aliyun[\\/]datalake[\\/]metastore[\\/]hive2[\\/]" checks="[a-zA-Z0-9]*"/>
+</suppressions>

@@ -42,6 +42,44 @@ standard java package
 * 禁止使用 `import *`
 * 禁止使用 `import static`
 
+## Checkstyle 插件
+
+现在的 `CI` 之中会有 `formatter-check` 进行代码格式化检测。
+
+### IDEA
+
+如果使用 `IDEA` 进行 Java 开发，请在设置中安装 `Checkstyle-IDEA` 插件。
+
+在 `Tools->Checkstyle` 的 `Configuration File` 里点击 `Use a local Checkstyle file`，选择项目的 `fe/check/checkstyle/checkstyle.xml` 文件。
+
+**注意：** 保证`Checkstyle`的版本在9.3及以上（推荐使用最新版本）。
+
+![](/images/idea-checkstyle-version.png)
+
+**可以使用 `Checkstyle-IDEA` 插件来对代码进行 `Checkstyle` 检测**。
+
+![](/images/idea-checkstyle-plugin-cn.png)
+
+### VS Code
+
+如果使用 VS Code 进行 Java 开发，请安装 `Checkstyle for Java` 插件，按照[文档](https://code.visualstudio.com/docs/java/java-linting)里的说明和动图进行配置。
+
+## IDEA
+
+###  自动格式化
+
+推荐使用 `IDEA` 的自动格式化功能。
+
+在 `Preferences->Editor->Code Style->Java` 的配置标识点击 `Import Scheme`，点击 `IntelliJ IDEA code style XML`，选择项目的 `build-support/IntelliJ-code-format.xml` 文件。
+
+### Rearrange Code
+
+Checkstyle 会按照 [Class and Interface Declarations](https://www.oracle.com/java/technologies/javase/codeconventions-fileorganization.html#1852) 检测代码的 declarations 顺序。
+
+在导入上面的 `build-support/IntelliJ-code-format.xml` 文件后，使用 `Code/Rearrange Code` 自动完成排序
+
+![](/images/idea-rearrange-code.png)
+
 ## Spotless 插件
 
 通过 mvn spotless:check 检查项目代码时发现错误，接着使用 mvn spotless:apply 进行代码格式化；再次检查时，格式化错误消失。

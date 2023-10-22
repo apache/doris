@@ -1413,6 +1413,40 @@ under the License.
                     <artifactId>sonar-maven-plugin</artifactId>
                     <version>3.9.1.2184</version>
                 </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-checkstyle-plugin</artifactId>
+                    <version>3.1.2</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.puppycrawl.tools</groupId>
+                            <artifactId>checkstyle</artifactId>
+                            <version>9.3</version>
+                        </dependency>
+                    </dependencies>
+                    <configuration>
+                        <configLocation>check/checkstyle/checkstyle.xml</configLocation>
+                        <suppressionsLocation>check/checkstyle/suppressions.xml</suppressionsLocation>
+                        <encoding>UTF-8</encoding>
+                        <consoleOutput>true</consoleOutput>
+                        <failsOnError>true</failsOnError>
+                        <linkXRef>false</linkXRef>
+                        <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                        <excludes>
+                            **/apache/doris/thrift/*,
+                            **/apache/parquet/**/*
+                        </excludes>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>validate</id>
+                            <phase>validate</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
             </plugins>
         </pluginManagement>
         <plugins>
@@ -1475,76 +1509,6 @@ under the License.
                             <file>${maven.multiModuleProjectDirectory}/check/spotless/copyright.txt</file>
                         </licenseHeader>
                         <removeUnusedImports />
-                        <replaceRegex>
-                            <name>Block com.clearspring.analytics.util</name>
-                            <searchRegex>import\s+com\.clearspring\.analytics\.util\.[^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
-                        <replaceRegex>
-                            <name>Block com.alibaba.google</name>
-                            <searchRegex>import\s+com\.alibaba\.google\.[^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
-                        <replaceRegex>
-                            <name>Block org.apache.hadoop.util.Lists</name>
-                            <searchRegex>import\s+org\.apache\.hadoop\.util\.Lists\.[^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
-                        <replaceRegex>
-                            <name>Block org.spark_project.guava</name>
-                            <searchRegex>import\s+org\.spark_project\.guava\.[^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
-                        <replaceRegex>
-                            <name>Block org.glassfish.jersey.internal.guava</name>
-                            <searchRegex>import\s+org\.glassfish\.jersey\.internal\.guava\.[^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
-                        <replaceRegex>
-                            <name>Block io.fabric8.zjsonpatch.internal.guava</name>
-                            <searchRegex>import\s+io\.fabric8\.zjsonpatch\.internal\.guava\.[^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
-                        <replaceRegex>
-                            <name>Block org.checkerframework.com.google</name>
-                            <searchRegex>import\s+org\.checkerframework\.com\.google\.[^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
-                        <replaceRegex>
-                            <name>Block org.apache.iceberg.relocated</name>
-                            <searchRegex>import\s+org\.apache\.iceberg\.relocated\.[^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
-                        <replaceRegex>
-                            <name>Block com.alibaba.fastjson2</name>
-                            <searchRegex>import\s+com\.alibaba\.fastjson2\.[^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
-                        <replaceRegex>
-                            <name>Block org.apache.log4j.LogManager</name>
-                            <searchRegex>import\s+org\.apache\.log4j\.LogManager\.[^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
-                        <replaceRegex>
-                            <name>Block org.apache.log4j.Logger</name>
-                            <searchRegex>import\s+org\.apache\.log4j\.Logger\.[^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
-                        <replaceRegex>
-                            <name>Block java.text.SimpleDateFormat</name>
-                            <searchRegex>import\s+java\.text\.SimpleDateFormat\.[^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
-                        <replaceRegex>
-                            <name>Block org.apache.parquet.Strings</name>
-                            <searchRegex>import\s+org\.apache\.parquet\.Strings\.[^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
-                        <replaceRegex>
-                            <name>Block jUnit4 imports</name>
-                            <searchRegex>import\s+org\.junit\.[^jupiter][^\*\s]*(|\*);(\r\n|\r|\n)</searchRegex>
-                            <replacement>$1</replacement>
-                        </replaceRegex>
                     </java>
                     <pom>
                         <sortPom>
@@ -1570,6 +1534,10 @@ under the License.
                         </replace>
                     </pom>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
             </plugin>
         </plugins>
     </build>
