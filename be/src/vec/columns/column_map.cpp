@@ -443,6 +443,23 @@ void ColumnMap::replicate(const uint32_t* indexs, size_t target_size, IColumn& c
             ->replicate(indexs, target_size, res.values_column->assume_mutable_ref());
 }
 
+MutableColumnPtr ColumnMap::get_shrinked_column() {
+    MutableColumns new_columns(2);
+    MutableColumns columns(2);
+    columns[0] = remove_nullable(keys_column)->assume_mutable();
+    columns[1] = remove_nullable(values_column)->assume_mutable();
+    for (size_t i = 0; i < 2; ++i) {
+        if (columns[i]->is_column_string() || columns[i]->is_column_array() ||
+            columns[i]->is_column_map() || check_column<ColumnStruct>(columns[i])) {
+            new_columns[i] = columns[i]->get_shrinked_column();
+        } else {
+            new_columns[i] = columns[i]->get_ptr();
+        }
+    }
+    return ColumnMap::create(new_columns[0]->assume_mutable(), new_columns[1]->assume_mutable(),
+                             offsets_column->assume_mutable());
+}
+
 void ColumnMap::reserve(size_t n) {
     get_offsets().reserve(n);
     keys_column->reserve(n);
