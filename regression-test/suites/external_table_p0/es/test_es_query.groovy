@@ -57,6 +57,24 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
         );
         """
 
+        sql """create catalog if not exists es6_hide properties(
+            "type"="es",
+            "hosts"="http://${externalEnvIp}:$es_6_port",
+            "nodes_discovery"="false",
+            "enable_keyword_sniff"="true",
+            "include_hidden_index"="true"
+        );
+        """
+
+        sql """create catalog if not exists es7_hide properties(
+            "type"="es",
+            "hosts"="http://${externalEnvIp}:$es_7_port",
+            "nodes_discovery"="false",
+            "enable_keyword_sniff"="true",
+            "include_hidden_index"="true"
+        );
+        """
+
         // test external table for datetime
         sql """
             CREATE TABLE `test_v1` (
@@ -94,9 +112,9 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
                 "http_ssl_enabled"="false"
             );
         """
-        order_qt_sql51 """select * from test_v1 where test2='text#1'"""
-        order_qt_sql52 """select * from test_v1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
-        order_qt_sql53 """select test4,test5,test6,test7,test8 from test_v1 order by test8"""
+        order_qt_sql01 """select * from test_v1 where test2='text#1'"""
+        order_qt_sql02 """select * from test_v1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
+        order_qt_sql03 """select test4,test5,test6,test7,test8 from test_v1 order by test8"""
 
        sql """
             CREATE TABLE `test_v2` (
@@ -134,38 +152,103 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
                 "http_ssl_enabled"="false"
             );
         """
-        order_qt_sql53 """select * from test_v2 where test2='text#1'"""
-        order_qt_sql54 """select * from test_v2 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
-        order_qt_sql55 """select test4,test5,test6,test7,test8 from test_v2 order by test8"""
+        order_qt_sql04 """select * from test_v2 where test2='text#1'"""
+        order_qt_sql05 """select * from test_v2 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
+        order_qt_sql06 """select test4,test5,test6,test7,test8 from test_v2 order by test8"""
 
         sql """switch es6"""
-        // order_qt_sql61 """show tables"""
-        order_qt_sql62 """select * from test1 where test2='text#1'"""
-        order_qt_sql63 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
-        order_qt_sql64 """select * from test2_20220808 where substring(test2, 2) = 'ext2'"""
-        order_qt_sql65 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test1"""
-        order_qt_sql66 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test2_20220808"""
-        order_qt_sql67 """select * from test1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
-        order_qt_sql68 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test1"""
-        order_qt_sql69 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2_20220808"""
-        sql """switch es7"""
-        // order_qt_sql71 """show tables"""
-        order_qt_sql72 """select * from test1 where test2='text#1'"""
-        order_qt_sql73 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
-        order_qt_sql74 """select * from test2_20220808 where substring(test2, 2) = 'ext2'"""
-        order_qt_sql75 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test1"""
-        order_qt_sql76 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test2"""
-        order_qt_sql77 """select * from test1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
-        order_qt_sql78 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test1"""
-        order_qt_sql79 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2"""
-        sql """switch es8"""
-        order_qt_sql81 """select * from test1 where test2='text#1'"""
-        order_qt_sql82 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
-        order_qt_sql83 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test1"""
-        order_qt_sql84 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test2"""
-        order_qt_sql85 """select * from test1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
-        order_qt_sql86 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test1"""
-        order_qt_sql87 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2"""
+        // order_qt_sql_6_01 """show tables"""
+        order_qt_sql_6_02 """select * from test1 where test2='text#1'"""
+        order_qt_sql_6_03 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
+        order_qt_sql_6_04 """select * from test2_20220808 where substring(test2, 2) = 'ext2'"""
+        order_qt_sql_6_05 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test1"""
+        order_qt_sql_6_06 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test2_20220808"""
+        order_qt_sql_6_07 """select * from test1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
+        order_qt_sql_6_08 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test1"""
+        order_qt_sql_6_09 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2_20220808"""
+        order_qt_sql_6_10 """select * from test1 where test1='string1'"""
+        order_qt_sql_6_11 """select * from test1 where test1='string2'"""
+        order_qt_sql_6_12 """select * from test1 where test1='string3'"""
+        order_qt_sql_6_13 """select test6 from test1 where test1='string1'"""
+        order_qt_sql_6_14 """select test6 from test1 where test1='string2'"""
+        order_qt_sql_6_15 """select test6 from test1 where test1='string3'"""
 
+        List<List<String>> tables6N = sql """show tables"""
+        boolean notContainHide = true
+        tables6N.forEach {
+            if (it[0] == ".hide"){
+                notContainHide = false
+            }
+        }
+        assertTrue(notContainHide)
+
+        sql """switch es6_hide"""
+        List<List<String>> tables6Y = sql """show tables"""
+        boolean containHide = false
+        tables6Y.forEach {
+            if (it[0] == ".hide"){
+                containHide = true
+            }
+        }
+        assertTrue(containHide)
+
+        sql """switch es7"""
+        // order_qt_sql_7_01 """show tables"""
+        order_qt_sql_7_02 """select * from test1 where test2='text#1'"""
+        order_qt_sql_7_03 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
+        order_qt_sql_7_04 """select * from test2_20220808 where substring(test2, 2) = 'ext2'"""
+        order_qt_sql_7_05 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test1"""
+        order_qt_sql_7_06 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test2"""
+        order_qt_sql_7_07 """select * from test1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
+        order_qt_sql_7_08 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test1"""
+        order_qt_sql_7_09 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2"""
+        order_qt_sql_7_10 """select * from test3_20231005"""
+        order_qt_sql_7_11 """select * from test1 where test1='string1'"""
+        order_qt_sql_7_12 """select * from test1 where test1='string2'"""
+        order_qt_sql_7_13 """select * from test1 where test1='string3'"""
+        order_qt_sql_7_14 """select * from test1 where test1='string4'"""
+        order_qt_sql_7_15 """select test10 from test1 where test1='string1'"""
+        order_qt_sql_7_16 """select test10 from test1 where test1='string2'"""
+        order_qt_sql_7_17 """select test10 from test1 where test1='string3'"""
+        order_qt_sql_7_18 """select test10 from test1 where test1='string4'"""
+
+        List<List<String>> tables7N = sql """show tables"""
+        boolean notContainHide7 = true
+        tables7N.forEach {
+            if (it[0] == ".hide"){
+                notContainHide7 = false
+            }
+        }
+        assertTrue(notContainHide7)
+
+        sql """switch es7_hide"""
+        List<List<String>> tables7Y = sql """show tables"""
+        boolean containeHide7 = false
+        tables7Y.forEach {
+            if (it[0] == (".hide")){
+                containeHide7 = true
+            }
+        }
+        assertTrue(containeHide7)
+
+        order_qt_sql_7_19 """select * from test3_20231005"""
+
+        sql """switch es8"""
+        order_qt_sql_8_01 """select * from test1 where test2='text#1'"""
+        order_qt_sql_8_02 """select * from test2_20220808 where test4 >= '2022-08-08 00:00:00' and test4 < '2022-08-08 23:59:59'"""
+        order_qt_sql_8_03 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test1"""
+        order_qt_sql_8_04 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test2"""
+        order_qt_sql_8_05 """select * from test1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
+        order_qt_sql_8_06 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test1"""
+        order_qt_sql_8_07 """select c_bool, c_byte, c_short, c_integer, c_long, c_unsigned_long, c_float, c_half_float, c_double, c_scaled_float, c_date, c_datetime, c_keyword, c_text, c_ip, c_person from test2"""
+        order_qt_sql_8_08 """select * from test3_20231005"""
+        order_qt_sql_8_09 """select * from test1 where test1='string1'"""
+        order_qt_sql_8_10 """select * from test1 where test1='string2'"""
+        order_qt_sql_8_11 """select * from test1 where test1='string3'"""
+        order_qt_sql_8_12 """select * from test1 where test1='string4'"""
+        order_qt_sql_8_13 """select test10 from test1 where test1='string1'"""
+        order_qt_sql_8_14 """select test10 from test1 where test1='string2'"""
+        order_qt_sql_8_15 """select test10 from test1 where test1='string3'"""
+        order_qt_sql_8_16 """select test10 from test1 where test1='string4'"""
     }
 }

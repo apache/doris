@@ -78,7 +78,7 @@ public:
     UnionSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    std::shared_ptr<DataQueue> data_queue();
+    std::shared_ptr<UnionSharedState> create_shared_state();
 
 private:
     friend class UnionSourceOperatorX;
@@ -136,7 +136,7 @@ public:
         }
         return Status::OK();
     }
-    int get_child_count() const { return _child_size; }
+    [[nodiscard]] int get_child_count() const { return _child_size; }
 
 private:
     bool _has_data(RuntimeState* state) {
@@ -144,7 +144,7 @@ private:
             return false;
         }
         auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
-        return local_state._shared_state->data_queue->remaining_has_data();
+        return local_state._shared_state->data_queue.remaining_has_data();
     }
     bool has_more_const(RuntimeState* state) const {
         auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();

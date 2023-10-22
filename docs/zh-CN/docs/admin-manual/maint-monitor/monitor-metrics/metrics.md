@@ -225,7 +225,7 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_disks_total_capacity`| | 字节 | 定数据目录所在磁盘的总容量| 配合 `doris_be_disks_avail_capacity` 计算磁盘使用率 | P0 |
 |`doris_be_engine_requests_total`| | Num | BE 上各类任务执行状态的累计值| |
 || {status="failed",type="xxx"}  | Num | xxx 类型的任务的失败次数的累计值| |
-|| {status="failed",type="xxx"} | Num | xxx 类型的任务的总次数的累计值。| 可以按需监控各类任务的失败次数 | P0 |
+|| {status="total",type="xxx"} | Num | xxx 类型的任务的总次数的累计值。| 可以按需监控各类任务的失败次数 | P0 |
 || `{status="skip",type="report_all_tablets"}` | Num | xxx 类型任务被跳过执行的次数的累计值 | |
 |`doris_be_fragment_endpoint_count`| | Num| 同 | FIXME: 同 `doris_be_data_stream_receiver_count` 数目。并且向量化引擎缺失 |
 |`doris_be_fragment_request_duration_us`| | 微秒| 所有 fragment intance 的执行时间累计 | 通过斜率观测 instance 的执行耗时 | P0 |
@@ -279,7 +279,7 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_stream_load`| {type="load_rows"} | Num | stream load 最终导入的行数累计值| 包括 stream load 和 routine load 任务 | P0 |
 |`doris_be_stream_load`| {type="receive_bytes"}|字节 | stream load 接收的字节数累计值| 包括 stream load 从 http 接收的数据，以及 routine load 从kafka 读取的数据| P0 |
 |`doris_be_tablet_base_max_compaction_score`| | Num | 当前最大的 Base Compaction Score | 该数值实时变化，有可能丢失峰值数据。数值越高，表示 compaction 堆积越严重 | P0 |
-|`doris_be_tablet_base_max_compaction_score`| | Num | 同上。当前最大的 Cumulative Compaction Score | |
+|`doris_be_tablet_cumulative_max_compaction_score`| | Num | 同上。当前最大的 Cumulative Compaction Score | |
 |`doris_be_tablet_version_num_distribution`| | Num | tablet version 数量的直方。| 用于反映 tablet version 数量的分布 | P0 |
 |`doris_be_thrift_connections_total`| | Num | 创建过的 thrift 连接数的累计值。如 `{name="heartbeat"}` 表示心跳服务的连接数累计| 此数值为 BE 作为服务端的 thrift server 的连接 |
 |`doris_be_thrift_current_connections`| | Num | 当前 thrift 连接数。如 `{name="heartbeat"}` 表示心跳服务的当前连接数。| 同上 |

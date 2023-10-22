@@ -47,6 +47,24 @@ pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
 sslCertificatePath = "${DORIS_HOME}/regression-test/ssl_default_certificate"
 
+// suite configs
+suites = {
+
+    //// equals to:
+    ////    suites.test_suite_1.key1 = "val1"
+    ////    suites.test_suite_1.key2 = "val2"
+    ////
+    //test_suite_1 {
+    //    key1 = "val1"
+    //    key2 = "val2"
+    //}
+
+    //test_suite_2 {
+    //    key3 = "val1"
+    //    key4 = "val2"
+    //}
+}
+
 // docker image
 image = ""
 dockerEndDeleteFiles = false
@@ -95,9 +113,10 @@ clickhouse_22_port=8123
 doris_port=9030
 
 // hive catalog test config
-// To enable hive test, you need first start hive container.
+// To enable hive/paimon test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
+enablePaimonTest=false
 hms_port=9183
 hdfs_port=8120
 hiveServerPort=10000
@@ -148,6 +167,10 @@ extEsHost = "***********"
 extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
+
+enableMaxComputeTest=false
+aliYunAk="***********"
+aliYunSk="***********"
 
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"

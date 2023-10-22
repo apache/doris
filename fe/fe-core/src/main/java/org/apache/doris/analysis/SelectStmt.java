@@ -524,7 +524,9 @@ public class SelectStmt extends QueryStmt {
             colLabels.removeIf(exceptCols::contains);
 
         } else {
-            for (SelectListItem item : selectList.getItems()) {
+            List<SelectListItem> items = selectList.getItems();
+            for (int i = 0; i < items.size(); i++) {
+                SelectListItem item = items.get(i);
                 if (item.isStar()) {
                     TableName tblName = item.getTblName();
                     if (tblName == null) {
@@ -541,7 +543,18 @@ public class SelectStmt extends QueryStmt {
                         throw new AnalysisException("Subquery is not supported in the select list.");
                     }
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer));
-                    SlotRef aliasRef = new SlotRef(null, item.toColumnLabel());
+                    String columnLabel = null;
+                    Class<? extends StatementBase> statementClazz = analyzer.getRootStatementClazz();
+                    if (statementClazz != null && !QueryStmt.class.isAssignableFrom(statementClazz)) {
+                        // Infer column name when item is expr
+                        columnLabel = item.toColumnLabel(i);
+                    }
+                    if (columnLabel == null) {
+                        // column label without position is applicative for query and do not infer
+                        // column name when item is expr
+                        columnLabel = item.toColumnLabel();
+                    }
+                    SlotRef aliasRef = new SlotRef(null, columnLabel);
                     Expr existingAliasExpr = aliasSMap.get(aliasRef);
                     if (existingAliasExpr != null && !existingAliasExpr.equals(item.getExpr())) {
                         // If we have already seen this alias, it refers to more than one column and
@@ -549,7 +562,7 @@ public class SelectStmt extends QueryStmt {
                         ambiguousAliasList.add(aliasRef);
                     }
                     aliasSMap.put(aliasRef, item.getExpr().clone());
-                    colLabels.add(item.toColumnLabel());
+                    colLabels.add(columnLabel);
                 }
             }
         }
@@ -2620,6 +2633,10 @@ public class SelectStmt extends QueryStmt {
         }
         TableRef tbl = tblRefs.get(0);
         if (tbl.getTable().getType() != Table.TableType.OLAP) {
+            return false;
+        }
+        // ensure no sub query
+        if (!analyzer.isRootAnalyzer()) {
             return false;
         }
         OlapTable olapTable = (OlapTable) tbl.getTable();

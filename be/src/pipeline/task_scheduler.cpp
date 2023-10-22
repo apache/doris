@@ -45,14 +45,12 @@
 
 namespace doris::pipeline {
 
-BlockedTaskScheduler::BlockedTaskScheduler(std::shared_ptr<TaskQueue> task_queue)
-        : _task_queue(std::move(task_queue)), _started(false), _shutdown(false) {}
+BlockedTaskScheduler::BlockedTaskScheduler() : _started(false), _shutdown(false) {}
 
-Status BlockedTaskScheduler::start() {
+Status BlockedTaskScheduler::start(std::string sche_name) {
     LOG(INFO) << "BlockedTaskScheduler start";
     RETURN_IF_ERROR(Thread::create(
-            "BlockedTaskScheduler", "schedule_blocked_pipeline", [this]() { this->_schedule(); },
-            &_thread));
+            "BlockedTaskScheduler", sche_name, [this]() { this->_schedule(); }, &_thread));
     while (!this->_started.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
@@ -106,7 +104,7 @@ void BlockedTaskScheduler::_schedule() {
 
         auto origin_local_block_tasks_size = local_blocked_tasks.size();
         auto iter = local_blocked_tasks.begin();
-        vectorized::VecDateTimeValue now = vectorized::VecDateTimeValue::local_time();
+        VecDateTimeValue now = VecDateTimeValue::local_time();
         while (iter != local_blocked_tasks.end()) {
             auto* task = *iter;
             auto state = task->get_state();
@@ -185,7 +183,7 @@ void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
     auto task = *task_itr;
     task->set_state(t_state);
     local_tasks.erase(task_itr++);
-    static_cast<void>(_task_queue->push_back(task));
+    static_cast<void>(task->get_task_queue()->push_back(task));
 }
 
 TaskScheduler::~TaskScheduler() {
@@ -207,7 +205,7 @@ Status TaskScheduler::start() {
         RETURN_IF_ERROR(
                 _fix_thread_pool->submit_func(std::bind(&TaskScheduler::_do_work, this, i)));
     }
-    return _blocked_task_scheduler->start();
+    return Status::OK();
 }
 
 Status TaskScheduler::schedule_task(PipelineTask* task) {
@@ -220,6 +218,10 @@ void TaskScheduler::_do_work(size_t index) {
     while (*marker) {
         auto* task = _task_queue->take(index);
         if (!task) {
+            continue;
+        }
+        if (task->is_empty_task()) {
+            task->yield();
             continue;
         }
         task->set_task_queue(_task_queue.get());
@@ -340,10 +342,10 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
                                           Status::Cancelled(status.to_string()));
             state = PipelineTaskState::CANCELED;
         }
-        DCHECK(!task->is_pending_finish()) << task->debug_string();
     }
     task->set_state(state);
     task->set_close_pipeline_time();
+    task->release_dependency();
     task->fragment_context()->close_a_pipeline();
 }
 

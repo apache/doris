@@ -17,32 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.trees.expressions.Cast;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Sets;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Optional;
-import java.util.Set;
-
 public class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchSupported {
-
-    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-
-    private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
-
-    private final PredicatePropagation propagation = new PredicatePropagation();
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -648,17 +630,5 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                                 any()
                         ).when(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
                 );
-    }
-
-    @Test
-    void testInfer() {
-        EqualTo equalTo = new EqualTo(new Cast(scan1.getOutput().get(0), BigIntType.INSTANCE), Literal.of(1));
-        EqualTo equalTo2 = new EqualTo(scan2.getOutput().get(0), scan1.getOutput().get(0));
-        Set<Expression> predicates = Sets.newHashSet();
-        predicates.add(equalTo2);
-        predicates.add(equalTo);
-        Set<Expression> newPredicates = propagation.infer(predicates);
-        Optional<Expression> newPredicate = newPredicates.stream().findFirst();
-        Assertions.assertTrue(newPredicate.get().equals(new EqualTo(new Cast(scan2.getOutput().get(0), BigIntType.INSTANCE), Literal.of(1))));
     }
 }

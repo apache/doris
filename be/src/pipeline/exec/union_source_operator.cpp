@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/descriptors.h"
 #include "vec/core/block.h"
 
@@ -99,10 +100,19 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
 }
 
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    auto& p = _parent->cast<Parent>();
+    int child_count = p.get_child_count();
+    auto ss = create_shared_state();
+    if (child_count != 0) {
+        auto& deps = info.dependencys;
+        for (auto& dep : deps) {
+            ((UnionDependency*)dep.get())->set_shared_state(ss);
+        }
+    }
     RETURN_IF_ERROR(Base::init(state, info));
+    ss->data_queue.set_dependency(_dependency);
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
-    auto& p = _parent->cast<Parent>();
     // Const exprs materialized by this node. These exprs don't refer to any children.
     // Only materialized by the first fragment instance to avoid duplication.
     if (state->per_fragment_instance_idx() == 0) {
@@ -124,9 +134,10 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     return Status::OK();
 }
 
-std::shared_ptr<DataQueue> UnionSourceLocalState::data_queue() {
+std::shared_ptr<UnionSharedState> UnionSourceLocalState::create_shared_state() {
     auto& p = _parent->cast<Parent>();
-    std::shared_ptr<DataQueue> data_queue = std::make_shared<DataQueue>(p._child_size, _dependency);
+    std::shared_ptr<UnionSharedState> data_queue =
+            std::make_shared<UnionSharedState>(p._child_size, _dependency);
     return data_queue;
 }
 
@@ -142,20 +153,20 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     } else {
         std::unique_ptr<vectorized::Block> output_block = vectorized::Block::create_unique();
         int child_idx = 0;
-        static_cast<void>(local_state._shared_state->data_queue->get_block_from_queue(&output_block,
-                                                                                      &child_idx));
+        static_cast<void>(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
+                                                                                     &child_idx));
         if (!output_block) {
             return Status::OK();
         }
         block->swap(*output_block);
         output_block->clear_column_data(_row_descriptor.num_materialized_slots());
-        local_state._shared_state->data_queue->push_free_block(std::move(output_block), child_idx);
+        local_state._shared_state->data_queue.push_free_block(std::move(output_block), child_idx);
     }
     local_state.reached_limit(block, source_state);
     //have exectue const expr, queue have no data any more, and child could be colsed
     if (_child_size == 0) {
         source_state = SourceState::FINISHED;
-    } else if ((!_has_data(state) && local_state._shared_state->data_queue->is_all_finish())) {
+    } else if ((!_has_data(state) && local_state._shared_state->data_queue.is_all_finish())) {
         source_state = SourceState::FINISHED;
     } else if (_has_data(state)) {
         source_state = SourceState::MORE_DATA;

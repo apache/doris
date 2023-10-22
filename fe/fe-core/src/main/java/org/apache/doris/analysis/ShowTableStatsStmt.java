@@ -32,7 +32,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -49,8 +49,6 @@ public class ShowTableStatsStmt extends ShowStmt {
                     .add("updated_rows")
                     .add("query_times")
                     .add("row_count")
-                    .add("method")
-                    .add("type")
                     .add("updated_time")
                     .add("columns")
                     .add("trigger")
@@ -132,7 +130,7 @@ public class ShowTableStatsStmt extends ShowStmt {
         return table.getPartition(partitionName).getId();
     }
 
-    public ShowResultSet constructResultSet(TableStats tableStatistic) {
+    public ShowResultSet constructResultSet(TableStatsMeta tableStatistic) {
         if (tableStatistic == null) {
             return new ShowResultSet(getMetaData(), new ArrayList<>());
         }
@@ -141,8 +139,6 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add(String.valueOf(tableStatistic.updatedRows));
         row.add(String.valueOf(tableStatistic.queriedTimes.get()));
         row.add(String.valueOf(tableStatistic.rowCount));
-        row.add(tableStatistic.analysisMethod.toString());
-        row.add(tableStatistic.analysisType.toString());
         row.add(new Date(tableStatistic.updatedTime).toString());
         row.add(tableStatistic.analyzeColumns().toString());
         row.add(tableStatistic.jobType.toString());

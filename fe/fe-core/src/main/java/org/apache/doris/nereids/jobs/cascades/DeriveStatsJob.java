@@ -125,7 +125,7 @@ public class DeriveStatsJob extends Job {
                 // child group's row count unchanged when the parent group expression is a project operation.
                 double parentRowCount = groupExpression.getOwnerGroup().getStatistics().getRowCount();
                 groupExpression.children().forEach(g -> g.setStatistics(
-                        g.getStatistics().updateRowCountAndColStats(parentRowCount))
+                        g.getStatistics().withRowCountAndEnforceValid(parentRowCount))
                 );
             }
         }

@@ -42,8 +42,7 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_reader_context.h"
-#include "olap/tablet.h"
-#include "olap/tablet_schema.h"
+#include "olap/tablet_fwd.h"
 
 namespace doris {
 
@@ -114,7 +113,7 @@ public:
             delete_predicates = std::move(read_source.delete_predicates);
         }
 
-        TabletSharedPtr tablet;
+        BaseTabletSPtr tablet;
         TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = ReaderType::READER_QUERY;
         bool direct_mode = false;
@@ -256,7 +255,7 @@ protected:
 
     Status _init_return_columns(const ReaderParams& read_params);
 
-    TabletSharedPtr tablet() { return _tablet; }
+    const BaseTabletSPtr& tablet() { return _tablet; }
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
     std::unique_ptr<vectorized::Arena> _predicate_arena;
@@ -268,7 +267,7 @@ protected:
     // vec query engine
     std::unordered_set<uint32_t>* _tablet_columns_convert_to_null_set = nullptr;
 
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
     RowsetReaderContext _reader_context;
     TabletSchemaSPtr _tablet_schema;
     KeysParam _keys_param;

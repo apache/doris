@@ -80,7 +80,7 @@ using namespace ErrorCode;
 Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
                                                 PushType push_type,
                                                 std::vector<TTabletInfo>* tablet_info_vec) {
-    LOG(INFO) << "begin to realtime push. tablet=" << tablet->full_name()
+    LOG(INFO) << "begin to realtime push. tablet=" << tablet->tablet_id()
               << ", transaction_id=" << request.transaction_id;
 
     Status res = Status::OK();
@@ -100,7 +100,7 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
             tablet_info_vec->push_back(tablet_info);
         }
         LOG(INFO) << "process realtime push successfully. "
-                  << "tablet=" << tablet->full_name() << ", partition_id=" << request.partition_id
+                  << "tablet=" << tablet->tablet_id() << ", partition_id=" << request.partition_id
                   << ", transaction_id=" << request.transaction_id;
     }
 
@@ -128,7 +128,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     {
         std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
         RETURN_IF_ERROR(StorageEngine::instance()->txn_manager()->prepare_txn(
-                request.partition_id, tablet, request.transaction_id, load_id));
+                request.partition_id, *tablet, request.transaction_id, load_id));
     }
 
     // not call validate request here, because realtime load does not
@@ -179,7 +179,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         del_preds.push(del_pred);
         if (!res.ok()) {
             LOG(WARNING) << "fail to generate delete condition. res=" << res
-                         << ", tablet=" << tablet->full_name();
+                         << ", tablet=" << tablet->tablet_id();
             return res;
         }
     }
@@ -188,7 +188,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     if (tablet->exceed_version_limit(config::max_tablet_version_num)) {
         return Status::Status::Error<TOO_MANY_VERSION>(
                 "failed to push data. version count: {}, exceed limit: {}, tablet: {}",
-                tablet->version_count(), config::max_tablet_version_num, tablet->full_name());
+                tablet->version_count(), config::max_tablet_version_num, tablet->tablet_id());
     }
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->copy_from(*tablet->tablet_schema());
@@ -204,11 +204,11 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     if (!res.ok()) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
                      << ", failed to process realtime push."
-                     << ", tablet=" << tablet->full_name()
+                     << ", tablet=" << tablet->tablet_id()
                      << ", transaction_id=" << request.transaction_id;
 
         Status rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(
-                request.partition_id, tablet, request.transaction_id);
+                request.partition_id, *tablet, request.transaction_id);
         // has to check rollback status to ensure not delete a committed rowset
         if (rollback_status.ok()) {
             StorageEngine::instance()->add_unused_rowset(rowset_to_add);
@@ -223,7 +223,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         del_preds.pop();
     }
     Status commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
-            request.partition_id, tablet, request.transaction_id, load_id, rowset_to_add, false);
+            request.partition_id, *tablet, request.transaction_id, load_id, rowset_to_add, false);
     if (!commit_status.ok() && !commit_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         res = std::move(commit_status);
     }
@@ -242,7 +242,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         VLOG_NOTICE << "start to convert delta file.";
 
         // 1. init RowsetBuilder of cur_tablet for current push
-        VLOG_NOTICE << "init rowset builder. tablet=" << cur_tablet->full_name()
+        VLOG_NOTICE << "init rowset builder. tablet=" << cur_tablet->tablet_id()
                     << ", block_row_size=" << tablet_schema->num_rows_per_row_block();
         // although the spark load output files are fully sorted,
         // but it depends on thirparty implementation, so we conservatively
@@ -257,7 +257,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         context.newest_write_timestamp = UnixSeconds();
         res = cur_tablet->create_rowset_writer(context, &rowset_writer);
         if (!res.ok()) {
-            LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->full_name()
+            LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->tablet_id()
                          << ", txn_id=" << _request.transaction_id << ", res=" << res;
             break;
         }
@@ -268,7 +268,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         // If it is push delete, the broker_scan_range is not set.
         if (push_type == PushType::PUSH_NORMAL_V2) {
             path = _request.broker_scan_range.ranges[0].path;
-            LOG(INFO) << "tablet=" << cur_tablet->full_name() << ", file path=" << path
+            LOG(INFO) << "tablet=" << cur_tablet->tablet_id() << ", file path=" << path
                       << ", file size=" << _request.broker_scan_range.ranges[0].file_size;
         }
         // For push load, this tablet maybe not need push data, so that the path maybe empty
@@ -277,7 +277,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             std::unique_ptr<Schema> schema(new (std::nothrow) Schema(tablet_schema));
             if (schema == nullptr) {
                 res = Status::Error<MEM_ALLOC_FAILED>("fail to create schema. tablet={}",
-                                                      cur_tablet->full_name());
+                                                      cur_tablet->tablet_id());
                 break;
             }
 
@@ -287,7 +287,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             res = reader->init();
             if (reader == nullptr || !res.ok()) {
                 res = Status::Error<PUSH_INIT_ERROR>("fail to init reader. res={}, tablet={}", res,
-                                                     cur_tablet->full_name());
+                                                     cur_tablet->tablet_id());
                 break;
             }
 
@@ -306,9 +306,9 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
                     if (reader->eof()) {
                         break;
                     }
-                    if (!(res = rowset_writer->add_block(&block))) {
+                    if (!(res = rowset_writer->add_block(&block)).ok()) {
                         LOG(WARNING) << "fail to attach block to rowset_writer. "
-                                     << "res=" << res << ", tablet=" << cur_tablet->full_name()
+                                     << "res=" << res << ", tablet=" << cur_tablet->tablet_id()
                                      << ", read_rows=" << num_rows;
                         break;
                     }
@@ -320,13 +320,17 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             static_cast<void>(reader->close());
         }
 
-        if (!rowset_writer->flush().ok()) {
+        if (!res.ok()) {
+            break;
+        }
+
+        if (!(res = rowset_writer->flush()).ok()) {
             LOG(WARNING) << "failed to finalize writer";
             break;
         }
-        *cur_rowset = rowset_writer->build();
-        if (*cur_rowset == nullptr) {
-            res = Status::Error<MEM_ALLOC_FAILED>("fail to build rowset");
+
+        if (!(res = rowset_writer->build(*cur_rowset)).ok()) {
+            LOG(WARNING) << "failed to build rowset";
             break;
         }
 
@@ -334,7 +338,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         _write_rows += (*cur_rowset)->num_rows();
     } while (false);
 
-    VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->full_name()
+    VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->tablet_id()
                << ", processed_rows" << num_rows;
     return res;
 }

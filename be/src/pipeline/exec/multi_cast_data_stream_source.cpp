@@ -125,17 +125,25 @@ RuntimeProfile* MultiCastDataStreamerSourceOperator::get_runtime_profile() const
     return _multi_cast_data_streamer->profile();
 }
 
+MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(RuntimeState* state,
+                                                                         OperatorXBase* parent)
+        : Base(state, parent),
+          vectorized::RuntimeFilterConsumer(
+                  static_cast<Parent*>(parent)->dest_id_from_sink(), parent->runtime_filter_descs(),
+                  static_cast<Parent*>(parent)->_row_desc(), _conjuncts) {};
+
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
-    if (p._t_data_stream_sink.__isset.output_exprs) {
-        _output_expr_contexts.resize(p._output_expr_contexts.size());
-        for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {
-            RETURN_IF_ERROR(p._output_expr_contexts[i]->clone(state, _output_expr_contexts[i]));
-        }
+    _output_expr_contexts.resize(p._output_expr_contexts.size());
+    for (size_t i = 0; i < p._output_expr_contexts.size(); i++) {
+        RETURN_IF_ERROR(p._output_expr_contexts[i]->clone(state, _output_expr_contexts[i]));
     }
+    // init profile for runtime filter
+    RuntimeFilterConsumer::_init_profile(profile());
     return Status::OK();
 }
 
@@ -150,7 +158,7 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
     if (!local_state._output_expr_contexts.empty()) {
         output_block = &tmp_block;
     }
-    local_state._shared_state->_multi_cast_data_streamer->pull(_consumer_id, output_block, &eos);
+    local_state._shared_state->multi_cast_data_streamer.pull(_consumer_id, output_block, &eos);
 
     if (!local_state._conjuncts.empty()) {
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
@@ -162,9 +170,11 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
                 local_state._output_expr_contexts, *output_block, block));
         materialize_block_inplace(*block);
     }
+    COUNTER_UPDATE(local_state._rows_returned_counter, block->rows());
     if (eos) {
         source_state = SourceState::FINISHED;
     }
     return Status::OK();
 }
+
 } // namespace doris::pipeline

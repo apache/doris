@@ -27,15 +27,16 @@
 namespace doris {
 namespace vectorized {
 
-void DataTypeDate64SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                   int end_idx, BufferWritable& bw,
-                                                   FormatOptions& options) const {
+Status DataTypeDate64SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                     int end_idx, BufferWritable& bw,
+                                                     FormatOptions& options,
+                                                     int nesting_level) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                     BufferWritable& bw,
-                                                     FormatOptions& options) const {
+Status DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                       BufferWritable& bw, FormatOptions& options,
+                                                       int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -52,13 +53,13 @@ void DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, int 
         std::string s = std::string(buf);
         bw.write(s.c_str(), s.length());
     } else {
-        doris::vectorized::VecDateTimeValue value =
-                binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
+        doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
         char buf[64];
         char* pos = value.to_string(buf);
         bw.write(buf, pos - buf - 1);
     }
+    return Status::OK();
 }
 
 Status DataTypeDate64SerDe::deserialize_column_from_json_vector(IColumn& column,
@@ -92,15 +93,13 @@ Status DataTypeDate64SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     return Status::OK();
 }
 
-void DataTypeDateTimeSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                     int end_idx, BufferWritable& bw,
-                                                     FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
-}
+Status DataTypeDateTimeSerDe::serialize_column_to_json(
+        const IColumn& column, int start_idx, int end_idx, BufferWritable& bw,
+        FormatOptions& options, int nesting_level) const {SERIALIZE_COLUMN_TO_JSON()}
 
-void DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                       BufferWritable& bw,
-                                                       FormatOptions& options) const {
+Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                         BufferWritable& bw, FormatOptions& options,
+                                                         int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -122,13 +121,13 @@ void DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, in
         std::string s = std::string(buf);
         bw.write(s.c_str(), s.length());
     } else {
-        doris::vectorized::VecDateTimeValue value =
-                binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
+        doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
         char buf[64];
         char* pos = value.to_string(buf);
         bw.write(buf, pos - buf - 1);
     }
+    return Status::OK();
 }
 
 Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(IColumn& column,
@@ -172,8 +171,7 @@ void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const Nul
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
-        const vectorized::VecDateTimeValue* time_val =
-                (const vectorized::VecDateTimeValue*)(&col_data[i]);
+        const VecDateTimeValue* time_val = (const VecDateTimeValue*)(&col_data[i]);
         int len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),

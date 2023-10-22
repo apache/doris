@@ -266,11 +266,13 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 params.delta_urls.push_back(to_http_path(it));
             }
         } else if (!req.runtime_states.empty()) {
-            params.__isset.delta_urls = true;
             for (auto* rs : req.runtime_states) {
                 for (auto& it : rs->output_files()) {
                     params.delta_urls.push_back(to_http_path(it));
                 }
+            }
+            if (!params.delta_urls.empty()) {
+                params.__isset.delta_urls = true;
             }
         }
         if (req.runtime_state->num_rows_load_total() > 0 ||
@@ -640,20 +642,29 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
             if (params.__isset.workload_groups && !params.workload_groups.empty()) {
                 taskgroup::TaskGroupInfo task_group_info;
-                int query_cpu_hard_limit = -1;
-                auto status = taskgroup::TaskGroupInfo::parse_group_info(
-                        params.workload_groups[0], &task_group_info, &query_cpu_hard_limit);
+                auto status = taskgroup::TaskGroupInfo::parse_group_info(params.workload_groups[0],
+                                                                         &task_group_info);
                 if (status.ok()) {
                     auto tg = _exec_env->task_group_manager()->get_or_create_task_group(
                             task_group_info);
                     tg->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
-                    query_ctx->set_task_group(tg);
+                    uint64_t tg_id = tg->id();
+                    std::string tg_name = tg->name();
                     LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                               << " use task group: " << tg->debug_string()
-                              << " query_cpu_hard_limit: " << query_cpu_hard_limit;
-                    if (query_cpu_hard_limit > 0 && _exec_env->get_cgroup_cpu_ctl() != nullptr) {
-                        _exec_env->get_cgroup_cpu_ctl()->update_cpu_hard_limit(
-                                query_cpu_hard_limit);
+                              << " cpu_hard_limit: " << task_group_info.cpu_hard_limit
+                              << " cpu_share:" << task_group_info.cpu_share;
+                    if (task_group_info.cpu_hard_limit > 0) {
+                        Status ret = _exec_env->task_group_manager()->create_and_get_task_scheduler(
+                                tg_id, tg_name, task_group_info.cpu_hard_limit, _exec_env,
+                                query_ctx.get());
+                        if (!ret.ok()) {
+                            LOG(INFO) << "workload group init failed "
+                                      << ", name=" << tg_name << ", id=" << tg_id
+                                      << ", reason=" << ret.to_string();
+                        }
+                    } else {
+                        query_ctx->set_task_group(tg);
                     }
                 }
             } else {
@@ -1072,7 +1083,7 @@ void FragmentMgr::cancel_worker() {
     do {
         std::vector<TUniqueId> to_cancel;
         std::vector<TUniqueId> queries_to_cancel;
-        vectorized::VecDateTimeValue now = vectorized::VecDateTimeValue::local_time();
+        VecDateTimeValue now = VecDateTimeValue::local_time();
         {
             std::lock_guard<std::mutex> lock(_lock);
             for (auto& it : _fragment_map) {
@@ -1147,7 +1158,7 @@ void FragmentMgr::debug(std::stringstream& ss) {
 
     ss << "FragmentMgr have " << _fragment_map.size() << " jobs.\n";
     ss << "job_id\t\tstart_time\t\texecute_time(s)\n";
-    vectorized::VecDateTimeValue now = vectorized::VecDateTimeValue::local_time();
+    VecDateTimeValue now = VecDateTimeValue::local_time();
     for (auto& it : _fragment_map) {
         ss << it.first << "\t" << it.second->start_time().debug_string() << "\t"
            << now.second_diff(it.second->start_time()) << "\n";

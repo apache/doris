@@ -30,7 +30,7 @@ under the License.
 
 
 
-[Flink Doris Connector](https://github.com/apache/doris-flink-connector) 可以支持通过 Flink 操作（读取、插入、修改、删除） Doris 中存储的数据。本文档介绍如何通过Flink如果通过Datastream和SQL操作Doris。
+[Flink Doris Connector](https://github.com/apache/doris-flink-connector) 可以支持通过 Flink 操作（读取、插入、修改、删除） Doris 中存储的数据。本文档介绍Flink如何通过Datastream和SQL操作Doris。
 
 >**注意：**
 >
@@ -466,6 +466,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
     mysql-sync-database \
     --database test_db \
     --mysql-conf hostname=127.0.0.1 \
+    --mysql-conf port=3306 \
     --mysql-conf username=root \
     --mysql-conf password=123456 \
     --mysql-conf database-name=mysql_db \
