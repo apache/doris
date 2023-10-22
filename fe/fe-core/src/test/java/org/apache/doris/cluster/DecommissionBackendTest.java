@@ -138,7 +138,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(srcBackend.getId());
         while (System.currentTimeMillis() - startTimestamp < 90000
                 && backend != null
-                && backend.isAlive()) {
+                && !backend.isAlive()) {
             Thread.sleep(1000);
         }
 
