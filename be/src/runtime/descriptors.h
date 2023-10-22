@@ -145,7 +145,6 @@ private:
     const bool _need_materialize;
     const std::vector<std::string> _column_paths;
 
-    const bool _is_auto_increment;
     const std::string _col_default_value;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
