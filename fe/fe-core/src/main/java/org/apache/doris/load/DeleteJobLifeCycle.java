@@ -15,36 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.load;
 
-namespace doris {
+public interface DeleteJobLifeCycle {
 
-enum TimeUnit {
-    MICROSECOND,
-    SECOND,
-    MINUTE,
-    HOUR,
-    DAY,
-    WEEK,
-    MONTH,
-    QUARTER,
-    YEAR,
-    SECOND_MICROSECOND,
-    MINUTE_MICROSECOND,
-    MINUTE_SECOND,
-    HOUR_MICROSECOND,
-    HOUR_SECOND,
-    HOUR_MINUTE,
-    DAY_MICROSECOND,
-    DAY_SECOND,
-    DAY_MINUTE,
-    DAY_HOUR,
-    YEAR_MONTH
-};
+    /**
+     * @return txn id
+     */
+    long beginTxn() throws Exception;
 
-enum TimeType { TIME_TIME = 1, TIME_DATE = 2, TIME_DATETIME = 3 };
+    /**
+     * dispatch push tasks in an async way
+     */
+    void dispatch() throws Exception;
 
-// 9999-99-99 99:99:99.999999; 26 + 1('\0')
-const int MAX_DTVALUE_STR_LEN = 27;
+    /**
+     * called after dispatch, waiting for quorum to be finished
+     */
+    void await() throws Exception;
 
-} // namespace doris
+    /**
+     * commit job
+     * @return commit msg
+     */
+    String commit() throws Exception;
+
+    void cancel(String reason) throws Exception;
+
+    void cleanUp() throws Exception;
+}

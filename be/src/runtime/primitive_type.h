@@ -166,22 +166,22 @@ struct PrimitiveTypeTraits<TYPE_DOUBLE> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATE> {
-    using CppType = doris::vectorized::VecDateTimeValue;
+    using CppType = doris::VecDateTimeValue;
     using ColumnType = vectorized::ColumnVector<vectorized::Int64>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIME> {
-    using CppType = doris::vectorized::VecDateTimeValue;
+    using CppType = doris::VecDateTimeValue;
     using ColumnType = vectorized::ColumnVector<vectorized::Int64>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
-    using CppType = doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>;
+    using CppType = DateV2Value<DateTimeV2ValueType>;
     using ColumnType = vectorized::ColumnVector<vectorized::UInt64>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATEV2> {
-    using CppType = doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>;
+    using CppType = DateV2Value<DateV2ValueType>;
     using ColumnType = vectorized::ColumnVector<vectorized::UInt32>;
 };
 template <>
