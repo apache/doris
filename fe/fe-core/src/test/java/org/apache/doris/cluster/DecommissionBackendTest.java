@@ -28,6 +28,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -111,6 +112,7 @@ public class DecommissionBackendTest extends TestWithFeService {
     }
 
     @Test
+    @Order(1)
     public void testDecommissionBackendWithDropTable() throws Exception {
         // 1. create connect context
         connectContext = createDefaultCtx();
@@ -178,6 +180,7 @@ public class DecommissionBackendTest extends TestWithFeService {
 
 
     @Test
+    @Order(2)
     public void testDecommissionBackendById() throws Exception {
 
         ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
