@@ -28,7 +28,6 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -112,7 +111,35 @@ public class DecommissionBackendTest extends TestWithFeService {
     }
 
     @Test
-    @Order(1)
+    public void testDecommissionBackendById() throws Exception {
+
+        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
+        Backend srcBackend = idToBackendRef.values().asList().get(0);
+        Assertions.assertNotNull(srcBackend);
+        // decommission backend by id
+        String decommissionByIdStmtStr = "alter system decommission backend \"" + srcBackend.getId() + "\"";
+        AlterSystemStmt decommissionByIdStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionByIdStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionByIdStmt);
+
+        Assertions.assertTrue(srcBackend.isDecommissioned());
+        long startTimestamp = System.currentTimeMillis();
+        while (System.currentTimeMillis() - startTimestamp < 90000
+                && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
+            Thread.sleep(1000);
+        }
+
+        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
+
+        // add backend
+        String addBackendStmtStr = "alter system add backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
+        AlterSystemStmt addBackendStmt = (AlterSystemStmt) parseAndAnalyzeStmt(addBackendStmtStr);
+        Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
+
+
+    }
+
+    @Test
     public void testDecommissionBackendWithDropTable() throws Exception {
         // 1. create connect context
         connectContext = createDefaultCtx();
@@ -179,31 +206,5 @@ public class DecommissionBackendTest extends TestWithFeService {
     }
 
 
-    @Test
-    @Order(2)
-    public void testDecommissionBackendById() throws Exception {
 
-        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
-        Backend srcBackend = idToBackendRef.values().asList().get(0);
-        Assertions.assertNotNull(srcBackend);
-        // decommission backend by id
-        String decommissionByIdStmtStr = "alter system decommission backend \"" + srcBackend.getId() + "\"";
-        AlterSystemStmt decommissionByIdStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionByIdStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionByIdStmt);
-
-        Assertions.assertTrue(srcBackend.isDecommissioned());
-        long startTimestamp = System.currentTimeMillis();
-        while (System.currentTimeMillis() - startTimestamp < 90000
-                && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
-            Thread.sleep(1000);
-        }
-
-        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
-
-        // add backend
-        String addBackendStmtStr = "alter system add backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
-        AlterSystemStmt addBackendStmt = (AlterSystemStmt) parseAndAnalyzeStmt(addBackendStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
-        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
-    }
 }
