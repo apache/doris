@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/Status_types.h>
@@ -49,6 +50,7 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_system.h"
+#include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
@@ -1201,6 +1203,22 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                             .tag("resource_id", resource.id)
                             .tag("resource_name", resource.name)
                             .tag("s3_conf", s3_conf.to_string());
+                    put_storage_resource(resource.id, {std::move(fs), resource.version});
+                }
+            } else if (resource.__isset.hdfs_storage_param) {
+                Status st;
+                std::shared_ptr<io::HdfsFileSystem> fs;
+                if (existed_resource.fs == nullptr) {
+                    st = io::HdfsFileSystem::create(resource.hdfs_storage_param, "", nullptr, &fs);
+                } else {
+                    fs = std::static_pointer_cast<io::HdfsFileSystem>(existed_resource.fs);
+                }
+                if (!st.ok()) {
+                    LOG(WARNING) << "update hdfs resource failed: " << st;
+                } else {
+                    LOG_INFO("successfully update hdfs resource")
+                            .tag("resource_id", resource.id)
+                            .tag("resource_name", resource.name);
                     put_storage_resource(resource.id, {std::move(fs), resource.version});
                 }
             } else {
