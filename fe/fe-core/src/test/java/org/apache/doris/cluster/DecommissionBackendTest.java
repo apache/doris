@@ -135,10 +135,9 @@ public class DecommissionBackendTest extends TestWithFeService {
         AlterSystemStmt addBackendStmt = (AlterSystemStmt) parseAndAnalyzeStmt(addBackendStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
         Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
-        Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(srcBackend.getId());
         while (System.currentTimeMillis() - startTimestamp < 90000
-                && backend != null
-                && !backend.isAlive()) {
+                && Env.getCurrentSystemInfo().getIdToBackend().get(srcBackend.getId()) != null
+                && !Env.getCurrentSystemInfo().getIdToBackend().get(srcBackend.getId()).isAlive()) {
             Thread.sleep(1000);
         }
 
