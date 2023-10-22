@@ -152,7 +152,7 @@ private:
     }
 
     [[nodiscard]] Status _lazy_init();
-    [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
+
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_bitmap_index_iterators();
     [[nodiscard]] Status _init_inverted_index_iterators();
