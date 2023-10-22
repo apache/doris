@@ -348,6 +348,7 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // minimum file descriptor number
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
+DECLARE_mBool(disable_segment_cache);
 DECLARE_Int64(index_stream_cache_capacity);
 DECLARE_String(row_cache_mem_limit);
 
