@@ -6007,12 +6007,6 @@ with_analysis_properties ::=
             put("analysis.type", "HISTOGRAM");
         }};
     :}
-    | KW_CRON STRING_LITERAL:cron_expr
-    {:
-        RESULT = new HashMap<String, String>() {{
-            put("period.cron", cron_expr);
-        }};
-    :}
     | KW_FULL
     {:
         RESULT = new HashMap<String, String>() {{
