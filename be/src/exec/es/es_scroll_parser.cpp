@@ -548,44 +548,44 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         }
 
         case TYPE_TINYINT: {
-            RETURN_IF_ERROR(insert_int_value<int8_t>(col, type, col_ptr, pure_doc_value,
-                                                     slot_desc->is_nullable()));
+            static_cast<void>(insert_int_value<int8_t>(col, type, col_ptr, pure_doc_value,
+                                                       slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_SMALLINT: {
-            RETURN_IF_ERROR(insert_int_value<int16_t>(col, type, col_ptr, pure_doc_value,
-                                                      slot_desc->is_nullable()));
+            static_cast<void>(insert_int_value<int16_t>(col, type, col_ptr, pure_doc_value,
+                                                        slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_INT: {
-            RETURN_IF_ERROR(insert_int_value<int32>(col, type, col_ptr, pure_doc_value,
-                                                    slot_desc->is_nullable()));
+            static_cast<void>(insert_int_value<int32>(col, type, col_ptr, pure_doc_value,
+                                                      slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_BIGINT: {
-            RETURN_IF_ERROR(insert_int_value<int64_t>(col, type, col_ptr, pure_doc_value,
-                                                      slot_desc->is_nullable()));
+            static_cast<void>(insert_int_value<int64_t>(col, type, col_ptr, pure_doc_value,
+                                                        slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_LARGEINT: {
-            RETURN_IF_ERROR(insert_int_value<__int128>(col, type, col_ptr, pure_doc_value,
-                                                       slot_desc->is_nullable()));
+            static_cast<void>(insert_int_value<__int128>(col, type, col_ptr, pure_doc_value,
+                                                         slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_DOUBLE: {
-            RETURN_IF_ERROR(insert_float_value<double>(col, type, col_ptr, pure_doc_value,
-                                                       slot_desc->is_nullable()));
+            static_cast<void>(insert_float_value<double>(col, type, col_ptr, pure_doc_value,
+                                                         slot_desc->is_nullable()));
             break;
         }
 
         case TYPE_FLOAT: {
-            RETURN_IF_ERROR(insert_float_value<float>(col, type, col_ptr, pure_doc_value,
-                                                      slot_desc->is_nullable()));
+            static_cast<void>(insert_float_value<float>(col, type, col_ptr, pure_doc_value,
+                                                        slot_desc->is_nullable()));
             break;
         }
 
