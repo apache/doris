@@ -291,16 +291,16 @@ public:
         size_t rows = src_col->size();
         dst_col->resize(_convert_params->start_idx + rows);
 
-        auto& src_data = static_cast<const ColumnVector<Int64>*>(src_col.get())->get_data();
+        auto src_data = static_cast<const ColumnVector<int64_t>*>(src_col.get())->get_data().data();
         auto& data = static_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
 
         for (int i = 0; i < rows; i++) {
-            int64 x = src_data[i];
+            int64_t x = src_data[i];
             auto& num = data[_convert_params->start_idx + i];
             auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
             value.from_unixtime(x / _convert_params->second_mask, *_convert_params->ctz);
             value.set_microsecond((x % _convert_params->second_mask) *
-                                  _convert_params->scale_to_nano_factor / 1000);
+                                  (_convert_params->scale_to_nano_factor / 1000));
         }
         return Status::OK();
     }
@@ -512,16 +512,16 @@ inline Status get_converter(tparquet::Type::type parquet_physical_type, Primitiv
     case TypeIndex::String: {
         if (tparquet::Type::FIXED_LEN_BYTE_ARRAY == parquet_physical_type) {
             if (show_type == PrimitiveType::TYPE_DECIMAL32) {
-                *converter = std::make_unique<StringToDecimalString<Decimal32, Int64>>();
+                *converter = std::make_unique<StringToDecimalString<Decimal32, Int32>>();
                 break;
             } else if (show_type == PrimitiveType::TYPE_DECIMAL64) {
                 *converter = std::make_unique<StringToDecimalString<Decimal64, Int64>>();
                 break;
             } else if (show_type == PrimitiveType::TYPE_DECIMALV2) {
-                *converter = std::make_unique<StringToDecimalString<Decimal128, Int64>>();
+                *converter = std::make_unique<StringToDecimalString<Decimal128, Int128>>();
                 break;
             } else if (show_type == PrimitiveType::TYPE_DECIMAL128I) {
-                *converter = std::make_unique<StringToDecimalString<Decimal128, Int64>>();
+                *converter = std::make_unique<StringToDecimalString<Decimal128, Int128>>();
                 break;
             }
 

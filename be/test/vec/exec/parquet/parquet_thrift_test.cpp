@@ -192,7 +192,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     size_t chunk_size = chunk_meta.total_compressed_size;
 
     bool need_convert = false;
-    auto& parquet_physical_type = column_chunk.meta_data.type;
+    auto& parquet_physical_type = column_chunk->meta_data.type;
     auto& show_type = field_schema->type.type;
 
     ColumnPtr src_column = ParquetConvert::get_column(parquet_physical_type, show_type,

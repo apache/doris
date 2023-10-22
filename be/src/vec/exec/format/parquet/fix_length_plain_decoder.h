@@ -149,7 +149,7 @@ Status FixLengthPlainDecoder<PhysicalType>::_decode_numeric(MutableColumnPtr& do
             break;
         }
         case ColumnSelectVector::NULL_DATA: {
-            data_index += run_length;
+            data_index += run_length * _type_length;
             break;
         }
         case ColumnSelectVector::FILTERED_CONTENT: {
