@@ -59,6 +59,7 @@
 #include "gutil/stringprintf.h"
 #include "gutil/strings/substitute.h"
 #include "http/web_page_handler.h"
+#include "runtime/thread_context.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/easy_json.h"
 #include "util/os_util.h"
@@ -479,6 +480,9 @@ void* Thread::supervise_thread(void* arg) {
     // already incremented the reference count in StartThread.
     Thread::_tls = t;
 
+    // Create thread context, there is no need to create it when func is executed.
+    ThreadLocalHandle::handle_thread_local();
+
     // Publish our tid to '_tid', which unblocks any callers waiting in
     // WaitForTid().
     Release_Store(&t->_tid, system_tid);
@@ -514,6 +518,8 @@ void Thread::finish_thread(void* arg) {
     // NOTE: the above 'Release' call could be the last reference to 'this',
     // so 'this' could be destructed at this point. Do not add any code
     // following here!
+
+    ThreadLocalHandle::release_thread_local();
 }
 
 void Thread::init_threadmgr() {

@@ -47,7 +47,7 @@ void MemTracker::bind_parent(MemTrackerLimiter* parent) {
     if (parent) {
         _parent_label = parent->label();
         _parent_group_num = parent->group_num();
-    } else if (thread_context_ptr.init) {
+    } else if (doris::is_thread_context_init()) {
         _parent_label = thread_context()->thread_mem_tracker()->label();
         _parent_group_num = thread_context()->thread_mem_tracker()->group_num();
     }
