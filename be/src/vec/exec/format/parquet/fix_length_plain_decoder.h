@@ -99,28 +99,18 @@ template <tparquet::Type::type PhysicalType>
 template <bool has_filter>
 Status FixLengthPlainDecoder<PhysicalType>::_decode_string(MutableColumnPtr& doris_column,
                                                            ColumnSelectVector& select_vector) {
-    auto& string_column = static_cast<ColumnString&>(*doris_column);
-
-    auto& data = string_column.get_chars();
-    size_t data_index = data.size();
-    data.resize(data_index +
-                _type_length * (select_vector.num_values() - select_vector.num_filtered()));
-    auto& offset = string_column.get_offsets();
-    size_t offset_index = offset.size();
-    offset.resize(offset_index + select_vector.num_values() - select_vector.num_filtered());
-
     ColumnSelectVector::DataReadType read_type;
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            memcpy(data.data() + data_index, _data->data + _offset, _type_length * run_length);
-            _offset += _type_length * run_length;
-            data_index += _type_length * run_length;
-
-            for (int i = 0; i < run_length; i++) {
-                offset[offset_index] = offset[offset_index - 1] + _type_length;
-                offset_index++;
+            std::vector<StringRef> string_values;
+            string_values.reserve(run_length);
+            for (size_t i = 0; i < run_length; ++i) {
+                char* buf_start = _data->data + _offset;
+                string_values.emplace_back(buf_start, _type_length);
+                _offset += _type_length;
             }
+            doris_column->insert_many_strings(&string_values[0], run_length);
             break;
         }
         case ColumnSelectVector::NULL_DATA: {

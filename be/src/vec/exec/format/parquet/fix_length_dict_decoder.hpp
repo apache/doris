@@ -93,9 +93,9 @@ protected:
     template <bool has_filter>
     Status _decode_numeric(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector) {
         auto& column_data = reinterpret_cast<ColumnVector<Int8>&>(*doris_column).get_data();
-        size_t data_index = column_data.size();
-        column_data.resize(data_index + _type_length * (select_vector.num_values() -
-                                                        select_vector.num_filtered()));
+        size_t data_index = column_data.size() / _type_length;
+        column_data.resize(column_data.size() + _type_length * (select_vector.num_values() -
+                                                                select_vector.num_filtered()));
         size_t dict_index = 0;
         DataType* data = (DataType*)column_data.data();
         ColumnSelectVector::DataReadType read_type;

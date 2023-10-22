@@ -124,7 +124,7 @@ struct ConvertParams {
     FieldSchema* field_schema = nullptr;
     size_t start_idx = 0;
 
-    void init(FieldSchema* field_schema_, cctz::time_zone* ctz_) {
+    void init(FieldSchema* field_schema_, cctz::time_zone* ctz_, size_t start_idx_ = 0) {
         field_schema = field_schema_;
         if (ctz_ != nullptr) {
             ctz = ctz_;
@@ -163,6 +163,7 @@ struct ConvertParams {
             t.from_unixtime(0, *ctz);
             offset_days = t.day() == 31 ? 0 : 1;
         }
+        start_idx = start_idx_;
     }
 
     template <typename DecimalPrimitiveType>
@@ -189,6 +190,21 @@ struct ConvertParams {
     }
 };
 
+/*
+* parquet_physical_type : The type of data stored in parquet.
+* Read data into columns returned by get_column according to the physical type of parquet.
+* show_type : The data format that should be displayed.
+* doris_column : What type of column does the upper layer need to put the data in.
+*
+* example :
+*      In hive, if decimal is stored as FIXED_LENBYTE_ARRAY in parquet,
+*  then we use `ALTER TABLE TableName CHANGE COLUMN Col_Decimal Col_Decimal String;`
+*  to convert this column to string type.
+*      parquet_type : FIXED_LEN_BYTE_ARRAY.
+*      ans_data_type : ColumnInt8
+*      show_type : Decimal.
+*      doris_column : ColumnString.
+*/
 ColumnPtr get_column(tparquet::Type::type parquet_physical_type, PrimitiveType show_type,
                      ColumnPtr& doris_column, DataTypePtr& doris_type, bool* need_convert);
 
@@ -327,7 +343,7 @@ public:
 
         auto& data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data();
         for (int i = 0; i < rows; i++) {
-            int len = offset[i] - offset[i - 1];
+            size_t len = offset[i] - offset[i - 1];
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
             // the unscaled number must be encoded as two's complement using big-endian byte order.
             ValueCopyType value = 0;
@@ -381,6 +397,7 @@ public:
     }
 };
 
+template <typename DecimalType, typename ValueCopyType>
 class StringToDecimalString : public ColumnConvert {
 public:
     Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
@@ -396,14 +413,37 @@ public:
             int len = offset[i] - offset[i - 1];
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
             // the unscaled number must be encoded as two's complement using big-endian byte order.
-            Int64 value = 0;
+            ValueCopyType value = 0;
             memcpy(reinterpret_cast<char*>(&value), buf + offset[i - 1], len);
             value = BitUtil::big_endian_to_host(value);
             value = value >> ((sizeof(value) - len) * 8);
-            std::string ans = reinterpret_cast<Decimal64&>(value).to_string(
+            std::string ans = reinterpret_cast<DecimalType&>(value).to_string(
                     _convert_params->field_schema->parquet_schema.scale);
             data->insert_data(ans.data(), ans.size());
         }
+        return Status::OK();
+    }
+};
+
+class Int32ToDateString : public ColumnConvert {
+public:
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        convert_null(src_col, dst_col);
+
+        size_t rows = src_col->size();
+
+        auto& src_data = static_cast<const ColumnVector<int32>*>(src_col.get())->get_data();
+        date_day_offset_dict& date_dict = date_day_offset_dict::get();
+
+        auto str_col = static_cast<ColumnString*>(dst_col.get());
+        char buf[50];
+        for (int i = 0; i < rows; i++) {
+            int64_t date_value = (int64_t)src_data[i] + _convert_params->offset_days;
+            DateV2Value<DateV2ValueType> value = date_dict[date_value];
+            char* end = value.to_string(buf);
+            str_col->insert_data(buf, end - buf);
+        }
+
         return Status::OK();
     }
 };
@@ -419,16 +459,15 @@ public:
         size_t rows = src_col->size() / sizeof(ParquetInt96);
         ParquetInt96* data = (ParquetInt96*)src_data.data();
 
-        std::string buf;
-        buf.resize(50);
+        char buf[50];
         for (int i = 0; i < rows; i++) {
             uint64_t num = 0;
             auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
             int64_t micros = data[i].to_timestamp_micros();
             value.from_unixtime(micros / 1000000, *_convert_params->ctz);
             value.set_microsecond(micros % 1000000);
-            char* end = value.to_string(buf.data());
-            dst_data->insert_data(buf.data(), end - buf.data());
+            char* end = value.to_string(buf);
+            dst_data->insert_data(buf, end - buf);
         }
         return Status::OK();
     }
@@ -472,13 +511,28 @@ inline Status get_converter(tparquet::Type::type parquet_physical_type, Primitiv
 
     case TypeIndex::String: {
         if (tparquet::Type::FIXED_LEN_BYTE_ARRAY == parquet_physical_type) {
-            if (show_type == PrimitiveType::TYPE_DECIMAL64) {
-                *converter = std::make_unique<StringToDecimalString>();
+            if (show_type == PrimitiveType::TYPE_DECIMAL32) {
+                *converter = std::make_unique<StringToDecimalString<Decimal32, Int64>>();
+                break;
+            } else if (show_type == PrimitiveType::TYPE_DECIMAL64) {
+                *converter = std::make_unique<StringToDecimalString<Decimal64, Int64>>();
+                break;
+            } else if (show_type == PrimitiveType::TYPE_DECIMALV2) {
+                *converter = std::make_unique<StringToDecimalString<Decimal128, Int64>>();
+                break;
+            } else if (show_type == PrimitiveType::TYPE_DECIMAL128I) {
+                *converter = std::make_unique<StringToDecimalString<Decimal128, Int64>>();
                 break;
             }
+
         } else if (tparquet::Type::INT96 == parquet_physical_type) {
             *converter = std::make_unique<Int96ToTimestampString>();
             break;
+        } else if (tparquet::Type::INT32 == parquet_physical_type) {
+            if (show_type == PrimitiveType::TYPE_DATEV2) {
+                *converter = std::make_unique<Int32ToDateString>();
+                break;
+            }
         }
 
         if (parquet_physical_type == tparquet::Type::BOOLEAN) {

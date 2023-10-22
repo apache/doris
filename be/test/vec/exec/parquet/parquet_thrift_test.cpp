@@ -192,16 +192,11 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     size_t chunk_size = chunk_meta.total_compressed_size;
 
     bool need_convert = false;
-    auto& physical_type = column_chunk->meta_data.type;
-    DataTypePtr src_type;
+    auto& parquet_physical_type = column_chunk.meta_data.type;
+    auto& show_type = field_schema->type.type;
 
-    RETURN_IF_ERROR(ParquetConvert::convert_data_type_from_parquet(
-            physical_type, field_schema->type.type, src_type, data_type, &need_convert));
-
-    ColumnPtr src_column = doris_column->assume_mutable();
-    if (need_convert) {
-        src_column = src_type->create_column();
-    }
+    ColumnPtr src_column = ParquetConvert::get_column(parquet_physical_type, show_type,
+                                                      doris_column, data_type, &need_convert);
 
     io::BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
 
@@ -272,12 +267,13 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     if (need_convert) {
         std::unique_ptr<ParquetConvert::ColumnConvert> converter;
         ParquetConvert::ConvertParams convert_params;
-        convert_params.init(field_schema, &ctz);
-        convert_params.start_idx = doris_column->size();
-        RETURN_IF_ERROR(ParquetConvert::get_converter(src_type, field_schema->type.type, data_type,
+        convert_params.init(field_schema, &ctz, doris_column->size());
+        RETURN_IF_ERROR(ParquetConvert::get_converter(parquet_physical_type, show_type, data_type,
                                                       &converter, &convert_params));
-        RETURN_IF_ERROR(converter->convert(src_column, const_cast<IColumn*>(doris_column.get())));
+        auto x = doris_column->assume_mutable();
+        RETURN_IF_ERROR(converter->convert(src_column, x));
     }
+
     return Status::OK();
 }
 
