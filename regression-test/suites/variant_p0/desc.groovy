@@ -187,6 +187,10 @@ suite("regression_test_variant_desc", "variant_type_desc"){
         sql """set describe_extend_variant_column = true"""
         qt_sql_9_1 """desc ${table_name}"""
         sql "truncate table ${table_name}"
+        sql """insert into  ${table_name} values (1, '{"中文": "这是中文"}')"""
+        sql """insert into  ${table_name} values (1, '{"英文": "This is english"}')"""
+        qt_sql_9_2 """desc ${table_name}"""
+        qt_sql_9_2 """select v:中文 from ${table_name}"""
     } finally {
         // reset flags
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
