@@ -37,7 +37,8 @@ SHOW PROPERTY
 语法：
 
 ```sql
-SHOW [ALL] PROPERTY [FOR user] [LIKE key]
+SHOW PROPERTY [FOR user] [LIKE key]
+SHOW ALL PROPERTIES [LIKE key]
 ```
 
 * `user`
@@ -74,7 +75,7 @@ mysql> show property like'%connection%';
 
 
 ```sql
-mysql> show all property like "%connection%";
+mysql> show all properties like "%connection%";
 +-------------------+--------------------------------------+
 | User              | Properties                           |
 +-------------------+--------------------------------------+
@@ -109,7 +110,7 @@ mysql> show all property like "%connection%";
 3. 查看所有用户导入cluster相关属性
 
    ```sql
-   SHOW ALL PROPERTY LIKE '%load_cluster%'
+   SHOW ALL PROPERTIES LIKE '%load_cluster%'
    ```
 
 ### Keywords

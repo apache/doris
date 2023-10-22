@@ -31,7 +31,8 @@ under the License.
 This statement is used to view the attributes of the user
 
 ```
-SHOW [ALL] PROPERTY [FOR user] [LIKE key];
+SHOW PROPERTY [FOR user] [LIKE key]
+SHOW ALL PROPERTIES [LIKE key]
 ```
 
 * `user`
@@ -68,7 +69,7 @@ mysql> show property like'%connection%';
 
 
 ```sql
-mysql> show all property like "%connection%";
+mysql> show all properties like "%connection%";
 +-------------------+--------------------------------------+
 | User              | Properties                           |
 +-------------------+--------------------------------------+
@@ -103,7 +104,7 @@ mysql> show all property like "%connection%";
 3. View all users importing cluster related properties
 
    ```sql
-   SHOW ALL PROPERTY LIKE '%load_cluster%'
+   SHOW ALL PROPERTIES LIKE '%load_cluster%'
    ```
 
 ### Keywords

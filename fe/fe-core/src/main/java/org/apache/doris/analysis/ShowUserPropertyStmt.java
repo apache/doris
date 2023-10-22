@@ -157,11 +157,9 @@ public class ShowUserPropertyStmt extends ShowStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("SHOW ");
         if (isAll) {
-            sb.append("ALL ");
-        }
-        sb.append("PROPERTY");
-        if (!isAll) {
-            sb.append(" FOR '");
+            sb.append("ALL PROPERTIES");
+        } else {
+            sb.append("PROPERTY FOR ");
             sb.append(user);
             sb.append("'");
         }

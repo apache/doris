@@ -61,7 +61,7 @@ public class ShowUserPropertyStmtTest {
     public void testAll() throws UserException {
         ShowUserPropertyStmt stmt = new ShowUserPropertyStmt(null, "%load_cluster%", true);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW ALL PROPERTY LIKE '%load_cluster%'", stmt.toString());
+        Assert.assertEquals("SHOW ALL PROPERTIES LIKE '%load_cluster%'", stmt.toString());
         List<Column> columns = stmt.getMetaData().getColumns();
         for (int i = 0; i < columns.size(); i++) {
             Assert.assertEquals(columns.get(i).getName(), UserPropertyProcNode.ALL_USER_TITLE_NAMES.get(i));

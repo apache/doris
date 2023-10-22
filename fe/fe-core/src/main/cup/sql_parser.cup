@@ -4124,7 +4124,7 @@ show_param ::=
     {:
         RESULT = new ShowUserPropertyStmt(user, parser.wild, false);
     :}
-    | KW_ALL KW_PROPERTY opt_wild_where
+    | KW_ALL KW_PROPERTIES opt_wild_where
     {:
         RESULT = new ShowUserPropertyStmt(null, parser.wild, true);
     :}
