@@ -16,6 +16,7 @@
 // under the License.
 
 #include "agent/cgroup_cpu_ctl.h"
+#include "util/thread.h"
 
 #include <fmt/format.h>
 
@@ -109,9 +110,9 @@ Status CgroupV1CpuCtl::add_thread_to_cgroup() {
     if (!_init_succ) {
         return Status::OK();
     }
-    int tid = static_cast<int>(syscall(SYS_gettid));
+    int64_t tid = Thread::current_thread_id();
     std::string msg = "add thread " + std::to_string(tid) + " to group";
     std::lock_guard<std::shared_mutex> w_lock(_lock_mutex);
-    return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_query_task_path, tid, msg, true);
+    return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_query_task_path, static_cast<int>tid, msg, true);
 }
 } // namespace doris
