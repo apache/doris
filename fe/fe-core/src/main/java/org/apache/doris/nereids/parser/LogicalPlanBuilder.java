@@ -1865,8 +1865,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitCreateTable(CreateTableContext ctx) {
+        String ctlName = null;
         String dbName = null;
-        String tableName;
+        String tableName = null;
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         // TODO: support catalog
         if (nameParts.size() == 1) {
@@ -1874,8 +1875,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (nameParts.size() == 2) {
             dbName = nameParts.get(0);
             tableName = nameParts.get(1);
+        } else if (nameParts.size() == 3) {
+            ctlName = nameParts.get(0);
+            dbName = nameParts.get(1);
+            tableName = nameParts.get(2);
         } else {
-            throw new AnalysisException("nameParts in create table should be 1 or 2");
+            throw new AnalysisException("nameParts in create table should be [ctl.][db.]tbl");
         }
         KeysType keysType = null;
         if (ctx.DUPLICATE() != null) {
@@ -1906,6 +1911,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             return new CreateTableCommand(Optional.empty(), new CreateTableInfo(
                     ctx.EXISTS() != null,
+                    ctlName,
                     dbName,
                     tableName,
                     visitColumnDefs(ctx.columnDefs()),
@@ -1923,6 +1929,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.AS() != null) {
             return new CreateTableCommand(Optional.of(visitQuery(ctx.query())), new CreateTableInfo(
                     ctx.EXISTS() != null,
+                    ctlName,
                     dbName,
                     tableName,
                     ctx.ctasCols != null ? visitIdentifierList(ctx.ctasCols) : null,
