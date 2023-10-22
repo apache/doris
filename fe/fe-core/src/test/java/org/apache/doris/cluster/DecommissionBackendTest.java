@@ -35,7 +35,7 @@ import java.util.List;
 public class DecommissionBackendTest extends TestWithFeService {
     @Override
     protected int backendNum() {
-        return 3;
+        return 4;
     }
 
     @Override
@@ -135,11 +135,6 @@ public class DecommissionBackendTest extends TestWithFeService {
         AlterSystemStmt addBackendStmt = (AlterSystemStmt) parseAndAnalyzeStmt(addBackendStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(addBackendStmt);
         Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
-        while (System.currentTimeMillis() - startTimestamp < 90000
-                && Env.getCurrentSystemInfo().getIdToBackend().get(srcBackend.getId()) != null
-                && !Env.getCurrentSystemInfo().getIdToBackend().get(srcBackend.getId()).isAlive()) {
-            Thread.sleep(1000);
-        }
 
     }
 
