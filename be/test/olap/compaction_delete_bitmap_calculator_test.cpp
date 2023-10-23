@@ -207,9 +207,9 @@ public:
         _tablet_uid = TabletUid(10, 10);
         // init tablet meta
         _tablet_meta = std::shared_ptr<TabletMeta>(new TabletMeta(
-                1, partition_id, tablet_id, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, _tablet_uid,
-                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F, 0, true, {}, "size_based",
-                1024, 2000, 3600));
+                1, partition_id, tablet_id, 15674, schema_hash, 5, TTabletSchema(), 6, {{7, 8}},
+                _tablet_uid, TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F, 0, true, {},
+                "size_based", 1024, 2000, 3600));
         static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta1));
         static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta2));
         static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta3));
@@ -227,7 +227,8 @@ private:
     std::string _json_rowset_meta;
     std::unique_ptr<TxnManager> _txn_mgr;
     TPartitionId partition_id = 111;
-    TTabletId tablet_id = 12345;
+    TTabletId tablet_id = 11111;
+    SchemaHash schema_hash = 333;
     TabletUid _tablet_uid {0, 0};
     PUniqueId load_id;
     TabletSchemaSPtr _schema;
@@ -243,26 +244,26 @@ TEST_F(CompactionDeleteBitmapCalculatorTest, test) {
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
     RowsetIdUnorderedSet set;
     set.insert(_tablet_meta->all_rs_metas()[0]->rowset_id());
-    _txn_mgr->set_txn_related_delete_bitmap(partition_id, 1, _tablet->tablet_id(),
-                                            _tablet->tablet_uid(), true, delete_bitmap, set,
-                                            nullptr);
+    _txn_mgr->set_txn_related_delete_bitmap(partition_id, 1, _tablet->tablet_id(), schema_hash,
+                                            _tablet->tablet_uid(), true, delete_bitmap, set);
 
     // commit rowset 2
     load_id.set_hi(2);
     load_id.set_lo(2);
-    Status status = _txn_mgr->prepare_txn(partition_id, 2, tablet_id, _tablet_uid, load_id);
+    Status status =
+            _txn_mgr->prepare_txn(partition_id, 2, tablet_id, schema_hash, _tablet_uid, load_id);
     EXPECT_TRUE(status == Status::OK());
-    status = _txn_mgr->commit_txn(_meta, partition_id, 2, tablet_id, _tablet_uid, load_id, _rowset2,
-                                  false);
+    status = _txn_mgr->commit_txn(_meta, partition_id, 2, tablet_id, schema_hash, _tablet_uid,
+                                  load_id, _rowset2, false);
     EXPECT_TRUE(status == Status::OK());
     set.insert(_tablet_meta->all_rs_metas()[1]->rowset_id());
-    _txn_mgr->set_txn_related_delete_bitmap(partition_id, 2, tablet_id, _tablet_uid, true,
-                                            delete_bitmap, set, nullptr);
+    _txn_mgr->set_txn_related_delete_bitmap(partition_id, 2, tablet_id, schema_hash, _tablet_uid,
+                                            true, delete_bitmap, set);
 
     // prepare rowset 3
     load_id.set_hi(3);
     load_id.set_lo(3);
-    status = _txn_mgr->prepare_txn(partition_id, 3, tablet_id, _tablet_uid, load_id);
+    status = _txn_mgr->prepare_txn(partition_id, 3, tablet_id, schema_hash, _tablet_uid, load_id);
     EXPECT_TRUE(status == Status::OK());
 
     RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
