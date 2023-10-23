@@ -1513,6 +1513,7 @@ bool SegmentIterator::_has_char_type(const Field& column_desc) {
                 return true;
             }
         }
+        return false;
     default:
         return false;
     }
