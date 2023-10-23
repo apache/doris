@@ -104,7 +104,7 @@ void BlockedTaskScheduler::_schedule() {
 
         auto origin_local_block_tasks_size = local_blocked_tasks.size();
         auto iter = local_blocked_tasks.begin();
-        vectorized::VecDateTimeValue now = vectorized::VecDateTimeValue::local_time();
+        VecDateTimeValue now = VecDateTimeValue::local_time();
         while (iter != local_blocked_tasks.end()) {
             auto* task = *iter;
             auto state = task->get_state();

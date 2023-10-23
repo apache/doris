@@ -341,8 +341,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
     DCHECK(_opts.rowset_ctx->partial_update_info);
     // find missing column cids
-    std::vector<uint32_t> missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
-    std::vector<uint32_t> including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
+    const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
+    const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
 
     // create full block and fill with input columns
     auto full_block = _tablet_schema->create_block();
@@ -499,10 +499,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     }
 
     // convert missing columns and send to column writer
-    auto cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, row_pos, num_rows,
-                                                                   cids_missing);
-    for (auto cid : cids_missing) {
+                                                                   missing_cids);
+    for (auto cid : missing_cids) {
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
         if (!converted_result.first.ok()) {
             return converted_result.first;
@@ -556,7 +555,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     }
     auto tablet = static_cast<Tablet*>(_tablet.get());
     // create old value columns
-    std::vector<uint32_t> cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
+    const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
     CHECK(cids_missing.size() == old_value_block.columns());
     auto mutable_old_columns = old_value_block.mutate_columns();

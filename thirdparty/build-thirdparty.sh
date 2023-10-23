@@ -1716,6 +1716,14 @@ build_dragonbox() {
     "${BUILD_SYSTEM}" install
 }
 
+# AvxToNeon
+build_avx2neon() {
+    check_if_source_exist "${AVX2NEON_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${AVX2NEON_SOURCE}"
+    mkdir -p "${TP_INSTALL_DIR}/include/avx2neon/"
+    cp -r ./* "${TP_INSTALL_DIR}/include/avx2neon/"
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         libunixodbc
@@ -1779,6 +1787,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         fast_float
         libunwind
         dragonbox
+        avx2neon
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

@@ -122,6 +122,7 @@ import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -395,15 +396,17 @@ public class StmtExecutor {
         return masterOpExecutor.getProxyStatus();
     }
 
-    public boolean isInsertStmt() {
+    public boolean isSyncLoadKindStmt() {
         if (parsedStmt == null) {
             return false;
         }
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-            return logicalPlan instanceof InsertIntoTableCommand;
+            return logicalPlan instanceof InsertIntoTableCommand
+                    || (logicalPlan instanceof CreateTableCommand
+                    && ((CreateTableCommand) logicalPlan).isCtasCommand());
         }
-        return parsedStmt instanceof InsertStmt;
+        return parsedStmt instanceof InsertStmt || parsedStmt instanceof CreateTableAsSelectStmt;
     }
 
     public boolean isAnalyzeStmt() {
@@ -766,8 +769,14 @@ public class StmtExecutor {
             } else if (parsedStmt instanceof UpdateStmt) {
                 handleUpdateStmt();
             } else if (parsedStmt instanceof DdlStmt) {
-                if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getInsertStmt() != null) {
-                    handleDeleteStmt();
+                if (parsedStmt instanceof DeleteStmt) {
+                    if (((DeleteStmt) parsedStmt).getInsertStmt() != null) {
+                        handleDeleteStmt();
+                    } else {
+                        Env.getCurrentEnv()
+                                .getDeleteHandler()
+                                .process((DeleteStmt) parsedStmt, context.getState());
+                    }
                 } else {
                     handleDdlStmt();
                 }

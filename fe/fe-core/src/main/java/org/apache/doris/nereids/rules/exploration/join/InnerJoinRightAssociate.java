@@ -86,8 +86,7 @@ public class InnerJoinRightAssociate extends OneExplorationRuleFactory {
                             newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts, b, c);
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(newTopHashJoinConjuncts,
                             newTopOtherJoinConjuncts, a, newBottomJoin);
-                    setNewBottomJoinReorder(newBottomJoin, bottomJoin);
-                    setNewTopJoinReorder(newTopJoin, topJoin);
+                    newTopJoin.getJoinReorderContext().setHasRightAssociate(true);
 
                     return newTopJoin;
                 }).toRule(RuleType.LOGICAL_INNER_JOIN_RIGHT_ASSOCIATIVE);
@@ -99,21 +98,5 @@ public class InnerJoinRightAssociate extends OneExplorationRuleFactory {
                 && !topJoin.getJoinReorderContext().hasRightAssociate()
                 && !topJoin.getJoinReorderContext().hasLeftAssociate()
                 && !topJoin.getJoinReorderContext().hasExchange();
-    }
-
-    /** Set JoinReorderContext */
-    public static void setNewTopJoinReorder(LogicalJoin newTopJoin, LogicalJoin topJoin) {
-        newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
-        newTopJoin.getJoinReorderContext().setHasRightAssociate(true);
-        newTopJoin.getJoinReorderContext().setHasCommute(false);
-    }
-
-    /** Set JoinReorderContext */
-    public static void setNewBottomJoinReorder(LogicalJoin newBottomJoin, LogicalJoin bottomJoin) {
-        newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
-        newBottomJoin.getJoinReorderContext().setHasCommute(false);
-        newBottomJoin.getJoinReorderContext().setHasRightAssociate(false);
-        newBottomJoin.getJoinReorderContext().setHasLeftAssociate(false);
-        newBottomJoin.getJoinReorderContext().setHasExchange(false);
     }
 }

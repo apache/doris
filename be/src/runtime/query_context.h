@@ -27,7 +27,6 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
-#include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_filter_mgr.h"
@@ -72,7 +71,7 @@ public:
               _exec_env(exec_env),
               _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
               _query_options(query_options) {
-        _start_time = vectorized::VecDateTimeValue::local_time();
+        _start_time = VecDateTimeValue::local_time();
         _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
         _shared_scanner_controller.reset(new vectorized::SharedScannerController());
     }
@@ -103,7 +102,7 @@ public:
 
     ExecEnv* exec_env() { return _exec_env; }
 
-    bool is_timeout(const vectorized::VecDateTimeValue& now) const {
+    bool is_timeout(const VecDateTimeValue& now) const {
         if (timeout_second <= 0) {
             return false;
         }
@@ -267,7 +266,7 @@ public:
 private:
     TUniqueId _query_id;
     ExecEnv* _exec_env;
-    vectorized::VecDateTimeValue _start_time;
+    VecDateTimeValue _start_time;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
