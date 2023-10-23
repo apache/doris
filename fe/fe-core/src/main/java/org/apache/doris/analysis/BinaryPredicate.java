@@ -330,9 +330,13 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     private boolean canCompareIP(PrimitiveType t1, PrimitiveType t2) {
-        if (t1.isIPType()) {
-            return t2.isIPType() || t2.isStringType();
-        } else if (t2.isIPType()) {
+        if (t1.isIPv4Type()) {
+            return t2.isIPv4Type() || t2.isStringType();
+        } else if (t2.isIPv4Type()) {
+            return t1.isStringType();
+        } else if (t1.isIPv6Type()) {
+            return t2.isIPv6Type() || t2.isStringType();
+        } else if (t2.isIPv6Type()) {
             return t1.isStringType();
         }
         return false;
