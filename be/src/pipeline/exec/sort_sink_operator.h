@@ -65,9 +65,6 @@ private:
     vectorized::VSortExecExprs _vsort_exec_exprs;
 
     RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _sort_blocks_memory_usage;
-    RuntimeProfile::Counter* _child_get_next_timer = nullptr;
-    RuntimeProfile::Counter* _sink_timer = nullptr;
 
     // topn top value
     vectorized::Field old_top {vectorized::Field::Types::Null};
