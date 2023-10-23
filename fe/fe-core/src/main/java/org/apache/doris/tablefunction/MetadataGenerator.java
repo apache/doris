@@ -109,6 +109,7 @@ public class MetadataGenerator {
                 break;
             case MATERIALIZED_VIEWS:
                 result = mtmvMetadataResult(params);
+                break;
             case QUERIES:
                 result = queriesMetadataResult(params, request);
                 break;

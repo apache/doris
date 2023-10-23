@@ -1101,6 +1101,7 @@ public class EditLog {
                 case OperationType.OP_ALTER_MTMV: {
                     final AlterMTMV alterMtmv = (AlterMTMV) journal.getData();
                     env.getAlterInstance().processAlterMTMV(alterMtmv, true);
+                    break;
                 }
                 case OperationType.OP_DELETE_TABLE_STATS: {
                     env.getAnalysisManager().replayTableStatsDeletion((TableStatsDeletionLog) journal.getData());
