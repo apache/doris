@@ -62,12 +62,11 @@ public class PushProjectIntoOneRowRelation extends OneRewriteRuleFactory {
                 }
             }
             ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
-            return p.child().withProjects(newProjections.build().stream()
-                    .map(expr -> expr instanceof Alias
-                            ? (Alias) expr
-                                    .withChildren(FoldConstantRule.INSTANCE.rewrite(expr, context))
-                            : expr)
-                    .collect(Collectors.toList()));
+            return p.child()
+                    .withProjects(newProjections.build().stream().map(expr -> expr instanceof Alias
+                            ? (Alias) expr.withChildren(
+                                    FoldConstantRule.INSTANCE.rewrite(expr.child(0), context))
+                            : expr).collect(Collectors.toList()));
         }).toRule(RuleType.PUSH_PROJECT_INTO_ONE_ROW_RELATION);
     }
 }
