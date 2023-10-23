@@ -787,7 +787,11 @@ public:
     }
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {
-        return _set_state->probe_finished_children_index[_cur_child_id - 1] ? nullptr : this;
+        if (is_set_probe) {
+            DCHECK((_cur_child_id - 1) < _set_state->probe_finished_children_index.size());
+            return _set_state->probe_finished_children_index[_cur_child_id - 1] ? nullptr : this;
+        }
+        return nullptr;
     }
 
     // Notify downstream pipeline tasks this dependency is ready.
@@ -798,11 +802,15 @@ public:
         _read_dependency_watcher.stop();
         _set_state->ready_for_read = true;
     }
-    void set_cur_child_id(int id) { _cur_child_id = id; }
+    void set_cur_child_id(int id) {
+        _cur_child_id = id;
+        is_set_probe = true;
+    }
 
 private:
     std::shared_ptr<SetSharedState> _set_state;
     int _cur_child_id;
+    bool is_set_probe {false};
 };
 
 } // namespace pipeline
