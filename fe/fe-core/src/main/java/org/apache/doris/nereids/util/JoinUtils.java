@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -53,11 +54,24 @@ import java.util.stream.Collectors;
 public class JoinUtils {
     public static boolean couldShuffle(Join join) {
         // Cross-join and Null-Aware-Left-Anti-Join only can be broadcast join.
-        return !(join.getJoinType().isCrossJoin()) && !(join.getJoinType().isNullAwareLeftAntiJoin());
+        // Because mark join would consider null value from both build and probe side, so must use broadcast join too.
+        return !(join.getJoinType().isCrossJoin() || join.getJoinType().isNullAwareLeftAntiJoin() || join.isMarkJoin());
     }
 
     public static boolean couldBroadcast(Join join) {
         return !(join.getJoinType().isRightJoin() || join.getJoinType().isFullOuterJoin());
+    }
+
+    /**
+     * check if the row count of the left child in the broadcast join is less than a threshold value.
+     */
+    public static boolean checkBroadcastJoinStats(PhysicalHashJoin<? extends Plan, ? extends Plan> join) {
+        double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
+        double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
+        double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
+        double datasize = join.getGroupExpression().get().child(1).getStatistics().computeSize();
+        double rowCount = join.getGroupExpression().get().child(1).getStatistics().getRowCount();
+        return rowCount <= rowsLimit && datasize <= memLimit * brMemlimit;
     }
 
     /**
@@ -228,21 +242,14 @@ public class JoinUtils {
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
         }
-        // TODO: not rely on physical properties?
-        DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
         DistributionSpec leftDistributionSpec = join.left().getPhysicalProperties().getDistributionSpec();
         DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
         if (!(leftDistributionSpec instanceof DistributionSpecHash)
-                || !(rightDistributionSpec instanceof DistributionSpecHash)
-                || !(joinDistributionSpec instanceof DistributionSpecHash)) {
+                || !(rightDistributionSpec instanceof DistributionSpecHash)) {
             return false;
         }
-        DistributionSpecHash leftHash = (DistributionSpecHash) leftDistributionSpec;
-        DistributionSpecHash rightHash = (DistributionSpecHash) rightDistributionSpec;
-        DistributionSpecHash joinHash = (DistributionSpecHash) joinDistributionSpec;
-        return leftHash.getShuffleType() == ShuffleType.NATURAL
-                && rightHash.getShuffleType() == ShuffleType.NATURAL
-                && joinHash.getShuffleType() == ShuffleType.NATURAL;
+        return couldColocateJoin((DistributionSpecHash) leftDistributionSpec,
+                (DistributionSpecHash) rightDistributionSpec);
     }
 
     /**

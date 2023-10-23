@@ -19,29 +19,50 @@
 
 #include <string>
 
+#include "common/logging.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/distinct_streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
+#include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
+#include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/jdbc_scan_operator.h"
+#include "pipeline/exec/jdbc_table_sink_operator.h"
+#include "pipeline/exec/meta_scan_operator.h"
+#include "pipeline/exec/multi_cast_data_stream_sink.h"
+#include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
+#include "pipeline/exec/olap_table_sink_operator.h"
+#include "pipeline/exec/partition_sort_sink_operator.h"
+#include "pipeline/exec/partition_sort_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
+#include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
+#include "pipeline/exec/schema_scan_operator.h"
 #include "pipeline/exec/select_operator.h"
+#include "pipeline/exec/set_probe_sink_operator.h"
+#include "pipeline/exec/set_sink_operator.h"
+#include "pipeline/exec/set_source_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_sink_operator.h"
 #include "pipeline/exec/streaming_aggregation_source_operator.h"
+#include "pipeline/exec/table_function_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 namespace doris::pipeline {
 
@@ -158,10 +179,10 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
 
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
-        DCHECK(mutable_columns.size() == _projections.size());
+        DCHECK(mutable_columns.size() == local_state->_projections.size());
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
-            RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
+            RETURN_IF_ERROR(local_state->_projections[i]->execute(origin_block, &result_column_id));
             auto column_ptr = origin_block->get_by_position(result_column_id)
                                       .column->convert_to_full_column_if_const();
             //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
@@ -248,15 +269,20 @@ Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
                                                             LocalSinkStateInfo& info) {
     auto local_state = LocalStateType::create_shared(this, state);
     state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, info);
+    RETURN_IF_ERROR(local_state->init(state, info));
+    return Status::OK();
 }
 
 template <typename LocalStateType>
-void DataSinkOperatorX<LocalStateType>::get_dependency(DependencySPtr& dependency) {
+void DataSinkOperatorX<LocalStateType>::get_dependency(vector<DependencySPtr>& dependency) {
+    using DependencyType = typename LocalStateType::Dependency;
     if constexpr (!std::is_same_v<typename LocalStateType::Dependency, FakeDependency>) {
-        dependency.reset(new typename LocalStateType::Dependency(dest_id()));
+        auto& dests = dests_id();
+        for (auto& dest_id : dests) {
+            dependency.push_back(std::make_shared<DependencyType>(dest_id));
+        }
     } else {
-        dependency.reset((typename LocalStateType::Dependency*)nullptr);
+        dependency.push_back(nullptr);
     }
 }
 
@@ -265,6 +291,120 @@ Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalSt
     auto local_state = LocalStateType::create_shared(state, this);
     state->emplace_local_state(id(), local_state);
     return local_state->init(state, info);
+}
+
+PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* parent,
+                                                         RuntimeState* state)
+        : _parent(parent),
+          _state(state),
+          _finish_dependency(
+                  new FinishDependency(parent->id(), parent->get_name() + "_FINISH_DEPENDENCY")) {}
+
+PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
+        : _num_rows_returned(0),
+          _rows_returned_counter(nullptr),
+          _peak_memory_usage_counter(nullptr),
+          _parent(parent),
+          _state(state),
+          _finish_dependency(
+                  new FinishDependency(parent->id(), parent->get_name() + "_FINISH_DEPENDENCY")) {}
+
+template <typename DependencyType>
+Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalStateInfo& info) {
+    _runtime_profile.reset(new RuntimeProfile(_parent->get_name() +
+                                              " (id=" + std::to_string(_parent->node_id()) + ")"));
+    _runtime_profile->set_metadata(_parent->node_id());
+    _runtime_profile->set_is_sink(false);
+    info.parent_profile->add_child(_runtime_profile.get(), true, nullptr);
+    _wait_for_finish_dependency_timer =
+            ADD_TIMER(_runtime_profile, "WaitForPendingFinishDependency");
+    if constexpr (!std::is_same_v<FakeDependency, Dependency>) {
+        auto& deps = info.dependencys;
+        _dependency = (DependencyType*)deps.front().get();
+        if (_dependency) {
+            _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state();
+            _wait_for_dependency_timer = ADD_TIMER(
+                    _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time");
+        }
+    }
+
+    _conjuncts.resize(_parent->_conjuncts.size());
+    _projections.resize(_parent->_projections.size());
+    for (size_t i = 0; i < _conjuncts.size(); i++) {
+        RETURN_IF_ERROR(_parent->_conjuncts[i]->clone(state, _conjuncts[i]));
+    }
+    for (size_t i = 0; i < _projections.size(); i++) {
+        RETURN_IF_ERROR(_parent->_projections[i]->clone(state, _projections[i]));
+    }
+    _rows_returned_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsReturned", TUnit::UNIT, 1);
+    _blocks_returned_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksReturned", TUnit::UNIT, 1);
+    _projection_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ProjectionTime", 1);
+    _open_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "OpenTime", 1);
+    _close_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "CloseTime", 1);
+    _mem_tracker = std::make_unique<MemTracker>("PipelineXLocalState:" + _runtime_profile->name());
+    _memory_used_counter = ADD_LABEL_COUNTER(_runtime_profile, "MemoryUsage");
+    _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
+            "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
+    return Status::OK();
+}
+
+template <typename DependencyType>
+Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+    if (_dependency) {
+        COUNTER_SET(_wait_for_dependency_timer, _dependency->read_watcher_elapse_time());
+    }
+    COUNTER_SET(_wait_for_finish_dependency_timer,
+                _finish_dependency->finish_watcher_elapse_time());
+    if (_rows_returned_counter != nullptr) {
+        COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+    }
+    profile()->add_to_span(_span);
+    _closed = true;
+    return Status::OK();
+}
+
+template <typename DependencyType>
+Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
+                                                     LocalSinkStateInfo& info) {
+    // create profile
+    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + id_name()));
+    _profile->set_metadata(_parent->node_id());
+    _profile->set_is_sink(true);
+    _wait_for_finish_dependency_timer = ADD_TIMER(_profile, "PendingFinishDependency");
+    if constexpr (!std::is_same_v<FakeDependency, Dependency>) {
+        auto& deps = info.dependencys;
+        _dependency = (DependencyType*)deps.front().get();
+        if (_dependency) {
+            _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state();
+            _wait_for_dependency_timer =
+                    ADD_TIMER(_profile, "WaitForDependency[" + _dependency->name() + "]Time");
+        }
+    }
+    _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
+    _open_timer = ADD_TIMER_WITH_LEVEL(_profile, "OpenTime", 1);
+    _close_timer = ADD_TIMER_WITH_LEVEL(_profile, "CloseTime", 1);
+    info.parent_profile->add_child(_profile, true, nullptr);
+    _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
+    return Status::OK();
+}
+
+template <typename DependencyType>
+Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
+    if (_dependency) {
+        COUNTER_SET(_wait_for_dependency_timer, _dependency->write_watcher_elapse_time());
+    }
+    COUNTER_SET(_wait_for_finish_dependency_timer,
+                _finish_dependency->finish_watcher_elapse_time());
+    _closed = true;
+    return Status::OK();
 }
 
 template <typename LocalStateType>
@@ -307,31 +447,116 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
     return Status::OK();
 }
 
+template <typename Writer, typename Parent>
+Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
+    _output_vexpr_ctxs.resize(_parent->cast<Parent>()._output_vexpr_ctxs.size());
+    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(
+                _parent->cast<Parent>()._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
+    }
+
+    _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
+    _async_writer_dependency = AsyncWriterDependency::create_shared(_parent->id());
+    _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
+
+    _wait_for_dependency_timer =
+            ADD_TIMER(_profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time");
+    return Status::OK();
+}
+
+template <typename Writer, typename Parent>
+Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
+    RETURN_IF_ERROR(PipelineXSinkLocalState<>::open(state));
+    _writer->start_writer(state, _profile);
+    return Status::OK();
+}
+
+template <typename Writer, typename Parent>
+Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
+                                             SourceState source_state) {
+    return _writer->sink(block, source_state == SourceState::FINISHED);
+}
+
+template <typename Writer, typename Parent>
+WriteDependency* AsyncWriterSink<Writer, Parent>::write_blocked_by() {
+    return _writer->write_blocked_by();
+}
+
+template <typename Writer, typename Parent>
+Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
+    COUNTER_SET(_wait_for_dependency_timer, _async_writer_dependency->write_watcher_elapse_time());
+    // if the init failed, the _writer may be nullptr. so here need check
+    if (_writer) {
+        if (_writer->need_normal_close()) {
+            if (exec_status.ok() && !state->is_cancelled()) {
+                RETURN_IF_ERROR(_writer->commit_trans());
+            }
+            RETURN_IF_ERROR(_writer->close(exec_status));
+        } else {
+            RETURN_IF_ERROR(_writer->get_writer_status());
+        }
+    }
+    return PipelineXSinkLocalState<>::close(state, exec_status);
+}
+
+template <typename Writer, typename Parent>
+Status AsyncWriterSink<Writer, Parent>::try_close(RuntimeState* state, Status exec_status) {
+    if (state->is_cancelled() || !exec_status.ok()) {
+        _writer->force_close(!exec_status.ok() ? exec_status : Status::Cancelled("Cancelled"));
+    }
+    return Status::OK();
+}
+
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR_X(HashJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(ResultSinkLocalState)
+DECLARE_OPERATOR_X(JdbcTableSinkLocalState)
+DECLARE_OPERATOR_X(ResultFileSinkLocalState)
+DECLARE_OPERATOR_X(OlapTableSinkLocalState)
 DECLARE_OPERATOR_X(AnalyticSinkLocalState)
 DECLARE_OPERATOR_X(SortSinkLocalState)
 DECLARE_OPERATOR_X(BlockingAggSinkLocalState)
 DECLARE_OPERATOR_X(StreamingAggSinkLocalState)
+DECLARE_OPERATOR_X(DistinctStreamingAggSinkLocalState)
 DECLARE_OPERATOR_X(ExchangeSinkLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinBuildSinkLocalState)
 DECLARE_OPERATOR_X(UnionSinkLocalState)
+DECLARE_OPERATOR_X(MultiCastDataStreamSinkLocalState)
+DECLARE_OPERATOR_X(PartitionSortSinkLocalState)
+DECLARE_OPERATOR_X(SetProbeSinkLocalState<true>)
+DECLARE_OPERATOR_X(SetProbeSinkLocalState<false>)
+DECLARE_OPERATOR_X(SetSinkLocalState<true>)
+DECLARE_OPERATOR_X(SetSinkLocalState<false>)
 
 #undef DECLARE_OPERATOR_X
 
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class OperatorX<LOCAL_STATE>;
 DECLARE_OPERATOR_X(HashJoinProbeLocalState)
 DECLARE_OPERATOR_X(OlapScanLocalState)
+DECLARE_OPERATOR_X(JDBCScanLocalState)
+DECLARE_OPERATOR_X(FileScanLocalState)
+DECLARE_OPERATOR_X(EsScanLocalState)
 DECLARE_OPERATOR_X(AnalyticLocalState)
 DECLARE_OPERATOR_X(SortLocalState)
 DECLARE_OPERATOR_X(AggLocalState)
+DECLARE_OPERATOR_X(TableFunctionLocalState)
 DECLARE_OPERATOR_X(ExchangeLocalState)
 DECLARE_OPERATOR_X(RepeatLocalState)
 DECLARE_OPERATOR_X(NestedLoopJoinProbeLocalState)
 DECLARE_OPERATOR_X(AssertNumRowsLocalState)
 DECLARE_OPERATOR_X(EmptySetLocalState)
 DECLARE_OPERATOR_X(UnionSourceLocalState)
+DECLARE_OPERATOR_X(MultiCastDataStreamSourceLocalState)
+DECLARE_OPERATOR_X(PartitionSortSourceLocalState)
+DECLARE_OPERATOR_X(SetSourceLocalState<true>)
+DECLARE_OPERATOR_X(SetSourceLocalState<false>)
+DECLARE_OPERATOR_X(DataGenLocalState)
+DECLARE_OPERATOR_X(SchemaScanLocalState)
+DECLARE_OPERATOR_X(MetaScanLocalState)
 
 #undef DECLARE_OPERATOR_X
 
@@ -341,6 +566,7 @@ template class StreamingOperatorX<SelectLocalState>;
 template class StatefulOperatorX<HashJoinProbeLocalState>;
 template class StatefulOperatorX<RepeatLocalState>;
 template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
+template class StatefulOperatorX<TableFunctionLocalState>;
 
 template class PipelineXSinkLocalState<HashJoinDependency>;
 template class PipelineXSinkLocalState<SortDependency>;
@@ -349,6 +575,9 @@ template class PipelineXSinkLocalState<AnalyticDependency>;
 template class PipelineXSinkLocalState<AggDependency>;
 template class PipelineXSinkLocalState<FakeDependency>;
 template class PipelineXSinkLocalState<UnionDependency>;
+template class PipelineXSinkLocalState<PartitionSortDependency>;
+template class PipelineXSinkLocalState<MultiCastDependency>;
+template class PipelineXSinkLocalState<SetDependency>;
 
 template class PipelineXLocalState<HashJoinDependency>;
 template class PipelineXLocalState<SortDependency>;
@@ -357,5 +586,12 @@ template class PipelineXLocalState<AnalyticDependency>;
 template class PipelineXLocalState<AggDependency>;
 template class PipelineXLocalState<FakeDependency>;
 template class PipelineXLocalState<UnionDependency>;
+template class PipelineXLocalState<MultiCastDependency>;
+template class PipelineXLocalState<PartitionSortDependency>;
+template class PipelineXLocalState<SetDependency>;
+
+template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
+template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;
+template class AsyncWriterSink<doris::vectorized::VTabletWriter, OlapTableSinkOperatorX>;
 
 } // namespace doris::pipeline

@@ -42,6 +42,7 @@ namespace taskgroup {
 const static std::string CPU_SHARE = "cpu_share";
 const static std::string MEMORY_LIMIT = "memory_limit";
 const static std::string ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
+const static std::string CPU_HARD_LIMIT = "cpu_hard_limit";
 
 template <typename QueueType>
 TaskGroupEntity<QueueType>::TaskGroupEntity(taskgroup::TaskGroup* tg, std::string type)
@@ -83,7 +84,7 @@ uint64_t TaskGroupEntity<QueueType>::cpu_share() const {
 
 template <typename QueueType>
 uint64_t TaskGroupEntity<QueueType>::task_group_id() const {
-    return _tg->id();
+    return _is_empty_group_entity ? -1 : _tg->id();
 }
 
 template <typename QueueType>
@@ -98,6 +99,21 @@ template <typename QueueType>
 std::string TaskGroupEntity<QueueType>::debug_string() const {
     return fmt::format("TGE[id = {}, name = {}-{}, cpu_share = {}, task size: {}, v_time:{} ns]",
                        _tg->id(), _tg->name(), _type, cpu_share(), task_size(), _vruntime_ns);
+}
+
+template <typename QueueType>
+void TaskGroupEntity<QueueType>::set_empty_group_entity(bool is_empty_group_entity) {
+    _is_empty_group_entity = is_empty_group_entity;
+}
+
+template <typename QueueType>
+bool TaskGroupEntity<QueueType>::is_empty_group_entity() {
+    return _is_empty_group_entity;
+}
+
+template <typename QueueType>
+void TaskGroupEntity<QueueType>::update_empty_cpu_share(uint64_t empty_cpu_share) {
+    _cpu_share = empty_cpu_share;
 }
 
 template class TaskGroupEntity<std::queue<pipeline::PipelineTask*>>;
@@ -198,10 +214,16 @@ Status TaskGroupInfo::parse_group_info(const TPipelineWorkloadGroup& resource_gr
     uint64_t share = 0;
     std::from_chars(iter->second.c_str(), iter->second.c_str() + iter->second.size(), share);
 
+    int cpu_hard_limit = 0;
+    auto iter2 = resource_group.properties.find(CPU_HARD_LIMIT);
+    std::from_chars(iter2->second.c_str(), iter2->second.c_str() + iter2->second.size(),
+                    cpu_hard_limit);
+
     task_group_info->id = resource_group.id;
     task_group_info->name = resource_group.name;
     task_group_info->version = resource_group.version;
     task_group_info->cpu_share = share;
+    task_group_info->cpu_hard_limit = cpu_hard_limit;
 
     bool is_percent = true;
     auto mem_limit_str = resource_group.properties.find(MEMORY_LIMIT)->second;

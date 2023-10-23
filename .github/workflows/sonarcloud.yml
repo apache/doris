@@ -103,7 +103,7 @@ jobs:
           MAVEN_OPTS: -Xmx4g
         run: |
           cd fe
-          mvn --batch-mode verify sonar:sonar -DskipTests -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.httpconnectionManager.ttlSeconds=120
+          mvn --batch-mode verify sonar:sonar -DskipTests -Dsonar.organization=apache -Dsonar.projectKey=apache_incubator-doris -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.httpconnectionManager.ttlSeconds=120
   sonar-cloud-cpp:
     name: "SonarCloud on cpp"
     runs-on: ubuntu-22.04

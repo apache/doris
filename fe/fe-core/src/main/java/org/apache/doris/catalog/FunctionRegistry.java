@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
@@ -35,6 +36,7 @@ import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import javax.annotation.concurrent.ThreadSafe;
@@ -73,6 +75,13 @@ public class FunctionRegistry {
 
     public FunctionBuilder findFunctionBuilder(String name, Object argument) {
         return findFunctionBuilder(null, name, ImmutableList.of(argument));
+    }
+
+    public Optional<List<FunctionBuilder>> tryGetBuiltinBuilders(String name) {
+        List<FunctionBuilder> builders = name2InternalBuiltinBuilders.get(name);
+        return name2InternalBuiltinBuilders.get(name) == null
+                ? Optional.empty()
+                : Optional.of(ImmutableList.copyOf(builders));
     }
 
     // currently we only find function by name and arity and args' types.
@@ -124,7 +133,8 @@ public class FunctionRegistry {
         if (ConnectContext.get() != null) {
             dbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(),
                     dbName == null ? ConnectContext.get().getDatabase() : dbName);
-            if (dbName == null) {
+            if (dbName == null || !Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
                 scopes = ImmutableList.of(GLOBAL_FUNCTION);
             } else {
                 scopes = ImmutableList.of(dbName, GLOBAL_FUNCTION);

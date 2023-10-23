@@ -34,7 +34,8 @@ suite("test_array_functions") {
               `k10` ARRAY<datetimev2(3)> NULL COMMENT "",
               `k11` ARRAY<datetimev2(3)> NULL COMMENT "",
               `k12` ARRAY<decimalv3(6, 3)> NULL COMMENT "",
-              `k13` ARRAY<decimalv3(6, 3)> NULL COMMENT ""
+              `k13` ARRAY<decimalv3(6, 3)> NULL COMMENT "",
+              `k14` ARRAY<int(11)> NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -43,15 +44,15 @@ suite("test_array_functions") {
             "storage_format" = "V2"
             )
         """
-    sql """ INSERT INTO ${tableName} VALUES(1,[1,2,3],["a","b",""],[1,2],["hi"],["2015-03-13"],["2015-03-13 12:36:38"],["2023-02-05","2023-02-06"],["2023-02-07","2023-02-06"],['2022-10-15 10:30:00.999', '2022-08-31 12:00:00.999'],['2022-10-16 10:30:00.999', '2022-08-31 12:00:00.999'],[111.111, 222.222],[222.222, 333.333]) """
-    sql """ INSERT INTO ${tableName} VALUES(2,[4],NULL,[5],["hi2"],NULL,NULL,["2023-01-05","2023-01-06"],["2023-01-07","2023-01-06"],['2022-11-15 10:30:00.999', '2022-01-31 12:00:00.999'],['2022-11-16 10:30:00.999', '2022-01-31 12:00:00.999'],[333.3333, 444.4444],[444.4444, 555.5555]) """
-    sql """ INSERT INTO ${tableName} VALUES(3,[],[],NULL,["hi3"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(4,[1,2,3,4,5,4,3,2,1],[],[],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(5,[],["a","b","c","d","c","b","a"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(6,[1,2,3,4,5,4,3,2,1],["a","b","c","d","c","b","a"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(7,[8,9,NULL,10,NULL],["f",NULL,"g",NULL,"h"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(8,[1,2,3,3,4,4,NULL],["a","b","b","b"],[1,2,2,3],["hi","hi","hello"],["2015-03-13"],["2015-03-13 12:36:38"],NULL,NULL,NULL,NULL,NULL,NULL) """
-    sql """ INSERT INTO ${tableName} VALUES(9,[1,2,3],["a","b",""],[1,2],["hi"],["2015-03-13","2015-03-13","2015-03-14"],["2015-03-13 12:36:38","2015-03-13 12:36:38"],NULL,NULL,NULL,NULL,NULL,NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(1,[1,2,3],["a","b",""],[1,2],["hi"],["2015-03-13"],["2015-03-13 12:36:38"],["2023-02-05","2023-02-06"],["2023-02-07","2023-02-06"],['2022-10-15 10:30:00.999', '2022-08-31 12:00:00.999'],['2022-10-16 10:30:00.999', '2022-08-31 12:00:00.999'],[111.111, 222.222],[222.222, 333.333],[1,222,3]) """
+    sql """ INSERT INTO ${tableName} VALUES(2,[4],NULL,[5],["hi2"],NULL,NULL,["2023-01-05","2023-01-06"],["2023-01-07","2023-01-06"],['2022-11-15 10:30:00.999', '2022-01-31 12:00:00.999'],['2022-11-16 10:30:00.999', '2022-01-31 12:00:00.999'],[333.3333, 444.4444],[444.4444, 555.5555],NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(3,[],[],NULL,["hi3"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,[2,3,4]) """
+    sql """ INSERT INTO ${tableName} VALUES(4,[1,2,3,4,5,4,3,2,1],[],[],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,[NULL, 23]) """
+    sql """ INSERT INTO ${tableName} VALUES(5,[],["a","b","c","d","c","b","a"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,[]) """
+    sql """ INSERT INTO ${tableName} VALUES(6,[1,2,3,4,5,4,3,2,1],["a","b","c","d","c","b","a"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,[NULL, 22]) """
+    sql """ INSERT INTO ${tableName} VALUES(7,[8,9,NULL,10,NULL],["f",NULL,"g",NULL,"h"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,[8,9,NULL,10,NULL]) """
+    sql """ INSERT INTO ${tableName} VALUES(8,[1,2,3,3,4,4,NULL],["a","b","b","b"],[1,2,2,3],["hi","hi","hello"],["2015-03-13"],["2015-03-13 12:36:38"],NULL,NULL,NULL,NULL,NULL,NULL,[8,9,NULL,10,NULL]) """
+    sql """ INSERT INTO ${tableName} VALUES(9,[1,2,3],["a","b",""],[1,2],["hi"],["2015-03-13","2015-03-13","2015-03-14"],["2015-03-13 12:36:38","2015-03-13 12:36:38"],NULL,NULL,NULL,NULL,NULL,NULL,[NULL,12]) """
 
     qt_select "SELECT k1, size(k2), size(k3) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, cardinality(k2), cardinality(k3) FROM ${tableName} ORDER BY k1"
@@ -76,6 +77,8 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_union(k8, k9) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_union(k10, k11) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_union(k12, k13) FROM ${tableName} ORDER BY k1"
+    // multi-params array_union
+    qt_select "SELECT k1, array_union(k2, k4, k14) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_except(k2, k4) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_except(k8, k9) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_except(k10, k11) FROM ${tableName} ORDER BY k1"

@@ -31,12 +31,15 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import java.math.BigInteger;
+import java.security.SecureRandom;
+import java.util.Random;
 
 /**
  * functions that can be executed in FE.
  */
 public class ExecutableFunctions {
     public static final ExecutableFunctions INSTANCE = new ExecutableFunctions();
+    private static final Random RANDOM = new SecureRandom();
 
     /**
      * other scalar function

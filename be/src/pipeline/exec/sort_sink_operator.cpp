@@ -144,7 +144,7 @@ Status SortSinkOperatorX::open(RuntimeState* state) {
 
 Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
                                SourceState source_state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<SortSinkLocalState>();
+    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (in_block->rows() > 0) {

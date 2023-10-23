@@ -187,14 +187,14 @@ wangwu	80	137	3980
 xiexie	150	\N	150
 zhangsan	31	67	760
 
+-- !select_load8 --
+fangfang	120	\N	4035
+zhangsan	31	\N	760
+
 -- !select_load7 --
 fangfang	120	167	4035
 lisi	50	97	1935
 wangwu	80	137	3980
 xiexie	150	\N	150
 zhangsan	31	67	760
-
--- !select_load8 --
-fangfang	120	\N	4035
-zhangsan	31	\N	760
 

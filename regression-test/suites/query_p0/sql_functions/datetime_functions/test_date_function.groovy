@@ -333,6 +333,7 @@ suite("test_date_function") {
     qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
     qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
     qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
+    qt_sql """ select str_to_date('2023-07-05T02:09:55.880Z','%Y-%m-%dT%H:%i:%s.%fZ') """
     qt_sql """ select str_to_date('200442 Monday', '%X%V %W') """
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2020-09-01")  """
@@ -719,4 +720,13 @@ suite("test_date_function") {
     assertFalse(res.contains("date_trunc"))
 
     qt_sql """ select date_add("2023-08-17T01:41:18Z", interval 8 hour) """
+
+    qt_sql """
+        SELECT
+            UNIX_TIMESTAMP(a, '%Y-%c-%d %H:%i:%s') AS a,
+            UNIX_TIMESTAMP(a, 'yyyy-MM-dd HH:mm:ss') as b
+        FROM
+           (
+            SELECT FROM_UNIXTIME(UNIX_TIMESTAMP('20230918', '%Y%m%d'), 'yyyy-MM-dd HH:mm:ss') AS `a`
+           )t """
 }

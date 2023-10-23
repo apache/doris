@@ -204,6 +204,10 @@ public class Alter {
         } else if (currentAlterOps.checkIsBeingSynced(alterClauses)) {
             olapTable.setIsBeingSynced(currentAlterOps.isBeingSynced(alterClauses));
             needProcessOutsideTableLock = true;
+        } else if (currentAlterOps.checkMinLoadReplicaNum(alterClauses)) {
+            Preconditions.checkState(alterClauses.size() == 1);
+            AlterClause alterClause = alterClauses.get(0);
+            processModifyMinLoadReplicaNum(db, olapTable, alterClause);
         } else if (currentAlterOps.checkBinlogConfigChange(alterClauses)) {
             if (!Config.enable_feature_binlog) {
                 throw new DdlException("Binlog feature is not enabled");
@@ -216,53 +220,55 @@ public class Alter {
         } else if (currentAlterOps.hasRollupOp()) {
             materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
         } else if (currentAlterOps.hasPartitionOp()) {
-            Preconditions.checkState(alterClauses.size() == 1);
-            AlterClause alterClause = alterClauses.get(0);
-            olapTable.writeLockOrDdlException();
-            try {
-                if (alterClause instanceof DropPartitionClause) {
-                    if (!((DropPartitionClause) alterClause).isTempPartition()) {
-                        DynamicPartitionUtil.checkAlterAllowed(olapTable);
-                    }
-                    Env.getCurrentEnv().dropPartition(db, olapTable, ((DropPartitionClause) alterClause));
-                } else if (alterClause instanceof ReplacePartitionClause) {
-                    Env.getCurrentEnv().replaceTempPartition(db, olapTable, (ReplacePartitionClause) alterClause);
-                } else if (alterClause instanceof ModifyPartitionClause) {
-                    ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
-                    // expand the partition names if it is 'Modify Partition(*)'
-                    if (clause.isNeedExpand()) {
-                        List<String> partitionNames = clause.getPartitionNames();
-                        partitionNames.clear();
-                        for (Partition partition : olapTable.getPartitions()) {
-                            partitionNames.add(partition.getName());
+            Preconditions.checkState(!alterClauses.isEmpty());
+            for (AlterClause alterClause : alterClauses) {
+                olapTable.writeLockOrDdlException();
+                try {
+                    if (alterClause instanceof DropPartitionClause) {
+                        if (!((DropPartitionClause) alterClause).isTempPartition()) {
+                            DynamicPartitionUtil.checkAlterAllowed(olapTable);
                         }
-                    }
-                    Map<String, String> properties = clause.getProperties();
-                    if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
-                        boolean isInMemory =
-                                Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
-                        if (isInMemory) {
-                            throw new UserException("Not support set 'in_memory'='true' now!");
+                        Env.getCurrentEnv().dropPartition(db, olapTable, ((DropPartitionClause) alterClause));
+                    } else if (alterClause instanceof ReplacePartitionClause) {
+                        Env.getCurrentEnv().replaceTempPartition(db, olapTable, (ReplacePartitionClause) alterClause);
+                    } else if (alterClause instanceof ModifyPartitionClause) {
+                        ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
+                        // expand the partition names if it is 'Modify Partition(*)'
+                        if (clause.isNeedExpand()) {
+                            List<String> partitionNames = clause.getPartitionNames();
+                            partitionNames.clear();
+                            for (Partition partition : olapTable.getPartitions()) {
+                                partitionNames.add(partition.getName());
+                            }
                         }
+                        Map<String, String> properties = clause.getProperties();
+                        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
+                            boolean isInMemory =
+                                    Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
+                            if (isInMemory) {
+                                throw new UserException("Not support set 'in_memory'='true' now!");
+                            }
+                            needProcessOutsideTableLock = true;
+                        } else {
+                            List<String> partitionNames = clause.getPartitionNames();
+                            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
+                                modifyPartitionsProperty(db, olapTable, partitionNames, properties,
+                                        clause.isTempPartition());
+                            } else {
+                                needProcessOutsideTableLock = true;
+                            }
+                        }
+                    } else if (alterClause instanceof DropPartitionFromIndexClause) {
+                        // do nothing
+                    } else if (alterClause instanceof AddPartitionClause
+                            || alterClause instanceof AddPartitionLikeClause) {
                         needProcessOutsideTableLock = true;
                     } else {
-                        List<String> partitionNames = clause.getPartitionNames();
-                        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
-                            modifyPartitionsProperty(db, olapTable, partitionNames, properties,
-                                    clause.isTempPartition());
-                        } else {
-                            needProcessOutsideTableLock = true;
-                        }
+                        throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
                     }
-                } else if (alterClause instanceof DropPartitionFromIndexClause) {
-                    // do nothing
-                } else if (alterClause instanceof AddPartitionClause || alterClause instanceof AddPartitionLikeClause) {
-                    needProcessOutsideTableLock = true;
-                } else {
-                    throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
+                } finally {
+                    olapTable.writeUnlock();
                 }
-            } finally {
-                olapTable.writeUnlock();
             }
         } else if (currentAlterOps.hasRenameOp()) {
             processRename(db, olapTable, alterClauses);
@@ -838,6 +844,37 @@ public class Alter {
             if (tblProperties != null && !tblProperties.isEmpty()) {
                 olapTable.setReplicaAllocation(tblProperties);
             }
+        } finally {
+            olapTable.writeUnlock();
+        }
+    }
+
+    private void processModifyMinLoadReplicaNum(Database db, OlapTable olapTable, AlterClause alterClause)
+            throws DdlException {
+        Map<String, String> properties = alterClause.getProperties();
+        short minLoadReplicaNum = -1;
+        try {
+            minLoadReplicaNum = PropertyAnalyzer.analyzeMinLoadReplicaNum(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
+        if (minLoadReplicaNum > replicaAlloc.getTotalReplicaNum()) {
+            throw new DdlException("Failed to check min load replica num [" + minLoadReplicaNum + "]  <= "
+                    + "default replica num [" + replicaAlloc.getTotalReplicaNum() + "]");
+        }
+        if (olapTable.dynamicPartitionExists()) {
+            replicaAlloc = olapTable.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation();
+            if (!replicaAlloc.isNotSet() && minLoadReplicaNum > replicaAlloc.getTotalReplicaNum()) {
+                throw new DdlException("Failed to check min load replica num [" + minLoadReplicaNum + "]  <= "
+                        + "dynamic partition replica num [" + replicaAlloc.getTotalReplicaNum() + "]");
+            }
+        }
+        properties.put(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM, Short.toString(minLoadReplicaNum));
+        olapTable.setMinLoadReplicaNum(minLoadReplicaNum);
+        olapTable.writeLockOrDdlException();
+        try {
+            Env.getCurrentEnv().modifyTableProperties(db, olapTable, properties);
         } finally {
             olapTable.writeUnlock();
         }

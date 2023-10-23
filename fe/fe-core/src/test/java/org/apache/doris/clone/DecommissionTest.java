@@ -66,8 +66,8 @@ public class DecommissionTest {
         FeConstants.runningUnitTest = true;
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
-        FeConstants.tablet_checker_interval_ms = 200;
-        FeConstants.tablet_schedule_interval_ms = 2000;
+        Config.tablet_schedule_interval_ms = 2000;
+        Config.tablet_checker_interval_ms = 200;
         Config.tablet_repair_delay_factor_second = 1;
         Config.enable_round_robin_create_tablet = true;
         Config.schedule_slot_num_per_hdd_path = 10000;

@@ -49,6 +49,7 @@ message PTransmitDataParams {
     // transfer the RowBatch to the Controller Attachment
     optional bool transfer_by_attachment = 10 [default = false];
     optional PUniqueId query_id = 11;
+    optional PStatus exec_status = 12;
 };
 
 message PTransmitDataResult {
@@ -247,6 +248,16 @@ message PFetchDataResult {
     optional PQueryStatistics query_statistics = 4;
     optional bytes row_batch = 5;
     optional bool empty_batch = 6;
+};
+
+message PFetchArrowFlightSchemaRequest {
+    optional PUniqueId finst_id = 1;
+};
+
+message PFetchArrowFlightSchemaResult {
+    optional PStatus status = 1;
+    // valid when status is ok
+    optional bytes schema = 2;
 };
 
 message KeyTuple {
@@ -484,6 +495,8 @@ enum PFilterType {
     MINMAX_FILTER = 2;
     IN_FILTER = 3;
     IN_OR_BLOOM_FILTER = 4;
+    MIN_FILTER = 5;
+    MAX_FILTER = 6;
 };
 
 message PMergeFilterRequest {
@@ -812,5 +825,6 @@ service PBackendService {
     rpc report_stream_load_status(PReportStreamLoadStatusRequest) returns (PReportStreamLoadStatusResponse);
     rpc glob(PGlobRequest) returns (PGlobResponse);
     rpc group_commit_insert(PGroupCommitInsertRequest) returns (PGroupCommitInsertResponse);
+    rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
 };
 

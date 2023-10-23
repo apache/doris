@@ -48,7 +48,7 @@ public:
 
     String get_name() const override { return name; }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const auto& typed_column = block.get_by_position(arguments[0]);
         auto ptr = typed_column.column->convert_to_full_column_if_const();
         const typename Impl::column_type* column_array;

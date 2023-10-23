@@ -94,17 +94,17 @@ void ScannerScheduler::stop() {
     LOG(INFO) << "ScannerScheduler stopped";
 }
 
-Status ScannerScheduler::init() {
+Status ScannerScheduler::init(ExecEnv* env) {
     // 1. scheduling thread pool and scheduling queues
-    ThreadPoolBuilder("SchedulingThreadPool")
-            .set_min_threads(QUEUE_NUM)
-            .set_max_threads(QUEUE_NUM)
-            .build(&_scheduler_pool);
+    static_cast<void>(ThreadPoolBuilder("SchedulingThreadPool")
+                              .set_min_threads(QUEUE_NUM)
+                              .set_max_threads(QUEUE_NUM)
+                              .build(&_scheduler_pool));
 
     _pending_queues = new BlockingQueue<ScannerContext*>*[QUEUE_NUM];
     for (int i = 0; i < QUEUE_NUM; i++) {
         _pending_queues[i] = new BlockingQueue<ScannerContext*>(INT32_MAX);
-        _scheduler_pool->submit_func([this, i] { this->_schedule_thread(i); });
+        static_cast<void>(_scheduler_pool->submit_func([this, i] { this->_schedule_thread(i); }));
     }
 
     // 2. local scan thread pool
@@ -113,32 +113,34 @@ Status ScannerScheduler::init() {
                                    config::doris_scanner_thread_pool_queue_size, "local_scan"));
 
     // 3. remote scan thread pool
-    ThreadPoolBuilder("RemoteScanThreadPool")
-            .set_min_threads(config::doris_scanner_thread_pool_thread_num) // 48 default
-            .set_max_threads(config::doris_max_remote_scanner_thread_pool_thread_num != -1
-                                     ? config::doris_max_remote_scanner_thread_pool_thread_num
-                                     : std::max(512, CpuInfo::num_cores() * 10))
-            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-            .build(&_remote_scan_thread_pool);
+    static_cast<void>(
+            ThreadPoolBuilder("RemoteScanThreadPool")
+                    .set_min_threads(config::doris_scanner_thread_pool_thread_num) // 48 default
+                    .set_max_threads(
+                            config::doris_max_remote_scanner_thread_pool_thread_num != -1
+                                    ? config::doris_max_remote_scanner_thread_pool_thread_num
+                                    : std::max(512, CpuInfo::num_cores() * 10))
+                    .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
+                    .build(&_remote_scan_thread_pool));
 
     // 4. limited scan thread pool
-    ThreadPoolBuilder("LimitedScanThreadPool")
-            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-            .build(&_limited_scan_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("LimitedScanThreadPool")
+                              .set_min_threads(config::doris_scanner_thread_pool_thread_num)
+                              .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+                              .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
+                              .build(&_limited_scan_thread_pool));
 
     // 5. task group local scan
     _task_group_local_scan_queue = std::make_unique<taskgroup::ScanTaskTaskGroupQueue>(
             config::doris_scanner_thread_pool_thread_num);
-    ThreadPoolBuilder("local_scan_group")
-            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-            .build(&_group_local_scan_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("local_scan_group")
+                              .set_min_threads(config::doris_scanner_thread_pool_thread_num)
+                              .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+                              .build(&_group_local_scan_thread_pool));
     for (int i = 0; i < config::doris_scanner_thread_pool_thread_num; i++) {
-        _group_local_scan_thread_pool->submit_func([this] {
+        static_cast<void>(_group_local_scan_thread_pool->submit_func([this] {
             this->_task_group_scanner_scan(this, _task_group_local_scan_queue.get());
-        });
+        }));
     }
 
     _is_init = true;
@@ -149,9 +151,7 @@ Status ScannerScheduler::submit(ScannerContext* ctx) {
     if (ctx->done()) {
         return Status::EndOfFile("ScannerContext is done");
     }
-    if (ctx->queue_idx == -1) {
-        ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
-    }
+    ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
     if (!_pending_queues[ctx->queue_idx]->blocking_put(ctx)) {
         return Status::InternalError("failed to submit scanner context to scheduler");
     }
@@ -236,7 +236,13 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                 TabletStorageType type = (*iter)->get_storage_type();
                 bool ret = false;
                 if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-                    if (ctx->get_task_group() && config::enable_workload_group_for_scan) {
+                    if (auto* scan_sche = ctx->get_simple_scan_scheduler()) {
+                        auto work_func = [this, scanner = *iter, ctx] {
+                            this->_scanner_scan(this, ctx, scanner);
+                        };
+                        SimplifiedScanTask simple_scan_task = {work_func, ctx};
+                        ret = scan_sche->get_scan_queue()->try_put(simple_scan_task);
+                    } else if (ctx->get_task_group() && config::enable_workload_group_for_scan) {
                         auto work_func = [this, scanner = *iter, ctx] {
                             this->_scanner_scan(this, ctx, scanner);
                         };
@@ -311,11 +317,22 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScannerSPtr scanner) {
     SCOPED_ATTACH_TASK(scanner->runtime_state());
+    // for cpu hard limit, thread name should not be reset
 #if !defined(USE_BTHREAD_SCANNER)
-    Thread::set_self_name("_scanner_scan");
-#else
-    if (dynamic_cast<NewOlapScanner*>(scanner) == nullptr) {
+    if (ctx->_should_reset_thread_name) {
         Thread::set_self_name("_scanner_scan");
+    }
+#else
+    if (dynamic_cast<NewOlapScanner*>(scanner) == nullptr && ctx->_should_reset_thread_name) {
+        Thread::set_self_name("_scanner_scan");
+    }
+#endif
+
+#ifndef __APPLE__
+    // The configuration item is used to lower the priority of the scanner thread,
+    // typically employed to ensure CPU scheduling for write operations.
+    if (config::scan_thread_nice_value != 0 && scanner->get_name() != VFileScanner::NAME) {
+        Thread::set_thread_nice_value();
     }
 #endif
     scanner->update_wait_worker_timer();
@@ -340,7 +357,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         scanner->set_opened();
     }
 
-    scanner->try_append_late_arrival_runtime_filter();
+    static_cast<void>(scanner->try_append_late_arrival_runtime_filter());
 
     // Because we use thread pool to scan data from storage. One scanner can't
     // use this thread too long, this can starve other query's scanner. So, we
@@ -353,7 +370,6 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     int64_t raw_rows_threshold = raw_rows_read + config::doris_scanner_row_num;
     int64_t raw_bytes_read = 0;
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
-    bool has_free_block = true;
     int num_rows_in_block = 0;
 
     // Only set to true when ctx->done() return true.
@@ -364,8 +380,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
     while (!eos && raw_bytes_read < raw_bytes_threshold &&
-           ((raw_rows_read < raw_rows_threshold && has_free_block) ||
-            num_rows_in_block < state->batch_size())) {
+           (raw_rows_read < raw_rows_threshold || num_rows_in_block < state->batch_size())) {
         // TODO llj task group should should_yield?
         if (UNLIKELY(ctx->done())) {
             // No need to set status on error here.
@@ -374,7 +389,8 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             break;
         }
 
-        BlockUPtr block = ctx->get_free_block(&has_free_block);
+        BlockUPtr block = ctx->get_free_block();
+
         status = scanner->get_block(state, block.get(), &eos);
         VLOG_ROW << "VScanNode input rows: " << block->rows() << ", eos: " << eos;
         // The VFileScanner for external table may try to open not exist files,
@@ -390,12 +406,11 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         if (status.is<ErrorCode::NOT_FOUND>()) {
             // The only case in this "if" branch is external table file delete and fe cache has not been updated yet.
             // Set status to OK.
-            LOG(INFO) << "scan range not found: " << scanner->get_current_scan_range_name();
             status = Status::OK();
             eos = true;
         }
 
-        raw_bytes_read += block->bytes();
+        raw_bytes_read += block->allocated_bytes();
         num_rows_in_block += block->rows();
         if (UNLIKELY(block->rows() == 0)) {
             ctx->return_free_block(std::move(block));
@@ -430,7 +445,6 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     if (eos || should_stop) {
         scanner->mark_to_need_to_close();
     }
-
     ctx->push_back_scanner_and_reschedule(scanner);
 }
 
@@ -441,9 +455,19 @@ void ScannerScheduler::_task_group_scanner_scan(ScannerScheduler* scheduler,
         auto success = scan_queue->take(&scan_task);
         if (success) {
             int64_t time_spent = 0;
-            {
-                SCOPED_RAW_TIMER(&time_spent);
-                scan_task.scan_func();
+            if (!scan_task.is_empty_task) {
+                RuntimeProfile::Counter tmp_timer(TUnit::TIME_NS);
+                {
+                    SCOPED_CPU_TIMER(&tmp_timer);
+                    scan_task.scan_func();
+                }
+                time_spent = tmp_timer.value();
+            } else {
+                {
+                    SCOPED_RAW_TIMER(&time_spent);
+                    usleep(taskgroup::SCAN_THREAD_TIME_SLICE_US);
+                }
+                time_spent = time_spent * _core_num / _total_query_thread_num;
             }
             scan_queue->update_statistics(scan_task, time_spent);
         }

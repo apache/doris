@@ -161,6 +161,57 @@ suite("map_agg") {
           (3, "k3", 1024.1024)
     """
 
+    sql "DROP TABLE IF EXISTS `test_map_agg_score`;"
+    sql """
+        CREATE TABLE `test_map_agg_score`(
+            id INT(11) NOT NULL,
+            userid VARCHAR(20) NOT NULL COMMENT '用户id',
+            subject VARCHAR(20) COMMENT '科目',
+            score DOUBLE COMMENT '成绩'
+        )
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    sql """
+        INSERT INTO `test_map_agg_score`  VALUES (1,'001','语文',90);
+    """
+    sql """
+        INSERT INTO `test_map_agg_score`  VALUES (2,'001','数学',92);
+    """
+    sql """
+        INSERT INTO `test_map_agg_score`  VALUES (3,'001','英语',80);
+    """
+    sql """
+        INSERT INTO `test_map_agg_score`  VALUES (4,'002','语文',88);
+    """
+    sql """
+        INSERT INTO `test_map_agg_score`  VALUES (5,'002','数学',90);
+    """
+    sql """
+        INSERT INTO `test_map_agg_score`  VALUES (6,'002','英语',75.5);
+    """
+    sql """
+        INSERT INTO `test_map_agg_score`  VALUES (7,'003','语文',70);
+    """
+    sql """
+        INSERT INTO `test_map_agg_score`  VALUES (8,'003','数学',85);
+    """
+    sql """
+        INSERT INTO `test_map_agg_score`  VALUES (9,'003','英语',90);
+    """
+    sql """
+        INSERT INTO `test_map_agg_score`  VALUES (10,'003','政治',82);
+    """
+
     qt_sql1 """
         WITH `labels` as (
             SELECT `id`, map_agg(`label_name`, `value_field`) m FROM test_map_agg GROUP BY `id`
@@ -217,8 +268,11 @@ suite("map_agg") {
         ORDER BY `id`;
     """
 
-    sql "DROP TABLE IF EXISTS `test_map_agg`"
-    sql "DROP TABLE IF EXISTS `test_map_agg_nullable`"
-    sql "DROP TABLE IF EXISTS `test_map_agg_numeric_key`"
-    sql "DROP TABLE IF EXISTS `test_map_agg_decimal`"
+    qt_garbled_characters """
+        select
+            userid, map['语文'] 语文, map['数学'] 数学, map['英语'] 英语, map['政治'] 政治
+        from (
+            select userid, map_agg(subject,score) as map from test_map_agg_score group by userid
+        ) a order by userid;
+    """
  }

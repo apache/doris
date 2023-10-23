@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -122,7 +121,7 @@ public class CreateTableStmt extends DdlStmt {
         } else {
             long partitionSize = ParseUtil
                     .analyzeDataVolumn(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
-            distributionDesc.setBuckets(AutoBucketUtils.getBucketsNum(partitionSize));
+            distributionDesc.setBuckets(AutoBucketUtils.getBucketsNum(partitionSize, Config.autobucket_min_buckets));
         }
 
         return newProperties;
@@ -349,7 +348,7 @@ public class CreateTableStmt extends DdlStmt {
         boolean enableDuplicateWithoutKeysByDefault = false;
         if (properties != null) {
             enableDuplicateWithoutKeysByDefault =
-                                            PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
+                    PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
         }
         //pre-block creation with column type ALL
         for (ColumnDef columnDef : columnDefs) {
@@ -520,10 +519,6 @@ public class CreateTableStmt extends DdlStmt {
             columnDef.analyze(engineName.equals("olap"));
 
             if (columnDef.getType().isComplexType() && engineName.equals("olap")) {
-                if (columnDef.getAggregateType() == AggregateType.REPLACE
-                        && keysDesc.getKeysType() == KeysType.AGG_KEYS) {
-                    throw new AnalysisException("Aggregate table can't support replace array/map/struct value now");
-                }
                 if (columnDef.getAggregateType() != null
                         && columnDef.getAggregateType() != AggregateType.NONE
                         && columnDef.getAggregateType() != AggregateType.REPLACE) {
@@ -560,7 +555,8 @@ public class CreateTableStmt extends DdlStmt {
 
         if (engineName.equals("olap")) {
             // before analyzing partition, handle the replication allocation info
-            properties = rewriteReplicaAllocationProperties(properties);
+            properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(
+                    tableName.getCtl(), tableName.getDb(), properties);
             // analyze partition
             if (partitionDesc != null) {
                 if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc) {
@@ -648,34 +644,6 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException("same index columns have multiple same type index is not allowed.");
             }
         }
-    }
-
-    private Map<String, String> rewriteReplicaAllocationProperties(Map<String, String> properties) {
-        if (Config.force_olap_table_replication_num <= 0) {
-            return properties;
-        }
-        // if force_olap_table_replication_num is set, use this value to rewrite the replication_num or
-        // replication_allocation properties
-        Map<String, String> newProperties = properties;
-        if (newProperties == null) {
-            newProperties = Maps.newHashMap();
-        }
-        boolean rewrite = false;
-        if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                    String.valueOf(Config.force_olap_table_replication_num));
-            rewrite = true;
-        }
-        if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
-            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                    new ReplicaAllocation((short) Config.force_olap_table_replication_num).toCreateStmt());
-            rewrite = true;
-        }
-        if (!rewrite) {
-            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                    String.valueOf(Config.force_olap_table_replication_num));
-        }
-        return newProperties;
     }
 
     private void analyzeEngineName() throws AnalysisException {

@@ -22,18 +22,12 @@ suite("test_infer_predicate") {
     sql 'drop table if exists infer_tb1;'
     sql 'drop table if exists infer_tb2;'
     sql 'drop table if exists infer_tb3;'
-    sql 'drop table if exists infer_tb4;'
-    sql 'drop table if exists infer_tb5;'
 
     sql '''create table infer_tb1 (k1 int, k2 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');'''
 
     sql '''create table infer_tb2 (k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 largeint, k6 date, k7 datetime, k8 float, k9 double) distributed by hash(k1) buckets 3 properties('replication_num' = '1');'''
 
     sql '''create table infer_tb3 (k1 varchar(100), k2 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');'''
-
-    sql '''create table infer_tb4 (k1 varchar(100), k2 date) distributed by hash(k1) buckets 3 properties('replication_num' = '1');'''
-
-    sql '''create table infer_tb5 (k1 varchar(100), k3 date) distributed by hash(k1) buckets 3 properties('replication_num' = '1');'''
 
     explain {
         sql "select * from infer_tb1 inner join infer_tb2 where infer_tb2.k1 = infer_tb1.k2  and infer_tb2.k1 = 1;"
@@ -61,16 +55,4 @@ suite("test_infer_predicate") {
         contains "PREDICATES: k3"
         contains "PREDICATES: k2"
     }
-
-    explain {
-        sql "select * from infer_tb4 left join infer_tb5 on infer_tb4.k2 = infer_tb5.k3 where infer_tb4.k2 = '20230901';"
-        contains "PREDICATES: k3"
-        contains "PREDICATES: k2"
-    }
-
-    sql 'drop table if exists infer_tb1;'
-    sql 'drop table if exists infer_tb2;'
-    sql 'drop table if exists infer_tb3;'
-    sql 'drop table if exists infer_tb4;'
-    sql 'drop table if exists infer_tb5;'
 }

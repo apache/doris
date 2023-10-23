@@ -103,7 +103,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& arg = block.get_by_position(arguments[0]);
         auto res_column = _execute_non_nullable(arg, input_rows_count);
         if (!res_column) {
@@ -137,7 +137,8 @@ private:
 
     template <typename Element, typename Result>
     ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
-                                       const IColumn& nested_column, ColumnPtr nested_null_map) {
+                                       const IColumn& nested_column,
+                                       ColumnPtr nested_null_map) const {
         using ColVecType = ColumnVectorOrDecimal<Element>;
         using ColVecResult = ColumnVectorOrDecimal<Result>;
         typename ColVecResult::MutablePtr res_nested = nullptr;
@@ -178,7 +179,8 @@ private:
         }
     }
 
-    ColumnPtr _execute_non_nullable(const ColumnWithTypeAndName& arg, size_t input_rows_count) {
+    ColumnPtr _execute_non_nullable(const ColumnWithTypeAndName& arg,
+                                    size_t input_rows_count) const {
         // check array nested column type and get data
         auto left_column = arg.column->convert_to_full_column_if_const();
         const auto& array_column = reinterpret_cast<const ColumnArray&>(*left_column);

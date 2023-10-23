@@ -22,8 +22,11 @@
 #include <cstdint>
 #include <memory>
 
+#include "aggregation_sink_operator.h"
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/exec/aggregation_sink_operator.h"
+#include "pipeline/exec/aggregation_source_operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/distinct_vaggregation_node.h"
@@ -70,6 +73,53 @@ private:
     int64_t _output_distinct_rows = 0;
     std::shared_ptr<DataQueue> _data_queue;
     std::unique_ptr<vectorized::Block> _output_block = vectorized::Block::create_unique();
+};
+
+class DistinctStreamingAggSinkOperatorX;
+
+class DistinctStreamingAggSinkLocalState final
+        : public AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState> {
+public:
+    using Parent = DistinctStreamingAggSinkOperatorX;
+    using Base = AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState>;
+    ENABLE_FACTORY_CREATOR(DistinctStreamingAggSinkLocalState);
+    DistinctStreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
+        RETURN_IF_ERROR(Base::init(state, info));
+        _shared_state->data_queue.reset(new DataQueue(1, _dependency));
+        return Status::OK();
+    }
+
+    Status close(RuntimeState* state, Status exec_status) override;
+    Status _distinct_pre_agg_with_serialized_key(vectorized::Block* in_block,
+                                                 vectorized::Block* out_block);
+
+private:
+    friend class DistinctStreamingAggSinkOperatorX;
+    void _emplace_into_hash_table_to_distinct(vectorized::IColumn::Selector& distinct_row,
+                                              vectorized::ColumnRawPtrs& key_columns,
+                                              const size_t num_rows);
+
+    std::unique_ptr<vectorized::Block> _output_block = vectorized::Block::create_unique();
+    std::shared_ptr<char> dummy_mapped_data = nullptr;
+    vectorized::IColumn::Selector _distinct_row;
+    vectorized::Arena _arena;
+    int64_t _output_distinct_rows = 0;
+};
+
+class DistinctStreamingAggSinkOperatorX final
+        : public AggSinkOperatorX<DistinctStreamingAggSinkLocalState> {
+public:
+    DistinctStreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+                                      const DescriptorTbl& descs);
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
+    Status sink(RuntimeState* state, vectorized::Block* in_block,
+                SourceState source_state) override;
+
+    WriteDependency* wait_for_dependency(RuntimeState* state) override {
+        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+        return local_state._dependency->write_blocked_by();
+    }
 };
 
 } // namespace pipeline

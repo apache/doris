@@ -33,21 +33,29 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeStringSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                   int end_idx, BufferWritable& bw,
-                                                   FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeStringSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                     int end_idx, BufferWritable& bw,
+                                                     FormatOptions& options,
+                                                     int nesting_level) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeStringSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                     BufferWritable& bw,
-                                                     FormatOptions& options) const {
+Status DataTypeStringSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                       BufferWritable& bw, FormatOptions& options,
+                                                       int nesting_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
+    if (nesting_level > 1) {
+        bw.write('"');
+    }
     const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
     bw.write(value.data, value.size);
+    if (nesting_level > 1) {
+        bw.write('"');
+    }
+    return Status::OK();
 }
 
 Status DataTypeStringSerDe::deserialize_column_from_json_vector(IColumn& column,
@@ -229,6 +237,23 @@ Status DataTypeStringSerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                   bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeStringSerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+                                                orc::ColumnVectorBatch* orc_col_batch, int start,
+                                                int end,
+                                                std::vector<StringRef>& buffer_list) const {
+    auto& col_data = assert_cast<const ColumnString&>(column);
+    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+
+    for (size_t row_id = start; row_id < end; row_id++) {
+        const auto& ele = col_data.get_data_at(row_id);
+        cur_batch->data[row_id] = const_cast<char*>(ele.data);
+        cur_batch->length[row_id] = ele.size;
+    }
+
+    cur_batch->numElements = end - start;
+    return Status::OK();
 }
 
 } // namespace vectorized

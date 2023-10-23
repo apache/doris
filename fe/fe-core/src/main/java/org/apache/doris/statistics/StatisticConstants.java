@@ -17,6 +17,9 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.SystemInfoService;
@@ -59,7 +62,7 @@ public class StatisticConstants {
 
     public static final int ANALYZE_MANAGER_INTERVAL_IN_SECS = 60;
 
-    public static List<String> STATISTICS_DB_BLACK_LIST = new ArrayList<>();
+    public static List<String> SYSTEM_DBS = new ArrayList<>();
 
     public static int ANALYZE_TASK_RETRY_TIMES = 5;
 
@@ -78,10 +81,30 @@ public class StatisticConstants {
     // union more relation than 512 may cause StackOverFlowException in the future.
     public static final int UNION_ALL_LIMIT = 512;
 
+    public static final String FULL_AUTO_ANALYZE_START_TIME = "00:00:00";
+    public static final String FULL_AUTO_ANALYZE_END_TIME = "23:59:59";
+
     static {
-        STATISTICS_DB_BLACK_LIST.add(SystemInfoService.DEFAULT_CLUSTER
+        SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER
                 + ClusterNamespace.CLUSTER_DELIMITER + FeConstants.INTERNAL_DB_NAME);
-        STATISTICS_DB_BLACK_LIST.add(SystemInfoService.DEFAULT_CLUSTER
+        SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER
                 + ClusterNamespace.CLUSTER_DELIMITER + "information_schema");
+    }
+
+    public static boolean isSystemTable(TableIf tableIf) {
+        if (tableIf instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) tableIf;
+            if (StatisticConstants.SYSTEM_DBS.contains(olapTable.getQualifiedDbName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean shouldIgnoreCol(TableIf tableIf, Column c) {
+        if (isSystemTable(tableIf)) {
+            return true;
+        }
+        return !c.isVisible();
     }
 }

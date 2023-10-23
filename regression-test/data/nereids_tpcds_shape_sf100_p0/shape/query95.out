@@ -3,7 +3,7 @@
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
-------hashJoin[INNER_JOIN](ws1.ws_order_number = ws2.ws_order_number)( not (ws_warehouse_sk = ws_warehouse_sk))
+------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_order_number = ws2.ws_order_number))otherCondition=(( not (ws_warehouse_sk = ws_warehouse_sk)))
 --------PhysicalDistribute
 ----------PhysicalProject
 ------------PhysicalOlapScan[web_sales]
@@ -13,42 +13,41 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalResultSink
 ----PhysicalTopN
 ------PhysicalTopN
---------PhysicalProject
-----------hashAgg[DISTINCT_GLOBAL]
-------------PhysicalDistribute
---------------hashAgg[DISTINCT_LOCAL]
-----------------hashAgg[GLOBAL]
-------------------hashAgg[LOCAL]
---------------------PhysicalProject
-----------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = web_returns.wr_order_number)
+--------hashAgg[DISTINCT_GLOBAL]
+----------PhysicalDistribute
+------------hashAgg[DISTINCT_LOCAL]
+--------------hashAgg[GLOBAL]
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((ws1.ws_order_number = ws_wh.ws_order_number))otherCondition=()
+----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](web_returns.wr_order_number = ws_wh.ws_order_number)
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((ws1.ws_order_number = web_returns.wr_order_number))otherCondition=()
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_order_number = ws_wh.ws_order_number))otherCondition=()
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[web_returns]
-------------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = ws_wh.ws_order_number)
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
---------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN](ws1.ws_web_site_sk = web_site.web_site_sk)
-------------------------------hashJoin[INNER_JOIN](ws1.ws_ship_date_sk = date_dim.d_date_sk)
---------------------------------hashJoin[INNER_JOIN](ws1.ws_ship_addr_sk = customer_address.ca_address_sk)
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[web_sales]
-----------------------------------PhysicalDistribute
-------------------------------------PhysicalProject
---------------------------------------filter((cast(ca_state as VARCHAR(*)) = 'NC'))
-----------------------------------------PhysicalOlapScan[customer_address]
+------------------------PhysicalDistribute
+--------------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_web_site_sk = web_site.web_site_sk))otherCondition=()
+----------------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_ship_date_sk = date_dim.d_date_sk))otherCondition=()
+------------------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ws_ship_addr_sk = customer_address.ca_address_sk))otherCondition=()
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[web_sales]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_date >= 1999-02-01)(date_dim.d_date <= 1999-04-02))
---------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------filter((customer_address.ca_state = 'NC'))
+--------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter((cast(web_company_name as VARCHAR(*)) = 'pri'))
-------------------------------------PhysicalOlapScan[web_site]
+----------------------------------filter((date_dim.d_date <= '1999-04-02') and (date_dim.d_date >= '1999-02-01'))
+------------------------------------PhysicalOlapScan[date_dim]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((web_site.web_company_name = 'pri'))
+----------------------------------PhysicalOlapScan[web_site]
 

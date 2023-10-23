@@ -208,6 +208,7 @@ import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.persist.meta.MetaWriter;
+import org.apache.doris.planner.SingleTabletLoadRecorderMgr;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
@@ -328,6 +329,7 @@ public class Env {
     private LoadManager loadManager;
     private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
+    private SingleTabletLoadRecorderMgr singleTabletLoadRecorderMgr;
     private RoutineLoadManager routineLoadManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
@@ -684,6 +686,7 @@ public class Env {
         this.progressManager = new ProgressManager();
         this.streamLoadRecordMgr = new StreamLoadRecordMgr("stream_load_record_manager",
                 Config.fetch_stream_load_record_interval_second * 1000L);
+        this.singleTabletLoadRecorderMgr = new SingleTabletLoadRecorderMgr();
         this.loadEtlChecker = new LoadEtlChecker(loadManager);
         this.loadLoadingChecker = new LoadLoadingChecker(loadManager);
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
@@ -849,12 +852,10 @@ public class Env {
         while (true) {
             try {
                 if (!lock.tryLock(Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
-                    if (LOG.isDebugEnabled()) {
-                        // to see which thread held this lock for long time.
-                        Thread owner = lock.getOwner();
-                        if (owner != null) {
-                            LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
-                        }
+                    // to see which thread held this lock for long time.
+                    Thread owner = lock.getOwner();
+                    if (owner != null) {
+                        LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
                     }
 
                     if (mustLock) {
@@ -1508,8 +1509,6 @@ public class Env {
         loadJobScheduler.start();
         loadEtlChecker.start();
         loadLoadingChecker.start();
-        // export task
-        exportMgr.start();
         // Tablet checker and scheduler
         tabletChecker.start();
         tabletScheduler.start();
@@ -1552,6 +1551,7 @@ public class Env {
             cooldownConfHandler.start();
         }
         streamLoadRecordMgr.start();
+        singleTabletLoadRecorderMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         new InternalSchemaInitializer().start();
         if (Config.enable_hms_events_incremental_sync) {
@@ -1951,10 +1951,8 @@ public class Env {
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
         recycleBin.readFields(dis);
-        if (!isCheckpointThread()) {
-            // add tablet in Recycle bin to TabletInvertedIndex
-            recycleBin.addTabletToInvertedIndex();
-        }
+        // add tablet in Recycle bin to TabletInvertedIndex
+        recycleBin.addTabletToInvertedIndex();
         // create DatabaseTransactionMgr for db in recycle bin.
         // these dbs do not exist in `idToDb` of the catalog.
         for (Long dbId : recycleBin.getAllDbIds()) {
@@ -2718,10 +2716,12 @@ public class Env {
         try {
             Frontend fe = checkFeExist(host, port);
             if (fe == null) {
-                throw new DdlException("frontend does not exist[" + host + ":" + port + "]");
+                throw new DdlException("frontend does not exist[" + NetUtils
+                        .getHostPortInAccessibleFormat(host, port) + "]");
             }
             if (fe.getRole() != role) {
-                throw new DdlException(role.toString() + " does not exist[" + host + ":" + port + "]");
+                throw new DdlException(role.toString() + " does not exist[" + NetUtils
+                        .getHostPortInAccessibleFormat(host, port) + "]");
             }
             frontends.remove(fe.getNodeName());
             removedFrontends.add(fe.getNodeName());
@@ -3092,6 +3092,10 @@ public class Env {
             ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
             sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION).append("\" = \"");
             sb.append(replicaAlloc.toCreateStmt()).append("\"");
+
+            // min load replica num
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM).append("\" = \"");
+            sb.append(olapTable.getMinLoadReplicaNum()).append("\"");
 
             // bloom filter
             Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
@@ -3750,6 +3754,10 @@ public class Env {
 
     public StreamLoadRecordMgr getStreamLoadRecordMgr() {
         return streamLoadRecordMgr;
+    }
+
+    public SingleTabletLoadRecorderMgr getSingleTabletLoadRecorderMgr() {
+        return singleTabletLoadRecorderMgr;
     }
 
     public IcebergTableCreationRecordMgr getIcebergTableCreationRecordMgr() {
@@ -4630,6 +4638,7 @@ public class Env {
             tableProperty.modifyTableProperties(properties);
         }
         tableProperty.buildInMemory()
+                .buildMinLoadReplicaNum()
                 .buildStoragePolicy()
                 .buildIsBeingSynced()
                 .buildCompactionPolicy()
@@ -5429,8 +5438,8 @@ public class Env {
                             version, lastSuccessVersion, lastFailedVersion, updateTime);
                     getEditLog().logSetReplicaVersion(log);
                 }
-                LOG.info("set replica {} of tablet {} on backend {} as version {}, last success version {} ,"
-                        + ", last failed version {}, update time {}. is replay: {}", replica.getId(), tabletId,
+                LOG.info("set replica {} of tablet {} on backend {} as version {}, last success version {}, "
+                        + "last failed version {}, update time {}. is replay: {}", replica.getId(), tabletId,
                         backendId, version, lastSuccessVersion, lastFailedVersion, updateTime, isReplay);
             } finally {
                 table.writeUnlock();
@@ -5464,7 +5473,7 @@ public class Env {
             }
         }
 
-        if (!isReplay) {
+        if (!isReplay && !Env.isCheckpointThread()) {
             // drop all replicas
             AgentBatchTask batchTask = new AgentBatchTask();
             for (Partition partition : olapTable.getAllPartitions()) {
@@ -5488,6 +5497,7 @@ public class Env {
             AgentTaskExecutor.submit(batchTask);
         }
 
+        // TODO: does checkpoint need update colocate index ?
         // colocation
         Env.getCurrentColocateIndex().removeTable(olapTable.getId());
     }

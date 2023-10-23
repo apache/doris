@@ -50,7 +50,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
 
     public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
             List<NamedExpression> outputExprs, boolean isPartialUpdate, boolean isFromNativeInsertStmt,
-                    CHILD_TYPE child) {
+            CHILD_TYPE child) {
         this(database, targetTable, cols, partitionIds, outputExprs, isPartialUpdate, isFromNativeInsertStmt,
                 Optional.empty(), Optional.empty(), child);
     }
@@ -132,6 +132,19 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     public int hashCode() {
         return Objects.hash(super.hashCode(), database, targetTable, cols, partitionIds,
                 isPartialUpdate, isFromNativeInsertStmt);
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("LogicalOlapTableSink[" + id.asInt() + "]",
+                "outputExprs", outputExprs,
+                "database", database.getFullName(),
+                "targetTable", targetTable.getName(),
+                "cols", cols,
+                "partitionIds", partitionIds,
+                "isPartialUpdate", isPartialUpdate,
+                "isFromNativeInsertStmt", isFromNativeInsertStmt
+        );
     }
 
     @Override

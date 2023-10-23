@@ -384,6 +384,12 @@ Default：9030
 
 FE MySQL server port
 
+#### `arrow_flight_sql_port`
+
+Default：-1
+
+Arrow Flight SQL server port
+
 #### `frontend_address`
 
 Status: Deprecated, not recommended use. This parameter may be deleted later
@@ -430,14 +436,6 @@ If set to ture, doris will establish an encrypted channel based on the SSL proto
 Default：1024
 
 Maximal number of connections per FE.
-
-#### `max_connection_scheduler_threads_num`
-
-Default：4096
-
-Maximal number of thread in connection-scheduler-pool.
-
-The current strategy is to apply for a separate thread for service when there is a request
 
 #### `check_java_version`
 
@@ -2628,23 +2626,23 @@ Whether to enable the quantile_state data type
 
 #### `enable_date_conversion`
 
-Default：false
+Default：true
 
 IsMutable：true
 
 MasterOnly：true
 
-If set to TRUE, FE will convert date/datetime to datev2/datetimev2(0) automatically.
+FE will convert date/datetime to datev2/datetimev2(0) automatically.
 
 #### `enable_decimal_conversion`
 
-Default：false
+Default：true
 
 IsMutable：true
 
 MasterOnly：true
 
-If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
+FE will convert DecimalV2 to DecimalV3 automatically.
 
 #### `proxy_auth_magic_prefix`
 
@@ -2773,3 +2771,9 @@ Temporary configuration option. After it is enabled, a background thread will be
 Default：true
 
 Forbid LocalDeployManager drop nodes to prevent errors in the cluster.info file from causing nodes to be dropped.
+
+#### `mysqldb_replace_name`
+
+Default: mysql
+
+To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. If this database conflicts with a user's own database, please modify this field to replace the name of the Doris built-in MySQL database with a different name.

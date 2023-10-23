@@ -36,14 +36,10 @@ public:
 protected:
     JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<DependencyType>(parent, state) {}
-    virtual ~JoinBuildSinkLocalState() = default;
+    ~JoinBuildSinkLocalState() override = default;
     template <typename LocalStateType>
     friend class JoinBuildSinkOperatorX;
 
-    bool _short_circuit_for_null_in_probe_side = false;
-
-    RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _build_get_next_timer;
     RuntimeProfile::Counter* _build_rows_counter;
     RuntimeProfile::Counter* _push_down_timer;
     RuntimeProfile::Counter* _push_compute_timer;
@@ -53,7 +49,7 @@ template <typename LocalStateType>
 class JoinBuildSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
     JoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~JoinBuildSinkOperatorX() = default;
+    ~JoinBuildSinkOperatorX() override = default;
 
 protected:
     void _init_join_op();
@@ -75,8 +71,8 @@ protected:
 
     // For null aware left anti join, we apply a short circuit strategy.
     // 1. Set _short_circuit_for_null_in_build_side to true if join operator is null aware left anti join.
-    // 2. In build phase, we stop materialize build side when we meet the first null value and set _short_circuit_for_null_in_probe_side to true.
-    // 3. In probe phase, if _short_circuit_for_null_in_probe_side is true, join node returns empty block directly. Otherwise, probing will continue as the same as generic left anti join.
+    // 2. In build phase, we stop materialize build side when we meet the first null value and set _has_null_in_build_side to true.
+    // 3. In probe phase, if _has_null_in_build_side is true, join node returns empty block directly. Otherwise, probing will continue as the same as generic left anti join.
     const bool _short_circuit_for_null_in_build_side;
 };
 

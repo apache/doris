@@ -146,7 +146,7 @@ FROM data_source [data_source_properties]
 
   1. `desired_concurrent_number`
 
-     期望的并发度。一个例行导入作业会被分成多个子任务执行。这个参数指定一个作业最多有多少任务可以同时执行。必须大于0。默认为3。
+     期望的并发度。一个例行导入作业会被分成多个子任务执行。这个参数指定一个作业最多有多少任务可以同时执行。必须大于0。默认为5。
 
      这个并发度并不是实际的并发度，实际的并发度，会通过集群的节点数、负载情况，以及数据源的情况综合考虑。
 
@@ -258,6 +258,12 @@ FROM data_source [data_source_properties]
       采样窗口为 `max_batch_rows * 10`。即如果在采样窗口内，错误行数/总行数大于 `max_filter_ratio`，则会导致例行作业被暂停，需要人工介入检查数据质量问题。
 
       被 where 条件过滤掉的行不算错误行。
+
+  14. `enclose`
+      When the csv data field contains row delimiters or column delimiters, to prevent accidental truncation, single-byte characters can be specified as brackets for protection. For example, the column separator is ",", the bracket is "'", and the data is "a,'b,c'", then "b,c" will be parsed as a field.
+
+  15. `escape`
+      转义符。用于转义在csv字段中出现的与包围符相同的字符。例如数据为"a,'b,'c'"，包围符为"'"，希望"b,'c被作为一个字段解析，则需要指定单字节转义符，例如"\"，然后将数据修改为"a,'b,\'c'"。
 
 - `FROM data_source [data_source_properties]`
 
@@ -430,7 +436,7 @@ FROM data_source [data_source_properties]
        "max_batch_interval" = "20",
        "max_batch_rows" = "300000",
        "max_batch_size" = "209715200",
-       "strict_mode" = "false"
+       "strict_mode" = "true"
    )
    FROM KAFKA
    (

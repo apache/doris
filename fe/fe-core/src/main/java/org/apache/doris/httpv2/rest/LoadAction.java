@@ -222,8 +222,9 @@ public class LoadAction extends RestBaseController {
                 return new RestBaseResult("No database selected.");
             }
 
-            if (Strings.isNullOrEmpty(request.getHeader(TXN_ID_KEY))) {
-                return new RestBaseResult("No transaction id selected.");
+            if (Strings.isNullOrEmpty(request.getHeader(TXN_ID_KEY))
+                    && Strings.isNullOrEmpty(request.getHeader(LABEL_KEY))) {
+                return new RestBaseResult("No transaction id or label selected.");
             }
 
             String txnOperation = request.getHeader(TXN_OPERATION_KEY);

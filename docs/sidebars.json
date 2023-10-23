@@ -93,6 +93,13 @@
                                 "data-operate/import/import-way/insert-into-manual",
                                 "data-operate/import/import-way/load-json-format"
                             ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Import Advanced",
+                            "items": [
+                                "data-operate/import/import-advanced/min-load-replica-num"
+                            ]
                         }
                     ]
                 },
@@ -134,7 +141,8 @@
                     "label": "Doris Partition",
                     "items": [
                         "advanced/partition/dynamic-partition",
-                        "advanced/partition/table-temp-partition"
+                        "advanced/partition/table-temp-partition",
+                        "advanced/partition/auto-partition"
                     ]
                 },
                 {
@@ -356,6 +364,11 @@
                                 "sql-manual/sql-functions/date-time-functions/date-format",
                                 "sql-manual/sql-functions/date-time-functions/datediff",
                                 "sql-manual/sql-functions/date-time-functions/microseconds-add",
+                                "sql-manual/sql-functions/date-time-functions/microseconds-diff",
+                                "sql-manual/sql-functions/date-time-functions/microseconds-sub",
+                                "sql-manual/sql-functions/date-time-functions/milliseconds-add",
+                                "sql-manual/sql-functions/date-time-functions/milliseconds-diff",
+                                "sql-manual/sql-functions/date-time-functions/milliseconds-sub",
                                 "sql-manual/sql-functions/date-time-functions/minutes-add",
                                 "sql-manual/sql-functions/date-time-functions/minutes-diff",
                                 "sql-manual/sql-functions/date-time-functions/minutes-sub",
@@ -553,7 +566,8 @@
                                 "sql-manual/sql-functions/aggregate-functions/grouping",
                                 "sql-manual/sql-functions/aggregate-functions/grouping-id",
                                 "sql-manual/sql-functions/aggregate-functions/count-by-enum",
-                                "sql-manual/sql-functions/aggregate-functions/histogram"
+                                "sql-manual/sql-functions/aggregate-functions/histogram",
+                                "sql-manual/sql-functions/aggregate-functions/map-agg"
                             ]
                         },
                         {
@@ -632,11 +646,14 @@
                                 "sql-manual/sql-functions/json-functions/json-unquote",
                                 "sql-manual/sql-functions/json-functions/json-valid",
                                 "sql-manual/sql-functions/json-functions/json-contains",
+                                "sql-manual/sql-functions/json-functions/json-length",
                                 "sql-manual/sql-functions/json-functions/get-json-double",
                                 "sql-manual/sql-functions/json-functions/get-json-int",
                                 "sql-manual/sql-functions/json-functions/get-json-bigint",
-                                "sql-manual/sql-functions/json-functions/get-json-string"
-                                
+                                "sql-manual/sql-functions/json-functions/get-json-string",
+                                "sql-manual/sql-functions/json-functions/json-insert",
+                                "sql-manual/sql-functions/json-functions/json-replace",
+                                "sql-manual/sql-functions/json-functions/json-set"
                             ]
                         },
                         {
@@ -706,7 +723,9 @@
                                 "sql-manual/sql-functions/encrypt-digest-functions/md5sum",
                                 "sql-manual/sql-functions/encrypt-digest-functions/sm4",
                                 "sql-manual/sql-functions/encrypt-digest-functions/sm3",
-                                "sql-manual/sql-functions/encrypt-digest-functions/sm3sum"
+                                "sql-manual/sql-functions/encrypt-digest-functions/sm3sum",
+                                "sql-manual/sql-functions/encrypt-digest-functions/sha",
+                                "sql-manual/sql-functions/encrypt-digest-functions/sha2"
                             ]
                         },
                         {
@@ -913,6 +932,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-COLOCATE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/PAUSE-JOB",
@@ -1246,6 +1266,7 @@
                                 "admin-manual/http-actions/fe/upload-action",
                                 "admin-manual/http-actions/fe/import-action",
                                 "admin-manual/http-actions/fe/meta-info-action-V2",
+                                "admin-manual/http-actions/fe/debug-point-action",
                                 "admin-manual/http-actions/fe/statistic-action"
                             ]
                         },
@@ -1299,6 +1320,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",
                 "releasenotes/release-2.0.0",
                 "releasenotes/release-1.2.7",

@@ -61,8 +61,8 @@ Status VUnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.union_node);
     // Create const_expr_ctx_lists_ from thrift exprs.
-    auto& const_texpr_lists = tnode.union_node.const_expr_lists;
-    for (auto& texprs : const_texpr_lists) {
+    const auto& const_texpr_lists = tnode.union_node.const_expr_lists;
+    for (const auto& texprs : const_texpr_lists) {
         VExprContextSPtrs ctxs;
         RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _const_expr_lists.push_back(ctxs);
@@ -269,7 +269,7 @@ Status VUnionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         // passthrough case, the child was already closed in the previous call to get_next().
         DCHECK(is_child_passthrough(_to_close_child_idx));
         DCHECK(!is_in_subplan());
-        child(_to_close_child_idx)->close(state);
+        static_cast<void>(child(_to_close_child_idx)->close(state));
         _to_close_child_idx = -1;
     }
 

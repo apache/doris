@@ -4,28 +4,27 @@ PhysicalResultSink
 --PhysicalQuickSort
 ----PhysicalDistribute
 ------PhysicalQuickSort
---------PhysicalProject
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](lineorder.lo_orderdate = dates.d_datekey)
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](lineorder.lo_suppkey = supplier.s_suppkey)
---------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN](lineorder.lo_partkey = part.p_partkey)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[lineorder]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter((part.p_brand = 'MFGR#2239'))
-------------------------------------PhysicalOlapScan[part]
---------------------------PhysicalDistribute
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey))otherCondition=()
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey))otherCondition=()
+------------------------PhysicalDistribute
+--------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_partkey = part.p_partkey))otherCondition=()
 ----------------------------PhysicalProject
-------------------------------filter((supplier.s_region = 'EUROPE'))
---------------------------------PhysicalOlapScan[supplier]
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[dates]
+------------------------------PhysicalOlapScan[lineorder]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((part.p_brand = 'MFGR#2239'))
+----------------------------------PhysicalOlapScan[part]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((supplier.s_region = 'EUROPE'))
+------------------------------PhysicalOlapScan[supplier]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[dates]
 

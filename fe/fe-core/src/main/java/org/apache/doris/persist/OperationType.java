@@ -189,6 +189,7 @@ public class OperationType {
 
     // modify database/table/tablet/replica meta
     public static final short OP_SET_REPLICA_VERSION = 141;
+    public static final short OP_COLOCATE_MOD_REPLICA_ALLOC = 142;
 
     // routine load 200
     public static final short OP_CREATE_ROUTINE_LOAD_JOB = 200;
@@ -326,7 +327,9 @@ public class OperationType {
 
     public static final short OP_PERSIST_AUTO_JOB = 456;
 
-    public static final short OP_ALTER_MTMV = 457;
+    public static final short OP_DELETE_TABLE_STATS = 457;
+    public static final short OP_ALTER_CATALOG_COMMENT = 458;
+    public static final short OP_ALTER_MTMV = 459;
 
     /**
      * Get opcode name by op code.

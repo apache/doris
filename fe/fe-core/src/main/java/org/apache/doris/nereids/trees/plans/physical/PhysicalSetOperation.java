@@ -178,7 +178,7 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
                     newProbeExpr = (NamedExpression) newProbeExpr.child(0);
                 }
                 Slot newProbeSlot = RuntimeFilterGenerator.checkTargetChild(newProbeExpr);
-                if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, newProbeSlot)) {
+                if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, newProbeSlot)) {
                     continue;
                 }
                 pushedDown |= child.pushDownRuntimeFilter(context, generator, builderNode, src,

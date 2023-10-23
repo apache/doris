@@ -180,7 +180,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         _nano_seconds = 0;
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
-        vectorized::VecDateTimeValue dt;
+        VecDateTimeValue dt;
         dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
@@ -237,7 +237,7 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
         _nano_seconds = 0;
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
-        vectorized::VecDateTimeValue dt;
+        VecDateTimeValue dt;
         dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
@@ -305,6 +305,13 @@ void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
     }
 }
 
+Status RuntimeState::query_status() {
+    auto st = _query_ctx->exec_status();
+    RETURN_IF_ERROR(st);
+    std::lock_guard<std::mutex> l(_process_status_lock);
+    return _process_status;
+}
+
 bool RuntimeState::is_cancelled() const {
     return _is_cancelled.load() || (_query_ctx && _query_ctx->is_cancelled());
 }
@@ -328,9 +335,9 @@ Status RuntimeState::check_query_state(const std::string& msg) {
     // Usually used after SCOPED_ATTACH_TASK, during query execution.
     if (thread_context()->thread_mem_tracker()->limit_exceeded() &&
         !config::enable_query_memory_overcommit) {
-        auto failed_msg = thread_context()->thread_mem_tracker()->query_tracker_limit_exceeded_str(
-                thread_context()->thread_mem_tracker()->tracker_limit_exceeded_str(),
-                thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(), msg);
+        auto failed_msg =
+                fmt::format("{}, {}", msg,
+                            thread_context()->thread_mem_tracker()->tracker_limit_exceeded_str());
         thread_context()->thread_mem_tracker()->print_log_usage(failed_msg);
         log_error(failed_msg);
         return Status::MemoryLimitExceeded(failed_msg);
@@ -341,8 +348,8 @@ Status RuntimeState::check_query_state(const std::string& msg) {
 const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_error_log_file() {
-    _exec_env->load_path_mgr()->get_load_error_file_name(
-            _db_name, _import_label, _fragment_instance_id, &_error_log_file_path);
+    static_cast<void>(_exec_env->load_path_mgr()->get_load_error_file_name(
+            _db_name, _import_label, _fragment_instance_id, &_error_log_file_path));
     std::string error_log_absolute_path =
             _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
     _error_log_file = new std::ofstream(error_log_absolute_path, std::ifstream::out);
@@ -424,7 +431,9 @@ void RuntimeState::emplace_local_state(
 
 std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> RuntimeState::get_local_state(int id) {
     std::unique_lock<std::mutex> l(_local_state_lock);
-    DCHECK(_op_id_to_local_state.find(id) != _op_id_to_local_state.end());
+    if (_op_id_to_local_state.find(id) == _op_id_to_local_state.end()) {
+        return nullptr;
+    }
     return _op_id_to_local_state[id];
 }
 
@@ -437,8 +446,15 @@ void RuntimeState::emplace_sink_local_state(
 std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> RuntimeState::get_sink_local_state(
         int id) {
     std::unique_lock<std::mutex> l(_local_sink_state_lock);
-    DCHECK(_op_id_to_sink_local_state.find(id) != _op_id_to_sink_local_state.end());
+    if (_op_id_to_sink_local_state.find(id) == _op_id_to_sink_local_state.end()) {
+        return nullptr;
+    }
     return _op_id_to_sink_local_state[id];
+}
+
+bool RuntimeState::enable_page_cache() const {
+    return !config::disable_storage_page_cache &&
+           (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
 }
 
 } // end namespace doris

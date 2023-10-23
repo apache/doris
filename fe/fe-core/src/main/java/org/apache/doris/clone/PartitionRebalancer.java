@@ -35,6 +35,7 @@ import com.google.common.collect.TreeMultimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.security.SecureRandom;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
@@ -63,6 +64,8 @@ public class PartitionRebalancer extends Rebalancer {
 
     private final AtomicLong counterBalanceMoveCreated = new AtomicLong(0);
     private final AtomicLong counterBalanceMoveSucceeded = new AtomicLong(0);
+
+    private long cacheEmptyTimestamp = -1L;
 
     public PartitionRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
             Map<Long, PathSlot> backendsWorkingSlots) {
@@ -141,7 +144,7 @@ public class PartitionRebalancer extends Rebalancer {
             }
 
             // Random pick one candidate to create tabletSchedCtx
-            Random rand = new Random();
+            Random rand = new SecureRandom();
             Object[] keys = tabletCandidates.keySet().toArray();
             long pickedTabletId = (long) keys[rand.nextInt(keys.length)];
             LOG.debug("Picked tablet id for move {}: {}", move, pickedTabletId);
@@ -230,6 +233,11 @@ public class PartitionRebalancer extends Rebalancer {
         return !bes.contains(move.fromBe) && bes.contains(move.toBe);
     }
 
+    // cache empty for 10 min
+    public boolean checkCacheEmptyForLong() {
+        return cacheEmptyTimestamp > 0 && System.currentTimeMillis() > cacheEmptyTimestamp + 10 * 60 * 1000L;
+    }
+
     @Override
     protected void completeSchedCtx(TabletSchedCtx tabletCtx)
             throws SchedException {
@@ -299,12 +307,17 @@ public class PartitionRebalancer extends Rebalancer {
     }
 
     @Override
+    public void onTabletFailed(TabletSchedCtx tabletCtx) {
+        movesCacheMap.invalidateTablet(tabletCtx);
+    }
+
+    @Override
     public Long getToDeleteReplicaId(TabletSchedCtx tabletCtx) {
         // We don't invalidate the cached move here, cuz the redundant repair progress is just started.
         // The move should be invalidated by TTL or Algo.CheckMoveCompleted()
         Pair<TabletMove, Long> pair = movesCacheMap.getTabletMove(tabletCtx);
         if (pair != null) {
-            Preconditions.checkState(pair.second != -1L);
+            //Preconditions.checkState(pair.second != -1L);
             return pair.second;
         } else {
             return (long) -1;
@@ -317,6 +330,11 @@ public class PartitionRebalancer extends Rebalancer {
         movesCacheMap.updateMapping(statisticMap, Config.partition_rebalance_move_expire_after_access);
         // Perform cache maintenance
         movesCacheMap.maintain();
+        if (movesCacheMap.size() > 0) {
+            cacheEmptyTimestamp = -1;
+        } else if (cacheEmptyTimestamp < 0) {
+            cacheEmptyTimestamp = System.currentTimeMillis();
+        }
         LOG.debug("Move succeeded/total :{}/{}, current {}",
                 counterBalanceMoveSucceeded.get(), counterBalanceMoveCreated.get(), movesCacheMap);
     }

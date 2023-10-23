@@ -15,37 +15,41 @@ PhysicalResultSink
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalRepeat
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](store.s_store_sk = store_sales.ss_store_sk)
---------------------------------hashJoin[INNER_JOIN](d1.d_date_sk = store_sales.ss_sold_date_sk)
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales]
-----------------------------------PhysicalDistribute
+------------------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk))otherCondition=()
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_date_sk = store_sales.ss_sold_date_sk))otherCondition=()
 ------------------------------------PhysicalProject
---------------------------------------filter((d1.d_month_seq <= 1224)(d1.d_month_seq >= 1213))
-----------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------filter((d1.d_month_seq <= 1224) and (d1.d_month_seq >= 1213))
+------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
-----------------------------------hashJoin[LEFT_SEMI_JOIN](store.s_state = tmp1.s_state)
+----------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((store.s_state = tmp1.s_state))otherCondition=()
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[store]
-------------------------------------PhysicalProject
---------------------------------------filter((ranking <= 5))
-----------------------------------------PhysicalWindow
-------------------------------------------PhysicalQuickSort
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------filter((ranking <= 5))
+------------------------------------------PhysicalWindow
 --------------------------------------------PhysicalPartitionTopN
-----------------------------------------------hashAgg[GLOBAL]
-------------------------------------------------PhysicalDistribute
---------------------------------------------------hashAgg[LOCAL]
-----------------------------------------------------PhysicalProject
-------------------------------------------------------hashJoin[INNER_JOIN](store.s_store_sk = store_sales.ss_store_sk)
---------------------------------------------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = store_sales.ss_sold_date_sk)
+----------------------------------------------PhysicalDistribute
+------------------------------------------------PhysicalPartitionTopN
+--------------------------------------------------PhysicalProject
+----------------------------------------------------hashAgg[GLOBAL]
+------------------------------------------------------PhysicalDistribute
+--------------------------------------------------------hashAgg[LOCAL]
 ----------------------------------------------------------PhysicalProject
-------------------------------------------------------------PhysicalOlapScan[store_sales]
-----------------------------------------------------------PhysicalDistribute
-------------------------------------------------------------PhysicalProject
---------------------------------------------------------------filter((date_dim.d_month_seq >= 1213)(date_dim.d_month_seq <= 1224))
-----------------------------------------------------------------PhysicalOlapScan[date_dim]
---------------------------------------------------------PhysicalDistribute
-----------------------------------------------------------PhysicalProject
-------------------------------------------------------------PhysicalOlapScan[store]
+------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk))otherCondition=()
+--------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk))otherCondition=()
+----------------------------------------------------------------PhysicalProject
+------------------------------------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------------------------------------PhysicalDistribute
+------------------------------------------------------------------PhysicalProject
+--------------------------------------------------------------------filter((date_dim.d_month_seq <= 1224) and (date_dim.d_month_seq >= 1213))
+----------------------------------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------------------------------PhysicalDistribute
+----------------------------------------------------------------PhysicalProject
+------------------------------------------------------------------PhysicalOlapScan[store]
 

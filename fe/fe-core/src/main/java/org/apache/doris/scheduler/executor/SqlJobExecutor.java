@@ -74,8 +74,9 @@ public class SqlJobExecutor implements JobExecutor {
 
             executorResult = new ExecutorResult<>(result, true, null, sql);
         } catch (Exception e) {
-            log.warn("execute sql job failed, sql: {}, error: {}", sql, e.getMessage());
             executorResult = new ExecutorResult<>(null, false, e.getMessage(), sql);
+            log.warn("execute sql job failed, job id :{}, sql: {}, error: {}", job.getJobId(), sql, e);
+            return new ExecutorResult<>(null, false, e.getMessage(), sql);
         }
         long lastRefreshFinishedTime = System.currentTimeMillis();
         afterExecute(executorResult, taskStartTime, lastRefreshFinishedTime, job.getJobId());

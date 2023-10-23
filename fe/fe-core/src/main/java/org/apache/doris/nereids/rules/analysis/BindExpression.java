@@ -143,7 +143,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     boundProjections = boundProjections.stream()
                             .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
-                    return new LogicalProject<>(boundProjections, project.isDistinct(), project.child());
+                    return project.withProjects(boundProjections);
                 })
             ),
             RuleType.BINDING_FILTER_SLOT.build(
@@ -699,7 +699,7 @@ public class BindExpression implements AnalysisRuleFactory {
         String functionName = unboundTVFRelation.getFunctionName();
         Properties arguments = unboundTVFRelation.getProperties();
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, arguments);
-        BoundFunction function = functionBuilder.build(functionName, arguments);
+        Expression function = functionBuilder.build(functionName, arguments);
         if (!(function instanceof TableValuedFunction)) {
             throw new AnalysisException(function.toSql() + " is not a TableValuedFunction");
         }
@@ -709,11 +709,11 @@ public class BindExpression implements AnalysisRuleFactory {
     private void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
         Set<String> nameSlots = new HashSet<>();
         for (Slot s : childOutputs) {
-            if (nameSlots.contains(s.getName())) {
+            if (nameSlots.contains(s.getInternalName())) {
                 throw new AnalysisException("Duplicated inline view column alias: '" + s.getName()
                         + "'" + " in inline view: '" + subQueryAlias + "'");
             } else {
-                nameSlots.add(s.getName());
+                nameSlots.add(s.getInternalName());
             }
         }
     }
@@ -727,12 +727,11 @@ public class BindExpression implements AnalysisRuleFactory {
 
         String functionName = unboundFunction.getName();
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, boundArguments);
-        BoundFunction function = functionBuilder.build(functionName, boundArguments);
+        Expression function = functionBuilder.build(functionName, boundArguments);
         if (!(function instanceof TableGeneratingFunction)) {
             throw new AnalysisException(function.toSql() + " is not a TableGeneratingFunction");
         }
-        function = (BoundFunction) TypeCoercionUtils.processBoundFunction(function);
-        return function;
+        return (BoundFunction) TypeCoercionUtils.processBoundFunction((BoundFunction) function);
     }
 
     private void checkIfOutputAliasNameDuplicatedForGroupBy(List<Expression> expressions,

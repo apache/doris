@@ -63,6 +63,19 @@ statement
         (PARTITION partition=identifierList)?
         (USING relation (COMMA relation)*)
         whereClause                                                    #delete
+    | LOAD LABEL lableName=identifier
+        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
+        (withRemoteStorageSystem)?
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?                                                 #load
+    | LOAD LABEL lableName=identifier
+        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
+        resourceDesc
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?                                                 #resourceLoad
+    | LOAD mysqlDataDesc
+        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
+        (commentSpec)?                                                 #mysqlLoad
     | EXPORT TABLE tableName=multipartIdentifier
         (PARTITION partition=identifierList)?
         (whereClause)?
@@ -82,7 +95,29 @@ statement
       REFRESH refreshMethod refreshTrigger                              #alterMTMV
     ;
 
-
+dataDesc
+    : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
+        INTO TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
+        (LINES TERMINATED BY separator=STRING_LITERAL)?
+        (FORMAT AS format=identifier)?
+        (columns=identifierList)?
+        (columnsFromPath=colFromPath)?
+        (columnMapping=colMappingList)?
+        (preFilter=preFilterClause)?
+        (where=whereClause)?
+        (deleteOn=deleteOnClause)?
+        (sequenceColumn=sequenceColClause)?
+        (propertyClause)?
+    | ((WITH)? mergeType)? DATA FROM TABLE tableName=multipartIdentifier
+        INTO TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (columnMapping=colMappingList)?
+        (where=whereClause)?
+        (deleteOn=deleteOnClause)?
+        (propertyClause)?
+    ;
 
 // -----------------Command accessories-----------------
 buildMode
@@ -132,6 +167,36 @@ planType
     | ALL // default type
     ;
 
+mergeType
+    : APPEND
+    | DELETE
+    | MERGE
+    ;
+
+preFilterClause
+    : PRECEDING FILTER expression
+    ;
+
+deleteOnClause
+    : DELETE ON expression
+    ;
+
+sequenceColClause
+    : ORDER BY identifier
+    ;
+
+colFromPath
+    : COLUMNS FROM PATH AS identifierList
+    ;
+
+colMappingList
+    : SET LEFT_PAREN mappingSet+=mappingExpr (COMMA mappingSet+=mappingExpr)* RIGHT_PAREN
+    ;
+
+mappingExpr
+    : (mappingCol=identifier EQ expression)
+    ;
+
 withRemoteStorageSystem
     : WITH S3 LEFT_PAREN
         brokerProperties=propertyItemList
@@ -147,6 +212,25 @@ withRemoteStorageSystem
         brokerProperties=propertyItemList
         RIGHT_PAREN)?
     ;
+
+resourceDesc
+    : WITH RESOURCE resourceName=identifierOrText (LEFT_PAREN propertyItemList RIGHT_PAREN)?
+    ;
+
+mysqlDataDesc
+    : DATA (LOCAL booleanValue)?
+        INFILE filePath=STRING_LITERAL
+        INTO TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
+        (LINES TERMINATED BY separator=STRING_LITERAL)?
+        (skipLines)?
+        (columns=identifierList)?
+        (colMappingList)?
+        (propertyClause)?
+    ;
+
+skipLines : IGNORE lines=INTEGER_VALUE LINES | IGNORE lines=INTEGER_VALUE ROWS ;
 
 //  -----------------Query-----------------
 // add queryOrganization for parse (q1) union (q2) union (q3) order by keys, otherwise 'order' will be recognized to be
@@ -327,11 +411,11 @@ identifierSeq
 
 relationPrimary
     : multipartIdentifier specifiedPartition?
-       tabletList? tableAlias relationHint? lateralView*           #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*         #aliasedQuery
+       tabletList? tableAlias sample? relationHint? lateralView*           #tableName
+    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
-      RIGHT_PAREN tableAlias                                       #tableValuedFunction
+      RIGHT_PAREN tableAlias                                               #tableValuedFunction
     ;
 
 propertyClause
@@ -640,8 +724,8 @@ constant
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
     | STRING_LITERAL                                                                           #stringLiteral
-    | LEFT_BRACKET items+=constant (COMMA items+=constant)* RIGHT_BRACKET                      #arrayLiteral
-    | LEFT_BRACE items+=constant COLON items+=constant
+    | LEFT_BRACKET (items+=constant)? (COMMA items+=constant)* RIGHT_BRACKET                   #arrayLiteral
+    | LEFT_BRACE (items+=constant COLON items+=constant)?
        (COMMA items+=constant COLON items+=constant)* RIGHT_BRACE                              #mapLiteral
     | LEFT_BRACE items+=constant (COMMA items+=constant)* RIGHT_BRACE                          #structLiteral
     ;
@@ -677,7 +761,7 @@ dataType
 primitiveColType:
     | type=TINYINT
     | type=SMALLINT
-    | (SIGNED | UNSIGNED)? type=INT
+    | (SIGNED | UNSIGNED)? type=(INT | INTEGER)
     | type=BIGINT
     | type=LARGEINT
     | type=BOOLEAN
@@ -713,6 +797,15 @@ complexColType
 
 commentSpec
     : COMMENT STRING_LITERAL
+    ;
+
+sample
+    : TABLESAMPLE LEFT_PAREN sampleMethod? RIGHT_PAREN (REPEATABLE seed=INTEGER_VALUE)?
+    ;
+
+sampleMethod
+    : percentage=INTEGER_VALUE PERCENT                              #sampleByPercentile
+    | INTEGER_VALUE ROWS                                            #sampleByRows
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
@@ -829,6 +922,7 @@ nonReserved
     | DISTINCTPC
     | DISTINCTPCSA
     | DO
+    | DORIS_INTERNAL_TABLE_ID
     | DYNAMIC
     | ENABLE
     | ENCRYPTKEY

@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.InfoSchemaDb;
-import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -60,9 +60,10 @@ public class DropDbStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        // Don't allowed to drop 'information_schema' & 'mysql'
-        if (dbName.equalsIgnoreCase(ClusterNamespace.getFullName(getClusterName(), InfoSchemaDb.DATABASE_NAME))
-                || dbName.equalsIgnoreCase(ClusterNamespace.getFullName(getClusterName(), MysqlDb.DATABASE_NAME))) {
+
+        // Don't allow to drop mysql compatible databases
+        DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        if (db != null && (db instanceof Database) && ((Database) db).isMysqlCompatibleDatabase()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                     analyzer.getQualifiedUser(), dbName);
         }

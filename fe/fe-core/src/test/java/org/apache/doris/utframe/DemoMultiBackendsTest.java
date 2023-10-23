@@ -82,8 +82,8 @@ public class DemoMultiBackendsTest {
     public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         FeConstants.runningUnitTest = true;
-        FeConstants.tablet_checker_interval_ms = 1000;
         FeConstants.default_scheduler_interval_millisecond = 100;
+        Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
 
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 3);
@@ -198,7 +198,8 @@ public class DemoMultiBackendsTest {
         BackendsProcDir dir = new BackendsProcDir(Env.getCurrentSystemInfo());
         ProcResult result = dir.fetchResult();
         Assert.assertEquals(BackendsProcDir.TITLE_NAMES.size(), result.getColumnNames().size());
-        Assert.assertEquals("{\"location\" : \"default\"}", result.getRows().get(0).get(18));
+        Assert.assertEquals("{\"location\" : \"default\"}",
+                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 6));
         Assert.assertEquals(
                 "{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1,\"isQueryDisabled\":false,\"isLoadDisabled\":false}",
                 result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 3));

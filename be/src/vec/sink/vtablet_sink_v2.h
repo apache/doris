@@ -75,7 +75,7 @@ class TExpr;
 class TabletSchema;
 class TupleDescriptor;
 
-namespace stream_load {
+namespace vectorized {
 
 class OlapTableBlockConvertor;
 class OlapTabletFinder;
@@ -226,5 +226,5 @@ private:
     friend class StreamSinkHandler;
 };
 
-} // namespace stream_load
+} // namespace vectorized
 } // namespace doris

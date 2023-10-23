@@ -70,6 +70,8 @@ public abstract class TableValuedFunctionIf {
                 return new GroupCommitTableValuedFunction(params);
             case MaterializedViewsTableValuedFunction.NAME:
                 return new MaterializedViewsTableValuedFunction(params);
+            case QueriesTableValuedFunction.NAME:
+                return new QueriesTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

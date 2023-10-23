@@ -46,6 +46,7 @@
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/runtime/partitioner.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris {
@@ -64,6 +65,7 @@ enum CompressionTypePB : int;
 namespace pipeline {
 class ExchangeSinkOperator;
 class ExchangeSinkOperatorX;
+class ChannelDependency;
 } // namespace pipeline
 
 namespace vectorized {
@@ -150,17 +152,10 @@ protected:
     void _roll_pb_block();
     Status _get_next_available_buffer(BroadcastPBlockHolder** holder);
 
-    Status get_partition_column_result(Block* block, int* result) const {
-        int counter = 0;
-        for (auto ctx : _partition_expr_ctxs) {
-            RETURN_IF_ERROR(ctx->execute(block, &result[counter++]));
-        }
-        return Status::OK();
-    }
-
-    template <typename Channels>
+    template <typename Channels, typename HashValueType>
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
-                            const uint64_t* channel_ids, int rows, Block* block, bool eos);
+                            const HashValueType* __restrict channel_ids, int rows, Block* block,
+                            bool eos);
 
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
@@ -185,8 +180,8 @@ protected:
     std::vector<BroadcastPBlockHolder> _broadcast_pb_blocks;
     int _broadcast_pb_block_idx;
 
-    // compute per-row partition values
-    VExprContextSPtrs _partition_expr_ctxs;
+    std::unique_ptr<PartitionerBase> _partitioner;
+    size_t _partition_count;
 
     std::vector<Channel<VDataStreamSender>*> _channels;
     std::vector<std::shared_ptr<Channel<VDataStreamSender>>> _channel_shared_ptrs;
@@ -272,24 +267,26 @@ public:
     // Returns the status of the most recently finished transmit_data
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
-    virtual Status send_block(PBlock* block, bool eos = false);
+    virtual Status send_remote_block(PBlock* block, bool eos = false,
+                                     Status exec_status = Status::OK());
 
-    virtual Status send_block(BroadcastPBlockHolder* block, bool eos = false) {
+    virtual Status send_broadcast_block(BroadcastPBlockHolder* block, [[maybe_unused]] bool* sent,
+                                        bool eos = false) {
         return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
     }
 
     virtual Status add_rows(Block* block, const std::vector<int>& row, bool eos);
 
-    virtual Status send_current_block(bool eos);
+    virtual Status send_current_block(bool eos, Status exec_status);
 
-    Status send_local_block(bool eos = false);
+    Status send_local_block(Status exec_status, bool eos = false);
 
     Status send_local_block(Block* block);
     // Flush buffered rows and close channel. This function don't wait the response
     // of close operation, client should call close_wait() to finish channel's close.
     // We split one close operation into two phases in order to make multiple channels
     // can run parallel.
-    Status close(RuntimeState* state);
+    Status close(RuntimeState* state, Status exec_status);
 
     // Get close wait's response, to finish channel close operation.
     Status close_wait(RuntimeState* state);
@@ -304,6 +301,11 @@ public:
     }
 
     bool is_local() const { return _is_local; }
+
+    VDataStreamRecvr* local_recvr() {
+        DCHECK(_is_local && _local_recvr != nullptr);
+        return _local_recvr.get();
+    }
 
     virtual void ch_roll_pb_block();
 
@@ -355,7 +357,7 @@ protected:
     // Serialize _batch into _thrift_batch and send via send_batch().
     // Returns send_batch() status.
     Status send_current_batch(bool eos = false);
-    Status close_internal();
+    Status close_internal(Status exec_status);
 
     Parent* _parent;
 
@@ -408,10 +410,11 @@ protected:
         }                                                \
     } while (0)
 
-template <typename Channels>
+template <typename Channels, typename HashValueType>
 Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channels,
-                                           int num_channels, const uint64_t* __restrict channel_ids,
-                                           int rows, Block* block, bool eos) {
+                                           int num_channels,
+                                           const HashValueType* __restrict channel_ids, int rows,
+                                           Block* block, bool eos) {
     std::vector<int> channel2rows[num_channels];
 
     for (int i = 0; i < rows; i++) {
@@ -469,7 +472,8 @@ public:
     // Returns the status of the most recently finished transmit_data
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
-    Status send_block(PBlock* block, bool eos = false) override {
+    Status send_remote_block(PBlock* block, bool eos = false,
+                             Status exec_status = Status::OK()) override {
         COUNTER_UPDATE(Channel<Parent>::_parent->blocks_sent_counter(), 1);
         std::unique_ptr<PBlock> pblock_ptr;
         pblock_ptr.reset(block);
@@ -482,12 +486,13 @@ public:
             }
         }
         if (eos || block->column_metas_size()) {
-            RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock_ptr), eos}));
+            RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock_ptr), eos, exec_status}));
         }
         return Status::OK();
     }
 
-    Status send_block(BroadcastPBlockHolder* block, bool eos = false) override {
+    Status send_broadcast_block(BroadcastPBlockHolder* block, [[maybe_unused]] bool* sent,
+                                bool eos = false) override {
         COUNTER_UPDATE(Channel<Parent>::_parent->blocks_sent_counter(), 1);
         if (eos) {
             if (_eos_send) {
@@ -497,7 +502,7 @@ public:
             }
         }
         if (eos || block->get_block()->column_metas_size()) {
-            RETURN_IF_ERROR(_buffer->add_block({this, block, eos}));
+            RETURN_IF_ERROR(_buffer->add_block({this, block, eos}, sent));
         }
         return Status::OK();
     }
@@ -512,19 +517,20 @@ public:
         RETURN_IF_ERROR(Channel<Parent>::_serializer.next_serialized_block(
                 block, _pblock.get(), 1, &serialized, eos, &rows));
         if (serialized) {
-            RETURN_IF_ERROR(send_current_block(eos));
+            Status exec_status = Status::OK();
+            RETURN_IF_ERROR(send_current_block(eos, exec_status));
         }
 
         return Status::OK();
     }
 
     // send _mutable_block
-    Status send_current_block(bool eos) override {
+    Status send_current_block(bool eos, Status exec_status) override {
         if (Channel<Parent>::is_local()) {
-            return Channel<Parent>::send_local_block(eos);
+            return Channel<Parent>::send_local_block(exec_status, eos);
         }
         SCOPED_CONSUME_MEM_TRACKER(Channel<Parent>::_parent->mem_tracker());
-        RETURN_IF_ERROR(send_block(_pblock.release(), eos));
+        RETURN_IF_ERROR(send_remote_block(_pblock.release(), eos, exec_status));
         return Status::OK();
     }
 
@@ -542,6 +548,13 @@ public:
         }
         _closure->init(id, eos, data);
         return _closure.get();
+    }
+
+    void set_dependency(std::shared_ptr<pipeline::ChannelDependency> dependency) {
+        if (!Channel<Parent>::_local_recvr) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "_local_recvr is null");
+        }
+        Channel<Parent>::_local_recvr->set_dependency(dependency);
     }
 
 private:

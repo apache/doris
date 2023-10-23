@@ -90,7 +90,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        const size_t result, size_t input_rows_count) override {
+                        const size_t result, size_t input_rows_count) const override {
         auto src_arg = block.get_by_position(arguments[0]);
         ColumnPtr src_column = src_arg.column->convert_to_full_column_if_const();
 
@@ -133,7 +133,7 @@ public:
 private:
     bool _execute_by_type(DataTypePtr src_nested_type, const IColumn& src_column,
                           const ColumnArray::Offsets64& src_offsets,
-                          const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) {
+                          const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
         bool res = false;
         WhichDataType which(remove_nullable(src_nested_type));
         if (which.is_uint8()) {
@@ -179,7 +179,7 @@ private:
 
     template <typename Element, typename Result>
     bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                         const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) {
+                         const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
         using ColVecType = ColumnVectorOrDecimal<Element>;
         using ColVecResult = ColumnVectorOrDecimal<Result>;
 
@@ -217,7 +217,8 @@ private:
     template <typename Element, typename Result>
     void _compute_cum_sum(const PaddedPODArray<Element>& src_datas,
                           const ColumnArray::Offsets64& src_offsets,
-                          const NullMapType& src_null_map, PaddedPODArray<Result>& res_datas) {
+                          const NullMapType& src_null_map,
+                          PaddedPODArray<Result>& res_datas) const {
         size_t prev_offset = 0;
         for (auto cur_offset : src_offsets) {
             // [1, null, 2, 3] -> [1, null, 3, 6]

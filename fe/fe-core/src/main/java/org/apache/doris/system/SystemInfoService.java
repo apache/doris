@@ -231,7 +231,8 @@ public class SystemInfoService {
         for (HostInfo hostInfo : hostInfos) {
             // check is already exist
             if (getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort()) == null) {
-                String backendIdentifier = hostInfo.getHost() + ":" + hostInfo.getPort();
+                String backendIdentifier = NetUtils
+                        .getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort());
                 throw new DdlException("backend does not exists[" + backendIdentifier + "]");
             }
         }
@@ -253,8 +254,8 @@ public class SystemInfoService {
     public void dropBackend(String host, int heartbeatPort) throws DdlException {
         Backend droppedBackend = getBackendWithHeartbeatPort(host, heartbeatPort);
         if (droppedBackend == null) {
-            throw new DdlException("backend does not exists[" + host
-                    + ":" + heartbeatPort + "]");
+            throw new DdlException("backend does not exists[" + NetUtils
+                    .getHostPortInAccessibleFormat(host, heartbeatPort) + "]");
         }
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
@@ -788,6 +789,7 @@ public class SystemInfoService {
             memoryBe.setHttpPort(be.getHttpPort());
             memoryBe.setBeRpcPort(be.getBeRpcPort());
             memoryBe.setBrpcPort(be.getBrpcPort());
+            memoryBe.setArrowFlightSqlPort(be.getArrowFlightSqlPort());
             memoryBe.setLastUpdateMs(be.getLastUpdateMs());
             memoryBe.setLastStartTime(be.getLastStartTime());
             memoryBe.setDisks(be.getDisks());
@@ -880,7 +882,8 @@ public class SystemInfoService {
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
         Backend be = getBackendWithHeartbeatPort(clause.getHost(), clause.getPort());
         if (be == null) {
-            throw new DdlException("backend does not exists[" + clause.getHost() + ":" + clause.getPort() + "]");
+            throw new DdlException("backend does not exists[" + NetUtils
+                    .getHostPortInAccessibleFormat(clause.getHost(), clause.getPort()) + "]");
         }
         if (be.getHost().equals(clause.getNewHost())) {
             // no need to modify
@@ -897,7 +900,8 @@ public class SystemInfoService {
             Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
             if (be == null) {
                 throw new DdlException(
-                        "backend does not exists[" + hostInfo.getHost() + ":" + hostInfo.getPort() + "]");
+                        "backend does not exists[" + NetUtils
+                                .getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
             }
             backends.add(be);
         }

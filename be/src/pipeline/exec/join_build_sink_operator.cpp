@@ -32,9 +32,6 @@ Status JoinBuildSinkLocalState<DependencyType, Derived>::init(RuntimeState* stat
 
     PipelineXSinkLocalState<DependencyType>::profile()->add_info_string("JoinType",
                                                                         to_string(p._join_op));
-    _build_get_next_timer =
-            ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(), "BuildGetNextTime");
-    _build_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(), "BuildTime");
     _build_rows_counter = ADD_COUNTER(PipelineXSinkLocalState<DependencyType>::profile(),
                                       "BuildRows", TUnit::UNIT);
 

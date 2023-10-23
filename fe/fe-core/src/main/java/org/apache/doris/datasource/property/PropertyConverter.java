@@ -143,16 +143,17 @@ public class PropertyConverter {
                                                                        CloudCredential credential,
                                                                        Map<String, String> s3Properties) {
         Map<String, String> heteroProps = new HashMap<>(s3Properties);
+        Map<String, String> copiedProps = new HashMap<>(props);
         if (s3CliEndpoint.contains(CosProperties.COS_PREFIX)) {
-            props.putIfAbsent(CosProperties.ENDPOINT, s3CliEndpoint);
+            copiedProps.putIfAbsent(CosProperties.ENDPOINT, s3CliEndpoint);
             // CosN is not compatible with S3, when use s3 properties, will convert to cosn properties.
-            heteroProps.putAll(convertToCOSProperties(props, credential));
+            heteroProps.putAll(convertToCOSProperties(copiedProps, credential));
         } else if (s3CliEndpoint.contains(ObsProperties.OBS_PREFIX)) {
-            props.putIfAbsent(ObsProperties.ENDPOINT, s3CliEndpoint);
-            heteroProps.putAll(convertToOBSProperties(props, credential));
+            copiedProps.putIfAbsent(ObsProperties.ENDPOINT, s3CliEndpoint);
+            heteroProps.putAll(convertToOBSProperties(copiedProps, credential));
         } else if (s3CliEndpoint.contains(OssProperties.OSS_REGION_PREFIX)) {
-            props.putIfAbsent(OssProperties.ENDPOINT, s3CliEndpoint);
-            heteroProps.putAll(convertToOSSProperties(props, credential));
+            copiedProps.putIfAbsent(OssProperties.ENDPOINT, s3CliEndpoint);
+            heteroProps.putAll(convertToOSSProperties(copiedProps, credential));
         }
         return heteroProps;
     }
@@ -328,7 +329,7 @@ public class PropertyConverter {
             if (endpointSplit.length > 0) {
                 String region = endpointSplit[0].replace("oss-", "").replace("-internal", "");
                 ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ENDPOINT_KEY,
-                            region + ".oss-dls.aliyuncs.com");
+                        region + ".oss-dls.aliyuncs.com");
             }
         }
         ossProperties.put("fs.oss.impl", "com.aliyun.emr.fs.oss.JindoOssFileSystem");
@@ -564,3 +565,4 @@ public class PropertyConverter {
         return props;
     }
 }
+

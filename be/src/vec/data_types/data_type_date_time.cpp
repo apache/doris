@@ -48,8 +48,7 @@ std::string DataTypeDateTime::to_string(const IColumn& column, size_t row_num) c
     row_num = result.second;
 
     Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
-    doris::vectorized::VecDateTimeValue value =
-            binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
+    doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
     char buf[64];
     value.to_string(buf);
@@ -64,8 +63,7 @@ void DataTypeDateTime::to_string(const IColumn& column, size_t row_num,
     row_num = result.second;
 
     Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
-    doris::vectorized::VecDateTimeValue value =
-            binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
+    doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
     char buf[64];
     char* pos = value.to_string(buf);
@@ -85,9 +83,9 @@ Status DataTypeDateTime::from_string(ReadBuffer& rb, IColumn* column) const {
 }
 
 void DataTypeDateTime::cast_to_date_time(Int64& x) {
-    auto value = binary_cast<Int64, doris::vectorized::VecDateTimeValue>(x);
+    auto value = binary_cast<Int64, doris::VecDateTimeValue>(x);
     value.to_datetime();
-    x = binary_cast<doris::vectorized::VecDateTimeValue, Int64>(value);
+    x = binary_cast<doris::VecDateTimeValue, Int64>(value);
 }
 
 MutableColumnPtr DataTypeDateTime::create_column() const {

@@ -11,11 +11,11 @@ PhysicalResultSink
 ----------------PhysicalQuickSort
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](part.p_partkey = lineitem.l_partkey)
+----------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey))otherCondition=()
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[lineitem]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter((part.p_container = 'MED BOX')(part.p_brand = 'Brand#23'))
+----------------------------filter((part.p_brand = 'Brand#23') and (part.p_container = 'MED BOX'))
 ------------------------------PhysicalOlapScan[part]
 

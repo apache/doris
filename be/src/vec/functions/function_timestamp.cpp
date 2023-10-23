@@ -72,6 +72,7 @@ struct StrToDate {
     static DataTypes get_variadic_argument_types() { return {}; }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        //TODO: it doesn't matter now. maybe sometime we should find the function signature with return_type together
         return make_nullable(std::make_shared<DataTypeDateTime>());
     }
 
@@ -115,6 +116,8 @@ struct StrToDate {
         auto& rdata = specific_char_column->get_chars();
         auto& roffsets = specific_char_column->get_offsets();
 
+        // Because of we cant distinguish by return_type when we find function. so the return_type may NOT be same with real return type
+        // which decided by FE. that's found by which.
         ColumnPtr res = nullptr;
         WhichDataType which(remove_nullable(block.get_by_position(result).type));
         if (which.is_date_time_v2()) {
@@ -488,7 +491,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
         ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
@@ -519,7 +522,7 @@ private:
     template <typename DateValueType, typename ReturnType>
     void execute_straight(size_t input_rows_count, NullMap& null_map,
                           const PaddedPODArray<Int32>& data_col,
-                          PaddedPODArray<ReturnType>& res_data) {
+                          PaddedPODArray<ReturnType>& res_data) const {
         for (int i = 0; i < input_rows_count; i++) {
             if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                 const auto& cur_data = data_col[i];
@@ -773,7 +776,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
@@ -807,7 +810,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnUInt64&>(*arg_col);
         auto res_col = ColumnInt64::create();
@@ -886,7 +889,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         return Impl<DateType>::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
@@ -1258,7 +1261,7 @@ public:
     //ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         return Impl::execute(context, block, arguments, result, input_rows_count);
     }
 };

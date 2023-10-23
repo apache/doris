@@ -31,7 +31,6 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.ImmutableList;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -60,7 +59,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     private MutableState mutableState = EmptyMutableState.INSTANCE;
 
     protected AbstractPlan(PlanType type, List<Plan> children) {
-        this(type, Optional.empty(), Optional.empty(), null, ImmutableList.copyOf(children));
+        this(type, Optional.empty(), Optional.empty(), null, children);
     }
 
     /**
@@ -69,7 +68,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     protected AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> optLogicalProperties, @Nullable Statistics statistics,
             List<Plan> children) {
-        super(groupExpression, children);
+        super(children);
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
         Objects.requireNonNull(optLogicalProperties, "logicalProperties can not be null");
@@ -114,7 +113,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     public JSONObject toJson() {
         JSONObject json = new JSONObject();
         json.put("PlanType", getType().toString());
-        if (this.children().size() == 0) {
+        if (this.children().isEmpty()) {
             return json;
         }
         JSONArray childrenJson = new JSONArray();

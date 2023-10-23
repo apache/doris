@@ -253,6 +253,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
                     VariableMgr.fillValue(ConnectContext.get().getSessionVariable(), (VariableExpr) expr);
                     literalExpr = ((VariableExpr) expr).getLiteralExpr();
                 } catch (AnalysisException e) {
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                     LOG.warn("failed to get session variable value: " + ((VariableExpr) expr).getName());
                 }
             }
@@ -279,6 +282,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 literalExpr = LiteralExpr.create(str, type);
                 infoFnMap.put(expr.getId().toString(), literalExpr);
             } catch (AnalysisException e) {
+                if (ConnectContext.get() != null) {
+                    ConnectContext.get().getState().reset();
+                }
                 LOG.warn("failed to get const expr value from InformationFunction: {}", e.getMessage());
             }
 

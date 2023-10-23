@@ -130,7 +130,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        block2.deserialize(pblock);
+        static_cast<void>(block2.deserialize(pblock));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -152,7 +152,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        block2.deserialize(pblock);
+        static_cast<void>(block2.deserialize(pblock));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -177,7 +177,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        block2.deserialize(pblock);
+        static_cast<void>(block2.deserialize(pblock));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -204,7 +204,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        block2.deserialize(pblock);
+        static_cast<void>(block2.deserialize(pblock));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -225,7 +225,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        block2.deserialize(pblock);
+        static_cast<void>(block2.deserialize(pblock));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -248,7 +248,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        block2.deserialize(pblock);
+        static_cast<void>(block2.deserialize(pblock));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -271,7 +271,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        block2.deserialize(pblock);
+        static_cast<void>(block2.deserialize(pblock));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -287,7 +287,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         std::string s1 = pblock.DebugString();
 
         vectorized::Block block2;
-        block2.deserialize(pblock);
+        static_cast<void>(block2.deserialize(pblock));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
@@ -343,7 +343,7 @@ TEST(BlockTest, dump_data) {
     auto column_vector_date = vectorized::ColumnVector<vectorized::Int64>::create();
     auto& date_data = column_vector_date->get_data();
     for (int i = 0; i < 1024; ++i) {
-        vectorized::VecDateTimeValue value;
+        VecDateTimeValue value;
         value.from_date_int64(20210501);
         date_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
     }
@@ -354,7 +354,7 @@ TEST(BlockTest, dump_data) {
     auto column_vector_datetime = vectorized::ColumnVector<vectorized::Int64>::create();
     auto& datetime_data = column_vector_datetime->get_data();
     for (int i = 0; i < 1024; ++i) {
-        vectorized::VecDateTimeValue value;
+        VecDateTimeValue value;
         value.from_date_int64(20210501080910);
         datetime_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
     }
@@ -365,7 +365,7 @@ TEST(BlockTest, dump_data) {
     auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
     auto& date_v2_data = column_vector_date_v2->get_data();
     for (int i = 0; i < 1024; ++i) {
-        vectorized::DateV2Value<doris::vectorized::DateV2ValueType> value;
+        DateV2Value<DateV2ValueType> value;
         value.from_date((uint32_t)((2022 << 9) | (6 << 5) | 6));
         date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
     }

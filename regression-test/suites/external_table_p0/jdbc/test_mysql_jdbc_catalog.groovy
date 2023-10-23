@@ -265,7 +265,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt`"
         }
         explain {
-            sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05' and timestamp0 > '2022-01-01';;")
+            sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05' and timestamp0 > '2022-01-01';")
 
             contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (timestamp0 > '2022-01-01 00:00:00')"
         }

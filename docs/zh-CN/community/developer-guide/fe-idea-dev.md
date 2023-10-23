@@ -169,6 +169,7 @@ sys_log_level = INFO
 http_port = 8030
 rpc_port = 9020
 query_port = 9030
+arrow_flight_sql_port = -1
 edit_log_port = 9010
 
 # Choose one if there are more than one ip except loopback address. 

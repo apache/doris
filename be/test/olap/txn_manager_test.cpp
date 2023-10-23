@@ -196,8 +196,8 @@ TEST_F(TxnManagerTest, PrepareNewTxn) {
 TEST_F(TxnManagerTest, CommitTxnWithPrepare) {
     Status status =
             _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, _tablet_uid, load_id);
-    _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, _tablet_uid, load_id,
-                         _rowset, false);
+    static_cast<void>(_txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id,
+                                           _tablet_uid, load_id, _rowset, false));
     EXPECT_TRUE(status == Status::OK());
     RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
     status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _rowset->rowset_id(),

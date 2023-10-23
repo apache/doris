@@ -23,6 +23,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -86,6 +87,9 @@ public class MVExprEquivalent {
             String rhs = mvArgument.toSqlWithoutTbl();
             return lhs.equalsIgnoreCase(rhs);
         } catch (AnalysisException e) {
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().getState().reset();
+            }
             return false;
         }
     }

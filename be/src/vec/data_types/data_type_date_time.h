@@ -73,7 +73,9 @@ public:
     const char* get_family_name() const override { return "DateTime"; }
     std::string do_get_name() const override { return "DateTime"; }
     TypeIndex get_type_id() const override { return TypeIndex::DateTime; }
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_DATETIME; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_DATETIME);
+    }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::DATETIME;
     }

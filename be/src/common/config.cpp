@@ -59,7 +59,7 @@ DEFINE_Int32(be_port, "9060");
 // port for brpc
 DEFINE_Int32(brpc_port, "8060");
 
-DEFINE_Int32(arrow_flight_port, "-1");
+DEFINE_Int32(arrow_flight_sql_port, "-1");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -131,9 +131,9 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
-DEFINE_mInt64(large_memory_check_bytes, "1073741824");
+DEFINE_mInt64(large_memory_check_bytes, "2147483648");
 
-// The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
+// The maximum time a thread waits for full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
 DEFINE_mInt64(pre_serialize_keys_limit_bytes, "16777216");
@@ -225,6 +225,8 @@ DEFINE_mBool(compress_rowbatches, "true");
 DEFINE_mBool(rowbatch_align_tuple_offset, "false");
 // interval between profile reports; in seconds
 DEFINE_mInt32(status_report_interval, "5");
+// The pipeline task has a high concurrency, therefore reducing its report frequency
+DEFINE_mInt32(pipeline_status_report_interval, "10");
 // if true, each disk will have a separate thread pool for scanner
 DEFINE_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
 // the timeout of a work thread to wait the blocking priority queue to get a task
@@ -274,6 +276,7 @@ DEFINE_mInt32(tablet_lookup_cache_clean_interval, "30");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
 DEFINE_mInt32(unused_rowset_monitor_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
+DEFINE_mString(broken_storage_path, "");
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -281,7 +284,7 @@ DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
 DEFINE_Bool(storage_strict_check_incompatible_old_format, "true");
 
 // BE process will exit if the percentage of error disk reach this value.
-DEFINE_mInt32(max_percentage_of_error_disk, "0");
+DEFINE_mInt32(max_percentage_of_error_disk, "100");
 DEFINE_mInt32(default_num_rows_per_column_file_block, "1024");
 // pending data policy
 DEFINE_mInt32(pending_data_expire_time_sec, "1800");
@@ -374,6 +377,12 @@ DEFINE_mDouble(compaction_promotion_ratio, "0.05");
 // the smallest size of rowset promotion. When the rowset is less than this config, this
 // rowset will be not given to base compaction. The unit is m byte.
 DEFINE_mInt64(compaction_promotion_min_size_mbytes, "128");
+
+// When output rowset of cumulative compaction total version count (end_version - start_version)
+// exceed this config count, the rowset will be moved to base compaction
+// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
+// related cost on delete bitmap more effectively.
+DEFINE_mInt64(compaction_promotion_version_count, "1000");
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
@@ -581,7 +590,7 @@ DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 
 // sync tablet_meta when modifying meta
-DEFINE_mBool(sync_tablet_meta, "false");
+DEFINE_mBool(sync_tablet_meta, "true");
 
 // default thrift rpc timeout ms
 DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
@@ -709,7 +718,8 @@ DEFINE_mInt32(zone_map_row_num_threshold, "20");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-DEFINE_Int32(aws_log_level, "3");
+// Default to turn off aws sdk log, because aws sdk errors that need to be cared will be output through Doris logs
+DEFINE_Int32(aws_log_level, "0");
 
 // the buffer size when read data from remote storage like s3
 DEFINE_mInt32(remote_storage_read_buffer_mb, "16");
@@ -730,12 +740,10 @@ DEFINE_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 // In most cases, it does not need to be modified.
 DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 
-// share brpc streams when memtable_on_sink_node = true
-DEFINE_Bool(share_load_streams, "true");
 // share delta writers when memtable_on_sink_node = true
 DEFINE_Bool(share_delta_writers, "true");
-// number of brpc stream per OlapTableSinkV2 (per load if share_load_streams = true)
-DEFINE_Int32(num_streams_per_sink, "5");
+// number of brpc stream per load
+DEFINE_Int32(num_streams_per_load, "5");
 // timeout for open stream sink rpc in ms
 DEFINE_Int64(open_stream_sink_timeout_ms, "500");
 
@@ -952,6 +960,8 @@ DEFINE_Bool(enable_java_support, "true");
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
+DEFINE_Bool(enable_debug_points, "false");
+
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
 
@@ -1068,10 +1078,6 @@ DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
-DEFINE_Bool(enable_hdfs_hedged_read, "false");
-DEFINE_Int32(hdfs_hedged_read_thread_num, "128");
-DEFINE_Int32(hdfs_hedged_read_threshold_time, "500");
-
 DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 
 // The secure path with user files, used in the `local` table function.
@@ -1085,9 +1091,33 @@ DEFINE_Int32(grace_shutdown_wait_seconds, "120");
 
 DEFINE_Int16(bitmap_serialize_version, "1");
 
+// group commit insert config
+DEFINE_String(group_commit_replay_wal_dir, "./wal");
+DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
+DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
+DEFINE_Int32(group_commit_sync_wal_batch, "10");
+
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");
+DEFINE_mInt32(group_commit_interval_ms, "10000");
 
+DEFINE_mInt32(scan_thread_nice_value, "0");
+DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
+
+DEFINE_Bool(exit_on_exception, "false");
+// This config controls whether the s3 file writer would flush cache asynchronously
+DEFINE_Bool(enable_flush_file_cache_async, "true");
+
+// cgroup
+DEFINE_String(doris_cgroup_cpu_path, "");
+DEFINE_Bool(enable_cpu_hard_limit, "false");
+
+DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
+
+// Dir of default timezone files
+DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
+
+// clang-format off
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
@@ -1098,6 +1128,7 @@ DEFINE_String(test_s3_region, "region");
 DEFINE_String(test_s3_bucket, "bucket");
 DEFINE_String(test_s3_prefix, "prefix");
 #endif
+// clang-format on
 
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::function<bool()>>* RegisterConfValidator::_s_field_validator = nullptr;
@@ -1326,9 +1357,9 @@ void Properties::set_force(const std::string& key, const std::string& val) {
 }
 
 Status Properties::dump(const std::string& conffile) {
-    RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(conffile));
+    std::string conffile_tmp = conffile + ".tmp";
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(conffile, &file_writer));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(conffile_tmp, &file_writer));
     RETURN_IF_ERROR(file_writer->append("# THIS IS AN AUTO GENERATED CONFIG FILE.\n"));
     RETURN_IF_ERROR(file_writer->append(
             "# You can modify this file manually, and the configurations in this file\n"));
@@ -1341,7 +1372,9 @@ Status Properties::dump(const std::string& conffile) {
         RETURN_IF_ERROR(file_writer->append("\n"));
     }
 
-    return file_writer->close();
+    RETURN_IF_ERROR(file_writer->close());
+
+    return io::global_local_filesystem()->rename(conffile_tmp, conffile);
 }
 
 template <typename T>
@@ -1503,9 +1536,10 @@ Status set_fuzzy_config(const std::string& field, const std::string& value) {
 
 void set_fuzzy_configs() {
     // random value true or false
-    set_fuzzy_config("disable_storage_page_cache", ((rand() % 2) == 0) ? "true" : "false");
-    set_fuzzy_config("enable_system_metrics", ((rand() % 2) == 0) ? "true" : "false");
-    set_fuzzy_config("enable_simdjson_reader", ((rand() % 2) == 0) ? "true" : "false");
+    static_cast<void>(
+            set_fuzzy_config("disable_storage_page_cache", ((rand() % 2) == 0) ? "true" : "false"));
+    static_cast<void>(
+            set_fuzzy_config("enable_system_metrics", ((rand() % 2) == 0) ? "true" : "false"));
     // random value from 8 to 48
     // s = set_fuzzy_config("doris_scanner_thread_pool_thread_num", std::to_string((rand() % 41) + 8));
     // LOG(INFO) << s.to_string();

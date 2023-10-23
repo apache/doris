@@ -50,6 +50,8 @@ public:
     explicit TaskGroupEntity(taskgroup::TaskGroup* tg, std::string type);
     ~TaskGroupEntity();
 
+    TaskGroupEntity() = default; // used for empty group entity
+
     uint64_t vruntime_ns() const { return _vruntime_ns; }
 
     QueueType* task_queue();
@@ -68,6 +70,12 @@ public:
 
     void check_and_update_cpu_share(const TaskGroupInfo& tg_info);
 
+    void set_empty_group_entity(bool is_empty_group_entity);
+
+    bool is_empty_group_entity();
+
+    void update_empty_cpu_share(uint64_t empty_cpu_share);
+
 private:
     QueueType* _task_queue;
 
@@ -81,6 +89,8 @@ private:
     // independent updates.
     int64_t _version;
     uint64_t _cpu_share;
+
+    bool _is_empty_group_entity = false;
 };
 
 // TODO llj tg use PriorityTaskQueue to replace std::queue
@@ -158,6 +168,7 @@ struct TaskGroupInfo {
     int64_t memory_limit;
     bool enable_memory_overcommit;
     int64_t version;
+    int cpu_hard_limit;
 
     static Status parse_group_info(const TPipelineWorkloadGroup& resource_group,
                                    TaskGroupInfo* task_group_info);

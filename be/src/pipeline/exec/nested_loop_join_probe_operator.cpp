@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "pipeline/exec/operator.h"
+#include "vec/columns/column_filter_helper.h"
 #include "vec/core/block.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
 
@@ -59,6 +60,8 @@ Status NestedLoopJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& 
         RETURN_IF_ERROR(p._join_conjuncts[i]->clone(state, _join_conjuncts[i]));
     }
     _construct_mutable_join_block();
+
+    _loop_join_timer = ADD_TIMER(profile(), "LoopGenerateJoin");
     return Status::OK();
 }
 
@@ -69,12 +72,6 @@ Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
         return Status::OK();
     }
     _child_block->clear();
-
-    vectorized::Blocks tmp_build_blocks;
-    _shared_state->build_blocks.swap(tmp_build_blocks);
-
-    vectorized::MutableColumns tmp_build_side_visited_flags;
-    _shared_state->build_side_visited_flags.swap(tmp_build_side_visited_flags);
 
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;
@@ -100,12 +97,9 @@ void NestedLoopJoinProbeLocalState::_update_additional_flags(vectorized::Block* 
         }
     }
     if (p._is_mark_join) {
-        vectorized::IColumn::Filter& mark_data =
-                assert_cast<doris::vectorized::ColumnVector<vectorized::UInt8>&>(
-                        *block->get_by_position(block->columns() - 1).column->assume_mutable())
-                        .get_data();
-        if (mark_data.size() < block->rows()) {
-            mark_data.resize_fill(block->rows(), 1);
+        auto mark_column = block->get_by_position(block->columns() - 1).column->assume_mutable();
+        if (mark_column->size() < block->rows()) {
+            vectorized::ColumnFilterHelper(*mark_column).resize_fill(block->rows(), 1);
         }
     }
 }
@@ -341,15 +335,12 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(vectorized::MutableB
                 _resize_fill_tuple_is_null_column(new_size, 0, 1);
             }
         } else {
-            vectorized::IColumn::Filter& mark_data =
-                    assert_cast<doris::vectorized::ColumnVector<vectorized::UInt8>&>(
-                            *dst_columns[dst_columns.size() - 1])
-                            .get_data();
-            mark_data.reserve(mark_data.size() + _left_side_process_count);
+            vectorized::ColumnFilterHelper mark_column(*dst_columns[dst_columns.size() - 1]);
+            mark_column.reserve(mark_column.size() + _left_side_process_count);
             DCHECK_LE(_left_block_start_pos + _left_side_process_count, _child_block->rows());
             for (int j = _left_block_start_pos;
                  j < _left_block_start_pos + _left_side_process_count; ++j) {
-                mark_data.emplace_back(IsSemi != _cur_probe_row_visited_flags[j]);
+                mark_column.insert_value(IsSemi == _cur_probe_row_visited_flags[j]);
             }
             for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
                 const vectorized::ColumnWithTypeAndName src_column =
@@ -394,11 +385,9 @@ void NestedLoopJoinProbeLocalState::_append_left_data_with_null(
     for (size_t i = 0; i < p._num_build_side_columns; ++i) {
         dst_columns[p._num_probe_side_columns + i]->insert_many_defaults(_left_side_process_count);
     }
-    vectorized::IColumn::Filter& mark_data =
-            assert_cast<doris::vectorized::ColumnVector<vectorized::UInt8>&>(
-                    *dst_columns[dst_columns.size() - 1])
-                    .get_data();
-    mark_data.resize_fill(mark_data.size() + _left_side_process_count, 0);
+    auto& mark_column = *dst_columns[dst_columns.size() - 1];
+    vectorized::ColumnFilterHelper(mark_column)
+            .resize_fill(mark_column.size() + _left_side_process_count, 0);
 }
 
 void NestedLoopJoinProbeLocalState::_process_left_child_block(
@@ -496,7 +485,7 @@ bool NestedLoopJoinProbeOperatorX::need_more_input_data(RuntimeState* state) con
 
 Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized::Block* block,
                                           SourceState source_state) const {
-    auto& local_state = state->get_local_state(id())->cast<NestedLoopJoinProbeLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     COUNTER_UPDATE(local_state._probe_rows_counter, block->rows());
     local_state._cur_probe_row_visited_flags.resize(block->rows());
     std::fill(local_state._cur_probe_row_visited_flags.begin(),
@@ -522,7 +511,7 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized
 
 Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) const {
-    auto& local_state = state->get_local_state(id())->cast<NestedLoopJoinProbeLocalState>();
+    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     if (_is_output_left_side_only) {
         RETURN_IF_ERROR(local_state._build_output_block(local_state._child_block.get(), block));
         source_state =
@@ -562,6 +551,7 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
                                                   set_build_side_flag, set_probe_side_flag>(
                                 state, join_op_variants);
             };
+            SCOPED_TIMER(local_state._loop_join_timer);
             RETURN_IF_ERROR(std::visit(
                     func, local_state._shared_state->join_op_variants,
                     vectorized::make_bool_variant(_match_all_build || _is_right_semi_anti),
@@ -574,7 +564,7 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
 }
 
 Dependency* NestedLoopJoinProbeOperatorX::wait_for_dependency(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<NestedLoopJoinProbeLocalState>();
+    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
     return local_state._dependency->read_blocked_by();
 }
 

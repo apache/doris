@@ -8,16 +8,16 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk)
+----------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk))otherCondition=()
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](catalog_sales.cs_ship_mode_sk = ship_mode.sm_ship_mode_sk)
-----------------------hashJoin[INNER_JOIN](catalog_sales.cs_call_center_sk = call_center.cc_call_center_sk)
-------------------------hashJoin[INNER_JOIN](catalog_sales.cs_ship_date_sk = date_dim.d_date_sk)
+--------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_ship_mode_sk = ship_mode.sm_ship_mode_sk))otherCondition=()
+----------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_call_center_sk = call_center.cc_call_center_sk))otherCondition=()
+------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_ship_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[catalog_sales]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter((date_dim.d_month_seq >= 1224)(date_dim.d_month_seq <= 1235))
+------------------------------filter((date_dim.d_month_seq <= 1235) and (date_dim.d_month_seq >= 1224))
 --------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject

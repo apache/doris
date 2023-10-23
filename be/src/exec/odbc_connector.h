@@ -97,7 +97,7 @@ public:
     uint32_t big_column_size_buffer = config::big_column_size_buffer;
     uint32_t small_column_size_buffer = config::small_column_size_buffer;
 
-    Status close() override;
+    Status close(Status) override;
 
 private:
     static Status error_status(const std::string& prefix, const std::string& error_msg);

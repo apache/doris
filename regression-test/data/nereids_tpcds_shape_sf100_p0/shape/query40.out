@@ -8,25 +8,24 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[RIGHT_OUTER_JOIN](catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)(catalog_sales.cs_order_number = catalog_returns.cr_order_number)
+----------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk))otherCondition=()
 ------------------PhysicalProject
---------------------PhysicalOlapScan[catalog_returns]
+--------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number))otherCondition=()
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[catalog_returns]
+----------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
+------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk))otherCondition=()
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[catalog_sales]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((item.i_current_price <= 1.49) and (item.i_current_price >= 0.99))
+--------------------------------PhysicalOlapScan[item]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((date_dim.d_date <= '2001-05-02') and (date_dim.d_date >= '2001-03-03'))
+------------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk)
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[warehouse]
-------------------------PhysicalDistribute
---------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
-----------------------------hashJoin[INNER_JOIN](item.i_item_sk = catalog_sales.cs_item_sk)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_sales]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter((item.i_current_price >= 0.99)(item.i_current_price <= 1.49))
-------------------------------------PhysicalOlapScan[item]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter((date_dim.d_date >= 2001-03-03)(date_dim.d_date <= 2001-05-02))
-----------------------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalOlapScan[warehouse]
 

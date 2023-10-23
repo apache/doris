@@ -30,6 +30,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 
 /**
  * Rewrite binary predicate.
@@ -101,6 +102,9 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
             // case 3
             return new BinaryPredicate(op, expr0.castTo(expr0ColumnType), newExpr);
         } catch (AnalysisException e) {
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().getState().reset();
+            }
             // case 1
             IntLiteral colTypeMinValue = IntLiteral.createMinValue(expr0ColumnType);
             IntLiteral colTypeMaxValue = IntLiteral.createMaxValue(expr0ColumnType);

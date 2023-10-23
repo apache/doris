@@ -137,9 +137,16 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     REGISTER_HOOK_METRIC(fragment_thread_pool_queue_size,
                          [this]() { return _thread_pool->get_queue_size(); });
     CHECK(s.ok()) << s.to_string();
+
+    s = ThreadPoolBuilder("FragmentInstanceReportThreadPool")
+                .set_min_threads(48)
+                .set_max_threads(512)
+                .set_max_queue_size(102400)
+                .build(&_async_report_thread_pool);
+    CHECK(s.ok()) << s.to_string();
 }
 
-FragmentMgr::~FragmentMgr() {}
+FragmentMgr::~FragmentMgr() = default;
 
 void FragmentMgr::stop() {
     DEREGISTER_HOOK_METRIC(plan_fragment_count);
@@ -162,6 +169,7 @@ void FragmentMgr::stop() {
         }
         _pipeline_map.clear();
     }
+    _async_report_thread_pool->shutdown();
 }
 
 std::string FragmentMgr::to_http_path(const std::string& file_name) {
@@ -170,6 +178,16 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
         << "/api/_download_load?"
         << "token=" << _exec_env->token() << "&file=" << file_name;
     return url.str();
+}
+
+Status FragmentMgr::trigger_pipeline_context_report(
+        const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
+    return _async_report_thread_pool->submit_func([this, req, ctx]() {
+        coordinator_callback(req);
+        if (!req.done) {
+            ctx->refresh_next_report_time();
+        }
+    });
 }
 
 // There can only be one of these callbacks in-flight at any moment, because
@@ -185,9 +203,9 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     if (!coord_status.ok()) {
         std::stringstream ss;
         UniqueId uid(req.query_id.hi, req.query_id.lo);
-        ss << "couldn't get a client for " << req.coord_addr << ", reason: " << coord_status;
-        LOG(WARNING) << "query_id: " << uid << ", " << ss.str();
-        req.update_fn(Status::InternalError(ss.str()));
+        static_cast<void>(req.update_fn(Status::InternalError(
+                "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
+                PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string())));
         return;
     }
 
@@ -212,7 +230,25 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
             params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
         }
-        params.__isset.detailed_report = req.is_pipeline_x;
+        if (req.is_pipeline_x) {
+            params.__isset.detailed_report = true;
+            for (auto* rs : req.runtime_states) {
+                TDetailedReportParams detailed_param;
+                detailed_param.__set_fragment_instance_id(rs->fragment_instance_id());
+                detailed_param.__isset.fragment_instance_id = true;
+
+                if (rs->enable_profile()) {
+                    detailed_param.__isset.profile = true;
+                    detailed_param.__isset.loadChannelProfile = true;
+
+                    rs->runtime_profile()->to_thrift(&detailed_param.profile);
+                    rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
+                }
+
+                params.detailed_report.push_back(detailed_param);
+            }
+        }
+
         if (req.profile != nullptr) {
             req.profile->to_thrift(&params.profile);
             if (req.load_channel_profile) {
@@ -220,20 +256,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
             params.__isset.profile = true;
             params.__isset.loadChannelProfile = true;
-        } else if (!req.runtime_states.empty()) {
-            params.__isset.detailed_report = true;
-            for (auto* rs : req.runtime_states) {
-                TDetailedReportParams detailed_param;
-                detailed_param.__set_fragment_instance_id(rs->fragment_instance_id());
-                detailed_param.__isset.fragment_instance_id = true;
-                detailed_param.__isset.profile = true;
-                detailed_param.__isset.loadChannelProfile = true;
-
-                rs->runtime_profile()->to_thrift(&detailed_param.profile);
-                rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
-
-                params.detailed_report.push_back(detailed_param);
-            }
         } else {
             params.__isset.profile = false;
         }
@@ -242,6 +264,15 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             params.__isset.delta_urls = true;
             for (auto& it : req.runtime_state->output_files()) {
                 params.delta_urls.push_back(to_http_path(it));
+            }
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                for (auto& it : rs->output_files()) {
+                    params.delta_urls.push_back(to_http_path(it));
+                }
+            }
+            if (!params.delta_urls.empty()) {
+                params.__isset.delta_urls = true;
             }
         }
         if (req.runtime_state->num_rows_load_total() > 0 ||
@@ -260,14 +291,50 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             params.load_counters.emplace(
                     s_unselected_rows,
                     std::to_string(req.runtime_state->num_rows_load_unselected()));
+        } else if (!req.runtime_states.empty()) {
+            static std::string s_dpp_normal_all = "dpp.norm.ALL";
+            static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
+            static std::string s_unselected_rows = "unselected.rows";
+            int64_t num_rows_load_success = 0;
+            int64_t num_rows_load_filtered = 0;
+            int64_t num_rows_load_unselected = 0;
+            for (auto* rs : req.runtime_states) {
+                if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0) {
+                    params.__isset.load_counters = true;
+                    num_rows_load_success += rs->num_rows_load_success();
+                    num_rows_load_filtered += rs->num_rows_load_filtered();
+                    num_rows_load_unselected += rs->num_rows_load_unselected();
+                }
+            }
+            params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
+            params.load_counters.emplace(s_dpp_abnormal_all,
+                                         std::to_string(num_rows_load_filtered));
+            params.load_counters.emplace(s_unselected_rows,
+                                         std::to_string(num_rows_load_unselected));
         }
         if (!req.runtime_state->get_error_log_file_path().empty()) {
             params.__set_tracking_url(
                     to_load_error_http_path(req.runtime_state->get_error_log_file_path()));
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->get_error_log_file_path().empty()) {
+                    params.__set_tracking_url(
+                            to_load_error_http_path(rs->get_error_log_file_path()));
+                }
+            }
         }
         if (!req.runtime_state->export_output_files().empty()) {
             params.__isset.export_files = true;
             params.export_files = req.runtime_state->export_output_files();
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->export_output_files().empty()) {
+                    params.__isset.export_files = true;
+                    params.export_files.insert(params.export_files.end(),
+                                               rs->export_output_files().begin(),
+                                               rs->export_output_files().end());
+                }
+            }
         }
         if (!req.runtime_state->tablet_commit_infos().empty()) {
             params.__isset.commitInfos = true;
@@ -275,12 +342,30 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             for (auto& info : req.runtime_state->tablet_commit_infos()) {
                 params.commitInfos.push_back(info);
             }
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->tablet_commit_infos().empty()) {
+                    params.__isset.commitInfos = true;
+                    params.commitInfos.insert(params.commitInfos.end(),
+                                              rs->tablet_commit_infos().begin(),
+                                              rs->tablet_commit_infos().end());
+                }
+            }
         }
         if (!req.runtime_state->error_tablet_infos().empty()) {
             params.__isset.errorTabletInfos = true;
             params.errorTabletInfos.reserve(req.runtime_state->error_tablet_infos().size());
             for (auto& info : req.runtime_state->error_tablet_infos()) {
                 params.errorTabletInfos.push_back(info);
+            }
+        } else if (!req.runtime_states.empty()) {
+            for (auto* rs : req.runtime_states) {
+                if (!rs->error_tablet_infos().empty()) {
+                    params.__isset.errorTabletInfos = true;
+                    params.errorTabletInfos.insert(params.errorTabletInfos.end(),
+                                                   rs->error_tablet_infos().begin(),
+                                                   rs->error_tablet_infos().end());
+                }
             }
         }
 
@@ -315,24 +400,22 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
             if (!rpc_status.ok()) {
                 // we need to cancel the execution of this fragment
-                req.update_fn(rpc_status);
+                static_cast<void>(req.update_fn(rpc_status));
                 req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, "report rpc fail");
                 return;
             }
             coord->reportExecStatus(res, params);
         }
 
-        rpc_status = Status(Status::create(res.status));
+        rpc_status = Status::create<false>(res.status);
     } catch (TException& e) {
-        std::stringstream msg;
-        msg << "ReportExecStatus() to " << req.coord_addr << " failed:\n" << e.what();
-        LOG(WARNING) << msg.str();
-        rpc_status = Status::InternalError(msg.str());
+        rpc_status = Status::InternalError("ReportExecStatus() to {} failed: {}",
+                                           PrintThriftNetworkAddress(req.coord_addr), e.what());
     }
 
     if (!rpc_status.ok()) {
         // we need to cancel the execution of this fragment
-        req.update_fn(rpc_status);
+        static_cast<void>(req.update_fn(rpc_status));
         req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, "rpc fail 2");
     }
 }
@@ -476,9 +559,11 @@ void FragmentMgr::remove_pipeline_context(
     f_context->instance_ids(ins_ids);
     bool all_done = q_context->countdown(ins_ids.size());
     for (const auto& ins_id : ins_ids) {
+        VLOG_DEBUG << "remove pipeline context " << print_id(ins_id) << ", all_done:" << all_done;
         _pipeline_map.erase(ins_id);
     }
     if (all_done) {
+        LOG(INFO) << "remove query context " << print_id(query_id);
         _query_ctx_map.erase(query_id);
     }
 }
@@ -563,9 +648,24 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                     auto tg = _exec_env->task_group_manager()->get_or_create_task_group(
                             task_group_info);
                     tg->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
-                    query_ctx->set_task_group(tg);
+                    uint64_t tg_id = tg->id();
+                    std::string tg_name = tg->name();
                     LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                              << " use task group: " << tg->debug_string();
+                              << " use task group: " << tg->debug_string()
+                              << " cpu_hard_limit: " << task_group_info.cpu_hard_limit
+                              << " cpu_share:" << task_group_info.cpu_share;
+                    if (task_group_info.cpu_hard_limit > 0) {
+                        Status ret = _exec_env->task_group_manager()->create_and_get_task_scheduler(
+                                tg_id, tg_name, task_group_info.cpu_hard_limit, _exec_env,
+                                query_ctx.get());
+                        if (!ret.ok()) {
+                            LOG(INFO) << "workload group init failed "
+                                      << ", name=" << tg_name << ", id=" << tg_id
+                                      << ", reason=" << ret.to_string();
+                        }
+                    } else {
+                        query_ctx->set_task_group(tg);
+                    }
                 }
             } else {
                 VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
@@ -649,7 +749,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
     // TODO need check the status, but when I add return_if_error the P0 will not pass
-    _runtimefilter_controller.add_entity(params, &handler, fragment_executor->runtime_state());
+    static_cast<void>(_runtimefilter_controller.add_entity(params, &handler,
+                                                           fragment_executor->runtime_state()));
     fragment_executor->set_merge_controller_handler(handler);
     {
         std::lock_guard<std::mutex> lock(_lock);
@@ -704,8 +805,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineXFragmentContext>(
                         query_ctx->query_id(), params.fragment_id, query_ctx, _exec_env, cb,
-                        std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
-                                        std::placeholders::_1),
+                        std::bind<Status>(
+                                std::mem_fn(&FragmentMgr::trigger_pipeline_context_report), this,
+                                std::placeholders::_1, std::placeholders::_2),
                         params.group_commit);
         {
             SCOPED_RAW_TIMER(&duration_ns);
@@ -719,8 +821,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
         for (size_t i = 0; i < params.local_params.size(); i++) {
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-            _runtimefilter_controller.add_entity(params, params.local_params[i], &handler,
-                                                 context->get_runtime_state(UniqueId()));
+            static_cast<void>(
+                    _runtimefilter_controller.add_entity(params, params.local_params[i], &handler,
+                                                         context->get_runtime_state(UniqueId())));
             context->set_merge_controller_handler(handler);
             const TUniqueId& fragment_instance_id = params.local_params[i].fragment_instance_id;
             {
@@ -782,22 +885,23 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                     std::make_shared<pipeline::PipelineFragmentContext>(
                             query_ctx->query_id(), fragment_instance_id, params.fragment_id,
                             local_params.backend_num, query_ctx, _exec_env, cb,
-                            std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
-                                            std::placeholders::_1));
+                            std::bind<Status>(
+                                    std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
+                                    this, std::placeholders::_1, std::placeholders::_2));
             {
                 SCOPED_RAW_TIMER(&duration_ns);
                 auto prepare_st = context->prepare(params, i);
                 if (!prepare_st.ok()) {
                     context->close_if_prepare_failed();
-                    context->update_status(prepare_st);
+                    static_cast<void>(context->update_status(prepare_st));
                     return prepare_st;
                 }
             }
             g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-            _runtimefilter_controller.add_entity(params, local_params, &handler,
-                                                 context->get_runtime_state(UniqueId()));
+            static_cast<void>(_runtimefilter_controller.add_entity(
+                    params, local_params, &handler, context->get_runtime_state(UniqueId())));
             context->set_merge_controller_handler(handler);
 
             {
@@ -817,14 +921,14 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             std::condition_variable cv;
 
             for (size_t i = 0; i < target_size; i++) {
-                _thread_pool->submit_func([&, i]() {
+                static_cast<void>(_thread_pool->submit_func([&, i]() {
                     prepare_status[i] = pre_and_submit(i);
                     std::unique_lock<std::mutex> lock(m);
                     prepare_done++;
                     if (prepare_done == target_size) {
                         cv.notify_one();
                     }
-                });
+                }));
             }
 
             std::unique_lock<std::mutex> lock(m);
@@ -979,7 +1083,7 @@ void FragmentMgr::cancel_worker() {
     do {
         std::vector<TUniqueId> to_cancel;
         std::vector<TUniqueId> queries_to_cancel;
-        vectorized::VecDateTimeValue now = vectorized::VecDateTimeValue::local_time();
+        VecDateTimeValue now = VecDateTimeValue::local_time();
         {
             std::lock_guard<std::mutex> lock(_lock);
             for (auto& it : _fragment_map) {
@@ -1054,7 +1158,7 @@ void FragmentMgr::debug(std::stringstream& ss) {
 
     ss << "FragmentMgr have " << _fragment_map.size() << " jobs.\n";
     ss << "job_id\t\tstart_time\t\texecute_time(s)\n";
-    vectorized::VecDateTimeValue now = vectorized::VecDateTimeValue::local_time();
+    VecDateTimeValue now = VecDateTimeValue::local_time();
     for (auto& it : _fragment_map) {
         ss << it.first << "\t" << it.second->start_time().debug_string() << "\t"
            << now.second_diff(it.second->start_time()) << "\n";
@@ -1232,7 +1336,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
         std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
 
         RuntimeFilterMgr* runtime_filter_mgr = nullptr;
-        ObjectPool* pool;
+        ObjectPool* pool = nullptr;
         if (is_pipeline) {
             std::unique_lock<std::mutex> lock(_lock);
             auto iter = _pipeline_map.find(tfragment_instance_id);

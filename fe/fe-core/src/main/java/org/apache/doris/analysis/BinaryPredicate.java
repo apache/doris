@@ -46,6 +46,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Objects;
 
 /**
@@ -403,6 +404,8 @@ public class BinaryPredicate extends Predicate implements Writable {
             } else if (getChild(1).getType().isDate()
                     && (getChild(0).getType().isStringType() && getChild(0) instanceof StringLiteral)) {
                 return ((StringLiteral) getChild(0)).canConvertToDateType(Type.DATE) ? Type.DATE : Type.DATETIME;
+            } else if (getChild(1).getType().isDate() && getChild(0).getType().isDate()) {
+                return Type.DATE;
             } else {
                 return Type.DATETIME;
             }
@@ -474,7 +477,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-
+        this.checkIncludeBitmap();
         // Ignore placeholder
         if (getChild(0) instanceof PlaceHolderExpr || getChild(1) instanceof PlaceHolderExpr) {
             return;
@@ -535,12 +538,33 @@ public class BinaryPredicate extends Predicate implements Writable {
         // vectorizedAnalyze(analyzer);
     }
 
+    public Expr invokeFunctionExpr(ArrayList<Expr> partitionExprs, Expr paramExpr) {
+        for (Expr partExpr : partitionExprs) {
+            if (partExpr instanceof FunctionCallExpr) {
+                FunctionCallExpr function = (FunctionCallExpr) partExpr.clone();
+                ArrayList<Expr> children = function.getChildren();
+                for (int i = 0; i < children.size(); ++i) {
+                    if (children.get(i) instanceof SlotRef) {
+                        // when create partition have check only support one slotRef
+                        function.setChild(i, paramExpr);
+                        return ExpressionFunctions.INSTANCE.evalExpr(function);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     /**
      * If predicate is of the form "<slotref> <op> <expr>", returns expr,
      * otherwise returns null. Slotref may be wrapped in a CastExpr.
+     * now, when support auto create partition by function(column), so need check the "<function(column)> <op> <expr>"
+     * because import data use function result to create partition,
+     * so when have a SQL of query, prune partition also need use this function
      */
-    public Expr getSlotBinding(SlotId id) {
+    public Expr getSlotBinding(SlotId id, ArrayList<Expr> partitionExprs) {
         SlotRef slotRef = null;
+        boolean isFunctionCallExpr = false;
         // check left operand
         if (getChild(0) instanceof SlotRef) {
             slotRef = (SlotRef) getChild(0);
@@ -548,9 +572,25 @@ public class BinaryPredicate extends Predicate implements Writable {
             if (((CastExpr) getChild(0)).canHashPartition()) {
                 slotRef = (SlotRef) getChild(0).getChild(0);
             }
+        } else if (getChild(0) instanceof FunctionCallExpr) {
+            FunctionCallExpr left = (FunctionCallExpr) getChild(0);
+            if (partitionExprs != null && left.findEqual(partitionExprs) != null) {
+                ArrayList<Expr> children = left.getChildren();
+                for (int i = 0; i < children.size(); ++i) {
+                    if (children.get(i) instanceof SlotRef) {
+                        slotRef = (SlotRef) children.get(i);
+                        isFunctionCallExpr = true;
+                        break;
+                    }
+                }
+            }
         }
+
         if (slotRef != null && slotRef.getSlotId() == id) {
             slotIsleft = true;
+            if (isFunctionCallExpr) {
+                return invokeFunctionExpr(partitionExprs, getChild(1));
+            }
             return getChild(1);
         }
 
@@ -561,10 +601,25 @@ public class BinaryPredicate extends Predicate implements Writable {
             if (((CastExpr) getChild(1)).canHashPartition()) {
                 slotRef = (SlotRef) getChild(1).getChild(0);
             }
+        } else if (getChild(1) instanceof FunctionCallExpr) {
+            FunctionCallExpr left = (FunctionCallExpr) getChild(1);
+            if (partitionExprs != null && left.findEqual(partitionExprs) != null) {
+                ArrayList<Expr> children = left.getChildren();
+                for (int i = 0; i < children.size(); ++i) {
+                    if (children.get(i) instanceof SlotRef) {
+                        slotRef = (SlotRef) children.get(i);
+                        isFunctionCallExpr = true;
+                        break;
+                    }
+                }
+            }
         }
 
         if (slotRef != null && slotRef.getSlotId() == id) {
             slotIsleft = false;
+            if (isFunctionCallExpr) {
+                return invokeFunctionExpr(partitionExprs, getChild(0));
+            }
             return getChild(0);
         }
 

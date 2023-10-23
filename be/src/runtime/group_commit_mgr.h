@@ -35,6 +35,7 @@ class TUniqueId;
 class TExecPlanFragmentParams;
 class ObjectPool;
 class RuntimeState;
+class StreamLoadContext;
 class StreamLoadPipe;
 
 class LoadBlockQueue {
@@ -52,6 +53,7 @@ public:
 
     Status add_block(std::shared_ptr<vectorized::FutureBlock> block);
     Status get_block(vectorized::Block* block, bool* find_block, bool* eos);
+    Status add_load_id(const UniqueId& load_id);
     void remove_load_id(const UniqueId& load_id);
     void cancel(const Status& st);
 
@@ -75,8 +77,9 @@ private:
 
 class GroupCommitTable {
 public:
-    GroupCommitTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
-            : _exec_env(exec_env), _db_id(db_id), _table_id(table_id) {};
+    GroupCommitTable(ExecEnv* exec_env, doris::ThreadPool* thread_pool, int64_t db_id,
+                     int64_t table_id)
+            : _exec_env(exec_env), _thread_pool(thread_pool), _db_id(db_id), _table_id(table_id) {};
     Status get_first_block_load_queue(int64_t table_id,
                                       std::shared_ptr<vectorized::FutureBlock> block,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
@@ -84,8 +87,7 @@ public:
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:
-    Status _create_group_commit_load(int64_t table_id,
-                                     std::shared_ptr<LoadBlockQueue>& load_block_queue);
+    Status _create_group_commit_load(std::shared_ptr<LoadBlockQueue>& load_block_queue);
     Status _exec_plan_fragment(int64_t db_id, int64_t table_id, const std::string& label,
                                int64_t txn_id, bool is_pipeline,
                                const TExecPlanFragmentParams& params,
@@ -95,13 +97,14 @@ private:
                                      bool prepare_failed, RuntimeState* state);
 
     ExecEnv* _exec_env;
+    ThreadPool* _thread_pool;
     int64_t _db_id;
     int64_t _table_id;
     doris::Mutex _lock;
+    doris::ConditionVariable _cv;
     // fragment_instance_id to load_block_queue
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
-
-    doris::Mutex _request_fragment_mutex;
+    bool _need_plan_fragment = false;
 };
 
 class GroupCommitMgr {
@@ -121,14 +124,14 @@ public:
     // used when init group_commit_scan_node
     Status get_load_block_queue(int64_t table_id, const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
+    Status get_first_block_load_queue(int64_t db_id, int64_t table_id,
+                                      std::shared_ptr<vectorized::FutureBlock> block,
+                                      std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:
     // used by insert into
     Status _append_row(std::shared_ptr<io::StreamLoadPipe> pipe,
                        const PGroupCommitInsertRequest* request);
-    Status _get_first_block_load_queue(int64_t db_id, int64_t table_id,
-                                       std::shared_ptr<vectorized::FutureBlock> block,
-                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
     ExecEnv* _exec_env;
 
@@ -138,6 +141,7 @@ private:
 
     // thread pool to handle insert into: append data to pipe
     std::unique_ptr<doris::ThreadPool> _insert_into_thread_pool;
+    std::unique_ptr<doris::ThreadPool> _thread_pool;
 };
 
 } // namespace doris

@@ -118,9 +118,9 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
                                                bool& is_null) {                                    \
             if constexpr (std::is_same_v<DateType, DataTypeDate> ||                                \
                           std::is_same_v<DateType, DataTypeDateTime>) {                            \
-                return date_time_add<TimeUnit::UNIT, doris::vectorized::VecDateTimeValue,          \
-                                     doris::vectorized::VecDateTimeValue, ReturnNativeType>(       \
-                        t, delta, is_null);                                                        \
+                return date_time_add<TimeUnit::UNIT, doris::VecDateTimeValue,                      \
+                                     doris::VecDateTimeValue, ReturnNativeType>(t, delta,          \
+                                                                                is_null);          \
             } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {                       \
                 if constexpr (TimeUnit::UNIT == TimeUnit::HOUR ||                                  \
                               TimeUnit::UNIT == TimeUnit::MINUTE ||                                \
@@ -148,6 +148,7 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
     }
 
 ADD_TIME_FUNCTION_IMPL(AddMicrosecondsImpl, microseconds_add, MICROSECOND);
+ADD_TIME_FUNCTION_IMPL(AddMillisecondsImpl, milliseconds_add, MILLISECOND);
 ADD_TIME_FUNCTION_IMPL(AddSecondsImpl, seconds_add, SECOND);
 ADD_TIME_FUNCTION_IMPL(AddMinutesImpl, minutes_add, MINUTE);
 ADD_TIME_FUNCTION_IMPL(AddHoursImpl, hours_add, HOUR);
@@ -175,9 +176,8 @@ struct AddQuartersImpl {
     static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta, bool& is_null) {
         if constexpr (std::is_same_v<DateType, DataTypeDate> ||
                       std::is_same_v<DateType, DataTypeDateTime>) {
-            return date_time_add<TimeUnit::MONTH, doris::vectorized::VecDateTimeValue,
-                                 doris::vectorized::VecDateTimeValue, ReturnNativeType>(t, delta,
-                                                                                        is_null);
+            return date_time_add<TimeUnit::MONTH, doris::VecDateTimeValue, doris::VecDateTimeValue,
+                                 ReturnNativeType>(t, delta, is_null);
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
             return date_time_add<TimeUnit::MONTH, DateV2Value<DateV2ValueType>,
                                  DateV2Value<DateV2ValueType>, ReturnNativeType>(t, delta, is_null);
@@ -208,6 +208,11 @@ struct SubtractIntervalImpl {
 template <typename DateType>
 struct SubtractMicrosecondsImpl : SubtractIntervalImpl<AddMicrosecondsImpl<DateType>, DateType> {
     static constexpr auto name = "microseconds_sub";
+};
+
+template <typename DateType>
+struct SubtractMillisecondsImpl : SubtractIntervalImpl<AddMillisecondsImpl<DateType>, DateType> {
+    static constexpr auto name = "milliseconds_sub";
 };
 
 template <typename DateType>
@@ -334,6 +339,8 @@ TIME_DIFF_FUNCTION_IMPL(DaysDiffImpl, days_diff, DAY);
 TIME_DIFF_FUNCTION_IMPL(HoursDiffImpl, hours_diff, HOUR);
 TIME_DIFF_FUNCTION_IMPL(MintueSDiffImpl, minutes_diff, MINUTE);
 TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
+TIME_DIFF_FUNCTION_IMPL(MilliSecondsDiffImpl, milliseconds_diff, MILLISECOND);
+TIME_DIFF_FUNCTION_IMPL(MicroSecondsDiffImpl, microseconds_diff, MICROSECOND);
 
 #define TIME_FUNCTION_TWO_ARGS_IMPL(CLASS, NAME, FUNCTION, RETURN_TYPE)                           \
     template <typename DateType>                                                                  \
@@ -362,8 +369,6 @@ TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
 TIME_FUNCTION_TWO_ARGS_IMPL(ToYearWeekTwoArgsImpl, yearweek, year_week(mysql_week_mode(mode)),
                             DataTypeInt32);
 TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImpl, week, week(mysql_week_mode(mode)), DataTypeInt8);
-/// @TEMPORARY: for be_exec_version=2
-TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImplOld, week, week(mysql_week_mode(mode)), DataTypeInt32);
 
 template <typename FromType1, typename FromType2, typename ToType, typename Transform>
 struct DateTimeOp {
@@ -728,7 +733,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const auto& first_arg_type = block.get_by_position(arguments[0]).type;
         const auto& second_arg_type = block.get_by_position(arguments[1]).type;
         WhichDataType which1(remove_nullable(first_arg_type));
@@ -861,7 +866,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         return FunctionImpl::execute(context, block, arguments, result, input_rows_count);
     }
 };
@@ -1028,7 +1033,7 @@ struct CurrentDateImpl {
             if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                   context->state()->timezone_obj())) {
                 reinterpret_cast<VecDateTimeValue*>(&dtv)->set_type(TIME_DATE);
-                auto date_packed_int = binary_cast<doris::vectorized::VecDateTimeValue, int64_t>(
+                auto date_packed_int = binary_cast<doris::VecDateTimeValue, int64_t>(
                         *reinterpret_cast<VecDateTimeValue*>(&dtv));
                 col_to->insert_data(
                         const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
@@ -1132,7 +1137,7 @@ struct TimestampToDateTime : IFunction {
     static FunctionPtr create() { return std::make_shared<TimestampToDateTime<Impl>>(); }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnInt64&>(*arg_col);
         auto res_col = ColumnUInt64::create();

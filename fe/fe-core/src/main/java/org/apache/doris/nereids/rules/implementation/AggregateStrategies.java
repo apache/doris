@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -36,7 +39,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
-import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
@@ -77,7 +79,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -103,8 +104,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             RuleType.COUNT_ON_INDEX_WITHOUT_PROJECT.build(
                 logicalAggregate(
                     logicalFilter(
-                        logicalOlapScan().when(this::isDupOrMowKeyTable)
-                    ).when(filter -> containsMatchExpression(filter.getConjuncts())))
+                        logicalOlapScan().when(this::isDupOrMowKeyTable).when(this::isInvertedIndexEnabledOnTable)
+                    ).when(filter -> filter.getConjuncts().size() > 0))
                     .when(agg -> enablePushDownCountOnIndex())
                     .when(agg -> agg.getGroupByExpressions().size() == 0)
                     .when(agg -> {
@@ -123,8 +124,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 logicalAggregate(
                     logicalProject(
                         logicalFilter(
-                            logicalOlapScan().when(this::isDupOrMowKeyTable)
-                        ).when(filter -> containsMatchExpression(filter.getConjuncts()))))
+                            logicalOlapScan().when(this::isDupOrMowKeyTable).when(this::isInvertedIndexEnabledOnTable)
+                        ).when(filter -> filter.getConjuncts().size() > 0)))
                     .when(agg -> enablePushDownCountOnIndex())
                     .when(agg -> agg.getGroupByExpressions().size() == 0)
                     .when(agg -> {
@@ -159,6 +160,13 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     LogicalOlapScan olapScan = project.child();
                     return storageLayerAggregate(agg, project, olapScan, ctx.cascadesContext);
                 })
+            ),
+            RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT_FOR_FILE_SCAN.build(
+                logicalAggregate(
+                    logicalFileScan()
+                )
+                    .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
+                    .thenApply(ctx -> storageLayerAggregate(ctx.root, null, ctx.root.child(), ctx.cascadesContext))
             ),
             RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT_FOR_FILE_SCAN.build(
                 logicalAggregate(
@@ -230,18 +238,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         );
     }
 
-    private boolean containsMatchExpression(Set<Expression> expressions) {
-        List<Expression> exprs = new ArrayList<>();
-        expressions.forEach(conjunct -> {
-            conjunct.getInputSlots().forEach(slot -> {
-                if (!slot.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                    exprs.add(conjunct);
-                }
-            });
-        });
-        return exprs.stream().allMatch(expr -> expr instanceof Match);
-    }
-
     private boolean enablePushDownCountOnIndex() {
         ConnectContext connectContext = ConnectContext.get();
         return connectContext != null && connectContext.getSessionVariable().isEnablePushDownCountOnIndex();
@@ -254,6 +250,20 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     || (keysType == KeysType.UNIQUE_KEYS && logicalScan.getTable().getEnableUniqueKeyMergeOnWrite());
         }
         return false;
+    }
+
+    private boolean isInvertedIndexEnabledOnTable(LogicalOlapScan logicalScan) {
+        if (logicalScan == null) {
+            return false;
+        }
+
+        OlapTable olapTable = logicalScan.getTable();
+        Map<Long, MaterializedIndexMeta> indexIdToMeta = olapTable.getIndexIdToMeta();
+
+        return indexIdToMeta.values().stream()
+                .anyMatch(indexMeta -> indexMeta.getIndexes().stream()
+                        .anyMatch(index -> index.getIndexType() == IndexType.INVERTED
+                                || index.getIndexType() == IndexType.BITMAP));
     }
 
     /**

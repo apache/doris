@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.analysis.AdminCancelRebalanceDiskStmt;
 import org.apache.doris.analysis.AdminRebalanceDiskStmt;
+import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
@@ -150,7 +151,7 @@ public class TabletScheduler extends MasterDaemon {
 
     public TabletScheduler(Env env, SystemInfoService infoService, TabletInvertedIndex invertedIndex,
                            TabletSchedulerStat stat, String rebalancerType) {
-        super("tablet scheduler", FeConstants.tablet_schedule_interval_ms);
+        super("tablet scheduler", Config.tablet_schedule_interval_ms);
         this.env = env;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
@@ -167,6 +168,10 @@ public class TabletScheduler extends MasterDaemon {
 
     public TabletSchedulerStat getStat() {
         return stat;
+    }
+
+    public Rebalancer getRebalancer() {
+        return rebalancer;
     }
 
     /*
@@ -248,11 +253,10 @@ public class TabletScheduler extends MasterDaemon {
             return AddResult.ALREADY_IN;
         }
 
-        // if this is not a BALANCE task, and not a force add,
+        // if this is not a force add,
         // and number of scheduling tablets exceed the limit,
         // refuse to add.
-        if (tablet.getType() != TabletSchedCtx.Type.BALANCE && !force
-                && (pendingTablets.size() > Config.max_scheduling_tablets
+        if (!force && (pendingTablets.size() > Config.max_scheduling_tablets
                 || runningTablets.size() > Config.max_scheduling_tablets)) {
             return AddResult.LIMIT_EXCEED;
         }
@@ -491,15 +495,20 @@ public class TabletScheduler extends MasterDaemon {
                 throw new SchedException(Status.UNRECOVERABLE, "index does not exist");
             }
 
+            ReplicaAllocation replicaAlloc = null;
             Tablet tablet = idx.getTablet(tabletId);
             Preconditions.checkNotNull(tablet);
-            ReplicaAllocation replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
-
             if (isColocateTable) {
                 GroupId groupId = colocateTableIndex.getGroup(tbl.getId());
                 if (groupId == null) {
                     throw new SchedException(Status.UNRECOVERABLE, "colocate group does not exist");
                 }
+                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(groupId);
+                if (groupSchema == null) {
+                    throw new SchedException(Status.UNRECOVERABLE,
+                            "colocate group schema " + groupId + " does not exist");
+                }
+                replicaAlloc = groupSchema.getReplicaAlloc();
 
                 int tabletOrderIdx = tabletCtx.getTabletOrderIdx();
                 if (tabletOrderIdx == -1) {
@@ -513,6 +522,7 @@ public class TabletScheduler extends MasterDaemon {
                 statusPair = Pair.of(st, Priority.HIGH);
                 tabletCtx.setColocateGroupBackendIds(backendsSet);
             } else {
+                replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
                 List<Long> aliveBeIds = infoService.getAllBackendIds(true);
                 statusPair = tablet.getHealthStatusWithPriority(
                         infoService, partition.getVisibleVersion(), replicaAlloc, aliveBeIds);
@@ -1132,7 +1142,7 @@ public class TabletScheduler extends MasterDaemon {
         // it will also delete replica from tablet inverted index.
         tabletCtx.deleteReplica(replica);
 
-        if (force) {
+        if (force || FeConstants.runningUnitTest) {
             // send the delete replica task.
             // also, this may not be necessary, but delete it will make things simpler.
             // NOTICE: only delete the replica from meta may not work. sometimes we can depend on tablet report
@@ -1224,12 +1234,14 @@ public class TabletScheduler extends MasterDaemon {
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         Collections.shuffle(alternativeTablets);
         for (TabletSchedCtx tabletCtx : alternativeTablets) {
-            if (addTablet(tabletCtx, false) == AddResult.ADDED) {
+            if (needAddBalanceNum > 0 && addTablet(tabletCtx, false) == AddResult.ADDED) {
                 needAddBalanceNum--;
-                if (needAddBalanceNum <= 0) {
-                    return;
-                }
+            } else {
+                rebalancer.onTabletFailed(tabletCtx);
             }
+        }
+        if (needAddBalanceNum <= 0) {
+            return;
         }
         if (Config.disable_disk_balance) {
             LOG.info("disk balance is disabled. skip selecting tablets for disk balance");
@@ -1438,6 +1450,13 @@ public class TabletScheduler extends MasterDaemon {
 
 
     private void finalizeTabletCtx(TabletSchedCtx tabletCtx, TabletSchedCtx.State state, Status status, String reason) {
+        if (state == TabletSchedCtx.State.CANCELLED || state == TabletSchedCtx.State.UNEXPECTED) {
+            if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE
+                    && tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.BE_BALANCE) {
+                rebalancer.onTabletFailed(tabletCtx);
+            }
+        }
+
         // use 2 steps to avoid nested database lock and synchronized.(releaseTabletCtx() may hold db lock)
         // remove the tablet ctx, so that no other process can see it
         removeTabletCtx(tabletCtx, reason);
@@ -1485,14 +1504,18 @@ public class TabletScheduler extends MasterDaemon {
                 return;
             }
 
-            replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
             boolean isColocateTable = colocateTableIndex.isColocateTable(tbl.getId());
             if (isColocateTable) {
                 GroupId groupId = colocateTableIndex.getGroup(tbl.getId());
                 if (groupId == null) {
                     return;
                 }
+                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(groupId);
+                if (groupSchema == null) {
+                    return;
+                }
 
+                replicaAlloc = groupSchema.getReplicaAlloc();
                 int tabletOrderIdx = tabletCtx.getTabletOrderIdx();
                 if (tabletOrderIdx == -1) {
                     tabletOrderIdx = idx.getTabletOrderIdx(tablet.getId());
@@ -1505,6 +1528,7 @@ public class TabletScheduler extends MasterDaemon {
                 statusPair = Pair.of(st, Priority.HIGH);
                 tabletCtx.setColocateGroupBackendIds(backendsSet);
             } else {
+                replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
                 List<Long> aliveBeIds = infoService.getAllBackendIds(true);
                 statusPair = tablet.getHealthStatusWithPriority(
                         infoService, partition.getVisibleVersion(), replicaAlloc, aliveBeIds);

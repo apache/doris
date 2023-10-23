@@ -88,7 +88,7 @@ enableHiveTest=true
 hms_port=7141
 
 enableEsTest=true
-es_6_port=19200
+es_6_port="19200/"
 es_7_port=29200
 es_8_port=39200
 

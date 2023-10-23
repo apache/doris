@@ -259,6 +259,18 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PFetchArrowFlightSchemaResult> fetchArrowFlightSchema(
+            TNetworkAddress address, InternalService.PFetchArrowFlightSchemaRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.fetchArrowFlightSchema(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch arrow flight schema catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
             TNetworkAddress address, InternalService.PFetchTableSchemaRequest request) throws RpcException {
         try {

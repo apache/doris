@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -350,10 +351,6 @@ public class ExpressionUtils {
         return builder.build();
     }
 
-    public static boolean isAllLiteral(Expression... children) {
-        return Arrays.stream(children).allMatch(c -> c instanceof Literal);
-    }
-
     public static boolean isAllLiteral(List<Expression> children) {
         return children.stream().allMatch(c -> c instanceof Literal);
     }
@@ -539,5 +536,20 @@ public class ExpressionUtils {
             expression = ((Cast) expression).child();
         }
         return expression;
+    }
+
+    /**
+     * To check whether a slot is constant after passing through a filter
+     */
+    public static boolean checkSlotConstant(Slot slot, Set<Expression> predicates) {
+        return predicates.stream().anyMatch(predicate -> {
+                    if (predicate instanceof EqualTo) {
+                        EqualTo equalTo = (EqualTo) predicate;
+                        return (equalTo.left() instanceof Literal && equalTo.right().equals(slot))
+                                || (equalTo.right() instanceof Literal && equalTo.left().equals(slot));
+                    }
+                    return false;
+                }
+        );
     }
 }

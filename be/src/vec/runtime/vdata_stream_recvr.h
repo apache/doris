@@ -59,7 +59,8 @@ class RuntimeState;
 
 namespace pipeline {
 struct ExchangeDataDependency;
-}
+class ChannelDependency;
+} // namespace pipeline
 
 namespace vectorized {
 class VDataStreamMgr;
@@ -105,9 +106,9 @@ public:
 
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.
-    void remove_sender(int sender_id, int be_number);
+    void remove_sender(int sender_id, int be_number, Status exec_status);
 
-    void cancel_stream();
+    void cancel_stream(Status exec_status);
 
     void close();
 
@@ -121,11 +122,10 @@ public:
 
     bool is_closed() const { return _is_closed; }
 
+    void set_dependency(std::shared_ptr<pipeline::ChannelDependency> dependency);
+
 private:
-    void update_blocks_memory_usage(int64_t size) {
-        _blocks_memory_usage->add(size);
-        _blocks_memory_usage_current_value = _blocks_memory_usage->current_value();
-    }
+    void update_blocks_memory_usage(int64_t size);
     class PipSenderQueue;
 
     friend struct BlockSupplierSortCursorImpl;
@@ -180,6 +180,7 @@ private:
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
     bool _enable_pipeline;
+    std::shared_ptr<pipeline::ChannelDependency> _dependency;
 };
 
 class ThreadClosure : public google::protobuf::Closure {
@@ -208,7 +209,7 @@ public:
 
     void decrement_senders(int sender_id);
 
-    void cancel();
+    void cancel(Status cancel_status);
 
     void close();
 
@@ -221,6 +222,10 @@ public:
         _dependency = dependency;
     }
 
+    void set_channel_dependency(std::shared_ptr<pipeline::ChannelDependency> channel_dependency) {
+        _channel_dependency = channel_dependency;
+    }
+
 protected:
     Status _inner_get_batch_without_lock(Block* block, bool* eos);
 
@@ -228,6 +233,7 @@ protected:
     VDataStreamRecvr* _recvr;
     std::mutex _lock;
     bool _is_cancelled;
+    Status _cancel_status;
     int _num_remaining_senders;
     std::condition_variable _data_arrival_cv;
     std::condition_variable _data_removal_cv;
@@ -242,6 +248,7 @@ protected:
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
 
     std::shared_ptr<pipeline::ExchangeDataDependency> _dependency = nullptr;
+    std::shared_ptr<pipeline::ChannelDependency> _channel_dependency = nullptr;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {

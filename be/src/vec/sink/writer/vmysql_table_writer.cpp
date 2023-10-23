@@ -74,7 +74,7 @@ VMysqlTableWriter::VMysqlTableWriter(const TDataSink& t_sink,
     _conn_info.charset = t_mysql_sink.charset;
 }
 
-Status VMysqlTableWriter::close() {
+Status VMysqlTableWriter::close(Status) {
     if (_mysql_conn) {
         mysql_close(_mysql_conn);
     }
@@ -213,8 +213,7 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         case TYPE_DATE:
         case TYPE_DATETIME: {
             int64_t int_val = assert_cast<const vectorized::ColumnInt64&>(*column).get_data()[row];
-            vectorized::VecDateTimeValue value =
-                    binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(int_val);
+            VecDateTimeValue value = binary_cast<int64_t, doris::VecDateTimeValue>(int_val);
 
             char buf[64];
             char* pos = value.to_string(buf);
@@ -225,8 +224,8 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         case TYPE_DATEV2: {
             uint32_t int_val =
                     assert_cast<const vectorized::ColumnUInt32&>(*column).get_data()[row];
-            vectorized::DateV2Value<DateV2ValueType> value =
-                    binary_cast<uint32_t, doris::vectorized::DateV2Value<DateV2ValueType>>(int_val);
+            DateV2Value<DateV2ValueType> value =
+                    binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_val);
 
             char buf[64];
             char* pos = value.to_string(buf);
@@ -237,9 +236,8 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         case TYPE_DATETIMEV2: {
             uint32_t int_val =
                     assert_cast<const vectorized::ColumnUInt64&>(*column).get_data()[row];
-            vectorized::DateV2Value<DateTimeV2ValueType> value =
-                    binary_cast<uint64_t, doris::vectorized::DateV2Value<DateTimeV2ValueType>>(
-                            int_val);
+            DateV2Value<DateTimeV2ValueType> value =
+                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_val);
 
             char buf[64];
             char* pos = value.to_string(buf, _vec_output_expr_ctxs[i]->root()->type().scale);

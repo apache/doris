@@ -446,6 +446,11 @@ public abstract class Type {
         return isObjectStored() || isComplexType() || isJsonbType() || isVariantType();
     }
 
+    public static final String OnlyObjectTypeErrorMsg =
+            "Doris hll, bitmap column must use with specific function, and don't"
+                    + " support filter, group by or order by. please run 'help hll' or 'help bitmap'"
+                    + " in your mysql client.";
+
     public static final String OnlyMetricTypeErrorMsg =
             "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't"
                     + " support filter, group by or order by. please run 'help hll' or 'help bitmap' or 'help array'"
@@ -1632,6 +1637,7 @@ public abstract class Type {
         compatibilityMatrix[DECIMAL32.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.DECIMAL32;
         compatibilityMatrix[DECIMAL32.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL32.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DECIMAL32.ordinal()][VARIANT.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL32.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL32.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL32.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.DECIMAL64;
@@ -1646,6 +1652,7 @@ public abstract class Type {
         compatibilityMatrix[DECIMAL64.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.DECIMAL64;
         compatibilityMatrix[DECIMAL64.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL64.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DECIMAL64.ordinal()][VARIANT.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL64.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL64.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL64.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.DECIMAL64;
@@ -1660,6 +1667,7 @@ public abstract class Type {
         compatibilityMatrix[DECIMAL128.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.DECIMAL128;
         compatibilityMatrix[DECIMAL128.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL128.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DECIMAL128.ordinal()][VARIANT.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL128.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL128.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMAL128.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.DECIMAL128;

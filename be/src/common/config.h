@@ -96,9 +96,9 @@ DECLARE_Int32(be_port);
 // port for brpc
 DECLARE_Int32(brpc_port);
 
-// port for arrow flight
-// Default -1, do not start arrow flight server.
-DECLARE_Int32(arrow_flight_port);
+// port for arrow flight sql
+// Default -1, do not start arrow flight sql server.
+DECLARE_Int32(arrow_flight_sql_port);
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -173,9 +173,9 @@ DECLARE_mBool(enable_query_memory_overcommit);
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
 
-// malloc or new large memory larger than large_memory_check_bytes and Doris Allocator is not used,
+// malloc or new large memory larger than large_memory_check_bytes, default 2G,
 // will print a warning containing the stacktrace, but not prevent memory alloc.
-// large memory alloc looking forward to using Allocator.
+// If is -1, disable large memory check.
 DECLARE_mInt64(large_memory_check_bytes);
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
@@ -271,6 +271,7 @@ DECLARE_mBool(compress_rowbatches);
 DECLARE_mBool(rowbatch_align_tuple_offset);
 // interval between profile reports; in seconds
 DECLARE_mInt32(status_report_interval);
+DECLARE_mInt32(pipeline_status_report_interval);
 // if true, each disk will have a separate thread pool for scanner
 DECLARE_Bool(doris_enable_scanner_thread_pool_per_disk);
 // the timeout of a work thread to wait the blocking priority queue to get a task
@@ -323,6 +324,7 @@ DECLARE_mInt32(tablet_lookup_cache_clean_interval);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
 DECLARE_String(storage_root_path);
+DECLARE_mString(broken_storage_path);
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -428,6 +430,12 @@ DECLARE_mDouble(compaction_promotion_ratio);
 // the smallest size of rowset promotion. When the rowset is less than this config, this
 // rowset will be not given to base compaction. The unit is m byte.
 DECLARE_mInt64(compaction_promotion_min_size_mbytes);
+
+// When output rowset of cumulative compaction total version count (end_version - start_version)
+// exceed this config count, the rowset will be moved to base compaction
+// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
+// related cost on delete bitmap more effectively.
+DECLARE_mInt64(compaction_promotion_version_count);
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
@@ -789,12 +797,10 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
-// share brpc streams when memtable_on_sink_node = true
-DECLARE_Bool(share_load_streams);
 // share delta writers when memtable_on_sink_node = true
 DECLARE_Bool(share_delta_writers);
-// number of brpc stream per OlapTableSinkV2 (per load if share_load_streams = true)
-DECLARE_Int32(num_streams_per_sink);
+// number of brpc stream per load
+DECLARE_Int32(num_streams_per_load);
 // timeout for open stream sink rpc in ms
 DECLARE_Int64(open_stream_sink_timeout_ms);
 
@@ -1001,6 +1007,8 @@ DECLARE_Bool(enable_java_support);
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
 
+DECLARE_Bool(enable_debug_points);
+
 DECLARE_Int32(pipeline_executor_size);
 DECLARE_Bool(enable_workload_group_for_scan);
 
@@ -1125,16 +1133,6 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
 
-// whether to enable hdfs hedged read.
-// If set to true, it will be enabled even if user not enable it when creating catalog
-DECLARE_Bool(enable_hdfs_hedged_read);
-// hdfs hedged read thread pool size, for "dfs.client.hedged.read.threadpool.size"
-// Maybe overwritten by the value specified when creating catalog
-DECLARE_Int32(hdfs_hedged_read_thread_num);
-// the threshold of doing hedged read, for "dfs.client.hedged.read.threshold.millis"
-// Maybe overwritten by the value specified when creating catalog
-DECLARE_Int32(hdfs_hedged_read_threshold_time);
-
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 
 // The secure path with user files, used in the `local` table function.
@@ -1156,8 +1154,38 @@ DECLARE_Int32(grace_shutdown_wait_seconds);
 // BitmapValue serialize version.
 DECLARE_Int16(bitmap_serialize_version);
 
+// group commit insert config
+DECLARE_String(group_commit_replay_wal_dir);
+DECLARE_Int32(group_commit_replay_wal_retry_num);
+DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
+DECLARE_Int32(group_commit_sync_wal_batch);
+
 // This config can be set to limit thread number in group commit insert thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
+DECLARE_mInt32(group_commit_interval_ms);
+
+// The configuration item is used to lower the priority of the scanner thread,
+// typically employed to ensure CPU scheduling for write operations.
+// Default is 0, which is default value of thread nice value, increase this value
+// to lower the priority of scan threads
+DECLARE_Int32(scan_thread_nice_value);
+// Used to modify the recycle interval of tablet schema cache
+DECLARE_mInt32(tablet_schema_cache_recycle_interval);
+
+// Use `LOG(FATAL)` to replace `throw` when true
+DECLARE_mBool(exit_on_exception);
+
+// cgroup
+DECLARE_String(doris_cgroup_cpu_path);
+DECLARE_Bool(enable_cpu_hard_limit);
+// This config controls whether the s3 file writer would flush cache asynchronously
+DECLARE_Bool(enable_flush_file_cache_async);
+
+// Remove predicate that is always true for a segment.
+DECLARE_Bool(ignore_always_true_predicate_for_segment);
+
+// Dir of default timezone files
+DECLARE_String(default_tzfiles_path);
 
 #ifdef BE_TEST
 // test s3

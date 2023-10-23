@@ -96,6 +96,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "service/point_query_executor.h"
+#include "util/arrow/row_batch.h"
 #include "util/async_io.h"
 #include "util/brpc_client_cache.h"
 #include "util/doris_metrics.h"
@@ -555,7 +556,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         TUniqueId tid;
         tid.__set_hi(request->finst_id().hi());
         tid.__set_lo(request->finst_id().lo());
-
+        signal::set_signal_task_id(tid);
         Status st = Status::OK();
         if (request->has_cancel_reason()) {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
@@ -663,7 +664,8 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
+            static_cast<void>(
+                    ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader());
             break;
         }
         default:
@@ -680,14 +682,6 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             st.to_protobuf(result->mutable_status());
             return;
         }
-        if (params.file_type == TFileType::FILE_STREAM) {
-            auto stream_load_ctx =
-                    ExecEnv::GetInstance()->new_load_stream_mgr()->get(params.load_id);
-            if (!stream_load_ctx) {
-                st = Status::InternalError("unknown stream load id: {}",
-                                           UniqueId(params.load_id).to_string());
-            }
-        }
         result->set_column_nums(col_names.size());
         for (size_t idx = 0; idx < col_names.size(); ++idx) {
             result->add_column_names(col_names[idx]);
@@ -695,6 +689,40 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         for (size_t idx = 0; idx < col_types.size(); ++idx) {
             PTypeDesc* type_desc = result->add_column_types();
             col_types[idx].to_protobuf(type_desc);
+        }
+        st.to_protobuf(result->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(result, done, _heavy_work_pool);
+        return;
+    }
+}
+
+void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcController* controller,
+                                                     const PFetchArrowFlightSchemaRequest* request,
+                                                     PFetchArrowFlightSchemaResult* result,
+                                                     google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([request, result, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        RowDescriptor row_desc = ExecEnv::GetInstance()->result_mgr()->find_row_descriptor(
+                UniqueId(request->finst_id()).to_thrift());
+        if (row_desc.equals(RowDescriptor())) {
+            auto st = Status::NotFound("not found row descriptor");
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+
+        std::shared_ptr<arrow::Schema> schema;
+        auto st = convert_to_arrow_schema(row_desc, &schema);
+        if (UNLIKELY(!st.ok())) {
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+
+        std::string schema_str;
+        st = serialize_arrow_schema(row_desc, &schema, &schema_str);
+        if (st.ok()) {
+            result->set_schema(std::move(schema_str));
         }
         st.to_protobuf(result->mutable_status());
     });
@@ -1030,7 +1058,7 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
             response->mutable_status()->set_status_code(1);
             response->mutable_status()->add_error_msgs("could not find stream load context");
         } else {
-            stream_load_ctx->pipe->finish();
+            static_cast<void>(stream_load_ctx->pipe->finish());
             response->mutable_status()->set_status_code(0);
         }
     });
@@ -1149,7 +1177,10 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cont
         if (!st.ok()) {
             LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
-                         << ", node=" << request->node_id();
+                         << ", node=" << request->node_id()
+                         << ", from sender_id: " << request->sender_id()
+                         << ", be_number: " << request->be_number()
+                         << ", packet_seq: " << request->packet_seq();
         }
     } else {
         st = extract_st;
@@ -1444,7 +1475,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
                 tablet->data_dir()->get_meta(), rowset_meta->partition_id(), rowset_meta->txn_id(),
                 rowset_meta->tablet_id(), tablet->tablet_uid(), rowset_meta->load_id(), rowset,
-                true);
+                false);
         if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
             LOG(WARNING) << "failed to add committed rowset for slave replica. rowset_id="
                          << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
@@ -1463,7 +1494,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                                     rowset_meta->tablet_id(), node_id, true);
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, closure_guard.release(), _heavy_work_pool);
         return;
     }
     Status::OK().to_protobuf(response->mutable_status());
@@ -1665,7 +1696,7 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                     .stats = &stats,
                     .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
             };
-            column_iterator->init(opt);
+            static_cast<void>(column_iterator->init(opt));
             std::vector<segment_v2::rowid_t> single_row_loc {
                     static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
             RETURN_IF_ERROR(column_iterator->read_by_rowids(single_row_loc.data(), 1, column));

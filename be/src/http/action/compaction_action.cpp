@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
@@ -122,8 +123,8 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
                             return tablet->get_table_id() == table_id;
                         });
         for (const auto& tablet : tablet_vec) {
-            StorageEngine::instance()->submit_compaction_task(
-                    tablet, CompactionType::FULL_COMPACTION, false);
+            static_cast<void>(StorageEngine::instance()->submit_compaction_task(
+                    tablet, CompactionType::FULL_COMPACTION, false));
         }
     } else {
         // 2. fetch the tablet by tablet_id
@@ -244,11 +245,11 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             if (res.is<BE_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init base compaction due to no suitable version, tablet="
-                            << tablet->full_name();
+                            << tablet->tablet_id();
             } else {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
                 LOG(WARNING) << "failed to init base compaction. res=" << res
-                             << ", tablet=" << tablet->full_name();
+                             << ", tablet=" << tablet->tablet_id();
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
@@ -258,11 +259,11 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             if (res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
-                            << "tablet=" << tablet->full_name();
+                            << "tablet=" << tablet->tablet_id();
             } else {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 LOG(WARNING) << "failed to do cumulative compaction. res=" << res
-                             << ", table=" << tablet->full_name();
+                             << ", table=" << tablet->tablet_id();
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_FULL) {
@@ -272,10 +273,10 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             if (res.is<FULL_NO_SUITABLE_VERSION>()) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init full compaction due to no suitable version,"
-                            << "tablet=" << tablet->full_name();
+                            << "tablet=" << tablet->tablet_id();
             } else {
                 LOG(WARNING) << "failed to do full compaction. res=" << res
-                             << ", table=" << tablet->full_name();
+                             << ", table=" << tablet->tablet_id();
             }
         }
     }

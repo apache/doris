@@ -45,6 +45,22 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
+class HashJoinProbeLocalState;
+
+using HashTableCtxVariants = std::variant<
+        std::monostate,
+        vectorized::ProcessHashTableProbe<TJoinOp::INNER_JOIN, HashJoinProbeLocalState>,
+        vectorized::ProcessHashTableProbe<TJoinOp::LEFT_SEMI_JOIN, HashJoinProbeLocalState>,
+        vectorized::ProcessHashTableProbe<TJoinOp::LEFT_ANTI_JOIN, HashJoinProbeLocalState>,
+        vectorized::ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN, HashJoinProbeLocalState>,
+        vectorized::ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN, HashJoinProbeLocalState>,
+        vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN, HashJoinProbeLocalState>,
+        vectorized::ProcessHashTableProbe<TJoinOp::CROSS_JOIN, HashJoinProbeLocalState>,
+        vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN, HashJoinProbeLocalState>,
+        vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN, HashJoinProbeLocalState>,
+        vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN,
+                                          HashJoinProbeLocalState>>;
+
 class HashJoinProbeOperatorX;
 class HashJoinProbeLocalState final
         : public JoinProbeLocalState<HashJoinDependency, HashJoinProbeLocalState> {
@@ -55,22 +71,37 @@ public:
     ~HashJoinProbeLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
     void prepare_for_next();
     void add_tuple_is_null_column(vectorized::Block* block) override;
     void init_for_probe(RuntimeState* state);
+    Status filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
+                                        SourceState& source_state, vectorized::Block* temp_block,
+                                        bool check_rows_count = true);
 
-    HashJoinProbeOperatorX* join_probe() { return (HashJoinProbeOperatorX*)_parent; }
+    bool have_other_join_conjunct() const;
+    bool is_right_semi_anti() const;
+    bool is_outer_join() const;
+    std::vector<bool>* left_output_slot_flags();
+    std::vector<bool>* right_output_slot_flags();
+    vectorized::DataTypes right_table_data_types();
+    vectorized::DataTypes left_table_data_types();
+    bool* has_null_in_build_side() { return &_shared_state->_has_null_in_build_side; }
+    std::shared_ptr<std::vector<vectorized::Block>> build_blocks() const {
+        return _shared_state->build_blocks;
+    }
 
 private:
     void _prepare_probe_block();
     bool _need_probe_null_map(vectorized::Block& block, const std::vector<int>& res_col_ids);
     friend class HashJoinProbeOperatorX;
-    friend struct vectorized::HashJoinProbeContext;
+    template <int JoinOpType, typename Parent>
+    friend struct vectorized::ProcessHashTableProbe;
 
     int _probe_index = -1;
-    int _ready_probe_index = -1;
+    bool _ready_probe = false;
     bool _probe_eos = false;
     std::atomic<bool> _probe_inited = false;
 
@@ -85,13 +116,15 @@ private:
 
     bool _need_null_map_for_probe = false;
     bool _has_set_need_null_map_for_probe = false;
-    bool _probe_ignore_null = false;
-    std::unique_ptr<vectorized::HashJoinProbeContext> _probe_context;
     vectorized::ColumnUInt8::MutablePtr _null_map_column;
     // for cases when a probe row matches more than batch size build rows.
     bool _is_any_probe_match_row_output = false;
-    std::unique_ptr<vectorized::HashTableCtxVariants> _process_hashtable_ctx_variants =
-            std::make_unique<vectorized::HashTableCtxVariants>();
+    std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
+            std::make_unique<HashTableCtxVariants>();
+
+    // for full/right outer join
+    vectorized::HashTableIteratorVariants _outer_join_pull_visited_iter;
+    vectorized::HashTableIteratorVariants _probe_row_match_iter;
 
     RuntimeProfile::Counter* _probe_expr_call_timer;
     RuntimeProfile::Counter* _probe_next_timer;
@@ -123,7 +156,6 @@ private:
                         RuntimeProfile::Counter& expr_call_timer,
                         std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
-    friend struct vectorized::HashJoinProbeContext;
 
     // other expr
     vectorized::VExprContextSPtrs _other_join_conjuncts;
@@ -136,6 +168,7 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
+    std::vector<std::string> _right_table_column_names;
 };
 
 } // namespace pipeline

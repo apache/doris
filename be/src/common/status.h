@@ -280,6 +280,7 @@ E(ENTRY_NOT_FOUND, -6011);
 constexpr bool capture_stacktrace(int code) {
     return code != ErrorCode::OK
         && code != ErrorCode::END_OF_FILE
+        && code != ErrorCode::DATA_QUALITY_ERROR
         && code != ErrorCode::MEM_LIMIT_EXCEEDED
         && code != ErrorCode::TRY_LOCK_FAILED
         && code != ErrorCode::TOO_MANY_SEGMENTS
@@ -292,6 +293,7 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION
         && code != ErrorCode::FULL_NO_SUITABLE_VERSION
         && code != ErrorCode::PUBLISH_VERSION_NOT_CONTINUOUS
+        && code != ErrorCode::PUBLISH_TIMEOUT
         && code != ErrorCode::ROWSET_RENAME_FILE_FAILED
         && code != ErrorCode::SEGCOMPACTION_INIT_READER
         && code != ErrorCode::SEGCOMPACTION_INIT_WRITER
@@ -322,7 +324,7 @@ constexpr bool capture_stacktrace(int code) {
 }
 // clang-format on
 
-class Status {
+class [[nodiscard]] Status {
 public:
     Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
 
@@ -350,14 +352,18 @@ public:
         return *this;
     }
 
+    template <bool stacktrace = true>
     Status static create(const TStatus& status) {
-        return Error<true>(status.status_code,
-                           status.error_msgs.empty() ? "" : status.error_msgs[0]);
+        return Error<stacktrace>(
+                status.status_code,
+                "TStatus: " + (status.error_msgs.empty() ? "" : status.error_msgs[0]));
     }
 
+    template <bool stacktrace = true>
     Status static create(const PStatus& pstatus) {
-        return Error<true>(pstatus.status_code(),
-                           pstatus.error_msgs_size() == 0 ? "" : pstatus.error_msgs(0));
+        return Error<stacktrace>(
+                pstatus.status_code(),
+                "PStatus: " + (pstatus.error_msgs_size() == 0 ? "" : pstatus.error_msgs(0)));
     }
 
     template <int code, bool stacktrace = true, typename... Args>
@@ -372,7 +378,8 @@ public:
         }
 #ifdef ENABLE_STACKTRACE
         if constexpr (stacktrace && capture_stacktrace(code)) {
-            status._err_msg->_stack = get_stack_trace();
+            // Delete the first one frame pointers, which are inside the status.h
+            status._err_msg->_stack = get_stack_trace(1);
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
@@ -391,7 +398,7 @@ public:
         }
 #ifdef ENABLE_STACKTRACE
         if (stacktrace && capture_stacktrace(code)) {
-            status._err_msg->_stack = get_stack_trace();
+            status._err_msg->_stack = get_stack_trace(1);
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
@@ -400,10 +407,10 @@ public:
 
     static Status OK() { return Status(); }
 
-#define ERROR_CTOR(name, code)                                                 \
-    template <typename... Args>                                                \
-    static Status name(std::string_view msg, Args&&... args) {                 \
-        return Error<ErrorCode::code, true>(msg, std::forward<Args>(args)...); \
+#define ERROR_CTOR(name, code)                                                       \
+    template <bool stacktrace = true, typename... Args>                              \
+    static Status name(std::string_view msg, Args&&... args) {                       \
+        return Error<ErrorCode::code, stacktrace>(msg, std::forward<Args>(args)...); \
     }
 
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
@@ -593,5 +600,18 @@ using Result = expected<T, Status>;
             return unexpected(std::move(_status_)); \
         }                                           \
     } while (false)
+
+// clang-format off
+#define DORIS_TRY(stmt)                                              \
+    ({                                                               \
+        auto&& res = (stmt);                                         \
+        using T = std::decay_t<decltype(res)>;                       \
+        static_assert(tl::detail::is_expected<T>::value);            \
+        if (!res.has_value()) [[unlikely]] {                         \
+            return std::forward<T>(res).error();                     \
+        }                                                            \
+        std::forward<T>(res).value();                                \
+    });
+// clang-format on
 
 } // namespace doris

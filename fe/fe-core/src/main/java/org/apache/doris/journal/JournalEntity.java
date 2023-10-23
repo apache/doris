@@ -111,6 +111,7 @@ import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
+import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
@@ -120,7 +121,7 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -464,6 +465,7 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_COLOCATE_MOD_REPLICA_ALLOC:
             case OperationType.OP_COLOCATE_ADD_TABLE:
             case OperationType.OP_COLOCATE_REMOVE_TABLE:
             case OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ:
@@ -727,6 +729,7 @@ public class JournalEntity implements Writable {
             case OperationType.OP_CREATE_CATALOG:
             case OperationType.OP_DROP_CATALOG:
             case OperationType.OP_ALTER_CATALOG_NAME:
+            case OperationType.OP_ALTER_CATALOG_COMMENT:
             case OperationType.OP_ALTER_CATALOG_PROPS:
             case OperationType.OP_REFRESH_CATALOG: {
                 data = CatalogLog.read(in);
@@ -847,7 +850,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_UPDATE_TABLE_STATS: {
-                data = TableStats.read(in);
+                data = TableStatsMeta.read(in);
                 isRead = true;
                 break;
             }
@@ -858,6 +861,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_MTMV: {
                 data = AlterMTMV.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DELETE_TABLE_STATS: {
+                data = TableStatsDeletionLog.read(in);
                 isRead = true;
                 break;
             }

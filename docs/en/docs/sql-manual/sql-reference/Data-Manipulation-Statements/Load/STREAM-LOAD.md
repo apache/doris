@@ -156,7 +156,9 @@ separated by commas.
 
 28. comment: <version since="1.2.3" type="inline"> String type, the default value is "". </version>
 
-29. ignore_mode: <version since="dev" type="inline"> Ignore mode, only effective when the target table is a unique table with merge-on-write enabled. When insert ignore mode is enabled, for the inserted rows, if the key of the row does not exist in the table, the row will be inserted. If the key already exists in the table, the row will be discarded. When sequence columns exists in the target table, the ignore mode can't be enabled in stream load.</version>
+29. enclose: <version since="dev" type="inline"> When the csv data field contains row delimiters or column delimiters, to prevent accidental truncation, single-byte characters can be specified as brackets for protection. For example, the column separator is ",", the bracket is "'", and the data is "a,'b,c'", then "b,c" will be parsed as a field. </version>
+  
+30. escape <version since="dev" type="inline"> Used to escape characters that appear in a csv field identical to the enclosing characters. For example, if the data is "a,'b,'c'", enclose is "'", and you want "b,'c to be parsed as a field, you need to specify a single-byte escape character, such as "\", and then modify the data to "a,' b,\'c'". </version>
 
 ### Example
 

@@ -144,6 +144,7 @@ StreamingAggSinkLocalState::StreamingAggSinkLocalState(DataSinkOperatorXBase* pa
 
 Status StreamingAggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+    _shared_state->data_queue.reset(new DataQueue(1, _dependency));
     _queue_byte_size_counter = ADD_COUNTER(profile(), "MaxSizeInBlockQueue", TUnit::BYTES);
     _queue_size_counter = ADD_COUNTER(profile(), "MaxSizeOfBlockQueue", TUnit::UNIT);
     _streaming_agg_timer = ADD_TIMER(profile(), "StreamingAggTime");
@@ -156,19 +157,10 @@ Status StreamingAggSinkLocalState::do_pre_agg(vectorized::Block* input_block,
 
     // pre stream agg need use _num_row_return to decide whether to do pre stream agg
     _num_rows_returned += output_block->rows();
-    _make_nullable_output_key(output_block);
+    _dependency->_make_nullable_output_key(output_block);
     //    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     _executor.update_memusage();
     return Status::OK();
-}
-
-void StreamingAggSinkLocalState::_make_nullable_output_key(vectorized::Block* block) {
-    if (block->rows() != 0) {
-        for (auto cid : _dependency->make_nullable_keys()) {
-            block->get_by_position(cid).column = make_nullable(block->get_by_position(cid).column);
-            block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
-        }
-    }
 }
 
 bool StreamingAggSinkLocalState::_should_expand_preagg_hash_tables() {
@@ -178,7 +170,7 @@ bool StreamingAggSinkLocalState::_should_expand_preagg_hash_tables() {
 
     return std::visit(
             [&](auto&& agg_method) -> bool {
-                auto& hash_tbl = agg_method.data;
+                auto& hash_tbl = *agg_method.hash_table;
                 auto [ht_mem, ht_rows] =
                         std::pair {hash_tbl.get_buffer_size_in_bytes(), hash_tbl.size()};
 
@@ -251,9 +243,7 @@ Status StreamingAggSinkLocalState::_pre_agg_with_serialized_key(
     }
 
     int rows = in_block->rows();
-    if (_places.size() < rows) {
-        _places.resize(rows);
-    }
+    _places.resize(rows);
 
     // Stop expanding hash tables if we're not reducing the input sufficiently. As our
     // hash tables expand out of each level of cache hierarchy, every hash table lookup
@@ -264,7 +254,8 @@ Status StreamingAggSinkLocalState::_pre_agg_with_serialized_key(
     bool ret_flag = false;
     RETURN_IF_ERROR(std::visit(
             [&](auto&& agg_method) -> Status {
-                if (auto& hash_tbl = agg_method.data; hash_tbl.add_elem_size_overflow(rows)) {
+                if (auto& hash_tbl = *agg_method.hash_table;
+                    hash_tbl.add_elem_size_overflow(rows)) {
                     /// If too much memory is used during the pre-aggregation stage,
                     /// it is better to output the data directly without performing further aggregation.
                     const bool used_too_much_memory =
@@ -353,13 +344,6 @@ StreamingAggSinkOperatorX::StreamingAggSinkOperatorX(ObjectPool* pool, const TPl
                                                      const DescriptorTbl& descs)
         : AggSinkOperatorX<StreamingAggSinkLocalState>(pool, tnode, descs) {}
 
-bool StreamingAggSinkOperatorX::can_write(RuntimeState* state) {
-    // sink and source in diff threads
-    return state->get_sink_local_state(id())
-            ->cast<StreamingAggSinkLocalState>()
-            ._shared_state->data_queue->has_enough_space_to_push();
-}
-
 Status StreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(AggSinkOperatorX<StreamingAggSinkLocalState>::init(tnode, state));
     _name = "STREAMING_AGGREGATION_SINK_OPERATOR";
@@ -368,7 +352,7 @@ Status StreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* sta
 
 Status StreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                        SourceState source_state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<StreamingAggSinkLocalState>();
+    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();
@@ -389,7 +373,7 @@ Status StreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* i
     return Status::OK();
 }
 
-Status StreamingAggSinkLocalState::close(RuntimeState* state) {
+Status StreamingAggSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
@@ -402,7 +386,7 @@ Status StreamingAggSinkLocalState::close(RuntimeState* state) {
         COUNTER_SET(_queue_byte_size_counter, _shared_state->data_queue->max_bytes_in_queue());
     }
     _preagg_block.clear();
-    return Base::close(state);
+    return Base::close(state, exec_status);
 }
 
 } // namespace doris::pipeline

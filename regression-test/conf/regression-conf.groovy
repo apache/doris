@@ -47,6 +47,31 @@ pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
 sslCertificatePath = "${DORIS_HOME}/regression-test/ssl_default_certificate"
 
+// suite configs
+suites = {
+
+    //// equals to:
+    ////    suites.test_suite_1.key1 = "val1"
+    ////    suites.test_suite_1.key2 = "val2"
+    ////
+    //test_suite_1 {
+    //    key1 = "val1"
+    //    key2 = "val2"
+    //}
+
+    //test_suite_2 {
+    //    key3 = "val1"
+    //    key4 = "val2"
+    //}
+}
+
+// docker image
+image = ""
+dockerEndDeleteFiles = false
+dorisComposePath = "${DORIS_HOME}/docker/runtime/doris-compose/doris-compose.py"
+// do run docker test because pipeline not support build image now
+excludeDockerTest = true
+
 // will test <group>/<suite>.groovy
 // empty group will test all group
 testGroups = ""
@@ -88,11 +113,13 @@ clickhouse_22_port=8123
 doris_port=9030
 
 // hive catalog test config
-// To enable hive test, you need first start hive container.
+// To enable hive/paimon test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
+enablePaimonTest=false
 hms_port=9183
 hdfs_port=8120
+hiveServerPort=10000
 
 // kafka test config
 // to enable kafka test, you need firstly to start kafka container
@@ -113,6 +140,7 @@ enableExternalHiveTest = false
 extHiveHmsHost = "***.**.**.**"
 extHiveHmsPort = 7004
 extHdfsPort = 4007
+extHiveServerPort= 7001
 extHiveHmsUser = "****"
 extHiveHmsPassword= "***********"
 
@@ -139,6 +167,10 @@ extEsHost = "***********"
 extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
+
+enableMaxComputeTest=false
+aliYunAk="***********"
+aliYunSk="***********"
 
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"

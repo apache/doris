@@ -24,6 +24,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
@@ -169,6 +170,10 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits() throws UserException {
+        return HiveMetaStoreClientHelper.ugiDoAs(source.getCatalog().getConfiguration(), this::doGetSplits);
+    }
+
+    private List<Split> doGetSplits() throws UserException {
 
         TableScan scan = icebergTable.newScan();
 

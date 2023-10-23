@@ -35,7 +35,7 @@ INSERT
 该语句是完成数据插入操作。
 
 ```sql
-INSERT [IGNORE] INTO table_name
+INSERT INTO table_name
     [ PARTITION (p1, ...) ]
     [ WITH LABEL label]
     [ (column [, ...]) ]
@@ -44,8 +44,7 @@ INSERT [IGNORE] INTO table_name
 ```
 
  Parameters
-> IGNORE: insert ignore模式，仅当目标表为开启merge-on-write的unique表时有效。开启后，对于插入的行，如果该行的key在表中不存在，则插入该行数据。如果key在表中不存在，则丢弃这行数据。当目标表中存在sequence列时无法通过insert ignore语句进行插入操作。
->
+
 > tablet_name: 导入数据的目的表。可以是 `db_name.table_name` 形式
 >
 > partitions: 指定待导入的分区，必须是 `table_name` 中存在的分区，多个分区名称用逗号分隔
@@ -65,7 +64,9 @@ INSERT [IGNORE] INTO table_name
 > 2. SHUFFLE：当目标表是分区表，开启这个 hint 会进行 repartiiton。
 > 3. NOSHUFFLE：即使目标表是分区表，也不会进行 repartiiton，但会做一些其他操作以保证数据正确落到各个分区中。
 
-对于开启了merge-on-write的Unique表，还可以使用insert语句进行部分列更新的操作。要使用insert语句进行部分列更新，需要将会话变量enable_uniuqe_key_partial_update的值设置为true(该变量默认值为false，即默认无法通过insert语句进行部分列更新)。进行部分列更新时，插入的列必须至少包含所有的Key列，同时指定需要更新的列。如果插入行Key列的值在原表中存在，则将更新具有相同key列值那一行的数据。如果插入行Key列的值在原表中不存在，则将向表中插入一条新的数据，此时insert语句中没有指定的列必须有默认值或可以为null，这些缺失列会首先尝试用默认值填充，如果该列没有默认值，则尝试使用null值填充，如果该列不能为null，则本次插入失败。
+对于开启了merge-on-write的Unique表，还可以使用insert语句进行部分列更新的操作。要使用insert语句进行部分列更新，需要将会话变量enable_unique_key_partial_update的值设置为true(该变量默认值为false，即默认无法通过insert语句进行部分列更新)。进行部分列更新时，插入的列必须至少包含所有的Key列，同时指定需要更新的列。如果插入行Key列的值在原表中存在，则将更新具有相同key列值那一行的数据。如果插入行Key列的值在原表中不存在，则将向表中插入一条新的数据，此时insert语句中没有指定的列必须有默认值或可以为null，这些缺失列会首先尝试用默认值填充，如果该列没有默认值，则尝试使用null值填充，如果该列不能为null，则本次插入失败。
+
+需要注意的是，控制insert语句是否开启严格模式的会话变量`enable_insert_strict`的默认值为true，即insert语句默认开启严格模式，而在严格模式下进行部分列更新不允许更新不存在的key。所以，在使用insert语句进行部分列更新的时候如果希望能插入不存在的key，需要在`enable_unique_key_partial_update`设置为true的基础上同时将`enable_insert_strict`也设置为true。
 
 注意：
 

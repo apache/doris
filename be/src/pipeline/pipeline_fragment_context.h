@@ -58,7 +58,8 @@ public:
     // Note: this does not take a const RuntimeProfile&, because it might need to call
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
-    using report_status_callback = std::function<void(const ReportStatusRequest)>;
+    using report_status_callback = std::function<Status(
+            const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
                             const int fragment_id, int backend_num,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
@@ -118,9 +119,7 @@ public:
     virtual void add_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {}
 
-    void send_report(bool);
-
-    virtual void report_profile();
+    virtual Status send_report(bool);
 
     Status update_status(Status status) {
         std::lock_guard<std::mutex> l(_status_lock);
@@ -130,15 +129,21 @@ public:
         return _query_ctx->exec_status();
     }
 
-    taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const {
+    [[nodiscard]] taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const {
         return _task_group_entity;
     }
+    void trigger_report_if_necessary();
 
     bool is_group_commit() { return _group_commit; }
     virtual void instance_ids(std::vector<TUniqueId>& ins_ids) const {
         ins_ids.resize(1);
         ins_ids[0] = _fragment_instance_id;
     }
+    virtual void instance_ids(std::vector<string>& ins_ids) const {
+        ins_ids.resize(1);
+        ins_ids[0] = print_id(_fragment_instance_id);
+    }
+    void refresh_next_report_time();
 
 protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
@@ -147,7 +152,7 @@ protected:
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
     virtual void _close_action();
-    void _stop_report_thread();
+    void _init_next_report_time();
     void _set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
     // Id of this query
@@ -200,23 +205,19 @@ protected:
     std::function<void(RuntimeState*, Status*)> _call_back;
     std::once_flag _close_once_flag;
 
-    std::condition_variable _report_thread_started_cv;
-    // true if we started the thread
-    bool _report_thread_active;
-    // profile reporting-related
-    report_status_callback _report_status_cb;
-    std::promise<bool> _report_thread_promise;
-    std::future<bool> _report_thread_future;
-    std::mutex _report_thread_lock;
-
-    // Indicates that profile reporting thread should stop.
-    // Tied to _report_thread_lock.
-    std::condition_variable _stop_report_thread_cv;
     // If this is set to false, and '_is_report_success' is false as well,
     // This executor will not report status to FE on being cancelled.
     bool _is_report_on_cancel;
 
+    // 0 indicates reporting is in progress or not required
+    std::atomic_bool _disable_period_report = true;
+    std::atomic_uint64_t _previous_report_time = 0;
+
+    // profile reporting-related
+    report_status_callback _report_status_cb;
+
 private:
+    static bool _has_inverted_index(TOlapTableSink sink);
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
     bool _group_commit;
 };

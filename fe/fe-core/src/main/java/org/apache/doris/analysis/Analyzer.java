@@ -41,6 +41,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.AggregationNode;
+import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
@@ -319,6 +320,10 @@ public class Analyzer {
         // analysis.
         public boolean isExplain;
 
+        // Record the statement clazz that the analyzer would to analyze,
+        // this give an opportunity to control analyzing behavior according to the statement type.
+        public Class<? extends StatementBase> rootStatementClazz;
+
         // Indicates whether the query has plan hints.
         public boolean hasPlanHints = false;
 
@@ -565,6 +570,14 @@ public class Analyzer {
 
     public boolean isExplain() {
         return globalState.isExplain;
+    }
+
+    public void setRootStatementClazz(Class<? extends StatementBase> statementClazz) {
+        globalState.rootStatementClazz = statementClazz;
+    }
+
+    public Class<? extends StatementBase> getRootStatementClazz() {
+        return globalState.rootStatementClazz;
     }
 
     public int incrementCallDepth() {
@@ -981,7 +994,10 @@ public class Analyzer {
                                                 newTblName == null ? "table list" : newTblName.toString());
         }
 
-        Column col = d.getTable() == null ? new Column(colName, ScalarType.BOOLEAN) : d.getTable().getColumn(colName);
+        Column col = (d.getTable() == null)
+                ? new Column(colName, ScalarType.BOOLEAN,
+                        globalState.markTuples.get(d.getAlias()) != null)
+                : d.getTable().getColumn(colName);
         if (col == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, colName,
                                                 newTblName == null ? d.getTable().getName() : newTblName.toString());
@@ -2457,12 +2473,12 @@ public class Analyzer {
      * Wrapper around getUnassignedConjuncts(List<TupleId> tupleIds).
      */
     public List<Expr> getUnassignedConjuncts(PlanNode node) {
-        // constant conjuncts should be push down to all leaf node except agg node.
+        // constant conjuncts should be push down to all leaf node except agg and analytic node.
         // (see getPredicatesBoundedByGroupbysSourceExpr method)
         // so we need remove constant conjuncts when expr is not a leaf node.
-        List<Expr> unassigned = getUnassignedConjuncts(
-                node instanceof AggregationNode ? node.getTupleIds() : node.getTblRefIds());
-        if (!node.getChildren().isEmpty() && !(node instanceof AggregationNode)) {
+        List<Expr> unassigned = getUnassignedConjuncts(node.getTblRefIds());
+        if (!node.getChildren().isEmpty()
+                && !(node instanceof AggregationNode || node instanceof AnalyticEvalNode)) {
             unassigned = unassigned.stream()
                     .filter(e -> !e.isConstant()).collect(Collectors.toList());
         }

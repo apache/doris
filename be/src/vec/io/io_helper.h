@@ -21,7 +21,6 @@
 #include <snappy/snappy.h>
 
 #include <iostream>
-#include <unordered_map>
 
 #include "common/exception.h"
 #include "util/binary_cast.hpp"
@@ -42,8 +41,6 @@ namespace doris::vectorized {
 static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 1GB
 static constexpr size_t DEFAULT_MAX_JSON_SIZE = 1073741824;   // 1GB
 static constexpr auto WRITE_HELPERS_MAX_INT_WIDTH = 40U;
-
-using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 
 inline std::string int128_to_string(__int128_t value) {
     fmt::memory_buffer buffer;
@@ -283,12 +280,10 @@ bool read_date_text_impl(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
-bool read_date_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone,
-                         ZoneList& time_zone_cache, std::shared_mutex& cache_lock) {
+bool read_date_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone) {
     static_assert(std::is_same_v<Int64, T>);
     auto dv = binary_cast<Int64, VecDateTimeValue>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone, time_zone_cache,
-                                &cache_lock);
+    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone);
     dv.cast_to_date();
 
     // only to match the is_all_read() check to prevent return null
@@ -311,12 +306,10 @@ bool read_datetime_text_impl(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
-bool read_datetime_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone,
-                             ZoneList& time_zone_cache, std::shared_mutex& cache_lock) {
+bool read_datetime_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone) {
     static_assert(std::is_same_v<Int64, T>);
     auto dv = binary_cast<Int64, VecDateTimeValue>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone, time_zone_cache,
-                                &cache_lock);
+    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone);
     dv.to_datetime();
 
     // only to match the is_all_read() check to prevent return null
@@ -338,12 +331,10 @@ bool read_date_v2_text_impl(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
-bool read_date_v2_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone,
-                            ZoneList& time_zone_cache, std::shared_mutex& cache_lock) {
+bool read_date_v2_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone) {
     static_assert(std::is_same_v<UInt32, T>);
     auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone, time_zone_cache,
-                                &cache_lock);
+    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone);
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
@@ -365,12 +356,10 @@ bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, UInt32 scale = -1) {
 
 template <typename T>
 bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone,
-                                ZoneList& time_zone_cache, std::shared_mutex& cache_lock,
                                 UInt32 scale = -1) {
     static_assert(std::is_same_v<UInt64, T>);
     auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone, time_zone_cache,
-                                &cache_lock, scale);
+    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone, scale);
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
@@ -456,28 +445,23 @@ StringParser::ParseResult try_read_decimal_text(T& x, ReadBuffer& in, UInt32 pre
 }
 
 template <typename T>
-bool try_read_datetime_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone,
-                            ZoneList& time_zone_cache, std::shared_mutex& cache_lock) {
-    return read_datetime_text_impl<T>(x, in, local_time_zone, time_zone_cache, cache_lock);
+bool try_read_datetime_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone) {
+    return read_datetime_text_impl<T>(x, in, local_time_zone);
 }
 
 template <typename T>
-bool try_read_date_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone,
-                        ZoneList& time_zone_cache, std::shared_mutex& cache_lock) {
-    return read_date_text_impl<T>(x, in, local_time_zone, time_zone_cache, cache_lock);
+bool try_read_date_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone) {
+    return read_date_text_impl<T>(x, in, local_time_zone);
 }
 
 template <typename T>
-bool try_read_date_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone,
-                           ZoneList& time_zone_cache, std::shared_mutex& cache_lock) {
-    return read_date_v2_text_impl<T>(x, in, local_time_zone, time_zone_cache, cache_lock);
+bool try_read_date_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone) {
+    return read_date_v2_text_impl<T>(x, in, local_time_zone);
 }
 
 template <typename T>
 bool try_read_datetime_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone,
-                               ZoneList& time_zone_cache, std::shared_mutex& cache_lock,
                                UInt32 scale) {
-    return read_datetime_v2_text_impl<T>(x, in, local_time_zone, time_zone_cache, cache_lock,
-                                         scale);
+    return read_datetime_v2_text_impl<T>(x, in, local_time_zone, scale);
 }
 } // namespace doris::vectorized
