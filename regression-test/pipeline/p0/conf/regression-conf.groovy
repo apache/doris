@@ -78,7 +78,7 @@ enableBrokerLoad=true
 enableJdbcTest=false
 mysql_57_port=7111
 pg_14_port=7121
-
+mariadb_10_port=3326
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
