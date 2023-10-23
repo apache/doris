@@ -64,16 +64,10 @@ public class JdbcDruidClient extends JdbcClient {
         // complex<Json>
         if (druidDataType.contains("COMPLEX")) {
             String complexDataType = druidDataType.substring(8, druidDataType.length() - 1);
-            switch (complexDataType) {
-                case "json":
-                    return ScalarType.createJsonbType();
-                case "hyperUnique":
-                case "thetaSketch":
-                case "HLLSketch":
-                    return ScalarType.createStringType();
-                default:
-                    return Type.UNSUPPORTED;
+            if (complexDataType.equals("json")) {
+                return ScalarType.createJsonbType();
             }
+            return Type.UNSUPPORTED;
         }
 
 
