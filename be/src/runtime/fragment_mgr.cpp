@@ -1004,7 +1004,7 @@ void FragmentMgr::cancel_instance_unlocked(const TUniqueId& instance_id,
                                            const std::unique_lock<std::mutex>& state_lock,
                                            const std::string& msg) {
     const bool is_pipeline_instance = _pipeline_map.contains(instance_id);
-    
+
     if (is_pipeline_instance) {
         auto itr = _pipeline_map.find(instance_id);
 

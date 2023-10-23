@@ -566,11 +566,10 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
                                  has_cancel_reason
                                          ? PPlanFragmentCancelReason_Name(request->cancel_reason())
                                          : "INTERNAL_ERROR");
-        
+
         _exec_env->fragment_mgr()->cancel_instance(
                 tid, has_cancel_reason ? request->cancel_reason()
-                                        : PPlanFragmentCancelReason::INTERNAL_ERROR);
-        
+                                       : PPlanFragmentCancelReason::INTERNAL_ERROR);
 
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
