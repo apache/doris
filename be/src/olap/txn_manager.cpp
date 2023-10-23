@@ -35,6 +35,7 @@
 #include "common/logging.h"
 #include "olap/data_dir.h"
 #include "olap/delta_writer.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/schema_change.h"
@@ -44,6 +45,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_publish_version_task.h"
+#include "util/debug_points.h"
 #include "util/time.h"
 
 namespace doris {
@@ -80,13 +82,11 @@ TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
 // prepare txn should always be allowed because ingest task will be retried
 // could not distinguish rollup, schema change or base table, prepare txn successfully will allow
 // ingest retried
-Status TxnManager::prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+Status TxnManager::prepare_txn(TPartitionId partition_id, const Tablet& tablet,
                                TTransactionId transaction_id, const PUniqueId& load_id,
                                bool ingest) {
-    const auto& tablet_id = tablet->tablet_id();
-    const auto& tablet_uid = tablet->tablet_uid();
-
-    return prepare_txn(partition_id, transaction_id, tablet_id, tablet_uid, load_id, ingest);
+    return prepare_txn(partition_id, transaction_id, tablet.tablet_id(), tablet.tablet_uid(),
+                       load_id, ingest);
 }
 
 // most used for ut
@@ -148,11 +148,11 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     return Status::OK();
 }
 
-Status TxnManager::commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+Status TxnManager::commit_txn(TPartitionId partition_id, const Tablet& tablet,
                               TTransactionId transaction_id, const PUniqueId& load_id,
                               const RowsetSharedPtr& rowset_ptr, bool is_recovery) {
-    return commit_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
-                      tablet->tablet_id(), tablet->tablet_uid(), load_id, rowset_ptr, is_recovery);
+    return commit_txn(tablet.data_dir()->get_meta(), partition_id, transaction_id,
+                      tablet.tablet_id(), tablet.tablet_uid(), load_id, rowset_ptr, is_recovery);
 }
 
 Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -163,9 +163,9 @@ Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr&
 }
 
 // delete the txn from manager if it is not committed(not have a valid rowset)
-Status TxnManager::rollback_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+Status TxnManager::rollback_txn(TPartitionId partition_id, const Tablet& tablet,
                                 TTransactionId transaction_id) {
-    return rollback_txn(partition_id, transaction_id, tablet->tablet_id(), tablet->tablet_uid());
+    return rollback_txn(partition_id, transaction_id, tablet.tablet_id(), tablet.tablet_uid());
 }
 
 Status TxnManager::delete_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -174,11 +174,11 @@ Status TxnManager::delete_txn(TPartitionId partition_id, const TabletSharedPtr& 
                       tablet->tablet_id(), tablet->tablet_uid());
 }
 
-void TxnManager::set_txn_related_delete_bitmap(TPartitionId partition_id,
-                                               TTransactionId transaction_id, TTabletId tablet_id,
-                                               TabletUid tablet_uid, bool unique_key_merge_on_write,
-                                               DeleteBitmapPtr delete_bitmap,
-                                               const RowsetIdUnorderedSet& rowset_ids) {
+void TxnManager::set_txn_related_delete_bitmap(
+        TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
+        TabletUid tablet_uid, bool unique_key_merge_on_write, DeleteBitmapPtr delete_bitmap,
+        const RowsetIdUnorderedSet& rowset_ids,
+        std::shared_ptr<PartialUpdateInfo> partial_update_info) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, tablet_uid);
 
@@ -204,6 +204,7 @@ void TxnManager::set_txn_related_delete_bitmap(TPartitionId partition_id,
         load_info.unique_key_merge_on_write = unique_key_merge_on_write;
         load_info.delete_bitmap = delete_bitmap;
         load_info.rowset_ids = rowset_ids;
+        load_info.partial_update_info = partial_update_info;
     }
 }
 
@@ -224,6 +225,12 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                 "transaction_id: {}, tablet: {}",
                 key.first, key.second, tablet_info.to_string());
     }
+
+    DBUG_EXECUTE_IF(
+            "TxnManager.commit_txn_random_failed",
+            if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+                return Status::InternalError("debug commit txn random failed");
+            });
 
     std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));
     // this while loop just run only once, just for if break
@@ -356,7 +363,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info.unique_key_merge_on_write) {
         std::unique_ptr<RowsetWriter> rowset_writer;
-        static_cast<void>(tablet->create_transient_rowset_writer(rowset, &rowset_writer));
+        static_cast<void>(tablet->create_transient_rowset_writer(
+                rowset, &rowset_writer, tablet_txn_info.partial_update_info));
 
         int64_t t2 = MonotonicMicros();
         RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset, tablet_txn_info.rowset_ids,
@@ -364,10 +372,12 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                                      rowset_writer.get()));
         int64_t t3 = MonotonicMicros();
         stats->calc_delete_bitmap_time_us = t3 - t2;
-        if (rowset->tablet_schema()->is_partial_update()) {
+        if (tablet_txn_info.partial_update_info &&
+            tablet_txn_info.partial_update_info->is_partial_update) {
             // build rowset writer and merge transient rowset
             RETURN_IF_ERROR(rowset_writer->flush());
-            RowsetSharedPtr transient_rowset = rowset_writer->build();
+            RowsetSharedPtr transient_rowset;
+            RETURN_IF_ERROR(rowset_writer->build(transient_rowset));
             rowset->merge_rowset_meta(transient_rowset->rowset_meta());
 
             // erase segment cache cause we will add a segment to rowset

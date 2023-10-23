@@ -145,9 +145,16 @@ Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLo
         return Status::OK();
     }
 
-    int64_t commit_and_publish_start_time = MonotonicNanos();
-    RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()));
-    ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
+    if (ctx->two_phase_commit) {
+        int64_t pre_commit_start_time = MonotonicNanos();
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->pre_commit_txn(ctx.get()));
+        ctx->pre_commit_txn_cost_nanos = MonotonicNanos() - pre_commit_start_time;
+    } else {
+        // If put file success we need commit this load
+        int64_t commit_and_publish_start_time = MonotonicNanos();
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()));
+        ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
+    }
     return Status::OK();
 }
 
@@ -161,6 +168,8 @@ int HttpStreamAction::on_header(HttpRequest* req) {
     ctx->load_src_type = TLoadSourceType::RAW;
 
     ctx->group_commit = iequal(req->header(HTTP_GROUP_COMMIT), "true");
+
+    ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true" ? true : false;
 
     LOG(INFO) << "new income streaming load request." << ctx->brief()
               << " sql : " << req->header(HTTP_SQL);
@@ -315,12 +324,6 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
     ctx->label = ctx->put_result.params.import_label;
     ctx->put_result.params.__set_wal_id(ctx->wal_id);
 
-    if (ctx->group_commit) {
-        ctx->db_id = ctx->put_result.db_id;
-        ctx->table_id = ctx->put_result.table_id;
-        ctx->schema_version = ctx->put_result.base_schema_version;
-        return _exec_env->group_commit_mgr()->group_commit_stream_load(ctx);
-    }
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
 

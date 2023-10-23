@@ -43,6 +43,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.metric.GaugeMetric;
@@ -143,7 +144,8 @@ public class ReportHandler extends Daemon {
         if (backend == null) {
             tStatus.setStatusCode(TStatusCode.INTERNAL_ERROR);
             List<String> errorMsgs = Lists.newArrayList();
-            errorMsgs.add("backend[" + host + ":" + bePort + "] does not exist.");
+            errorMsgs.add("backend[" + NetUtils
+                    .getHostPortInAccessibleFormat(host, bePort) + "] does not exist.");
             tStatus.setErrorMsgs(errorMsgs);
             return result;
         }
@@ -304,6 +306,7 @@ public class ReportHandler extends Daemon {
         // do the diff. find out (intersection) / (be - meta) / (meta - be)
         List<Policy> policiesInFe = Env.getCurrentEnv().getPolicyMgr().getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
         List<Resource> resourcesInFe = Env.getCurrentEnv().getResourceMgr().getResource(ResourceType.S3);
+        resourcesInFe.addAll(Env.getCurrentEnv().getResourceMgr().getResource(ResourceType.HDFS));
 
         List<Resource> resourceToPush = new ArrayList<>();
         List<Policy> policyToPush = new ArrayList<>();
@@ -403,7 +406,8 @@ public class ReportHandler extends Daemon {
         }
     }
 
-    private static void tabletReport(long backendId, Map<Long, TTablet> backendTablets, long backendReportVersion) {
+    // public for fe ut
+    public static void tabletReport(long backendId, Map<Long, TTablet> backendTablets, long backendReportVersion) {
         long start = System.currentTimeMillis();
         LOG.info("backend[{}] reports {} tablet(s). report version: {}",
                 backendId, backendTablets.size(), backendReportVersion);
@@ -607,6 +611,11 @@ public class ReportHandler extends Daemon {
                 if (olapTable == null || !olapTable.writeLockIfExist()) {
                     continue;
                 }
+
+                if (backendReportVersion < Env.getCurrentSystemInfo().getBackendReportVersion(backendId)) {
+                    break;
+                }
+
                 try {
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
@@ -660,14 +669,25 @@ public class ReportHandler extends Daemon {
                             continue;
                         }
 
-                        if (metaVersion < backendVersion
-                                || (metaVersion == backendVersion && replica.isBad())) {
-
-                            if (backendReportVersion < Env.getCurrentSystemInfo()
-                                    .getBackendReportVersion(backendId)) {
-                                continue;
+                        boolean needSync = false;
+                        if (metaVersion < backendVersion) {
+                            needSync = true;
+                        } else if (metaVersion == backendVersion) {
+                            if (replica.isBad()) {
+                                needSync = true;
                             }
+                            if (replica.getVersion() >= partition.getCommittedVersion()
+                                    && replica.getLastFailedVersion() > partition.getCommittedVersion()) {
+                                LOG.info("sync replica {} of tablet {} in backend {} in db {}. replica last failed"
+                                        + " version change to -1 because last failed version > replica's committed"
+                                        + " version {}",
+                                        replica, tabletId, backendId, dbId, partition.getCommittedVersion());
+                                replica.updateLastFailedVersion(-1L);
+                                needSync = true;
+                            }
+                        }
 
+                        if (needSync) {
                             // happens when
                             // 1. PUSH finished in BE but failed or not yet report to FE
                             // 2. repair for VERSION_INCOMPLETE finished in BE, but failed or not yet report to FE
@@ -1048,18 +1068,25 @@ public class ReportHandler extends Daemon {
                                 break;
                             }
 
-                            if (tTabletInfo.isSetVersionMiss() && tTabletInfo.isVersionMiss()) {
+                            if ((tTabletInfo.isSetVersionMiss() && tTabletInfo.isVersionMiss())
+                                    || replica.checkVersionRegressive(tTabletInfo.getVersion())) {
                                 // If the origin last failed version is larger than 0, not change it.
                                 // Otherwise, we set last failed version to replica'version + 1.
                                 // Because last failed version should always larger than replica's version.
                                 long newLastFailedVersion = replica.getLastFailedVersion();
                                 if (newLastFailedVersion < 0) {
                                     newLastFailedVersion = replica.getVersion() + 1;
+                                    replica.updateLastFailedVersion(newLastFailedVersion);
+                                    LOG.warn("set missing version for replica {} of tablet {} on backend {}, "
+                                            + "version in fe {}, version in be {}, be missing {}",
+                                            replica.getId(), tabletId, backendId, replica.getVersion(),
+                                            tTabletInfo.getVersion(), tTabletInfo.isVersionMiss());
                                 }
-                                replica.updateLastFailedVersion(newLastFailedVersion);
                                 backendReplicasInfo.addMissingVersionReplica(tabletId, newLastFailedVersion);
                                 break;
                             }
+
+                            break;
                         }
                     }
                 } finally {

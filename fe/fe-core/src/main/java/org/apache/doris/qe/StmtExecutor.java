@@ -766,8 +766,14 @@ public class StmtExecutor {
             } else if (parsedStmt instanceof UpdateStmt) {
                 handleUpdateStmt();
             } else if (parsedStmt instanceof DdlStmt) {
-                if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getInsertStmt() != null) {
-                    handleDeleteStmt();
+                if (parsedStmt instanceof DeleteStmt) {
+                    if (((DeleteStmt) parsedStmt).getInsertStmt() != null) {
+                        handleDeleteStmt();
+                    } else {
+                        Env.getCurrentEnv()
+                                .getDeleteHandler()
+                                .process((DeleteStmt) parsedStmt, context.getState());
+                    }
                 } else {
                     handleDdlStmt();
                 }
@@ -887,7 +893,8 @@ public class StmtExecutor {
         }
 
         profile.update(context.startTime, getSummaryInfo(isFinished), isFinished,
-                context.getSessionVariable().profileLevel, this.planner);
+                context.getSessionVariable().profileLevel, this.planner,
+                context.getSessionVariable().getEnablePipelineXEngine());
     }
 
     // Analyze one statement to structure in memory.

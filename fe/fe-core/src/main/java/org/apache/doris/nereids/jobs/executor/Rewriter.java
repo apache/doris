@@ -28,6 +28,7 @@ import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
+import org.apache.doris.nereids.rules.analysis.RejectGroupCommitInsert;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
@@ -91,6 +92,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushdownLimit;
+import org.apache.doris.nereids.rules.rewrite.PushdownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
@@ -266,6 +268,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new BuildAggForUnion())
             ),
 
+            // TODO remove it after Nereids support group commit insert
+            topDown(new RejectGroupCommitInsert()),
+
             // topic("Distinct",
             //         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushdownDistinctThroughJoin::new))
             // ),
@@ -280,6 +285,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new SplitLimit(),
                             new PushdownLimit(),
                             new PushdownTopNThroughJoin(),
+                            new PushdownLimitDistinctThroughJoin(),
                             new PushdownTopNThroughWindow(),
                             new CreatePartitionTopNFromWindow()
                     )

@@ -152,10 +152,10 @@ RE2_SOURCE=re2-2021-02-02
 RE2_MD5SUM="48bc665463a86f68243c5af1bac75cd0"
 
 # hyperscan
-HYPERSCAN_DOWNLOAD="https://github.com/intel/hyperscan/archive/refs/tags/v5.4.0.tar.gz"
-HYPERSCAN_NAME=hyperscan-5.4.0.tar.gz
-HYPERSCAN_SOURCE=hyperscan-5.4.0
-HYPERSCAN_MD5SUM="65e08385038c24470a248f6ff2fa379b"
+HYPERSCAN_DOWNLOAD="https://github.com/intel/hyperscan/archive/refs/tags/v5.4.2.tar.gz"
+HYPERSCAN_NAME=hyperscan-5.4.2.tar.gz
+HYPERSCAN_SOURCE=hyperscan-5.4.2
+HYPERSCAN_MD5SUM="202f4b42f5dd4a7bb2506445e51a33b9"
 
 # vectorscan (support arm for hyperscan)
 MACHINE_TYPE=$(uname -m)
@@ -346,10 +346,10 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.9.272.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.9.272.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.9.272"
-AWS_SDK_MD5SUM="3a9190e3d14b81bfdd9c41a89a419202"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.119.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.11.119.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.11.119"
+AWS_SDK_MD5SUM="3cd8bd51d39dc207a243a2074d11f439"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -484,6 +484,12 @@ DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
 DRAGONBOX_SOURCE=dragonbox-1.1.3
 DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
 
+# AvxToNeon
+AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
+AVX2NEON_NAME=v1.0.0.tar.gz
+AVX2NEON_SOURCE=AvxToNeon-1.0.0
+AVX2NEON_MD5SUM="692d0e0f8b885a86ebc5172a9d8ee8db"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -555,6 +561,7 @@ export TP_ARCHIVES=(
     'FAST_FLOAT'
     'HADOOP_LIBS'
     'DRAGONBOX'
+    'AVX2NEON'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

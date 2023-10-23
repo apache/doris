@@ -86,8 +86,7 @@ void ColumnDecimal<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_ro
 
 template <typename T>
 void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                                   const uint8_t* null_map,
-                                                   size_t max_row_byte_size) const {
+                                                   const uint8_t* null_map) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
             memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
@@ -138,7 +137,7 @@ void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
 }
 
 template <typename T>
-void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                              const uint8_t* __restrict null_data) const {
     if (null_data == nullptr) {
         for (size_t i = start; i < end; i++) {
@@ -162,9 +161,10 @@ void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint64_t&
 }
 
 template <typename T>
-void ColumnDecimal<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type,
+                                              uint32_t rows, uint32_t offset,
                                               const uint8_t* __restrict null_data) const {
-    auto s = hashes.size();
+    auto s = rows;
     DCHECK(s == size());
 
     if constexpr (!IsDecimalV2<T>) {
@@ -446,28 +446,6 @@ void ColumnDecimal<T>::replicate(const uint32_t* __restrict indexs, size_t targe
     for (size_t i = 0; i < target_size; ++i) {
         res_data[i] = data[indexs[i]];
     }
-}
-
-template <typename T>
-void ColumnDecimal<T>::get_extremes(Field& min, Field& max) const {
-    if (data.size() == 0) {
-        min = NearestFieldType<T>(T(), scale);
-        max = NearestFieldType<T>(T(), scale);
-        return;
-    }
-
-    T cur_min = data[0];
-    T cur_max = data[0];
-
-    for (const T& x : data) {
-        if (x < cur_min)
-            cur_min = x;
-        else if (x > cur_max)
-            cur_max = x;
-    }
-
-    min = NearestFieldType<T>(cur_min, scale);
-    max = NearestFieldType<T>(cur_max, scale);
 }
 
 template <typename T>

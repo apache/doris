@@ -48,6 +48,7 @@
 #include "util/simd/bits.h"
 #include "util/telemetry/telemetry.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_filter_helper.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -79,7 +80,7 @@ Status RuntimeFilterBuild<Parent>::operator()(RuntimeState* state) {
     if (!runtime_filter_slots.empty() && !_parent->build_blocks().empty()) {
         SCOPED_TIMER(_parent->push_compute_timer());
         for (auto& build_block : _parent->build_blocks()) {
-            static_cast<void>(runtime_filter_slots.insert(&build_block));
+            RETURN_IF_ERROR(runtime_filter_slots.insert(&build_block));
         }
     }
     {
@@ -189,7 +190,7 @@ Status VNestedLoopJoinNode::_materialize_build_side(RuntimeState* state) {
                               std::placeholders::_3)));
         }
 
-        static_cast<void>(sink(state, &block, eos));
+        RETURN_IF_ERROR(sink(state, &block, eos));
 
         if (eos) {
             break;
@@ -215,7 +216,7 @@ Status VNestedLoopJoinNode::sink(doris::RuntimeState* state, vectorized::Block* 
 
     if (eos) {
         COUNTER_UPDATE(_build_rows_counter, _build_rows);
-        static_cast<void>(RuntimeFilterBuild<VNestedLoopJoinNode>(this)(state));
+        RETURN_IF_ERROR(RuntimeFilterBuild<VNestedLoopJoinNode>(this)(state));
 
         // optimize `in bitmap`, see https://github.com/apache/doris/issues/14338
         if (_is_output_left_side_only &&
@@ -270,7 +271,7 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     RETURN_IF_CANCELLED(state);
     while (need_more_input_data()) {
         RETURN_IF_ERROR(_fresh_left_block(state));
-        static_cast<void>(push(state, &_left_block, _left_side_eos));
+        RETURN_IF_ERROR(push(state, &_left_block, _left_side_eos));
     }
 
     return pull(state, block, eos);
@@ -300,10 +301,9 @@ void VNestedLoopJoinNode::_append_left_data_with_null(MutableBlock& mutable_bloc
     for (size_t i = 0; i < _num_build_side_columns; ++i) {
         dst_columns[_num_probe_side_columns + i]->insert_many_defaults(_left_side_process_count);
     }
-    IColumn::Filter& mark_data = assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
-                                         *dst_columns[dst_columns.size() - 1])
-                                         .get_data();
-    mark_data.resize_fill(mark_data.size() + _left_side_process_count, 0);
+
+    auto& mark_column = *dst_columns[dst_columns.size() - 1];
+    ColumnFilterHelper(mark_column).resize_fill(mark_column.size() + _left_side_process_count, 0);
 }
 
 void VNestedLoopJoinNode::_process_left_child_block(MutableBlock& mutable_block,
@@ -363,12 +363,9 @@ void VNestedLoopJoinNode::_update_additional_flags(Block* block) {
         }
     }
     if (_is_mark_join) {
-        IColumn::Filter& mark_data =
-                assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
-                        *block->get_by_position(block->columns() - 1).column->assume_mutable())
-                        .get_data();
-        if (mark_data.size() < block->rows()) {
-            mark_data.resize_fill(block->rows(), 1);
+        auto mark_column = block->get_by_position(block->columns() - 1).column->assume_mutable();
+        if (mark_column->size() < block->rows()) {
+            ColumnFilterHelper(*mark_column).resize_fill(block->rows(), 1);
         }
     }
 }
@@ -490,14 +487,12 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableBlock& mutable_block, s
                 _resize_fill_tuple_is_null_column(new_size, 0, 1);
             }
         } else {
-            IColumn::Filter& mark_data = assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
-                                                 *dst_columns[dst_columns.size() - 1])
-                                                 .get_data();
-            mark_data.reserve(mark_data.size() + _left_side_process_count);
+            ColumnFilterHelper mark_column(*dst_columns[dst_columns.size() - 1]);
+            mark_column.reserve(mark_column.size() + _left_side_process_count);
             DCHECK_LE(_left_block_start_pos + _left_side_process_count, _left_block.rows());
             for (int j = _left_block_start_pos;
                  j < _left_block_start_pos + _left_side_process_count; ++j) {
-                mark_data.emplace_back(IsSemi == _cur_probe_row_visited_flags[j]);
+                mark_column.insert_value(IsSemi == _cur_probe_row_visited_flags[j]);
             }
             for (size_t i = 0; i < _num_probe_side_columns; ++i) {
                 const ColumnWithTypeAndName src_column = _left_block.get_by_position(i);
@@ -639,7 +634,7 @@ Status VNestedLoopJoinNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     // We can close the right child to release its resources because its input has been
     // fully consumed.
-    static_cast<void>(child(1)->close(state));
+    RETURN_IF_ERROR(child(1)->close(state));
     return Status::OK();
 }
 

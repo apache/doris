@@ -31,14 +31,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.MutableState;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
@@ -138,33 +136,6 @@ public class PhysicalHashJoin<
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitPhysicalHashJoin(this, context);
-    }
-
-    @Override
-    public String toString() {
-        List<Object> args = Lists.newArrayList("type", joinType,
-                "hashJoinCondition", hashJoinConjuncts,
-                "otherJoinCondition", otherJoinConjuncts,
-                "stats", statistics,
-                "fr", getMutableState(AbstractPlan.FRAGMENT_ID));
-        if (markJoinSlotReference.isPresent()) {
-            args.add("isMarkJoin");
-            args.add("true");
-        }
-        if (markJoinSlotReference.isPresent()) {
-            args.add("MarkJoinSlotReference");
-            args.add(markJoinSlotReference.get());
-        }
-        if (hint != JoinHint.NONE) {
-            args.add("hint");
-            args.add(hint);
-        }
-        if (!runtimeFilters.isEmpty()) {
-            args.add("runtimeFilters");
-            args.add(runtimeFilters.stream().map(rf -> rf.toString() + " ").collect(Collectors.toList()));
-        }
-        return Utils.toSqlString("PhysicalHashJoin[" + id.asInt() + "]" + getGroupIdWithPrefix(),
-                args.toArray());
     }
 
     @Override

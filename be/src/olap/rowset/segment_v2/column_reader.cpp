@@ -31,6 +31,7 @@
 #include "io/fs/file_reader.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
+#include "olap/comparison_predicate.h"
 #include "olap/decimal12.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/iterators.h"
@@ -336,6 +337,31 @@ bool ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates
 
     return _zone_map_match_condition(*_segment_zone_map, min_value.get(), max_value.get(),
                                      col_predicates);
+}
+
+bool ColumnReader::prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
+                                                const int column_id) const {
+    if (_zone_map_index == nullptr) {
+        return false;
+    }
+
+    FieldType type = _type_info->type();
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
+    _parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get());
+
+    auto pruned = false;
+    for (auto it = predicates.begin(); it != predicates.end();) {
+        auto predicate = *it;
+        if (predicate->column_id() == column_id &&
+            predicate->is_always_true({min_value.get(), max_value.get()})) {
+            pruned = true;
+            it = predicates.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    return pruned;
 }
 
 void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
@@ -1351,11 +1377,11 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
                sizeof(FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
         std::string str = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::to_string(mem_value);
 
-        vectorized::VecDateTimeValue value;
+        VecDateTimeValue value;
         value.from_date_str(str.c_str(), str.length());
         value.cast_to_date();
 
-        int64 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
+        int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
         dst->insert_many_data(data_ptr, data_len, n);
         break;
     }
@@ -1369,11 +1395,11 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         std::string str =
                 FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>::to_string(mem_value);
 
-        vectorized::VecDateTimeValue value;
+        VecDateTimeValue value;
         value.from_date_str(str.c_str(), str.length());
         value.to_datetime();
 
-        int64 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
+        int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
         dst->insert_many_data(data_ptr, data_len, n);
         break;
     }

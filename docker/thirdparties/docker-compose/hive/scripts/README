@@ -2,3 +2,8 @@
     https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/load/tpch1_parquet/tpch1.db.tar.gz
 
 2. Unzip and name it to "tpch1.db"
+
+3. Download paimon file from:
+    https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/paimon/paimon1.tar.gz
+
+4. Unzip and name it to "paimon1"

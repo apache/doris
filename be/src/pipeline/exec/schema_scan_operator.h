@@ -60,6 +60,8 @@ public:
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
+    Status open(RuntimeState* state) override;
+
 private:
     friend class SchemaScanOperatorX;
 

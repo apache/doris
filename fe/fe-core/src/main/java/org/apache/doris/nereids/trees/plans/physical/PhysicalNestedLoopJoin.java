@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.MutableState;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -113,17 +112,17 @@ public class PhysicalNestedLoopJoin<
         return visitor.visitPhysicalNestedLoopJoin(this, context);
     }
 
-    @Override
-    public String toString() {
-        // TODO: Maybe we could pull up this to the abstract class in the future.
-        return Utils.toSqlString("PhysicalNestedLoopJoin[" + id.asInt() + "]" + getGroupIdWithPrefix(),
-                "type", joinType,
-                "otherJoinCondition", otherJoinConjuncts,
-                "isMarkJoin", markJoinSlotReference.isPresent(),
-                "markJoinSlotReference", markJoinSlotReference.isPresent() ? markJoinSlotReference.get() : "empty",
-                "stats", statistics
-        );
-    }
+    // @Override
+    // public String toString() {
+    //     // TODO: Maybe we could pull up this to the abstract class in the future.
+    //     return Utils.toSqlString("PhysicalNestedLoopJoin[" + id.asInt() + "]" + getGroupIdWithPrefix(),
+    //             "type", joinType,
+    //             "otherJoinCondition", otherJoinConjuncts,
+    //             "isMarkJoin", markJoinSlotReference.isPresent(),
+    //             "markJoinSlotReference", markJoinSlotReference.isPresent() ? markJoinSlotReference.get() : "empty",
+    //             "stats", statistics
+    //     );
+    // }
 
     @Override
     public PhysicalNestedLoopJoin<Plan, Plan> withChildren(List<Plan> children) {
