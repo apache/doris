@@ -1188,6 +1188,16 @@ public class ScalarType extends Type {
         return PrimitiveType.isImplicitCast(type.getPrimitiveType(), targetType.getPrimitiveType());
     }
 
+    /**
+     * Decimal default precision is 9 and scale is 0, this method return whether this is
+     * default decimal v3
+     */
+    public boolean isDefaultDecimal() {
+        return (isDecimalV3() || isDecimalV2()) &&
+                DEFAULT_PRECISION == this.precision &&
+                DEFAULT_SCALE == this.scale;
+    }
+
     @Override
     public TColumnType toColumnTypeThrift() {
         TColumnType thrift = new TColumnType();
