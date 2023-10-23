@@ -483,10 +483,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     scanNode = new HiveScanNode(fileScan.translatePlanNodeId(), tupleDescriptor, false);
                     HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
                     hiveScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
-                    if (fileScan.getTableSample().isPresent()) {
-                        hiveScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
-                                fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
-                    }
+                    hiveScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
+                            fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
                     break;
                 default:
                     throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
@@ -624,12 +622,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         BaseTableRef tableRef = new BaseTableRef(ref, olapTable, tableName);
         tupleDescriptor.setRef(tableRef);
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
-        olapScanNode.setSampleTabletIds(olapScan.getSelectedTabletIds());
-        if (olapScan.getTableSample().isPresent()) {
-            olapScanNode.setTableSample(new TableSample(olapScan.getTableSample().get().isPercent,
-                    olapScan.getTableSample().get().sampleValue, olapScan.getTableSample().get().seek));
-            olapScanNode.computeSampleTabletIds();
-        }
+        olapScanNode.setTableSample(new TableSample(olapScan.getTableSample().get().isPercent,
+                olapScan.getTableSample().get().sampleValue, olapScan.getTableSample().get().seek));
 
         // TODO:  remove this switch?
         switch (olapScan.getTable().getKeysType()) {
