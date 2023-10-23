@@ -126,6 +126,14 @@ public:
 
     Status wait_flying_segcompaction() override;
 
+    std::shared_ptr<PartialUpdateInfo> get_partial_update_info() override {
+        return _context.partial_update_info;
+    }
+
+    bool is_partial_update() override {
+        return _context.partial_update_info && _context.partial_update_info->is_partial_update;
+    }
+
 private:
     Status _do_add_block(const vectorized::Block* block,
                          std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
