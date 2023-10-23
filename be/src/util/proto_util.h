@@ -45,9 +45,7 @@ Status request_embed_attachment_contain_block(Params* brpc_request, Closure* clo
     return st;
 }
 
-inline bool enable_http_send_block(
-        const PTransmitDataParams& request,
-        bool transfer_large_data_by_brpc = config::transfer_large_data_by_brpc) {
+inline bool enable_http_send_block(const PTransmitDataParams& request) {
     if (!config::transfer_large_data_by_brpc) {
         return false;
     }
