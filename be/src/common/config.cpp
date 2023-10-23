@@ -1539,13 +1539,13 @@ void set_fuzzy_config(const std::string& field, const std::string& value) {
 void set_fuzzy_configs() {
     // random value true or false
     Random generator {(uint32_t)std::time(nullptr)};
-    set_fuzzy_config("disable_storage_page_cache",
-                     ((generator.Next() % 2) == 0) ? "true" : "false");
-    set_fuzzy_config("enable_system_metrics", ((generator.Next() % 2) == 0) ? "true" : "false");
-    set_fuzzy_config("enable_simdjson_reader", ((generator.Next() % 2) == 0) ? "true" : "false");
+    static_cast<void>(set_fuzzy_config("disable_storage_page_cache",
+                                       (((generator.Next() % 2) == 0) ? "true" : "false")));
+    static_cast<void>(set_fuzzy_config("enable_system_metrics",
+                                       (((generator.Next() % 2) == 0) ? "true" : "false")));
     // random value from 8 to 48
-    // s = set_fuzzy_config("doris_scanner_thread_pool_thread_num", std::to_string((rand() % 41) + 8));
-    // LOG(INFO) << s.to_string();
+    static_cast<void>(set_fuzzy_config("doris_scanner_thread_pool_thread_num",
+                                       std::to_string(((generator.Next() % 41) + 8))));
 }
 
 std::mutex* get_mutable_string_config_lock() {
