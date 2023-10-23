@@ -84,7 +84,7 @@ suite("test_outfile_exception") {
         """
 
         // check exception
-        exception "NoSuchBucket:The specified bucket does not exist"
+        exception "The specified bucket does not exist"
     }
 
 
@@ -103,7 +103,7 @@ suite("test_outfile_exception") {
         """
 
         // check exception
-        exception "NoSuchBucket:The specified bucket does not exist"
+        exception "The specified bucket does not exist"
     }
 
 
@@ -122,7 +122,7 @@ suite("test_outfile_exception") {
         """
 
         // check exception
-        exception "NoSuchBucket:The specified bucket does not exist"
+        exception "The specified bucket does not exist"
     }
 
 
@@ -141,7 +141,7 @@ suite("test_outfile_exception") {
         """
 
         // check exception
-        exception "NoSuchBucket:The specified bucket does not exist"
+        exception "The specified bucket does not exist"
     }
 
 
@@ -160,6 +160,6 @@ suite("test_outfile_exception") {
         """
 
         // check exception
-        exception "NoSuchBucket:The specified bucket does not exist"
+        exception "The specified bucket does not exist"
     }
 }

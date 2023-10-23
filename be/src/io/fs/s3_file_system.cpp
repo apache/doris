@@ -131,6 +131,7 @@ Status S3FileSystem::connect_impl() {
 
 Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                       const FileWriterOptions* opts) {
+    RETURN_IF_ERROR(direct_upload_impl(file, ""));
     GET_KEY(key, file);
     *writer = std::make_unique<S3FileWriter>(
             key, std::static_pointer_cast<S3FileSystem>(shared_from_this()), opts);
