@@ -153,18 +153,16 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                 const auto& err_msg =
                         fmt::format("column id={} does not exists, table id={}",
                                     delete_cond.column_unique_id, tablet_schema.table_id());
-                LOG(WARNING) << err_msg;
-                DCHECK(false);
                 return Status::Aborted(err_msg);
             }
-            if (tablet_schema.column_by_uid(delete_cond.column_unique_id).name() !=
-                delete_cond.column_name) {
+            if (!iequal(tablet_schema.column_by_uid(delete_cond.column_unique_id).name(),
+                        delete_cond.column_name)) {
                 const auto& err_msg = fmt::format(
-                        "colum name={} does not belongs to column uid={}, which column name={}",
+                        "colum name={} does not belongs to column uid={}, which column name={}, "
+                        "delete_cond.column_name ={}",
                         delete_cond.column_name, delete_cond.column_unique_id,
-                        tablet_schema.column_by_uid(delete_cond.column_unique_id).name());
-                LOG(WARNING) << err_msg;
-                DCHECK(false);
+                        tablet_schema.column_by_uid(delete_cond.column_unique_id).name(),
+                        delete_cond.column_name);
                 return Status::Aborted(err_msg);
             }
         }

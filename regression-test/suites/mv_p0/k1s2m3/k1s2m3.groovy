@@ -98,4 +98,14 @@ suite ("k1s2m3") {
         contains "(k1s2m3)"
     }
     qt_select_mv "select K1,sum(K2*K3) from d_table group by K1 order by K1;"
+
+    sql "delete from d_table where k1=1;"
+
+    explain {
+        sql("select k1,sum(k2*k3) from d_table group by k1 order by k1;")
+        contains "(k1s2m3)"
+    }
+    qt_select_mv "select k1,sum(k2*k3) from d_table group by k1 order by k1;"
+
+    qt_select_star "select * from d_table order by k1;"
 }
