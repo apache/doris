@@ -1083,7 +1083,7 @@ void FragmentMgr::cancel_worker() {
     do {
         std::vector<TUniqueId> to_cancel;
         std::vector<TUniqueId> queries_to_cancel;
-        vectorized::VecDateTimeValue now = vectorized::VecDateTimeValue::local_time();
+        VecDateTimeValue now = VecDateTimeValue::local_time();
         {
             std::lock_guard<std::mutex> lock(_lock);
             for (auto& it : _fragment_map) {
@@ -1158,7 +1158,7 @@ void FragmentMgr::debug(std::stringstream& ss) {
 
     ss << "FragmentMgr have " << _fragment_map.size() << " jobs.\n";
     ss << "job_id\t\tstart_time\t\texecute_time(s)\n";
-    vectorized::VecDateTimeValue now = vectorized::VecDateTimeValue::local_time();
+    VecDateTimeValue now = VecDateTimeValue::local_time();
     for (auto& it : _fragment_map) {
         ss << it.first << "\t" << it.second->start_time().debug_string() << "\t"
            << now.second_diff(it.second->start_time()) << "\n";
