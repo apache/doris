@@ -1893,12 +1893,12 @@ public class FunctionCallExpr extends Expr {
             Expr child1Result = getChild(1).getResultValue(false);
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(child1Result.getStringValue())) {
-                    this.type = Type.DATETIME;
+                    this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
                 } else {
-                    this.type = Type.DATE;
+                    this.type = Type.DATEV2;
                 }
             } else {
-                this.type = Type.DATETIME;
+                this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
             }
         } else if (TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase())
                 && fn.getReturnType().isDatetimeV2()) {
