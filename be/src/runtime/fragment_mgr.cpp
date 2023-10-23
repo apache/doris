@@ -119,7 +119,8 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
     INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
-    REGISTER_HOOK_METRIC(fragment_instance_count, [this]() { return _fragment_instance_map.size(); });
+    REGISTER_HOOK_METRIC(fragment_instance_count,
+                         [this]() { return _fragment_instance_map.size(); });
 
     auto s = Thread::create(
             "FragmentMgr", "cancel_timeout_plan_fragment", [this]() { this->cancel_worker(); },
@@ -754,7 +755,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     fragment_executor->set_merge_controller_handler(handler);
     {
         std::lock_guard<std::mutex> lock(_lock);
-        _fragment_instance_map.insert(std::make_pair(params.params.fragment_instance_id, fragment_executor));
+        _fragment_instance_map.insert(
+                std::make_pair(params.params.fragment_instance_id, fragment_executor));
         _cv.notify_all();
     }
     auto st = _thread_pool->submit_func(
@@ -1324,8 +1326,10 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             std::unique_lock<std::mutex> lock(_lock);
             auto iter = _fragment_instance_map.find(tfragment_instance_id);
             if (iter == _fragment_instance_map.end()) {
-                VLOG_CRITICAL << "unknown.... fragment instance id:" << print_id(tfragment_instance_id);
-                return Status::InvalidArgument("fragment instance id: {}", print_id(tfragment_instance_id));
+                VLOG_CRITICAL << "unknown.... fragment instance id:"
+                              << print_id(tfragment_instance_id);
+                return Status::InvalidArgument("fragment instance id: {}",
+                                               print_id(tfragment_instance_id));
             }
             fragment_executor = iter->second;
 
@@ -1382,7 +1386,8 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         auto iter = _fragment_instance_map.find(tfragment_instance_id);
         if (iter == _fragment_instance_map.end()) {
             VLOG_CRITICAL << "unknown fragment instance id:" << print_id(tfragment_instance_id);
-            return Status::InvalidArgument("fragment instance id: {}", print_id(tfragment_instance_id));
+            return Status::InvalidArgument("fragment instance id: {}",
+                                           print_id(tfragment_instance_id));
         }
 
         // hold reference to fragment_executor, or else runtime_state can be destroyed
