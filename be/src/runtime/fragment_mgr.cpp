@@ -430,8 +430,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
 #endif
 
     LOG_INFO(func_name)
-            .tag("query_id", print_id(fragment_executor->query_id()))
-            .tag("instance_id", print_id(fragment_executor->fragment_instance_id()))
+            .tag("query_id", fragment_executor->query_id())
+            .tag("instance_id", fragment_executor->fragment_instance_id())
             .tag("pthread_id", (uintptr_t)pthread_self());
 
     Status st = fragment_executor->execute();

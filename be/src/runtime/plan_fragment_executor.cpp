@@ -259,8 +259,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 Status PlanFragmentExecutor::open() {
     int64_t mem_limit = _runtime_state->query_mem_tracker()->limit();
     LOG_INFO("PlanFragmentExecutor::open")
-            .tag("query_id", print_id(_query_ctx->query_id()))
-            .tag("instance_id", print_id(_runtime_state->fragment_instance_id()))
+            .tag("query_id", _query_ctx->query_id())
+            .tag("instance_id", _runtime_state->fragment_instance_id())
             .tag("mem_limit", PrettyPrinter::print(mem_limit, TUnit::BYTES));
 
     // we need to start the profile-reporting thread before calling Open(), since it

@@ -270,7 +270,7 @@ void TaskScheduler::_do_work(size_t index) {
         if (!status.ok()) {
             task->set_eos_time();
             LOG(WARNING) << fmt::format(
-                    "Pipeline task failed. task: {} reason: {}",
+                    "Pipeline task failed. query_id: {} reason: {}",
                     PrintInstanceStandardInfo(task->query_context()->query_id(),
                                               task->fragment_context()->get_fragment_id(),
                                               task->fragment_context()->get_fragment_instance_id()),

@@ -141,7 +141,7 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
 
 Status VDataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id) {
     std::shared_ptr<VDataStreamRecvr> targert_recvr;
-    VLOG_QUERY << "deregister_recvr(): fragment_instance_id=" << print_id(fragment_instance_id)
+    VLOG_QUERY << "deregister_recvr(): fragment_instance_id=" << fragment_instance_id
                << ", node=" << node_id;
     size_t hash_value = get_hash_value(fragment_instance_id, node_id);
     {
@@ -176,7 +176,7 @@ Status VDataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, P
 }
 
 void VDataStreamMgr::cancel(const TUniqueId& fragment_instance_id, Status exec_status) {
-    VLOG_QUERY << "cancelling all streams for fragment=" << print_id(fragment_instance_id);
+    VLOG_QUERY << "cancelling all streams for fragment=" << fragment_instance_id;
     std::vector<std::shared_ptr<VDataStreamRecvr>> recvrs;
     {
         std::lock_guard<std::mutex> l(_lock);
