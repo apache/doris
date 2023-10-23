@@ -523,22 +523,7 @@ public class RuntimeProfile {
         prettyPrint(builder, "");
         return builder.toString();
     }
-/**
-    public String getProfileByLevel() {
-        if (this.profileLevel == 3) {
-            return toString();
-        }
-        if (this.planner == null) {
-            return toString();
-        }
-        StringBuilder builder = new StringBuilder();
-        prettyPrint(builder, "");
-        ProfileStatistics statistics = new ProfileStatistics(this.isPipelineX);
-        simpleProfile(0, 0, statistics);
-        String planerStr = this.planner.getExplainStringToProfile(statistics);
-        return "Simple profile \n \n " + planerStr + "\n \n \n" + builder.toString();
-    }
-*/
+
     public void prettyPrintSimplifiedProfile(StringBuilder builder) {
         ProfileStatistics statistics = new ProfileStatistics(this.isPipelineX);
         simpleProfile(0, 0, statistics);

@@ -40,7 +40,7 @@ import java.util.Map;
  * SummaryProfile:
  *     Summary:
  *         Execution Summary:
- * 
+ *
  *
  * ExecutionProfile:
  *     Fragment 0:
@@ -89,10 +89,6 @@ public class Profile {
         return summaryProfile;
     }
 
-    public SimplifiedProfile getSimplifiedProfile() {
-        return simplifiedProfile;
-    }
-    
     public String getProfileByLevel(int level) {
         StringBuilder builder = new StringBuilder();
         // add summary to builder
@@ -108,7 +104,7 @@ public class Profile {
         }
         return builder.toString();
     }
-    
+
     public String getProfileBrief() {
         Gson gson = new GsonBuilder().setPrettyPrinting().create();
         return gson.toJson(rootProfile.toBrief());

@@ -25,9 +25,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
-import autovalue.shaded.com.google.common.common.collect.MapMaker;
-
-import java.util.List;
 import java.util.Map;
 
 /**
