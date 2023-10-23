@@ -19,7 +19,6 @@ package org.apache.doris.master;
 
 
 import org.apache.doris.catalog.BinlogConfig;
-import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -1197,10 +1196,6 @@ public class ReportHandler extends Daemon {
                 int tabletOrderIdx = materializedIndex.getTabletOrderIdx(tabletId);
                 Preconditions.checkState(tabletOrderIdx != -1, "get tablet materializedIndex for %s fail", tabletId);
                 Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
-                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(groupId);
-                if (groupSchema != null) {
-                    replicaAlloc = groupSchema.getReplicaAlloc();
-                }
                 TabletStatus status =
                         tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, backendsSet);
                 if (status == TabletStatus.HEALTHY) {
