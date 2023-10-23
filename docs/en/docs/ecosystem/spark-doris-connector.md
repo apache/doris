@@ -142,15 +142,27 @@ dorisSparkRDD.collect()
 
 #### pySpark
 
-```scala
-dorisSparkDF = spark.read.format("doris")
-  .option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
-  .option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
-  .option("user", "$YOUR_DORIS_USERNAME")
-  .option("password", "$YOUR_DORIS_PASSWORD")
-  .load()
-// show 5 lines data 
+```python
+# !/usr/bin/python
+# -*- coding:utf-8 -*-
+
+from pyspark import SparkContext
+from pyspark.sql import SparkSession
+
+sc = SparkContext(master = "spark://$your_hostname:7077",appName='PySpark DataFrame From Doris')
+spark = SparkSession.builder.getOrCreate()
+# spacific spark service url and create a session，given a app name also.
+
+dorisSparkDF = spark.read.format("doris").option("doris.table.identifier",
+    "$yor_db.your_table").option(
+    "doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT").option("user",
+    "$YOUR_DORIS_USERNAME").option(
+    "password", "$YOUR_DORIS_PASSWORD").load()
+#given parameter to connect doris db and load a table data
 dorisSparkDF.show(5)
+#show top 5 lines
+sc.stop()
+#release resource
 ```
 
 ### Write
