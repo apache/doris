@@ -299,7 +299,7 @@ MutableColumnPtr ColumnStruct::get_shrinked_column() {
 
     for (size_t i = 0; i < tuple_size; ++i) {
         if (columns[i]->is_column_string() || columns[i]->is_column_array() ||
-            columns[i]->is_column_map() || check_column<ColumnStruct>(*columns[i])) {
+            columns[i]->is_column_map() || columns[i]->is_column_struct()) {
             new_columns[i] = columns[i]->get_shrinked_column();
         } else {
             new_columns[i] = columns[i]->get_ptr();

@@ -444,17 +444,21 @@ void ColumnMap::replicate(const uint32_t* indexs, size_t target_size, IColumn& c
 
 MutableColumnPtr ColumnMap::get_shrinked_column() {
     MutableColumns new_columns(2);
-    MutableColumns columns(2);
-    columns[0] = remove_nullable(keys_column)->assume_mutable();
-    columns[1] = remove_nullable(values_column)->assume_mutable();
-    for (size_t i = 0; i < 2; ++i) {
-        if (columns[i]->is_column_string() || columns[i]->is_column_array() ||
-            columns[i]->is_column_map() || check_column<ColumnStruct>(columns[i])) {
-            new_columns[i] = columns[i]->get_shrinked_column();
-        } else {
-            new_columns[i] = columns[i]->get_ptr();
-        }
+
+    if (keys_column->is_column_string() || keys_column->is_column_array() ||
+        keys_column->is_column_map() || keys_column->is_column_struct()) {
+        new_columns[0] = keys_column->get_shrinked_column();
+    } else {
+        new_columns[0] = keys_column->get_ptr();
     }
+
+    if (values_column->is_column_string() || values_column->is_column_array() ||
+        values_column->is_column_map() || values_column->is_column_struct()) {
+        new_columns[1] = values_column->get_shrinked_column();
+    } else {
+        new_columns[1] = values_column->get_ptr();
+    }
+
     return ColumnMap::create(new_columns[0]->assume_mutable(), new_columns[1]->assume_mutable(),
                              offsets_column->assume_mutable());
 }
