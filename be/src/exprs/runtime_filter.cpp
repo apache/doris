@@ -747,7 +747,7 @@ public:
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 auto& string_val_ref = column.stringval();
-                vectorized::VecDateTimeValue datetime_val;
+                VecDateTimeValue datetime_val;
                 datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
                 set->insert(&datetime_val);
             });
@@ -888,8 +888,8 @@ public:
         case TYPE_DATE: {
             auto& min_val_ref = minmax_filter->min_val().stringval();
             auto& max_val_ref = minmax_filter->max_val().stringval();
-            vectorized::VecDateTimeValue min_val;
-            vectorized::VecDateTimeValue max_val;
+            VecDateTimeValue min_val;
+            VecDateTimeValue max_val;
             min_val.from_date_str(min_val_ref.c_str(), min_val_ref.length());
             max_val.from_date_str(max_val_ref.c_str(), max_val_ref.length());
             return _context.minmax_func->assign(&min_val, &max_val);
@@ -1529,31 +1529,28 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
         return;
     }
     case TYPE_DATEV2: {
-        batch_copy<vectorized::DateV2Value<vectorized::DateV2ValueType>>(
-                filter, it,
-                [](PColumnValue* column,
-                   const vectorized::DateV2Value<vectorized::DateV2ValueType>* value) {
+        batch_copy<DateV2Value<DateV2ValueType>>(
+                filter, it, [](PColumnValue* column, const DateV2Value<DateV2ValueType>* value) {
                     column->set_intval(*reinterpret_cast<const int32_t*>(value));
                 });
         return;
     }
     case TYPE_DATETIMEV2: {
-        batch_copy<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
+        batch_copy<DateV2Value<DateTimeV2ValueType>>(
                 filter, it,
-                [](PColumnValue* column,
-                   const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>* value) {
+                [](PColumnValue* column, const DateV2Value<DateTimeV2ValueType>* value) {
                     column->set_longval(*reinterpret_cast<const int64_t*>(value));
                 });
         return;
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        batch_copy<vectorized::VecDateTimeValue>(
-                filter, it, [](PColumnValue* column, const vectorized::VecDateTimeValue* value) {
-                    char convert_buffer[30];
-                    value->to_string(convert_buffer);
-                    column->set_stringval(convert_buffer);
-                });
+        batch_copy<VecDateTimeValue>(filter, it,
+                                     [](PColumnValue* column, const VecDateTimeValue* value) {
+                                         char convert_buffer[30];
+                                         value->to_string(convert_buffer);
+                                         column->set_stringval(convert_buffer);
+                                     });
         return;
     }
     case TYPE_DECIMALV2: {
@@ -1659,9 +1656,9 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
     case TYPE_DATE:
     case TYPE_DATETIME: {
         char convert_buffer[30];
-        reinterpret_cast<const vectorized::VecDateTimeValue*>(min_data)->to_string(convert_buffer);
+        reinterpret_cast<const VecDateTimeValue*>(min_data)->to_string(convert_buffer);
         filter->mutable_min_val()->set_stringval(convert_buffer);
-        reinterpret_cast<const vectorized::VecDateTimeValue*>(max_data)->to_string(convert_buffer);
+        reinterpret_cast<const VecDateTimeValue*>(max_data)->to_string(convert_buffer);
         filter->mutable_max_val()->set_stringval(convert_buffer);
         return;
     }
