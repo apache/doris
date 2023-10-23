@@ -171,7 +171,7 @@ public:
 
                     if (i == rows - 1 || finalized_block.rows() == ALTER_TABLE_BATCH_SIZE) {
                         *merged_rows -= finalized_block.rows();
-                        static_cast<void>(rowset_writer->add_block(&finalized_block));
+                        RETURN_IF_ERROR(rowset_writer->add_block(&finalized_block));
                         finalized_block.clear_column_data();
                     }
                 }
@@ -203,7 +203,7 @@ public:
                         column->insert_from(*row_ref.get_column(idx), row_ref.position);
                     }
                 }
-                static_cast<void>(rowset_writer->add_block(&finalized_block));
+                RETURN_IF_ERROR(rowset_writer->add_block(&finalized_block));
                 finalized_block.clear_column_data();
             }
         }
@@ -304,11 +304,11 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
             RETURN_IF_ERROR(_check_cast_valid(ref_block->get_by_position(idx).column,
                                               ref_block->get_by_position(result_column_id).column,
                                               _type));
-            swap_idx_list.push_back({result_column_id, idx});
+            swap_idx_list.emplace_back(result_column_id, idx);
         } else if (_schema_mapping[idx].ref_column < 0) {
             if (_type != ROLLUP) {
                 // new column, write default value
-                auto value = _schema_mapping[idx].default_value;
+                auto* value = _schema_mapping[idx].default_value;
                 auto column = new_block->get_by_position(idx).column->assume_mutable();
                 if (value->is_null()) {
                     DCHECK(column->is_nullable());
@@ -325,7 +325,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
             }
         } else {
             // same type, just swap column
-            swap_idx_list.push_back({_schema_mapping[idx].ref_column, idx});
+            swap_idx_list.emplace_back(_schema_mapping[idx].ref_column, idx);
         }
     }
 
@@ -482,9 +482,12 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                 vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
-        static_cast<void>(rowset_reader->next_block(ref_block.get()));
-        if (ref_block->rows() == 0) {
-            break;
+        auto st = rowset_reader->next_block(ref_block.get());
+        if (!st) {
+            if (st.is<ErrorCode::END_OF_FILE>()) {
+                break;
+            }
+            return st;
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
@@ -552,9 +555,12 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     do {
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
-        static_cast<void>(rowset_reader->next_block(ref_block.get()));
-        if (ref_block->rows() == 0) {
-            break;
+        auto st = rowset_reader->next_block(ref_block.get());
+        if (!st) {
+            if (st.is<ErrorCode::END_OF_FILE>()) {
+                break;
+            }
+            return st;
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
@@ -793,7 +799,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 }
             }
             std::vector<RowsetSharedPtr> empty_vec;
-            static_cast<void>(new_tablet->modify_rowsets(empty_vec, rowsets_to_delete));
+            RETURN_IF_ERROR(new_tablet->modify_rowsets(empty_vec, rowsets_to_delete));
             // inherit cumulative_layer_point from base_tablet
             // check if new_tablet.ce_point > base_tablet.ce_point?
             new_tablet->set_cumulative_layer_point(-1);
@@ -810,7 +816,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
 
             // acquire data sources correspond to history versions
-            static_cast<void>(base_tablet->capture_rs_readers(versions_to_be_changed, &rs_splits));
+            RETURN_IF_ERROR(base_tablet->capture_rs_readers(versions_to_be_changed, &rs_splits));
             if (rs_splits.empty()) {
                 res = Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>(
                         "fail to acquire all data sources. version_num={}, data_source_num={}",
@@ -859,7 +865,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         }
         SchemaChangeParams sc_params;
 
-        static_cast<void>(
+        RETURN_IF_ERROR(
                 DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
         sc_params.base_tablet = base_tablet;
         sc_params.new_tablet = new_tablet;
@@ -1339,8 +1345,8 @@ Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
     if (column_schema.is_nullable() && value.length() == 0) {
         column_mapping->default_value->set_null();
     } else {
-        static_cast<void>(column_mapping->default_value->from_string(
-                value, column_schema.precision(), column_schema.frac()));
+        RETURN_IF_ERROR(column_mapping->default_value->from_string(value, column_schema.precision(),
+                                                                   column_schema.frac()));
     }
 
     return Status::OK();
