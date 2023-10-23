@@ -3142,8 +3142,7 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
                                           delete_bitmap, rowset_writer));
         } else {
             RETURN_IF_ERROR(calc_segment_delete_bitmap(rowset, segments[i], specified_rowsets,
-                                                       delete_bitmap, end_version,
-                                                       rowset_writer));
+                                                       delete_bitmap, end_version, rowset_writer));
         }
     }
 
