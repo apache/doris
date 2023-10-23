@@ -242,14 +242,8 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         BaseCompaction base_compaction(tablet);
         res = base_compaction.compact();
         if (!res) {
-            if (res.is<BE_NO_SUITABLE_VERSION>()) {
-                // Ignore this error code.
-                VLOG_NOTICE << "failed to init base compaction due to no suitable version, tablet="
-                            << tablet->tablet_id();
-            } else {
+            if (!res.is<BE_NO_SUITABLE_VERSION>() && !res.is<FULL_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
-                LOG(WARNING) << "failed to init base compaction. res=" << res
-                             << ", tablet=" << tablet->tablet_id();
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
