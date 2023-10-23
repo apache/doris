@@ -105,7 +105,7 @@ using ProfileCounter = RuntimeProfile::Counter;
 
 template <class HashTableContext, typename Parent>
 struct ProcessHashTableBuild {
-    ProcessHashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
+    ProcessHashTableBuild(uint32_t rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
                           Parent* parent, int batch_size, RuntimeState* state)
             : _rows(rows),
               _acquired_block(acquired_block),
@@ -115,7 +115,7 @@ struct ProcessHashTableBuild {
               _state(state),
               _build_side_compute_hash_timer(parent->_build_side_compute_hash_timer) {}
 
-    template <bool ignore_null, bool short_circuit_for_null>
+    template <int JoinOpType, bool ignore_null, bool short_circuit_for_null>
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
         if (short_circuit_for_null || ignore_null) {
             for (int i = 0; i < _rows; i++) {
@@ -131,18 +131,20 @@ struct ProcessHashTableBuild {
         if (!_parent->runtime_filter_descs().empty()) {
             _parent->_inserted_blocks.insert(&_acquired_block);
         }
-        hash_table_ctx.hash_table->reserve(_rows);
-        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
-                                            null_map ? null_map->data() : nullptr);
-        hash_table_ctx.calculate_bucket(_rows);
+
         SCOPED_TIMER(_parent->_build_table_insert_timer);
+        hash_table_ctx.hash_table->template prepare_build<JoinOpType>(_rows, _state->batch_size());
+
+        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
+                                            null_map ? null_map->data() : nullptr, true);
+        hash_table_ctx.calculate_bucket(_rows);
         hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.hash_values.data(),
-                                         _rows, _state->batch_size());
+                                         _rows);
         return Status::OK();
     }
 
 private:
-    const int _rows;
+    const uint32_t _rows;
     Block& _acquired_block;
     ColumnRawPtrs& _build_raw_ptrs;
     Parent* _parent;

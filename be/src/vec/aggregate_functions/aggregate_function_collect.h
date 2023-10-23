@@ -130,8 +130,9 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
     void merge(const SelfType& rhs, Arena* arena) {
         bool inserted;
         Set::LookupResult it;
-        DCHECK(max_size == -1 || max_size == rhs.max_size);
-        max_size = rhs.max_size;
+        if (max_size == -1) {
+            max_size = rhs.max_size;
+        }
 
         for (auto& rhs_elem : rhs.data_set) {
             if constexpr (HasLimit::value) {
