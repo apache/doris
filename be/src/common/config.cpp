@@ -1115,7 +1115,7 @@ DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
 DEFINE_Bool(exit_on_exception, "false");
 // This config controls whether the s3 file writer would flush cache asynchronously
 DEFINE_Bool(enable_flush_file_cache_async, "true");
-
+DEFINE_mInt32(regexp_re2_cache_nums, "1000");
 // cgroup
 DEFINE_mString(doris_cgroup_cpu_path, "");
 DEFINE_mBool(enable_cgroup_cpu_soft_limit, "false");

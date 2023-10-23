@@ -1202,6 +1202,8 @@ DECLARE_String(default_tzfiles_path);
 
 // Max size(bytes) of group commit queues, used for mem back pressure.
 DECLARE_Int32(group_commit_max_queue_size);
+// Used to for regexp function cache pattern of re2 nums
+DECLARE_mInt32(regexp_re2_cache_nums);
 
 // Max size(bytes) of wal disk using, used for disk space back pressure.
 DECLARE_Int32(wal_max_disk_size);

@@ -86,6 +86,13 @@ Status LikeSearchState::clone(LikeSearchState& cloned) {
         if (!cloned.regex->ok()) {
             return Status::InternalError("Invalid regex expression: {}", re_pattern);
         }
+        for (auto it : re2_cache) {
+            if (it.second->ok()) {
+                cloned.re2_cache.insert(std::make_pair(it.first, it.second));
+            } else {
+                return Status::InternalError("Invalid regex cache expression: {}", it.first);
+            }
+        }
     }
 
     return Status::OK();
@@ -213,9 +220,19 @@ Status FunctionLikeBase::regexp_fn_scalar(LikeSearchState* state, const StringRe
     RE2::Options opts;
     opts.set_never_nl(false);
     opts.set_dot_nl(true);
-    re2::RE2 re(re_pattern, opts);
-    if (re.ok()) {
-        *result = RE2::PartialMatch(re2::StringPiece(val.data, val.size), re);
+    std::shared_ptr<re2::RE2> re = nullptr;
+    auto it = state->re2_cache.find(re_pattern);
+    if (it == state->re2_cache.end()) {
+        re = std::make_shared<re2::RE2>(re_pattern, opts);
+        //cache nums check. for not insert so many elements
+        if (state->re2_cache.size() < config::regexp_re2_cache_nums) {
+            state->re2_cache.insert(std::make_pair(re_pattern, re));
+        }
+    } else {
+        re = it->second;
+    }
+    if (re->ok()) {
+        *result = RE2::PartialMatch(re2::StringPiece(val.data, val.size), *re);
     } else {
         return Status::RuntimeError("Invalid pattern: {}", pattern.debug_string());
     }
@@ -350,7 +367,7 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
             for (int i = 0; i < input_rows_count; i++) {
                 const auto pattern_val = str_patterns->get_data_at(i);
                 const auto value_val = values->get_data_at(i);
-                static_cast<void>((state->scalar_function)(
+                RETURN_IF_ERROR((state->scalar_function)(
                         const_cast<vectorized::LikeSearchState*>(&state->search_state), value_val,
                         pattern_val, &vec_res[i]));
             }

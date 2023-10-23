@@ -61,6 +61,8 @@ struct LikeSearchState {
     std::string search_string;
 
     std::string pattern_str;
+    // key_value: re2_cache[pattern_str] = re2;
+    std::unordered_map<std::string, std::shared_ptr<re2::RE2>> re2_cache;
 
     /// Used for LIKE predicates if the pattern is a constant argument, and is either a
     /// constant string or has a constant string at the beginning or end of the pattern.
