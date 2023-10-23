@@ -1516,6 +1516,9 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const DateV2Value<T>& t
     return 0;
 }
 
+/**
+ * Date dict table. date range is [1900-01-01, 2039-12-31].
+ */
 class date_day_offset_dict {
 private:
     static date_day_offset_dict instance;
@@ -1526,15 +1529,16 @@ private:
     date_day_offset_dict& operator=(const date_day_offset_dict&) = default;
 
 public:
-    static constexpr int DAY_BEFORE_EPOCH = 25566; // 1900-01-01
-    static constexpr int DAY_AFTER_EPOCH = 25500;  // 2039-10-24
-    static constexpr int DICT_DAYS = DAY_BEFORE_EPOCH + DAY_AFTER_EPOCH;
+    static constexpr int DAY_BEFORE_EPOCH = 25567;                           // 1900-01-01
+    static constexpr int DAY_AFTER_EPOCH = 25566;                            // 2039-12-31
+    static constexpr int DICT_DAYS = DAY_BEFORE_EPOCH + 1 + DAY_AFTER_EPOCH; // 1 means 1970-01-01
 
-    static constexpr int START_YEAR = 1900;                         // 1900-01-01
-    static constexpr int END_YEAR = 2039;                           // 2039-10-24
-    static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR = 719527; // 1969-12-31
+    static constexpr int START_YEAR = 1900; // 1900-01-01
+    static constexpr int END_YEAR = 2039;   // 2039-10-24
+    static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR =
+            719528; // 1970-01-01 (start from 0000-01-01, 0000-01-01 is day 1, returns 1)
 
-    static bool can_speed_up_calc_daynr(int year) { return year >= START_YEAR && year < END_YEAR; }
+    static bool can_speed_up_calc_daynr(int year) { return year >= START_YEAR && year <= END_YEAR; }
 
     static int get_offset_by_daynr(int daynr) { return daynr - DAY_OFFSET_CAL_START_POINT_DAYNR; }
 
