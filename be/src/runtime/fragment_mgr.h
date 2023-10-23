@@ -143,8 +143,6 @@ public:
         return _query_ctx_map.size();
     }
 
-    bool is_pipeline_fragment(const TUniqueId& fid);
-
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
                               const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
@@ -183,7 +181,7 @@ private:
     std::condition_variable _cv;
 
     // Make sure that remove this before no data reference PlanFragmentExecutor
-    std::unordered_map<TUniqueId, std::shared_ptr<PlanFragmentExecutor>> _fragment_map;
+    std::unordered_map<TUniqueId, std::shared_ptr<PlanFragmentExecutor>> _fragment_instance_map;
 
     std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
 

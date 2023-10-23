@@ -559,10 +559,8 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         signal::set_signal_task_id(tid);
         Status st = Status::OK();
 
-        const bool is_pipeline_fragment = _exec_env->fragment_mgr()->is_pipeline_fragment(tid);
         const bool has_cancel_reason = request->has_cancel_reason();
-        LOG(INFO) << fmt::format("Cancel {}instance {}, reason: {}",
-                                 is_pipeline_fragment ? "pipeline " : "", print_id(tid),
+        LOG(INFO) << fmt::format("Cancel instance {}, reason: {}", print_id(tid),
                                  has_cancel_reason
                                          ? PPlanFragmentCancelReason_Name(request->cancel_reason())
                                          : "INTERNAL_ERROR");
