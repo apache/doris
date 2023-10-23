@@ -102,7 +102,7 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
             client->finishTask(*result, request);
         }
     } catch (std::exception& e) {
-        static_cast<void>(client.reopen(config::thrift_rpc_timeout_ms));
+        RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
         LOG(WARNING) << "fail to finish_task. "
                      << "host=" << _master_info.network_address.hostname
                      << ", port=" << _master_info.network_address.port << ", error=" << e.what();
@@ -152,7 +152,7 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
             }
         }
     } catch (std::exception& e) {
-        static_cast<void>(client.reopen(config::thrift_rpc_timeout_ms));
+        RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
         LOG(WARNING) << "fail to report to master. "
                      << "host=" << _master_info.network_address.hostname
                      << ", port=" << _master_info.network_address.port
@@ -203,7 +203,7 @@ Status MasterServerClient::confirm_unused_remote_files(
             }
         }
     } catch (std::exception& e) {
-        static_cast<void>(client.reopen(config::thrift_rpc_timeout_ms));
+        RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
         return Status::InternalError(
                 "fail to confirm unused remote files. host={}, port={}, code={}, reason={}",
                 _master_info.network_address.hostname, _master_info.network_address.port,

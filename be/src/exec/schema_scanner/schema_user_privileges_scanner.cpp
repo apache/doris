@@ -109,7 +109,7 @@ Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(priv_status.grantee.c_str(), priv_status.grantee.size());
             datas[i] = strs + i;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 0, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
     }
     // catalog
     // This value is always def.
@@ -119,7 +119,7 @@ Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < privileges_num; ++i) {
             datas[i] = &str;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 1, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // privilege type
     {
@@ -130,7 +130,7 @@ Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
                                 priv_status.privilege_type.size());
             datas[i] = strs + i;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 2, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // is grantable
     {
@@ -140,7 +140,7 @@ Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(priv_status.is_grantable.c_str(), priv_status.is_grantable.size());
             datas[i] = strs + i;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 3, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     return Status::OK();
 }

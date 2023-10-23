@@ -902,7 +902,7 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, CppType value
 
         if (FILTER_LARGER_OR_EQUAL == _low_op && FILTER_LESS_OR_EQUAL == _high_op &&
             _high_value == _low_value) {
-            static_cast<void>(add_fixed_value(_high_value));
+            RETURN_IF_ERROR(add_fixed_value(_high_value));
             _high_value = TYPE_MIN;
             _low_value = TYPE_MAX;
         }

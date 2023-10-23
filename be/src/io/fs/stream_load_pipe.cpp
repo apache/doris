@@ -229,7 +229,7 @@ Status StreamLoadPipe::_append(const ByteBufferPtr& buf, size_t proto_byte_size)
 Status StreamLoadPipe::finish() {
     if (_write_buf != nullptr) {
         _write_buf->flip();
-        static_cast<void>(_append(_write_buf));
+        RETURN_IF_ERROR(_append(_write_buf));
         _write_buf.reset();
     }
     {

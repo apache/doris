@@ -115,7 +115,7 @@ Status Compaction::do_compaction(int64_t permits) {
     if (config::enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_before);
-        static_cast<void>(checksum_task.execute());
+        RETURN_IF_ERROR(checksum_task.execute());
     }
 
     _tablet->data_dir()->disks_compaction_score_increment(permits);
@@ -127,7 +127,7 @@ Status Compaction::do_compaction(int64_t permits) {
     if (config::enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_after);
-        static_cast<void>(checksum_task.execute());
+        RETURN_IF_ERROR(checksum_task.execute());
         if (checksum_before != checksum_after) {
             LOG(WARNING) << "Compaction tablet=" << _tablet->tablet_id()
                          << " checksum not consistent"
@@ -210,7 +210,7 @@ Status Compaction::do_compact_ordered_rowsets() {
         seg_id += rowset->num_segments();
 
         std::vector<KeyBoundsPB> key_bounds;
-        static_cast<void>(rowset->get_segments_key_bounds(&key_bounds));
+        RETURN_IF_ERROR(rowset->get_segments_key_bounds(&key_bounds));
         segment_key_bounds.insert(segment_key_bounds.end(), key_bounds.begin(), key_bounds.end());
     }
     // build output rowset

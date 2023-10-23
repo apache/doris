@@ -592,12 +592,12 @@ public:
         case RuntimeFilterType::MIN_FILTER:
         case RuntimeFilterType::MAX_FILTER:
         case RuntimeFilterType::MINMAX_FILTER: {
-            static_cast<void>(
+            RETURN_IF_ERROR(
                     _context.minmax_func->merge(wrapper->_context.minmax_func.get(), _pool));
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
-            static_cast<void>(
+            RETURN_IF_ERROR(
                     _context.bloom_filter_func->merge(wrapper->_context.bloom_filter_func.get()));
             break;
         }
@@ -622,7 +622,7 @@ public:
                     VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                << ") because: already exist a bloom filter";
                     change_to_bloom_filter();
-                    static_cast<void>(_context.bloom_filter_func->merge(
+                    RETURN_IF_ERROR(_context.bloom_filter_func->merge(
                             wrapper->_context.bloom_filter_func.get()));
                 }
             } else {
@@ -635,7 +635,7 @@ public:
                     wrapper->insert_to_bloom_filter(_context.bloom_filter_func.get());
                     // bloom filter merge bloom filter
                 } else {
-                    static_cast<void>(_context.bloom_filter_func->merge(
+                    RETURN_IF_ERROR(_context.bloom_filter_func->merge(
                             wrapper->_context.bloom_filter_func.get()));
                 }
             }
