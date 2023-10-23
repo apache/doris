@@ -17,16 +17,21 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
+import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-class GraphSimplifierTest {
+import java.util.List;
+
+class GraphSimplifierTest extends TestWithFeService {
     @Test
     void testStarQuery() {
         //      t1
@@ -35,14 +40,27 @@ class GraphSimplifierTest {
         //      |
         //     t2
         HyperGraph hyperGraph = new HyperGraphBuilder()
-                .init(10, 30, 20, 40, 50)
+                .init(10, 20, 30, 40, 50)
                 .addEdge(JoinType.INNER_JOIN, 0, 1)
                 .addEdge(JoinType.INNER_JOIN, 0, 2)
                 .addEdge(JoinType.INNER_JOIN, 0, 3)
                 .addEdge(JoinType.INNER_JOIN, 0, 4)
                 .build();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        while (graphSimplifier.applySimplificationStep()) {
+        List<Pair<Long, Long>> steps = ImmutableList.<Pair<Long, Long>>builder()
+                .add(Pair.of(17L, 2L))   // 04   - 1
+                .add(Pair.of(17L, 4L))   // 04   - 2
+                .add(Pair.of(17L, 8L))   // 04   - 3
+                .add(Pair.of(25L, 2L))   // 034  - 1
+                .add(Pair.of(25L, 4L))   // 034  - 2
+                .add(Pair.of(29L, 2L))   // 0234 - 1
+                .build();
+        for (Pair<Long, Long> step : steps) {
+            if (!graphSimplifier.applySimplificationStep()) {
+                break;
+            }
+            System.out.println(graphSimplifier.getLastAppliedSteps());
+            Assertions.assertEquals(step, graphSimplifier.getLastAppliedSteps());
         }
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
@@ -69,6 +87,8 @@ class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 2, 3)
                 .build();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        graphSimplifier.applySimplificationStep();
+        Assertions.assertEquals(Pair.of(3L, 4L), graphSimplifier.getLastAppliedSteps());
         while (graphSimplifier.applySimplificationStep()) {
         }
         Counter counter = new Counter();
@@ -97,6 +117,8 @@ class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 2, 3)
                 .build();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        graphSimplifier.applySimplificationStep();
+        Assertions.assertEquals(Pair.of(3L, 8L), graphSimplifier.getLastAppliedSteps());
         while (graphSimplifier.applySimplificationStep()) {
         }
         Counter counter = new Counter();

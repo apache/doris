@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
@@ -41,7 +42,6 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.PriorityQueue;
@@ -124,9 +124,9 @@ public class GraphSimplifier {
 
     private boolean isOverlap(Edge edge1, Edge edge2) {
         return (LongBitmap.isOverlap(edge1.getLeftExtendedNodes(), edge2.getLeftExtendedNodes())
-                && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getLeftExtendedNodes()))
+                && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getRightExtendedNodes()))
                 || (LongBitmap.isOverlap(edge1.getLeftExtendedNodes(), edge2.getRightExtendedNodes())
-                && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getRightExtendedNodes()));
+                && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getLeftExtendedNodes()));
     }
 
     /**
@@ -227,8 +227,16 @@ public class GraphSimplifier {
         return true;
     }
 
+    public @Nullable Pair<Long, Long> getLastAppliedSteps() {
+        if (appliedSteps.isEmpty()) {
+            return null;
+        }
+        return Pair.of(appliedSteps.getFirst().newLeft, appliedSteps.getFirst().newRight);
+    }
+
     private boolean unApplySimplificationStep() {
-        Preconditions.checkArgument(!appliedSteps.isEmpty());
+        Preconditions.checkArgument(!appliedSteps.isEmpty(),
+                "try to unapply a simplification step but there is no step applied");
         SimplificationStep bestStep = appliedSteps.pop();
         unAppliedSteps.push(bestStep);
         graph.modifyEdge(bestStep.afterIndex, bestStep.oldLeft, bestStep.oldRight);
@@ -386,7 +394,7 @@ public class GraphSimplifier {
     }
 
     private Edge constructEdge(long leftNodes, Edge edge, long rightNodes) {
-        if (graph.getEdges().size() >  64 * 63 / 8) {
+        if (graph.getEdges().size() > 64 * 63 / 8) {
             // If there are too many edges, it is advisable to return the "edge" directly
             // to avoid lengthy enumeration time.
             return edge;
@@ -429,20 +437,6 @@ public class GraphSimplifier {
         Statistics joinStats = JoinEstimation
                 .estimate(cacheStats.get(leftBitmap),
                         cacheStats.get(rightBitmap), edge.getJoin());
-
-        // Only save the needed slots to avoid saving all stats
-        //        BitSet usedEdges = graph.getEdgesInTree(bitmap);
-        //        Set<Slot> requiredSlots = graph.getEdges().stream()
-        //                .filter(e -> !usedEdges.get(e.getIndex()))
-        //                .flatMap(e -> e.getJoin().getInputSlots().stream())
-        //                .collect(Collectors.toSet());
-        //        Map<Expression, ColumnStatistic> requireColumnStats = new HashMap<>();
-        //        joinStats.columnStatistics()
-        //                        .forEach((e, stats) -> {
-        //                            if (requiredSlots.contains(e)) {
-        //                                requireColumnStats.put(e, stats);
-        //                            }
-        //                        });
         cacheStats.put(bitmap, joinStats);
     }
 
@@ -639,7 +633,7 @@ public class GraphSimplifier {
         @Override
         public int compareTo(GraphSimplifier.BestSimplification o) {
             Preconditions.checkArgument(step.isPresent());
-            return Double.compare(getBenefit(), o.getBenefit());
+            return Double.compare(o.getBenefit(), getBenefit());
         }
 
         public double getBenefit() {

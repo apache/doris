@@ -79,6 +79,9 @@ public class HyperGraph {
         return opertorEdgesMap;
     }
 
+    /**
+     * Returns all edges in the tree
+     */
     public BitSet getEdgesInTree(long treeNodesMap) {
         if (!treeEdgesCache.containsKey(treeNodesMap)) {
             BitSet edgesMap = new BitSet();
