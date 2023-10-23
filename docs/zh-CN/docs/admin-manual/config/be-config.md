@@ -123,6 +123,12 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：BE 上的 brpc 的端口，用于 BE 之间通讯
 * 默认值：8060
 
+#### `arrow_flight_sql_port`
+
+* 类型：int32
+* 描述：FE 上的 Arrow Flight SQL server 的端口，用于从 Arrow Flight Client 和 BE 之间通讯
+* 默认值：-1
+
 #### `enable_https`
 
 * 类型：bool
@@ -324,6 +330,12 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 类型：int64
 * 描述：当使用odbc外表时，如果odbc源表的某一列类型不是HLL, CHAR或者VARCHAR，并且列值长度超过该值，则查询报错'column value length longer than buffer length'. 可增大该值
 * 默认值：100
+
+#### `jsonb_type_length_soft_limit_bytes`
+
+* 类型: int32
+* 描述: JSONB 类型最大长度的软限，单位是字节
+* 默认值: 1048576
 
 ### 查询
 
@@ -732,6 +744,11 @@ BaseCompaction:546859:
 * 描述: 导入线程数，用于处理NORMAL优先级任务
 * 默认值: 3
 
+#### `enable_single_replica_load`
+
+* 描述: 是否启动单副本数据导入功能
+* 默认值: false
+
 #### `load_error_log_reserve_hours`
 
 * 描述: load错误日志将在此时间后删除
@@ -958,11 +975,6 @@ BaseCompaction:546859:
 * 描述：最大外部扫描缓存批次计数，表示缓存max_memory_cache_batch_count * batch_size row，默认为20，batch_size的默认值为1024，表示将缓存20 * 1024行
 * 默认值：20
 
-#### `memory_limitation_per_thread_for_schema_change`
-
-* 描述：单个schema change任务允许占用的最大内存
-* 默认值：2 （GB）
-
 #### `memory_max_alignment`
 
 * 描述：最大校对内存
@@ -972,6 +984,11 @@ BaseCompaction:546859:
 
 * 描述：是否使用mmap分配内存
 * 默认值：false
+
+#### `memtable_mem_tracker_refresh_interval_ms`
+
+* 描述：memtable主动下刷时刷新内存统计的周期（毫秒）
+* 默认值：100
 
 #### `download_cache_buffer_size`
 
@@ -1006,7 +1023,7 @@ BaseCompaction:546859:
 #### `memory_limitation_per_thread_for_schema_change_bytes`
 
 * 描述：单个schema change任务允许占用的最大内存
-* 默认值：2147483648
+* 默认值：2147483648 (2GB)
 
 #### `mem_tracker_consume_min_size_bytes`
 
@@ -1222,7 +1239,7 @@ BaseCompaction:546859:
 * 描述：存储引擎保留的未生效数据的最大时长
 * 默认值：1800 (s)
 
-#### `ignore_rowset_stale_unconsistent_delete`
+#### `ignore_rowset_stale_inconsistent_delete`
 
 * 类型：bool
 * 描述：用来决定当删除过期的合并过的rowset后无法构成一致的版本路径时，是否仍要删除。
@@ -1497,3 +1514,18 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: `local` 表函数查询的文件的存储目录。
 * 默认值: `${DORIS_HOME}`
+
+#### `brpc_streaming_client_batch_bytes`
+
+* 描述: brpc streaming 客户端发送数据时的攒批大小（字节）
+* 默认值: 262144
+
+#### `grace_shutdown_wait_seconds`
+
+* 描述:  在云原生的部署模式下，为了节省资源一个BE 可能会被频繁的加入集群或者从集群中移除。 如果在这个BE 上有正在运行的Query，那么这个Query 会失败。 用户可以使用 stop_be.sh --grace 的方式来关闭一个BE 节点，此时BE 会等待当前正在这个BE 上运行的所有查询都结束才会退出。 同时，在这个时间范围内FE 也不会分发新的query 到这个机器上。 如果超过grace_shutdown_wait_seconds这个阈值，那么BE 也会直接退出，防止一些查询长期不退出导致节点没法快速下掉的情况。
+* 默认值: 120
+
+#### `enable_java_support`
+
+* Description: BE 是否开启使用java-jni，开启后允许 c++  与 java 之间的相互调用。目前已经支持hudi、java-udf、jdbc、max-compute、paimon、preload、avro
+* Default value: true

@@ -99,9 +99,9 @@ The delete command is an SQL command, and the returned results are synchronous. 
       1. If `status` is `committed`, the data deletion is committed and will be eventually invisible. Users can wait for a while and then use the `show delete` command to view the results.
       2. If `status` is `visible`, the data have been deleted successfully.
 
-## Delete operation related FE configuration
+## Delete Operation Related FE Configuration
 
-**TIMEOUT configuration**
+**TIMEOUT Configuration**
 
 In general, Doris's deletion timeout is limited from 30 seconds to 5 minutes. The specific time can be adjusted through the following configuration items
 
@@ -129,7 +129,7 @@ In general, Doris's deletion timeout is limited from 30 seconds to 5 minutes. Th
 
   If the user needs to take a lot of elements when using the in predicate, the user can adjust the upper limit of the allowed in elements number, and the default value is 1024.
 
-## Show delete history
+## Show Delete History
 
 The user can view the deletion completed in history through the show delete statement.
 

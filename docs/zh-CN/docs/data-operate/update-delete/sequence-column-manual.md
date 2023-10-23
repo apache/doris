@@ -1,6 +1,6 @@
 ---
 {
-    "title": "sequence 列",
+    "title": "Sequence 列",
     "language": "zh-CN"
 }
 ---
@@ -269,7 +269,7 @@ MySQL [test]> select * from test_table;
 此时就可以替换表中原有的数据。综上，在导入过程中，会比较所有批次的sequence列值，选择值最大的记录导入Doris表中。
 
 ## 注意
-1. 为防止误用，在StreamLoad/BrokerLoad等导入任务中，必须要指定sequence列，不然会收到以下报错信息：
+1. 为防止误用，在StreamLoad/BrokerLoad等导入任务以及行更新insert语句中，用户必须显示指定sequence列(除非sequence列的默认值为CURRENT_TIMESTAMP)，不然会收到以下报错信息：
 ```
 Table test_tbl has sequence column, need to specify the sequence column
 ```

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "space",
+    "title": "SPACE",
     "language": "zh-CN"
 }
 ---

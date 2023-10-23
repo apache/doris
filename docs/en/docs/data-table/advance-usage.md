@@ -196,7 +196,7 @@ mysql> SHOW VARIABLES LIKE "%mem_limit%";
 >* The above modification is session level and is only valid within the current connection session. Disconnecting and reconnecting will change back to the default value.
 >* If you need to modify the global variable, you can set it as follows: `SET GLOBAL exec_mem_limit = 8589934592;` When the setup is complete, disconnect the session and log in again, and the parameters will take effect permanently.
 
-### Query timeout
+### Query Timeout
 
 The current default query time is set to 300 seconds. If a query is not completed within 300 seconds, the query will be cancelled by the Doris system. Users can use this parameter to customize the timeout time of their applications and achieve a blocking mode similar to wait (timeout).
 

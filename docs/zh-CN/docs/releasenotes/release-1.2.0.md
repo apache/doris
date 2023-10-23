@@ -181,11 +181,11 @@ Multi-Catalog 多源数据目录功能的目标在于能够帮助用户更方便
 
 ### 9. DateV2/DatatimeV2 新版日期/日期时间数据类型 
 
-支持 DataV2 日期类型和 DatatimeV2 日期时间类型，相较于原有的 Data 和 Datatime 效率更高且支持最多到微秒的时间精度，建议使用新版日期类型。
+支持 DateV2 日期类型和 DatetimeV2 日期时间类型，相较于原有的 Date 和 Datetime 效率更高且支持最多到微秒的时间精度，建议使用新版日期类型。
 
-文档：[https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Types/DATETIMEV2/](https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Types/DATETIMEV2/)
+文档：[https://doris.apache.org/zh-CN/docs/1.2/sql-manual/sql-reference/Data-Types/DATETIMEV2](https://doris.apache.org/zh-CN/docs/1.2/sql-manual/sql-reference/Data-Types/DATETIMEV2)
 
-  [https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Types/DATEV2](https://doris.apache.org/zh-CN/docs/dev/sql-manual/sql-reference/Data-Types/DATEV2)
+  [https://doris.apache.org/zh-CN/docs/1.2/sql-manual/sql-reference/Data-Types/DATEV2](https://doris.apache.org/zh-CN/docs/1.2/sql-manual/sql-reference/Data-Types/DATEV2)
 
 影响范围：
   1. 用户需要在建表时指定 DateV2 和 DatetimeV2，原有表的 Date 以及 Datetime 不受影响。

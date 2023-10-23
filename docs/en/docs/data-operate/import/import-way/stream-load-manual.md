@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Stream load",
+    "title": "Stream Load",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Stream load
+# Stream Load
 
 Stream load is a synchronous way of importing. Users import local files or data streams into Doris by sending HTTP protocol requests. Stream load synchronously executes the import and returns the import result. Users can directly determine whether the import is successful by the return body of the request.
 
@@ -67,7 +67,7 @@ The final result of the import is returned to the user by Coordinator BE.
 
 Stream Load currently supports data formats: CSV (text), JSON
 
-<version since="1.2"> PARQUET and ORC</version> 1.2+ support PARQUET and ORC
+<version since="1.2">supports PARQUET and ORC</version>
 
 ## Basic operations
 ### Create Load
@@ -94,7 +94,7 @@ The detailed syntax for creating imports helps to execute ``HELP STREAM LOAD`` v
 
 + user/passwd
 
-	Stream load uses the HTTP protocol to create the imported protocol and signs it through the Basic Access authentication. The Doris system verifies user identity and import permissions based on signatures.
+  Stream load uses the HTTP protocol to create the imported protocol and signs it through the Basic Access authentication. The Doris system verifies user identity and import permissions based on signatures.
 
 **Load Parameters**
 
@@ -102,11 +102,11 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
 + label
 
-	Identity of import task. Each import task has a unique label inside a single database. Label is a user-defined name in the import command. With this label, users can view the execution of the corresponding import task.
+  Identity of import task. Each import task has a unique label inside a single database. Label is a user-defined name in the import command. With this label, users can view the execution of the corresponding import task.
 
-	Another function of label is to prevent users from importing the same data repeatedly. **It is strongly recommended that users use the same label for the same batch of data. This way, repeated requests for the same batch of data will only be accepted once, guaranteeing at-Most-Once**
+  Another function of label is to prevent users from importing the same data repeatedly. **It is strongly recommended that users use the same label for the same batch of data. This way, repeated requests for the same batch of data will only be accepted once, guaranteeing at-Most-Once**
 
-	When the corresponding import operation state of label is CANCELLED, the label can be used again.
+  When the corresponding import operation state of label is CANCELLED, the label can be used again.
 
 
 + column_separator
@@ -125,19 +125,19 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
 + max\_filter\_ratio
 
-	The maximum tolerance rate of the import task is 0 by default, and the range of values is 0-1. When the import error rate exceeds this value, the import fails.
+  The maximum tolerance rate of the import task is 0 by default, and the range of values is 0-1. When the import error rate exceeds this value, the import fails.
 
-	If the user wishes to ignore the wrong row, the import can be successful by setting this parameter greater than 0.
+  If the user wishes to ignore the wrong row, the import can be successful by setting this parameter greater than 0.
 
-	The calculation formula is as follows:
+  The calculation formula is as follows:
 
     ``` (dpp.abnorm.ALL / (dpp.abnorm.ALL + dpp.norm.ALL ) ) > max_filter_ratio ```
 
-	``` dpp.abnorm.ALL``` denotes the number of rows whose data quality is not up to standard. Such as type mismatch, column mismatch, length mismatch and so on.
+  ``` dpp.abnorm.ALL``` denotes the number of rows whose data quality is not up to standard. Such as type mismatch, column mismatch, length mismatch and so on.
 
-	``` dpp.norm.ALL ``` refers to the number of correct data in the import process. The correct amount of data for the import task can be queried by the ``SHOW LOAD` command.
+  ``` dpp.norm.ALL ``` refers to the number of correct data in the import process. The correct amount of data for the import task can be queried by the ``SHOW LOAD` command.
 
-The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
+  The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
 + where
 
@@ -168,24 +168,19 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
   Specify the import data format, support csv, json, the default is csv
 
-  <version since="1.2"> format </version> 1.2 supports csv_with_names (support csv file line header filter), csv_with_names_and_types (support csv file first two lines filter), parquet, orc
+  <version since="1.2">supports `csv_with_names` (csv file line header filter), `csv_with_names_and_types` (csv file first two lines filter), parquet, orc</version>
 
 + exec\_mem\_limit
 
     Memory limit. Default is 2GB. Unit is Bytes
 
 + merge\_type
+
      The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
 
 + two\_phase\_commit
 
   Stream load import can enable two-stage transaction commit mode: in the stream load process, the data is written and the information is returned to the user. At this time, the data is invisible and the transaction status is `PRECOMMITTED`. After the user manually triggers the commit operation, the data is visible.
-
-+ enable_profile
-  <version since="1.2.7">
-  </version>
-
-  When `enable_profile` is true, the Stream Load profile will be printed to the log. Otherwise it won't print.
 
   Example：
 
@@ -214,6 +209,7 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
     2. Trigger the commit operation on the transaction.
     Note 1) requesting to fe and be both works
     Note 2) `{table}` in url can be omit when commit
+  using txn id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -221,9 +217,18 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
       "msg": "transaction [18036] commit successfully."
   }
   ```
+  using label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] commit successfully."
+  }
+  ```
     3. Trigger an abort operation on a transaction
     Note 1) requesting to fe and be both works
     Note 2) `{table}` in url can be omit when abort
+  using txn id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -231,6 +236,58 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
       "msg": "transaction [18037] abort successfully."
   }
   ```
+  using label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] abort successfully."
+  }
+  ```
+
++ enable_profile
+
+  <version since="1.2.7">When `enable_profile` is true, the Stream Load profile will be printed to logs (be.INFO).</version>
+
++ memtable_on_sink_node
+
+  <version since="2.1.0">
+  Whether to enable MemTable on DataSink node when loading data, default is false.
+  </version>
+
+  Build MemTable on DataSink node, and send segments to other backends through brpc streaming.
+  It reduces duplicate work among replicas, and saves time in data serialization & deserialization.
+- partial_columns
+   <version since="2.0">
+   Whether to enable partial column updates，Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used.
+
+   eg: `curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://127.0.0.1:48037/api/db1/user_profile/_stream_load`
+  </version>
+
+### Use stream load with SQL
+
+You can add a `sql` parameter to the `Header` to replace the `column_separator`, `line_delimiter`, `where`, `columns` in the previous parameter, which is convenient to use.
+
+```
+curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -XPUT http://fe_host:http_port/api/_http_stream
+
+
+# -- load_sql
+# insert into db.table (col, ...) select stream_col, ... from http_stream("property1"="value1");
+
+# http_stream
+# (
+#     "column_separator" = ",",
+#     "format" = "CSV",
+#     ...
+# )
+```
+
+Examples：
+
+```
+curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from http_stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/_http_stream
+```
 
 ### Return results
 
@@ -268,13 +325,13 @@ The following main explanations are given for the Stream load import result para
 
 + Status: Import completion status.
 
-	"Success": Indicates successful import.
+  "Success": Indicates successful import.
 
-	"Publish Timeout": This state also indicates that the import has been completed, except that the data may be delayed and visible without retrying.
+  "Publish Timeout": This state also indicates that the import has been completed, except that the data may be delayed and visible without retrying.
 
-	"Label Already Exists": Label duplicate, need to be replaced Label.
+  "Label Already Exists": Label duplicate, need to be replaced Label.
 
-	"Fail": Import failed.
+  "Fail": Import failed.
 
 + ExistingJobStatus: The state of the load job corresponding to the existing Label.
 
@@ -324,15 +381,15 @@ By default, BE does not record Stream Load records. If you want to view records 
 
 + stream\_load\_default\_timeout\_second
 
-	The timeout time of the import task (in seconds) will be cancelled by the system if the import task is not completed within the set timeout time, and will become CANCELLED.
+  The timeout time of the import task (in seconds) will be cancelled by the system if the import task is not completed within the set timeout time, and will become CANCELLED.
 
-	At present, Stream load does not support custom import timeout time. All Stream load import timeout time is uniform. The default timeout time is 600 seconds. If the imported source file can no longer complete the import within the specified time, the FE parameter ```stream_load_default_timeout_second``` needs to be adjusted.
+  At present, Stream load does not support custom import timeout time. All Stream load import timeout time is uniform. The default timeout time is 600 seconds. If the imported source file can no longer complete the import within the specified time, the FE parameter ```stream_load_default_timeout_second``` needs to be adjusted.
 
 ### BE configuration
 
 + streaming\_load\_max\_mb
 
-	The maximum import size of Stream load is 10G by default, in MB. If the user's original file exceeds this value, the BE parameter ```streaming_load_max_mb``` needs to be adjusted.
+  The maximum import size of Stream load is 10G by default, in MB. If the user's original file exceeds this value, the BE parameter ```streaming_load_max_mb``` needs to be adjusted.
 
 ## Best Practices
 
@@ -364,17 +421,17 @@ Cluster situation: The concurrency of Stream load is not affected by cluster siz
 
 + Step 1: Does the import file size exceed the default maximum import size of 10G
 
-	```
-	BE conf
-	streaming_load_max_mb = 16000
-	```
+  ```
+  BE conf
+  streaming_load_max_mb = 16000
+  ```
 + Step 2: Calculate whether the approximate import time exceeds the default timeout value
 
-	```
-	Import time 15000/10 = 1500s
-	Over the default timeout time, you need to modify the FE configuration
-	stream_load_default_timeout_second = 1500
-	```
+  ```
+  Import time 15000/10 = 1500s
+  Over the default timeout time, you need to modify the FE configuration
+  stream_load_default_timeout_second = 1500
+  ```
 
 + Step 3: Create Import Tasks
 
@@ -402,35 +459,35 @@ Doris provides StreamLoad examples in three languages: [Java](https://github.com
 
 * Label Already Exists
 
-	The Label repeat checking steps of Stream load are as follows:
+  The Label repeat checking steps of Stream load are as follows:
 
-	1. Is there an import Label conflict that already exists with other import methods?
+  1. Is there an import Label conflict that already exists with other import methods?
 
-		Because imported Label in Doris system does not distinguish between import methods, there is a problem that other import methods use the same Label.
+    Because imported Label in Doris system does not distinguish between import methods, there is a problem that other import methods use the same Label.
 
-		Through ``SHOW LOAD WHERE LABEL = "xxx"'``, where XXX is a duplicate Label string, see if there is already a Label imported by FINISHED that is the same as the Label created by the user.
+    Through ``SHOW LOAD WHERE LABEL = "xxx"'``, where XXX is a duplicate Label string, see if there is already a Label imported by FINISHED that is the same as the Label created by the user.
 
-	2. Are Stream loads submitted repeatedly for the same job?
+  2. Are Stream loads submitted repeatedly for the same job?
 
-		Since Stream load is an HTTP protocol submission creation import task, HTTP Clients in various languages usually have their own request retry logic. After receiving the first request, the Doris system has started to operate Stream load, but because the result is not returned to the Client side in time, the Client side will retry to create the request. At this point, the Doris system is already operating on the first request, so the second request will be reported to Label Already Exists.
+    Since Stream load is an HTTP protocol submission creation import task, HTTP Clients in various languages usually have their own request retry logic. After receiving the first request, the Doris system has started to operate Stream load, but because the result is not returned to the Client side in time, the Client side will retry to create the request. At this point, the Doris system is already operating on the first request, so the second request will be reported to Label Already Exists.
 
-		To sort out the possible methods mentioned above: Search FE Master's log with Label to see if there are two ``redirect load action to destination = ``redirect load action to destination cases in the same Label. If so, the request is submitted repeatedly by the Client side.
+    To sort out the possible methods mentioned above: Search FE Master's log with Label to see if there are two ``redirect load action to destination = ``redirect load action to destination cases in the same Label. If so, the request is submitted repeatedly by the Client side.
 
-		It is recommended that the user calculate the approximate import time based on the amount of data currently requested, and change the request overtime on the client side to a value greater than the import timeout time according to the import timeout time to avoid multiple submissions of the request by the client side.
+    It is recommended that the user calculate the approximate import time based on the amount of data currently requested, and change the request overtime on the client side to a value greater than the import timeout time according to the import timeout time to avoid multiple submissions of the request by the client side.
 
-	3. Connection reset abnormal
+  3. Connection reset abnormal
 
-	  In the community version 0.14.0 and earlier versions, the connection reset exception occurred after Http V2 was enabled, because the built-in web container is tomcat, and Tomcat has pits in 307 (Temporary Redirect). There is a problem with the implementation of this protocol. All In the case of using Stream load to import a large amount of data, a connect reset exception will occur. This is because tomcat started data transmission before the 307 jump, which resulted in the lack of authentication information when the BE received the data request. Later, changing the built-in container to Jetty solved this problem. If you encounter this problem, please upgrade your Doris or disable Http V2 (`enable_http_server_v2=false`).
+    In the community version 0.14.0 and earlier versions, the connection reset exception occurred after Http V2 was enabled, because the built-in web container is tomcat, and Tomcat has pits in 307 (Temporary Redirect). There is a problem with the implementation of this protocol. All In the case of using Stream load to import a large amount of data, a connect reset exception will occur. This is because tomcat started data transmission before the 307 jump, which resulted in the lack of authentication information when the BE received the data request. Later, changing the built-in container to Jetty solved this problem. If you encounter this problem, please upgrade your Doris or disable Http V2 (`enable_http_server_v2=false`).
 
-	  After the upgrade, also upgrade the http client version of your program to `4.5.13`，Introduce the following dependencies in your pom.xml file
+    After the upgrade, also upgrade the http client version of your program to `4.5.13`，Introduce the following dependencies in your pom.xml file
 
-	  ```xml
-	      <dependency>
-	        <groupId>org.apache.httpcomponents</groupId>
-	        <artifactId>httpclient</artifactId>
-	        <version>4.5.13</version>
-	      </dependency>
-	  ```
+    ```xml
+        <dependency>
+          <groupId>org.apache.httpcomponents</groupId>
+          <artifactId>httpclient</artifactId>
+          <version>4.5.13</version>
+        </dependency>
+    ```
  
 * After enabling the Stream Load record on the BE, the record cannot be queried
 

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-SUM",
+    "title": "WINDOW_FUNCTION_SUM",
     "language": "en"
 }
 ---

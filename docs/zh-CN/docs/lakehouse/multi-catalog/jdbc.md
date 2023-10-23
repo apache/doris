@@ -35,6 +35,13 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 支持 MySQL、PostgreSQL、Oracle、SQLServer、Clickhouse、Doris、SAP HANA、Trino/Presto、OceanBase
 
+## 语法
+    
+```sql
+CREATE CATALOG <catalog_name>
+PROPERTIES ("key"="value", ...)
+```
+
 ## 参数说明
 
 | 参数                      | 必须 | 默认值  | 说明                                                                                          |
@@ -587,6 +594,74 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 :::tip
  Doris 在连接 OceanBase 时，会自动识别 OceanBase 处于 MySQL 或者 Oracle 模式，层级对应和类型映射参考 [MySQL](#MySQL) 与 [Oracle](#Oracle)
 :::
+
+### 查看 JDBC Catalog
+
+可以通过 SHOW CATALOGS 查询当前所在 Doris 集群里所有 Catalog：
+
+```sql
+SHOW CATALOGS;
+```
+
+通过 SHOW CREATE CATALOG 查询某个 Catalog 的创建语句：
+
+```sql
+SHOW CREATE CATALOG <catalog_name>;
+```
+
+### 删除 JDBC Catalog
+
+可以通过 DROP CATALOG 删除某个 Catalog：
+
+```sql
+DROP CATALOG <catalog_name>;
+```
+
+### 查询 JDBC Catalog
+
+1. 通过 SWITCH 切换当前会话生效的 Catalog：
+
+    ```sql
+    SWITCH <catalog_name>;
+    ```
+
+2. 通过 SHOW DATABASES 查询当前 Catalog 下的所有库：
+
+    ```sql
+    SHOW DATABASES FROM <catalog_name>;
+    ```
+
+    ```sql
+    SHOW DATABASES;
+    ```
+
+3. 通过 USE 切换当前会话生效的 Database：
+
+    ```sql
+    USE <database_name>;
+    ```
+
+    或者直接通过 `USE <catalog_name>.<database_name>;` 切换当前会话生效的 Database
+
+4. 通过 SHOW TABLES 查询当前 Catalog 下的所有表：
+
+    ```sql
+    SHOW TABLES FROM <catalog_name>.<database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES FROM <database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES;
+    ```
+
+5. 通过 SELECT 查询当前 Catalog 下的某个表的数据：
+
+    ```sql
+    SELECT * FROM <table_name>;
+    ```
 
 ## 常见问题
 

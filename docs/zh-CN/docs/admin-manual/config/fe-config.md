@@ -384,6 +384,12 @@ heartbeat_mgr 中处理心跳事件的线程数。
 
 Doris FE 通过 mysql 协议查询连接端口
 
+#### `arrow_flight_sql_port`
+
+默认值：-1
+
+Doris FE 通过 Arrow Flight SQL 协议查询连接端口
+
 #### `frontend_address`
 
 状态:已弃用，不建议使用。
@@ -430,14 +436,6 @@ FE https 使能标志位，false 表示支持 http，true 表示同时支持 htt
 默认值：1024
 
 每个 FE 的最大连接数
-
-#### `max_connection_scheduler_threads_num`
-
-默认值：4096
-
-查询请求调度器中的最大线程数。
-
-目前的策略是，有请求过来，就为其单独申请一个线程进行服务
 
 #### `check_java_version`
 
@@ -764,6 +762,16 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 用于限制批量创建分区表时可以创建的最大分区数，避免一次创建过多分区。
 
 </version>
+
+#### `multi_partition_name_prefix`
+
+默认值：p_
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+使用此参数设置 multi partition 的分区名前缀，仅仅multi partition 生效，不作用于动态分区，默认前缀是“p_”。
 
 #### `partition_in_memory_update_interval_secs`
 
@@ -1151,7 +1159,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 #### `max_bytes_per_broker_scanner`
 
-默认值：500 * 1024 * 1024 * 1024L  （500G）
+默认值：`500 * 1024 * 1024 * 1024L`  （500G）
 
 是否可以动态配置：true
 
@@ -2186,7 +2194,7 @@ tablet 状态更新间隔
 
 #### `enable_storage_policy`
 
-是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。该功能仍在开发中，不排除后续后功能修改或重构。仅建议测试环境使用。
+是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。
 
 默认值：false。即不开启
 
@@ -2624,23 +2632,23 @@ SmallFileMgr 中存储的最大文件数
 
 #### `enable_date_conversion`
 
-默认值：false
+默认值：true
 
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为 true，FE 会自动将 Date/Datetime 转换为 DateV2/DatetimeV2(0)。
+FE 会自动将 Date/Datetime 转换为 DateV2/DatetimeV2(0)。
 
 #### `enable_decimal_conversion`
 
-默认值：false
+默认值：true
 
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为 true，FE 将自动将 DecimalV2 转换为 DecimalV3。
+FE 将自动将 DecimalV2 转换为 DecimalV3。
 
 #### `proxy_auth_magic_prefix`
 
@@ -2760,6 +2768,12 @@ show data （其他用法：HELP SHOW DATA）
 默认值：true
 
 暂时性配置项，开启后会启动后台线程自动将所有的olap表修改为可light schema change，修改结果可通过命令`show convert_light_schema_change [from db]` 来查看，将会展示所有非light schema change表的转换结果
+
+#### `disable_local_deploy_manager_drop_node`
+
+默认值：true
+
+禁止LocalDeployManager删除节点，防止cluster.info文件有误导致节点被删除。
 
 #### `mysqldb_replace_name`
 

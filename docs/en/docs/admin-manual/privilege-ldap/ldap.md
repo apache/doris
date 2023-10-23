@@ -102,6 +102,8 @@ set ldap_admin_password = password('ldap_admin_password');
 ```
 
 ### Client-side configuration  
+
+#### MySQL Client
 Client-side LDAP authentication requires the mysql client-side explicit authentication plugin to be enabled. Logging into Doris using the command line enables the mysql explicit authentication plugin in one of two ways.
 
 * Set the environment variable LIBMYSQL_ENABLE_CLEARTEXT_PLUGIN to value 1.
@@ -116,7 +118,31 @@ Client-side LDAP authentication requires the mysql client-side explicit authenti
   
   Enter ldap password
   ```
+#### Jdbc Client
 
+When using Jdbc Client to connect in to Doris, you need to customize the plugin.
+
+First, create a class called `MysqlClearPasswordPluginWithoutSSL` that inherits from `MysqlClearPasswordPlugin`. In this class, override the `requiresConfidentiality()` method and return false.
+
+``` java
+public class MysqlClearPasswordPluginWithoutSSL extends MysqlClearPasswordPlugin {
+@Override  
+public boolean requiresConfidentiality() {
+    return false;
+  }
+}
+```
+When obtaining a database connection, you need to configure the custom plugin into the properties
+
+That is (xxx is the package name of the custom class)
+- authenticationPlugins=xxx.xxx.xxx.MysqlClearPasswordPluginWithoutSSL
+- defaultAuthenticationPlugin=xxx.xxx.xxx.MysqlClearPasswordPluginWithoutSSL
+- disabledAuthenticationPlugins=com.mysql.jdbc.authentication.MysqlClearPasswordPlugin
+
+eg:
+```sql
+ jdbcUrl = "jdbc:mysql://localhost:9030/mydatabase?authenticationPlugins=xxx.xxx.xxx.MysqlClearPasswordPluginWithoutSSL&defaultAuthenticationPlugin=xxx.xxx.xxx.MysqlClearPasswordPluginWithoutSSL&disabledAuthenticationPlugins=com.mysql.jdbc.authentication.MysqlClearPasswordPlugin";
+```
 ## LDAP authentication detailed explanation
 LDAP password authentication and group authorization are complementary to Doris password authentication and authorization. Enabling LDAP functionality does not completely replace Doris password authentication and authorization, but coexists with Doris password authentication and authorization.
 

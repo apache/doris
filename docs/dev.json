@@ -1,6 +1,6 @@
 {
   "version.label": {
-    "message": "2.0",
+    "message": "dev",
     "description": "The label for version current"
   },
   "sidebar.docs.category.Getting Started": {
@@ -11,9 +11,9 @@
     "message": "Doris 介绍",
     "description": "The label for category Doris Introduction in sidebar docs"
   },
-  "sidebar.docs.category.Install And Deploy": {
+  "sidebar.docs.category.Install and Deploy": {
     "message": "安装部署",
-    "description": "The label for category Install And Deploy in sidebar docs"
+    "description": "The label for category Install and Deploy in sidebar docs"
   },
   "sidebar.docs.category.Docker Deployment": {
     "message": "Docker 部署",
@@ -46,6 +46,10 @@
   "sidebar.docs.category.Import Way": {
     "message": "按方式导入",
     "description": "The label for category Import Way in sidebar docs"
+  },
+  "sidebar.docs.category.Import Advanced": {
+    "message": "高级导入",
+    "description": "The label for category Import Advanced in sidebar docs"
   },
   "sidebar.docs.category.Export": {
     "message": "导出",
@@ -147,9 +151,9 @@
     "message": "Bitwise 函数",
     "description": "The label for category Bitwise Functions in sidebar docs"
   },
-  "sidebar.docs.category.Condition Functions": {
+  "sidebar.docs.category.Conditional Functions": {
     "message": "条件函数",
-    "description": "The label for category Condition Functions in sidebar docs"
+    "description": "The label for category Conditional Functions in sidebar docs"
   },
   "sidebar.docs.category.JSON Functions": {
     "message": "JSON 函数",
@@ -163,9 +167,9 @@
     "message": "HLL 函数",
     "description": "The label for category HLL Functions in sidebar docs"
   },
-  "sidebar.docs.category.Math Functions": {
+  "sidebar.docs.category.Numeric Functions": {
     "message": "数学函数",
-    "description": "The label for category Math Functions in sidebar docs"
+    "description": "The label for category Numeric Functions in sidebar docs"
   },
   "sidebar.docs.category.Encryption Functions": {
     "message": "加密和信息摘要函数",
@@ -306,5 +310,9 @@
   "sidebar.docs.category.External Table": {
     "message": "外部表",
     "description": "The label for category Lakehouse.External Table in sidebar docs"
+  },
+  "sidebar.docs.category.Release notes": {
+    "message": "版本发布",
+    "description": "The label for category Release notes in sidebar docs"
   }
 }

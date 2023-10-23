@@ -32,7 +32,7 @@ Doris集群必须完全搭建完成后再配置FE和BE的自动拉起服务。
 
 ## Systemd配置Doris服务
 
-systemd具体使用以及参数解析可以参考[这里](https://blog.51cto.com/arm2012/1963238) 
+systemd具体使用以及参数解析可以参考[这里](https://systemd.io/) 
 
 ### sudo 权限控制
 
@@ -47,10 +47,14 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
 ```
 
 ### 配置步骤
+1. 分别在fe.conf和be.conf中添加 JAVA_HOME变量配置，否则使用systemctl start 将无法启动服务
+    ```
+    echo "JAVA_HOME=your_java_home" >> /home/doris/fe/conf/fe.conf
+    echo "JAVA_HOME=your_java_home" >> /home/doris/be/conf/be.conf
+    ```
+2. 下载doris-fe.service文件: [doris-fe.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-fe.service)
 
-1. 下载doris-fe.service文件: [doris-fe.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-fe.service)
-
-2. doris-fe.service具体内容如下:
+3. doris-fe.service具体内容如下:
 
     ```
     # Licensed to the Apache Software Foundation (ASF) under one
@@ -97,9 +101,9 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
 
 - ExecStart、ExecStop根据实际部署的fe的路径进行配置
 
-3. 下载doris-be.service文件: [doris-be.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-be.service)
+4. 下载doris-be.service文件: [doris-be.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-be.service)
 
-4. doris-be.service具体内容如下: 
+5. doris-be.service具体内容如下: 
     ```
     # Licensed to the Apache Software Foundation (ASF) under one
     # or more contributor license agreements.  See the NOTICE file
@@ -145,11 +149,11 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
 
 - ExecStart、ExecStop根据实际部署的be的路径进行配置
 
-5. 服务配置
+6. 服务配置
 
    将doris-fe.service、doris-be.service两个文件放到 /usr/lib/systemd/system 目录下
 
-6. 设置自启动
+7. 设置自启动
 
     添加或修改配置文件后，需要重新加载
 
@@ -164,7 +168,7 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
     systemctl enable doris-be
     ```
 
-7. 服务启动
+8. 服务启动
 
     ```
     systemctl start doris-fe
@@ -315,6 +319,7 @@ Supervisor 配置自动拉起可以使用 yum 命令直接安装，也可以通�
 这个是 python 版本不兼容问题，通过yum命令直接安装的 supervisor 只支持 python2 版本，所以需要将 /usr/bin/supervisord 和 /usr/bin/supervisorctl 中文件内容开头 #!/usr/bin/python 改为 #!/usr/bin/python2 ，前提是要装 python2 版本
 ```
 
+- 如果配置了 supervisor 对 Doris 进程进行自动拉起，此时如果 Doris 出现非正常因素导致BE节点宕机，那么此时本来应该输出到 be.out 中的错误堆栈信息会被supervisor 拦截，需要在 supervisor 的log中查找来进一步分析。
 
 
 

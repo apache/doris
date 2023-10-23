@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Materialized view",
+    "title": "Materialized View",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Materialized view
+# Materialized View
 A materialized view is a data set that is pre-calculated (according to a defined SELECT statement) and stored in a special table in Doris.
 
 The emergence of materialized views is mainly to satisfy users. It can analyze any dimension of the original detailed data, but also can quickly analyze and query fixed dimensions.
@@ -85,8 +85,7 @@ In `Doris 2.0` we made some enhancements to materialized views (described in `Be
 
 If you don't know how to verify that a query hits a materialized view, you can read `Best Practice 1` of this article.
 
-At the same time, we do not recommend that users create multiple materialized views with similar shapes on the same table, as this may cause conflicts between multiple materialized views and cause query hit failures. (Of course, these possible problems can be verified in the test environment)
-
+At the same time, we do not recommend that users create multiple materialized views with similar shapes on the same table, which may cause conflicts between multiple materialized views and cause query hit failures (this problem will be improved in the new optimizer ). It is recommended that users first verify whether materialized views and queries meet the requirements and can be used normally in the test environment.
 ### Support aggregate functions
 
 The aggregate functions currently supported by the materialized view function are:
@@ -489,7 +488,7 @@ This problem can be solved by creating a materialized view with k3 as the first 
 
 <version since="2.0.0"></version>
 
-In `Doris 2.0`, we have made some enhancements to the expressions supported by the materialized view. This example will mainly reflect the support for various expressions of the new version of the materialized view.
+In `Doris 2.0`, we have made some enhancements to the expressions supported by the materialized view. This example will mainly reflect the support and early filtering of the new version of the materialized view for various expressions.
 
 1. Create a base table and insert some data.
     ```sql
@@ -497,7 +496,7 @@ In `Doris 2.0`, we have made some enhancements to the expressions supported by t
        k1 int null,
        k2 int not null,
        k3 bigint null,
-       k4 varchar(100) null
+       k4 date null
     )
     duplicate key (k1,k2,k3)
     distributed BY hash(k1) buckets 3
@@ -511,24 +510,23 @@ In `Doris 2.0`, we have made some enhancements to the expressions supported by t
 2. Create some materialized views.
     ```sql
     create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;
-    create materialized view kymd as select year(k4),month(k4),day(k4) from d_table;
+    create materialized view kymd as select year(k4),month(k4) from d_table where year(k4) = 2020; // Filter with where expression in advance to reduce the amount of data in the materialized view.
     ```
 
 3. Use some queries to test if the materialized view was successfully hit.
     ```sql
     select abs(k1)+k2+1, sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1; // hit k1a2p2ap3ps
     select bin(abs(k1)+k2+1), sum(abs(k2+2)+k3+3) from d_table group by bin(abs(k1)+k2+1); // hit k1a2p2ap3ps
-    select year(k4),month(k4),day(k4) from d_table; // hit kymd
-    select year(k4)+month(k4)+day(k4) from d_table where year(k4) = 2020; // hit kymd
+    select year(k4),month(k4),day(k4) from d_table; // cannot hit the materialized view because the where condition does not match
+    select year(k4)+month(k4) from d_table where year(k4) = 2020; // hit kymd
     ```
 
 ## Limitations
 
-1. The parameter of the aggregate function of the materialized view does not support the expression only supports a single column, for example: sum(a+b) does not support. (Supported after 2.0)
-2. If the conditional column of the delete statement does not exist in the materialized view, the delete operation cannot be performed. If you must delete data, you need to delete the materialized view before deleting the data.
-3. Too many materialized views on a single table will affect the efficiency of importing: When importing data, the materialized view and base table data are updated synchronously. If a table has more than 10 materialized view tables, it may cause the import speed to be very high. slow. This is the same as a single import needs to import 10 tables at the same time.
-4. The same column with different aggregate functions cannot appear in a materialized view at the same time. For example, select sum(a), min(a) from table are not supported. (Supported after 2.0)
-5. For the Unique Key data model, the materialized view can only change the column order and cannot play the role of aggregation. Therefore, in the Unique Key model, it is not possible to perform coarse-grained aggregation operations on the data by creating a materialized view.
+1. If the condition column of the delete statement does not exist in the materialized view, the delete operation cannot be performed. If you must delete the data, you need to delete the materialized view before deleting the data.
+2. Too many materialized views on a single table will affect the efficiency of import: when importing data, the materialized view and Base table data are updated synchronously. If a table has more than 10 materialized views, the import speed may be slow. slow. This is the same as if a single import needs to import 10 table data at the same time.
+3. For the Unique Key data model, the materialized view can only change the order of the columns and cannot perform aggregation. Therefore, it is not possible to perform coarse-grained aggregation operations on the data by creating a materialized view on the Unique Key model.
+4. At present, the rewriting behavior of some optimizers to SQL may cause the materialized view to fail to be hit. For example, k1+1-1 is rewritten as k1, between is rewritten as <= and >=, and day is rewritten as dayofmonth. In this case, you need to manually adjust the statements of the query and materialized view.
 
 ## Error
 1. DATA_QUALITY_ERROR: "The data quality does not satisfy, please check your data"

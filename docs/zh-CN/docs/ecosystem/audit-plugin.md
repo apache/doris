@@ -34,30 +34,57 @@ Doris 的审计日志插件是在 FE 的插件框架基础上开发的。是一�
 
 ### FE 配置
 
-FE的插件框架当前是实验性功能，Doris中默认关闭，在FE的配置文件中，增加`plugin_enable = true`启用plugin框架
+审计日志插件框架在 Doris 中是默认开启的的，由 FE 的配置 `plugin_enable` 控制
 
 ### AuditLoader 配置
 
-auditloader plugin的配置位于`${DORIS}/fe_plugins/auditloader/src/main/assembly/`.
+1. 下载 Audit Loader 插件
 
-打开 `plugin.conf` 进行配置。配置项说明参见注释。
+    Audit Loader 插件在 Doris 的发行版中默认提供，通过 [DOWNLOAD](https://doris.apache.org/zh-CN/download) 下载 Doris 安装包解压并进入目录后即可在 extensions/audit_loader 子目录下找到 auditloader.zip 文件。
 
-<version since="1.2.0"></version>
-从 1.2 版本开始，审计日志插件支持将慢查询日志导入到单独的慢表 `doris_slow_log_tbl__` 中，Doris 中默认关闭，在审计日志的配置文件中，增加 `enable_slow_log = true`，开启该功能。并且可以在 FE 配置文件中修改 `qe_slow_log_ms` 项来修改慢查询阈值。
+2. 解压安装包
 
-### 编译
+    ```shell
+    unzip auditloader.zip
+    ```
 
-在 Doris 代码目录下执行 `sh build_plugin.sh` 后，会在 `fe_plugins/output` 目录下得到 `auditloader.zip` 文件。
+    解压生成以下文件：
 
-### 部署
+    * auditloader.jar：插件代码包。
+    * plugin.properties：插件属性文件。
+    * plugin.conf：插件配置文件。
 
-您可以将这个文件放置在一个 http 服务器上，或者拷贝`auditloader.zip`(或者解压`auditloader.zip`)到所有 FE 的指定目录下。这里我们使用后者。
+您可以将这个文件放置在一个 http 服务器上，或者拷贝`auditloader.zip`(或者解压`auditloader.zip`)到所有 FE 的指定目录下。这里我们使用后者。  
+该插件的安装可以参阅 [INSTALL](../sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN.md)  
+执行install后会自动生成AuditLoader目录
 
-### 安装
+3. 修改 plugin.conf 
 
-部署完成后，安装插件前，需要创建之前在 `plugin.conf` 中指定的审计日志数据库和表。若开启了慢查询日志导入功能，需要创建慢表 `doris_slow_log_tbl__`，其表结构与 `doris_audit_log_tbl__` 一致。其中建库与建表语句如下：
+    以下配置可供修改：
 
-```
+    * frontend_host_port：FE 节点 IP 地址和 HTTP 端口，格式为 <fe_ip>:<fe_http_port>。 默认值为 127.0.0.1:8030。
+    * database：审计日志库名。
+    * audit_log_table：审计日志表名。
+    * slow_log_table：慢查询日志表名。
+    * enable_slow_log：是否开启慢查询日志导入功能。默认值为 false。
+    * user：集群用户名。该用户必须具有对应表的 INSERT 权限。
+    * password：集群用户密码。
+
+4. 重新打包 Audit Loader 插件
+
+    ```shell
+    zip -r -q -m auditloader.zip auditloader.jar plugin.properties plugin.conf
+    ```
+
+### 创建库表
+
+在 Doris 中，需要创建审计日志的库和表，表结构如下：
+
+若需开启慢查询日志导入功能，还需要额外创建慢表 `doris_slow_log_tbl__`，其表结构与 `doris_audit_log_tbl__` 一致。
+
+其中 `dynamic_partition` 属性根据自己的需要，选择审计日志保留的天数。
+
+```sql
 create database doris_audit_db__;
 
 create table doris_audit_db__.doris_audit_log_tbl__
@@ -137,8 +164,20 @@ properties(
 >
 > 上面表结构中：stmt string ，这个只能在0.15及之后版本中使用，之前版本，字段类型使用varchar
 
-其中 `dynamic_partition` 属性根据自己的需要，选择审计日志保留的天数。
+### 部署
 
-之后，连接到 Doris 后使用 `INSTALL PLUGIN` 命令完成安装。安装成功后，可以通过 `SHOW PLUGINS` 看到已经安装的插件，并且状态为 `INSTALLED`。
+您可以将 打包好的 auditloader.zip 放置在一个 http 服务器上，或者拷贝`auditloader.zip` 到所有 FE 的相同指定目录下。
+
+### 安装
+
+通过以下语句安装 Audit Loader 插件：
+
+```sql
+INSTALL PLUGIN FROM [source] [PROPERTIES ("key"="value", ...)]
+```
+
+详细命令参考：[INSTALL-PLUGIN.md](../sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN)
+
+安装成功后，可以通过 `SHOW PLUGINS` 看到已经安装的插件，并且状态为 `INSTALLED`。
 
 完成后，插件会不断的以指定的时间间隔将审计日志插入到这个表中。

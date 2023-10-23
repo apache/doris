@@ -67,11 +67,20 @@ ALTER TABLE [db.]tbl1 REPLACE WITH TABLE tbl2
 
 ### Example
 
-1. 将 `tbl1` 与 `tbl2` 进行交换，不删除 `tbl1` 表
+1. 将 `tbl1` 与 `tbl2` 进行原子交换，不删除任何表（注：如果删除的话，实际上删除的是tbl1，只是将tbl2重命名为tbl1。）
 
 ```sql
-ALTER TABLE tbl1 REPLACE WITH TABLE tbl2
-    [PROPERTIES('swap' = 'true')];
+ALTER TABLE tbl1 REPLACE WITH TABLE tbl2;
+```
+或
+```sql
+ALTER TABLE tbl1 REPLACE WITH TABLE tbl2 PROPERTIES('swap' = 'true') ;
+```
+
+2. 将 `tbl1` 与 `tbl2` 进行交换，删除 `tbl2` 表（保留名为`tbl1`,数据为`tbl2`的表）
+
+```sql
+ALTER TABLE tbl1 REPLACE WITH TABLE tbl2 PROPERTIES('swap' = 'false') ;
 ```
 
 ### Keywords

@@ -127,6 +127,12 @@ There are two ways to configure BE configuration items:
 * Description: The port of BRPC on BE, used for communication between BEs
 * Default value: 8060
 
+#### `arrow_flight_sql_port`
+
+* Type: int32
+* Description: The port of Arrow Flight SQL server on BE, used for communication between Arrow Flight Client and BE
+* Default value: -1
+
 #### `enable_https`
 
 * Type: bool
@@ -181,7 +187,7 @@ There are two ways to configure BE configuration items:
 #### `mem_limit`
 
 * Type: string
-* Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying to many the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
+* Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying too the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
 * Default value: 80%
 
 #### `cluster_id`
@@ -189,7 +195,7 @@ There are two ways to configure BE configuration items:
 * Type: int32
 * Description: Configure the cluster id to which the BE belongs.
     - This value is usually delivered by the FE to the BE by the heartbeat, no need to configure. When it is confirmed that a BE belongs to a certain Drois cluster, it can be configured. The cluster_id file under the data directory needs to be modified to make sure same as this parament.
-* Default value: - 1
+* Default value: -1
 
 #### `custom_config_dir`
 
@@ -221,7 +227,7 @@ There are two ways to configure BE configuration items:
 #### `status_report_interval`
 
 * Description: Interval between profile reports
-* Default value: 5
+* Default value: 5 seconds
 
 #### `brpc_max_body_size`
 
@@ -313,6 +319,12 @@ There are two ways to configure BE configuration items:
 * Type: int64
 * Description:  When using the odbc external table, if a column type of the odbc source table is not HLL, CHAR or VARCHAR, and the length of the column value exceeds this value, the query will report an error 'column value length longer than buffer length'. You can increase this value
 * Default value: 100
+
+#### `jsonb_type_length_soft_limit_bytes`
+
+* Type: int32
+* Description: The soft limit of the maximum length of JSONB type.
+* Default value: 1,048,576
 
 ### Query
 
@@ -706,6 +718,11 @@ BaseCompaction:546859:
 * Description: Import the number of threads for processing NORMAL priority tasks
 * Default value: 3
 
+#### `enable_single_replica_load`
+
+* Description: Whether to enable the single-copy data import function
+* Default value: false
+
 #### `load_error_log_reserve_hours`
 
 * Description: The load error log will be deleted after this time
@@ -795,7 +812,7 @@ BaseCompaction:546859:
 
 * Type: int64
 * Description: Used to limit the maximum amount of csv data allowed in one Stream load.
-  - Stream Load is generally suitable for loading data less than a few GB, not suitable for loading` too large data.
+  - Stream Load is generally suitable for loading data less than a few GB, not suitable for loading too large data.
 * Default value: 10240 (MB)
 * Dynamically modifiable: Yes
 
@@ -933,11 +950,6 @@ BaseCompaction:546859:
 * Description: The maximum external scan cache batch count, which means that the cache max_memory_cache_batch_count * batch_size row, the default is 20, and the default value of batch_size is 1024, which means that 20 * 1024 rows will be cached
 * Default value: 20
 
-#### `memory_limitation_per_thread_for_schema_change`
-
-* Description: The maximum memory allowed for a single schema change task
-* Default value: 2 (GB)
-
 #### `memory_max_alignment`
 
 * Description: Maximum alignment memory
@@ -947,6 +959,11 @@ BaseCompaction:546859:
 
 * Description: Whether to use mmap to allocate memory
 * Default value: false
+
+#### `memtable_mem_tracker_refresh_interval_ms`
+
+* Description: Interval in milliseconds between memtable flush mgr refresh iterations
+* Default value: 100
 
 #### `download_cache_buffer_size`
 
@@ -981,7 +998,7 @@ BaseCompaction:546859:
 #### `memory_limitation_per_thread_for_schema_change_bytes`
 
 * Description: Maximum memory allowed for a single schema change task
-* Default value: 2147483648
+* Default value: 2147483648 (2GB)
 
 #### `mem_tracker_consume_min_size_bytes`
 
@@ -1010,7 +1027,7 @@ BaseCompaction:546859:
 * Type: int32
 * Description: The cache size used when reading files on hdfs or object storage.
   - Increasing this value can reduce the number of calls to read remote data, but it will increase memory overhead.
-* Default value: 16MB
+* Default value: 16 (MB)
 
 #### `file_cache_type`
 
@@ -1135,7 +1152,7 @@ BaseCompaction:546859:
 
 #### `small_file_dir`
 
-* Description: 用于保存 SmallFileMgr 下载的文件的目录
+* Description: Save files downloaded by SmallFileMgr
 * Default value: ${DORIS_HOME}/lib/small_file/
 
 #### `user_function_dir`
@@ -1356,7 +1373,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `sys_log_verbose_modules`
 
 * Description: Log printing module, writing olap will only print the log under the olap module
-* Default value: 空
+* Default value: empty
 
 #### `aws_log_level`
 
@@ -1376,7 +1393,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `log_buffer_level`
 
 * Description: The log flushing strategy is kept in memory by default
-* Default value: 空
+* Default value: empty
 
 ### Else
 
@@ -1468,3 +1485,18 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: The storage directory for files queried by `local` table valued functions.
 * Default value: `${DORIS_HOME}`
+
+#### `brpc_streaming_client_batch_bytes`
+
+* Description: The batch size for sending data by brpc streaming client
+* Default value: 262144
+
+#### `grace_shutdown_wait_seconds`
+
+* Description: In cloud native deployment scenario, BE will be add to cluster and remove from cluster very frequently. User's query will fail if there is a fragment is running on the shuting down BE. Users could use stop_be.sh --grace, then BE will wait all running queries to stop to avoiding running query failure, but if the waiting time exceed the limit, then be will exit directly. During this period, FE will not send any queries to BE and waiting for all running queries to stop.
+* Default value: 120
+
+#### `enable_java_support`
+
+* Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, java-udf, jdbc, max-compute, paimon, preload, avro
+* Default value: true

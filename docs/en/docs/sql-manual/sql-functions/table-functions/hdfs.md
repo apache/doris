@@ -1,6 +1,6 @@
 ---
 {
-    "title": "hdfs",
+    "title": "HDFS",
     "language": "en"
 }
 ---
@@ -51,7 +51,7 @@ hdfs(
 
 Related parameters for accessing hdfs:
 
-- `uri`: (required) hdfs uri.
+- `uri`: (required) hdfs uri. If the uri path does not exist or the files are empty files, hdfs tvf will return an empty result set.
 - `fs.defaultFS`: (required)
 - `hadoop.username`: (required) Can be any string, but cannot be empty.
 - `hadoop.security.authentication`: (optional)
@@ -69,7 +69,7 @@ Related parameters for accessing HDFS in HA mode:
 
 File format parameters:
 
-- `format`: (required) Currently support `csv/csv_with_names/csv_with_names_and_types/json/parquet/orc`
+- `format`: (required) Currently support `csv/csv_with_names/csv_with_names_and_types/json/parquet/orc/avro`
 - `column_separator`: (optional) default `,`.
 - `line_delimiter`: (optional) default `\n`.
 - `compress_type`: (optional) Currently support `UNKNOWN/PLAIN/GZ/LZO/BZ2/LZ4FRAME/DEFLATE`. Default value is `UNKNOWN`, it will automatically infer the type based on the suffix of `uri`.

@@ -384,6 +384,12 @@ Default：9030
 
 FE MySQL server port
 
+#### `arrow_flight_sql_port`
+
+Default：-1
+
+Arrow Flight SQL server port
+
 #### `frontend_address`
 
 Status: Deprecated, not recommended use. This parameter may be deleted later
@@ -430,14 +436,6 @@ If set to ture, doris will establish an encrypted channel based on the SSL proto
 Default：1024
 
 Maximal number of connections per FE.
-
-#### `max_connection_scheduler_threads_num`
-
-Default：4096
-
-Maximal number of thread in connection-scheduler-pool.
-
-The current strategy is to apply for a separate thread for service when there is a request
 
 #### `check_java_version`
 
@@ -504,7 +502,7 @@ The number of threads responsible for Task events.
 
 Default：4
 
-When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events.
+When FE starts the MySQL server based on NIO model, the number of threads responsible for IO events.
 
 #### `mysql_nio_backlog_num`
 
@@ -547,7 +545,7 @@ MasterOnly：true
 
 #### `max_backend_down_time_second`
 
-Default：3600  （1 hours）
+Default：3600  （1 hour）
 
 IsMutable：true
 
@@ -666,7 +664,7 @@ This is the maximum number of bytes of the file uploaded by the put or post meth
 
 Default：1048576  （1M）
 
-http header size configuration parameter, the default value is 10K
+http header size configuration parameter, the default value is 1M.
 
 #### `enable_tracing`
 
@@ -729,7 +727,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters..
+Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters.
 
 #### `dynamic_partition_enable`
 
@@ -757,13 +755,22 @@ Decide how often to check dynamic partition
 
 Default：4096
 
-IsMutable：false
+IsMutable：true
 
 MasterOnly：true
 
-Used to limit the maximum number of partitions that can be created when multi creating partitions, to avoid creating too many partitions at one time.
-
+Use this parameter to set the partition name prefix for multi partition,Only multi partition takes effect, not dynamic partitions. The default prefix is "p_".
 </version>
+
+#### `multi_partition_name_prefix`
+
+Default：p_
+
+IsMutable：true
+
+MasterOnly：true
+
+Use this parameter to set the partition name prefix for multi partition, Only multi partition takes effect, not dynamic partitions.The default prefix is "p_".
 
 #### `partition_in_memory_update_interval_secs`
 
@@ -2619,23 +2626,23 @@ Whether to enable the quantile_state data type
 
 #### `enable_date_conversion`
 
-Default：false
+Default：true
 
 IsMutable：true
 
 MasterOnly：true
 
-If set to TRUE, FE will convert date/datetime to datev2/datetimev2(0) automatically.
+FE will convert date/datetime to datev2/datetimev2(0) automatically.
 
 #### `enable_decimal_conversion`
 
-Default：false
+Default：true
 
 IsMutable：true
 
 MasterOnly：true
 
-If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
+FE will convert DecimalV2 to DecimalV3 automatically.
 
 #### `proxy_auth_magic_prefix`
 
@@ -2758,6 +2765,12 @@ division operations performed with the `/` operator.
 Default：true
 
 Temporary configuration option. After it is enabled, a background thread will be started to automatically modify all olap tables to light schema change. The modification results can be viewed through the command `show convert_light_schema_change [from db]`, and the conversion results of all non-light schema change tables will be displayed.
+
+#### `disable_local_deploy_manager_drop_node`
+
+Default：true
+
+Forbid LocalDeployManager drop nodes to prevent errors in the cluster.info file from causing nodes to be dropped.
 
 #### `mysqldb_replace_name`
 

@@ -177,7 +177,7 @@ The corresponding type of FE can be deleted by the `ALTER SYSTEM DROP FOLLOWER/O
 
 FE may fail to start bdbje and synchronize between FEs for some reasons. Phenomena include the inability to write metadata, the absence of MASTER, and so on. At this point, we need to manually restore the FE. The general principle of manual recovery of FE is to start a new MASTER through metadata in the current `meta_dir`, and then add other FEs one by one. Please follow the following steps strictly:
 
-1. First, stop all FE processes and all business access. Make sure that during metadata recovery, external access will not lead to other unexpected problems.
+1. First, **stop all FE processes and all business access**. Make sure that during metadata recovery, external access will not lead to other unexpected problems.(if not, this may cause split-brain problem)
 
 2. Identify which FE node's metadata is up-to-date:
 
@@ -189,12 +189,14 @@ FE may fail to start bdbje and synchronize between FEs for some reasons. Phenome
 
 3. The following operations are performed on the FE nodes selected in step 2.
 
-	1. If the node is an OBSERVER, first change the `role=OBSERVER` in the `meta_dir/image/ROLE` file to `role=FOLLOWER`. (Recovery from the OBSERVER node will be more cumbersome, first follow the steps here, followed by a separate description)
+	1. Modify fe.conf
+       - If the node is an OBSERVER, first change the `role=OBSERVER` in the `meta_dir/image/ROLE` file to `role=FOLLOWER`. (Recovery from the OBSERVER node will be more cumbersome, first follow the steps here, followed by a separate description)
+       - If fe.version < 2.0.2, add configuration in fe.conf: `metadata_failure_recovery=true`.
 	2. Run `sh bin/start_fe.sh  --metadata_failure_recovery` to start the FE
 	3. If normal, the FE will start in the role of MASTER, similar to the description in the previous section `Start a single node FE`. You should see the words `transfer from XXXX to MASTER` in fe.log.
 	4. After the start-up is completed, connect to the FE first, and execute some query imports to check whether normal access is possible. If the operation is not normal, it may be wrong. It is recommended to read the above steps carefully and try again with the metadata previously backed up. If not, the problem may be more serious.
 	5. If successful, through the `show frontends;` command, you should see all the FEs you added before, and the current FE is master.
-
+    6. **If FE version < 2.0.2**, delete the `metadata_failure_recovery=true` configuration item in fe.conf, or set it to `false`, and restart the FE (**Important**).
 
 	> If you are recovering metadata from an OBSERVER node, after completing the above steps, you will find that the current FE role is OBSERVER, but `IsMaster` appears as `true`. This is because the "OBSERVER" seen here is recorded in Doris's metadata, but whether it is master or not, is recorded in bdbje's metadata. Because we recovered from an OBSERVER node, there was inconsistency. Please take the following steps to fix this problem (we will fix it in a later version):
 
@@ -239,6 +241,7 @@ FE currently has the following ports
 * http_port: http port, also used to push image
 * rpc_port:  thrift server port of Frontend
 * query_port: Mysql connection port
+* arrow_flight_sql_port: Arrow Flight SQL connection port
 
 1. edit_log_port
 
@@ -255,6 +258,10 @@ FE currently has the following ports
 4. query_port
 
 	After modifying the configuration, restart FE directly. This only affects mysql's connection target.
+
+5. arrow_flight_sql_port
+
+	After modifying the configuration, restart FE directly. This only affects arrow flight sql server connection target.
 
 ### Recover metadata from FE memory
 In some extreme cases, the image file on the disk may be damaged, but the metadata in the memory is intact. At this point, we can dump the metadata from the memory and replace the image file on the disk to recover the metadata. the entire non-stop query service operation steps are as follows:
@@ -295,7 +302,7 @@ First, you need to add configuration in fe.conf: `enable_bdbje_debug_mode=true`,
 
 At this time, FE will enter the debug mode, only start the http server and MySQL server, and open the BDBJE instance, but will not load any metadata and other subsequent startup processes.
 
-This is, we can view the data stored in BDBJE by visiting the web page of FE, or after connecting to Doris through the MySQL client, through `show proc /bdbje;`.
+This is, we can view the data stored in BDBJE by visiting the web page of FE, or after connecting to Doris through the MySQL client, through `show proc "/bdbje";`.
 
 ```
 mysql> show proc "/bdbje";

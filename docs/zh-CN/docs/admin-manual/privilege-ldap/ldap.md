@@ -107,6 +107,7 @@ set ldap_admin_password = password('ldap_admin_password');
 
 ### Client端配置
 
+#### MySql Client
 客户端使用LDAP验证需要启用mysql客户端明文验证插件，使用命令行登录Doris可以使用下面两种方式之一启用mysql明文验证插件：
 
 - 设置环境变量LIBMYSQL_ENABLE_CLEARTEXT_PLUGIN值1。
@@ -124,6 +125,32 @@ set ldap_admin_password = password('ldap_admin_password');
   
   输入ldap密码
   ```
+#### Jdbc Client
+
+使用Jdbc Client登录Doris时，需要自定义 plugin。
+
+首先，创建一个名为 MysqlClearPasswordPluginWithoutSSL 的类，继承自 MysqlClearPasswordPlugin。在该类中，重写 requiresConfidentiality() 方法，并返回 false。
+
+``` java
+public class MysqlClearPasswordPluginWithoutSSL extends MysqlClearPasswordPlugin {
+@Override  
+public boolean requiresConfidentiality() {
+    return false;
+  }
+}
+```
+在获取数据库连接时，需要将自定义的 plugin 配置到属性中
+
+即（xxx为自定义类的包名）
+- authenticationPlugins=xxx.xxx.xxx.MysqlClearPasswordPluginWithoutSSL 
+- defaultAuthenticationPlugin=xxx.xxx.xxx.MysqlClearPasswordPluginWithoutSSL
+- disabledAuthenticationPlugins=com.mysql.jdbc.authentication.MysqlClearPasswordPlugin
+
+eg:
+```sql
+ jdbcUrl = "jdbc:mysql://localhost:9030/mydatabase?authenticationPlugins=xxx.xxx.xxx.MysqlClearPasswordPluginWithoutSSL&defaultAuthenticationPlugin=xxx.xxx.xxx.MysqlClearPasswordPluginWithoutSSL&disabledAuthenticationPlugins=com.mysql.jdbc.authentication.MysqlClearPasswordPlugin";
+
+```
 
 ## LDAP认证详解
 

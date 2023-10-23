@@ -1,6 +1,6 @@
 ---
 {
-    "title": "minute",
+    "title": "MINUTE",
     "language": "zh-CN"
 }
 ---

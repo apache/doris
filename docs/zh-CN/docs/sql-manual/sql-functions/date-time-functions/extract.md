@@ -1,6 +1,6 @@
 ---
 {
-    "title": "extract",
+    "title": "EXTRACT",
     "language": "zh-CN"
 }
 ---

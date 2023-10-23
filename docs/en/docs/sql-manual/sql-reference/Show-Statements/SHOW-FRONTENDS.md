@@ -43,7 +43,7 @@ SHOW FRONTENDS;
 illustrate:
 
 1. name indicates the name of the FE node in bdbje.
-2. If Join is true, it means that the node has joined the cluster before. But it does not mean that it is still in the cluster (may have lost contact
+2. If Join is true, it means that the node has joined the cluster before. But it does not mean that it is still in the cluster (may have lost contact)
 3. Alive indicates whether the node is alive or not.
 4. ReplayedJournalId indicates the maximum metadata journal id that has been replayed by the node.
 5. LastHeartbeat is the last heartbeat.

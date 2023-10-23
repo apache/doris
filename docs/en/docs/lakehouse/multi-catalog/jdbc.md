@@ -35,6 +35,13 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse, Doris, SAP HANA, Trino and OceanBase.
 
+## Syntax
+
+```sql
+CREATE CATALOG <catalog_name>
+PROPERTIES ("key"="value", ...)
+```
+
 ## Parameter Description
 
 | Parameter                 | Required or Not | Default Value | Description                                                                                                              |
@@ -586,6 +593,74 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 :::tip
 When Doris connects to OceanBase, it will automatically recognize that OceanBase is in MySQL or Oracle mode. Hierarchical correspondence and type mapping refer to [MySQL](#MySQL) and [Oracle](#Oracle)
 :::
+
+### View the JDBC Catalog
+
+You can query all Catalogs in the current Doris cluster through SHOW CATALOGS:
+
+```sql
+SHOW CATALOGS;
+```
+
+Query the creation statement of a Catalog through SHOW CREATE CATALOG:
+
+```sql
+SHOW CREATE CATALOG <catalog_name>;
+```
+
+### Drop the JDBC Catalog
+
+A Catalog can be deleted via DROP CATALOG:
+
+```sql
+DROP CATALOG <catalog_name>;
+```
+
+### Query the JDBC Catalog
+
+1. Use SWITCH to switch the Catalog in effect for the current session:
+
+    ```sql
+    SWITCH <catalog_name>;
+    ```
+
+2. Query all libraries under the current Catalog through SHOW DATABASES:
+
+    ```sql
+    SHOW DATABASES FROM <catalog_name>;
+    ```
+
+    ```sql
+    SHOW DATABASES;
+    ```
+
+3. Use USE to switch the Database that takes effect in the current session:
+
+    ```sql
+    USE <database_name>;
+    ```
+
+   Or directly use `USE <catalog_name>.<database_name>;` to switch the Database that takes effect in the current session
+
+4. Query all tables under the current Catalog through SHOW TABLES:
+
+    ```sql
+    SHOW TABLES FROM <catalog_name>.<database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES FROM <database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES;
+    ```
+
+5. Query the data of a table under the current Catalog through SELECT:
+
+    ```sql
+    SELECT * FROM <table_name>;
+    ```
 
 ## FAQ
 

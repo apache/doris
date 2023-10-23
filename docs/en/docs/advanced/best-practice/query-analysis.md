@@ -29,7 +29,7 @@ under the License.
 
 Doris provides a graphical command to help users analyze a specific query or import more easily. This article describes how to use this feature.
 
-## query plan tree
+## Query Plan Tree
 
 SQL is a descriptive language, and users describe the data they want to get through a SQL. The specific execution mode of a SQL depends on the implementation of the database. The query planner is used to determine how the database executes a SQL.
 
@@ -93,13 +93,18 @@ As shown above, we divided the stand-alone plan into two Fragments: F1 and F2. D
 
 And a Fragment will be further divided into multiple Instances. Instance is the final concrete execution instance. Dividing into multiple Instances helps to make full use of machine resources and improve the execution concurrency of a Fragment.
 
-## View query plan
+## View Query Plan
 
 You can view the execution plan of a SQL through the following three commands.
 
-- `EXPLAIN GRAPH select ...;` OR `DESC GRAPH select ...;`
-- `EXPLAIN select ...;`
-- `EXPLAIN VERBOSE select ...;`
+- `EXPLAIN GRAPH select ...;` OR `DESC GRAPH select ...;` These commands provide a graphical representation of the execution plan. 
+- `EXPLAIN select ...;` This command displays a textual representation of the execution plan for the specified SQL query. 
+- `EXPLAIN VERBOSE select ...;` Similar to the previous command, this command provides a more detailed output.
+- `EXPLAIN PARSED PLAN select ...;` This command returns the parsed execution plan of the SQL query. It displays the plan trees and information about the logical operators involved in query processing.
+- `EXPLAIN ANALYZED PLAN select ...;` This command returns the analyzed execution plan for the SQL query.
+- `EXPLAIN REWRITTEN PLAN select ...;` This command shows the rewritten execution plan after applying any query transformations or optimizations performed by the database engine.
+- `EXPLAIN OPTIMIZED PLAN select ...;` This command shows the best execution plan after CBO.
+- `EXPLAIN SHAPE PLAN select ...;` This command presents the simplified execution plan with a focus on how the query is shaped and structured.
 
 The first command displays a query plan graphically. This command can more intuitively display the tree structure of the query plan and the division of Fragments:
 
@@ -461,7 +466,7 @@ mysql> explain verbose select tbl1.k1, sum(tbl1.k2) from tbl1 join tbl2 on tbl1.
 
 > The information displayed in the query plan is still being standardized and improved, and we will introduce it in detail in subsequent articles.
 
-## View query Profile
+## View Query Profile
 
 The user can open the session variable `is_report_success` with the following command:
 

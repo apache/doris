@@ -127,7 +127,7 @@ When the disk capacity is higher than High Watermark or even Flood Stage, many o
     * snapshot/: Snapshot files in the snapshot directory. 
     * trash/ Trash files in the trash directory. 
 
-    **This operation will affect [Restore data from BE Recycle Bin](./tablet-restore-tool.md).**
+    **This operation will affect [Restore data from BE Recycle Bin](../data-admin/delete-recover.md).**
 
     If the BE can still be started, you can use `ADMIN CLEAN TRASH ON(BackendHost:BackendHeartBeatPort);` to actively clean up temporary files. **all trash files** and expired snapshot files will be cleaned up, **This will affect the operation of restoring data from the trash bin**.
 

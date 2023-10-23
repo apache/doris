@@ -1,6 +1,6 @@
 ---
 {
-    "title": "TOPN",
+    "title": "HISTOGRAM",
     "language": "en"
 }
 ---

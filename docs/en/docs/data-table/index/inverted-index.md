@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Inverted index",
+    "title": "Inverted Index",
     "language": "en"
 }
 ---
@@ -84,6 +84,11 @@ The features for inverted index is as follows:
       - "true" indicates that support is needed, but needs more storage for index.
       - "false" indicates that support is not needed, and less storage for index. MATCH_ALL can be used for matching multi words without order.
       - default mode is "false".
+    - char_filter: the main function is to pre-process the string before word segmentation
+      - char_filter_type: specify char_filters with different functions (currently only char_replace is supported)
+        - char_replace: replace each char in the pattern with a char in the replacement
+          - char_filter_pattern: character array to be replaced
+          - char_filter_replacement: replaced character array, can be left unset, defaults to a space character
   - COMMENT is optional
 
 ```sql
@@ -94,9 +99,20 @@ CREATE TABLE table_name
   INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode")] [COMMENT 'your comment']
   INDEX idx_name3(column_name3) USING INVERTED [PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained|coarse_grained")] [COMMENT 'your comment']
   INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode", "support_phrase" = "true|false")] [COMMENT 'your comment']
+  INDEX idx_name5(column_name4) USING INVERTED [PROPERTIES("char_filter_type" = "char_replace", "char_filter_pattern" = "._"), "char_filter_replacement" = " "] [COMMENT 'your comment']
+  INDEX idx_name5(column_name4) USING INVERTED [PROPERTIES("char_filter_type" = "char_replace", "char_filter_pattern" = "._")] [COMMENT 'your comment']
 )
 table_properties;
 ```
+
+:::tip
+
+Inverted indexes have different limitations in different data models:
+- Aggregate model: Inverted indexes can only be created for the Key column.
+- Unique model: The merge on write feature needs to be enabled. After enabling it, an inverted index can be created for any column.
+- Duplicate model: An inverted index can be created for any column.
+
+:::
 
 - add an inverted index to existed table
 
@@ -165,11 +181,56 @@ SELECT * FROM table_name WHERE ts > '2023-01-01 00:00:00';
 SELECT * FROM table_name WHERE op_type IN ('add', 'delete');
 ```
 
-## Example
+- Tokenization Function
+
+To evaluate the actual effects of tokenization or to tokenize a block of text, the `tokenize` function can be utilized.
+```sql
+mysql> SELECT TOKENIZE('武汉长江大桥','"parser"="chinese","parser_mode"="fine_grained");
++-----------------------------------------------------------------------------------+
+| tokenize('武汉长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')       |
++-----------------------------------------------------------------------------------+
+| ["武汉", "武汉长江大桥", "长江", "长江大桥", "大桥"]                              |
++-----------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="fine_grained");
++--------------------------------------------------------------------------------------+
+| tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')        |
++--------------------------------------------------------------------------------------+
+| ["武汉", "武汉市", "市长", "长江", "长江大桥", "大桥"]                               |
++--------------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="coarse_grained");
++----------------------------------------------------------------------------------------+
+| tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="coarse_grained"')        |
++----------------------------------------------------------------------------------------+
+| ["武汉市", "长江大桥"]                                                                 |
++----------------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('I love CHINA','"parser"="english");
++------------------------------------------------+
+| tokenize('I love CHINA', '"parser"="english"') |
++------------------------------------------------+
+| ["i", "love", "china"]                         |
++------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('I love CHINA 我爱我的祖国','"parser"="unicode");
++-------------------------------------------------------------------+
+| tokenize('I love CHINA 我爱我的祖国', '"parser"="unicode"')       |
++-------------------------------------------------------------------+
+| ["i", "love", "china", "我", "爱", "我", "的", "祖", "国"]        |
++-------------------------------------------------------------------+
+1 row in set (0.02 sec)
+```
+
+## Examples
 
 This example will demostrate inverted index creation, fulltext query, normal query using a hackernews dataset with 1 million rows. The performanc comparation between using  and without inverted index will also be showed.
 
-### Create table
+### Create Table
 
 ```sql
 
@@ -206,7 +267,7 @@ PROPERTIES ("replication_num" = "1");
 ```
 
 
-### Load data
+### Load Data
 
 - load data by stream load
 
@@ -249,7 +310,7 @@ mysql> SELECT count() FROM hackernews_1m;
 
 ### Query
 
-#### Fulltext search query
+#### Fulltext Search Query
 
 - count the rows that comment contains 'OLAP' using LIKE, cost 0.18s
 ```sql
@@ -335,7 +396,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE comment MATCH_ANY 'OLAP OLTP';
 ```
 
 
-#### normal equal, range query
+#### Normal Equal, Range Query
 
 - range query on DateTime column
 ```sql

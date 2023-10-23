@@ -202,23 +202,163 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
-## Metadata cache settings
+## Metadata Cache & Refresh
 
-When creating a Catalog, you can use the parameter `file.meta.cache.ttl-second` to set the automatic expiration time of the Hive partition file cache, or set this value to 0 to disable the partition file cache. The time unit is: second. Examples are as follows:
+For Hive Catalog, 4 types of metadata are cached in Doris:
 
-```sql
+1. Table structure: cache table column information, etc.
+2. Partition value: Cache the partition value information of all partitions of a table.
+3. Partition information: Cache the information of each partition, such as partition data format, partition storage location, partition value, etc.
+4. File information: Cache the file information corresponding to each partition, such as file path location, etc.
+
+The above cache information will not be persisted to Doris, so operations such as restarting Doris's FE node, switching masters, etc. may cause the cache to become invalid. After the cache expires, Doris will directly access the Hive MetaStore to obtain information and refill the cache.
+
+Metadata cache can be updated automatically, manually, or configured with TTL (Time-to-Live) according to user needs.
+
+### Default behavior and TTL
+
+By default, the metadata cache expires 10 minutes after it is first accessed. This time is determined by the configuration parameter `external_cache_expire_time_minutes_after_access` in fe.conf. (Note that in versions 2.0.1 and earlier, the default value for this parameter was 1 day).
+
+For example, if the user accesses the metadata of table A for the first time at 10:00, then the metadata will be cached and will automatically expire after 10:10. If the user accesses the same metadata again at 10:11, Doris will directly access the Hive MetaStore to obtain information and refill the cache.
+
+`external_cache_expire_time_minutes_after_access` affects all 4 caches under Catalog.
+
+For the `INSERT INTO OVERWRITE PARTITION` operation commonly used in Hive, you can also timely update the `File Information Cache` by configuring the TTL of the `File Information Cache`:
+
+```
 CREATE CATALOG hive PROPERTIES (
-    'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
-    'hadoop.username' = 'hive',
-    'dfs.nameservices'='your-nameservice',
-    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.0.0.2:8088',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.0.0.3:8088',
-    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
-    'file.meta.cache.ttl-second' = '60'
+     'type'='hms',
+     'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
+     'file.meta.cache.ttl-second' = '60'
 );
 ```
+
+In the above example, `file.meta.cache.ttl-second` is set to 60 seconds, and the cache will expire after 60 seconds. This parameter will only affect the `file information cache`.
+
+You can also set this value to 0 to disable file caching, which will fetch file information directly from the Hive MetaStore every time.
+
+### Manual refresh
+
+Users need to manually refresh the metadata through the [REFRESH](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) command.
+
+1. REFRESH CATALOG: Refresh the specified Catalog.
+
+     ```
+     REFRESH CATALOG ctl1 PROPERTIES("invalid_cache" = "true");
+     ```
+
+     This command will refresh the database list, table list, and all cache information of the specified Catalog.
+
+     `invalid_cache` indicates whether to flush the cache. Defaults to true. If it is false, only the database and table list of the catalog will be refreshed, but the cache information will not be refreshed. This parameter is applicable when the user only wants to synchronize newly added or deleted database/table information.
+
+2. REFRESH DATABASE: Refresh the specified Database.
+
+     ```
+     REFRESH DATABASE [ctl.]db1 PROPERTIES("invalid_cache" = "true");
+     ```
+
+     This command will refresh the table list of the specified Database and all cached information under the Database.
+
+     The meaning of the `invalid_cache` attribute is the same as above. Defaults to true. If false, only the Database's table list will be refreshed, not cached information. This parameter is suitable for users who only want to synchronize newly added or deleted table information.
+
+3. REFRESH TABLE: Refresh the specified Table.
+
+     ```
+     REFRESH TABLE [ctl.][db.]tbl1;
+     ```
+
+     This command will refresh all cache information under the specified Table.
+
+### Regular refresh
+
+Users can set the scheduled refresh of the Catalog when creating the Catalog.
+
+```
+CREATE CATALOG hive PROPERTIES (
+     'type'='hms',
+     'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
+     'metadata_refresh_interval_sec' = '600'
+);
+```
+
+In the above example, `metadata_refresh_interval_sec` means refreshing the Catalog every 600 seconds. Equivalent to automatically executing every 600 seconds:
+
+`REFRESH CATALOG ctl1 PROPERTIES("invalid_cache" = "true");`
+
+The scheduled refresh interval must not be less than 5 seconds.
+
+### Auto Refresh
+
+Currently, Doris only supports automatic update of metadata in Hive Metastore (HMS). It perceives changes in metadata by the FE node which regularly reads the notification events from HMS. The supported events are as follows:
+
+| Event           | Corresponding Update Operation                               |
+| :-------------- | :----------------------------------------------------------- |
+| CREATE DATABASE | Create a database in the corresponding catalog.              |
+| DROP DATABASE   | Delete a database in the corresponding catalog.              |
+| ALTER DATABASE  | Such alterations mainly include changes in properties, comments, or storage location of databases. They do not affect Doris' queries in External Catalogs so they will not be synchronized. |
+| CREATE TABLE    | Create a table in the corresponding database.                |
+| DROP TABLE      | Delete a table in the corresponding database, and invalidate the cache of that table. |
+| ALTER TABLE     | If it is a renaming, delete the table of the old name, and then create a new table with the new name; otherwise, invalidate the cache of that table. |
+| ADD PARTITION   | Add a partition to the cached partition list of the corresponding table. |
+| DROP PARTITION  | Delete a partition from the cached partition list of the corresponding table, and invalidate the cache of that partition. |
+| ALTER PARTITION | If it is a renaming, delete the partition of the old name, and then create a new partition with the new name; otherwise, invalidate the cache of that partition. |
+
+> After data ingestion, changes in partition tables will follow the `ALTER PARTITION` logic, while those in non-partition tables will follow the `ALTER TABLE` logic.
+>
+> If changes are conducted on the file system directly instead of through the HMS, the HMS will not generate an event. As a result, such changes will not be perceived by Doris.
+
+The automatic update feature involves the following parameters in fe.conf:
+
+1. `enable_hms_events_incremental_sync`: This specifies whether to enable automatic incremental synchronization for metadata, which is disabled by default. 
+2. `hms_events_polling_interval_ms`: This specifies the interval between two readings, which is set to 10000 by default. (Unit: millisecond) 
+3. `hms_events_batch_size_per_rpc`: This specifies the maximum number of events that are read at a time, which is set to 500 by default.
+
+To enable automatic update(Excluding Huawei MRS), you need to modify the hive-site.xml of HMS and then restart HMS and HiveServer2:
+
+```
+<property>
+    <name>hive.metastore.event.db.notification.api.auth</name>
+    <value>false</value>
+</property>
+<property>
+    <name>hive.metastore.dml.events</name>
+    <value>true</value>
+</property>
+<property>
+    <name>hive.metastore.transactional.event.listeners</name>
+    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+</property>
+
+```
+
+Huawei's MRS needs to change hivemetastore-site.xml and restart HMS and HiveServer2:
+
+```
+<property>
+    <name>metastore.transactional.event.listeners</name>
+    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+</property>
+```
+
+Note: Value is appended with commas separated from the original value, not overwritten.For example, the default configuration for MRS 3.1.0 is
+
+```
+<property>
+    <name>metastore.transactional.event.listeners</name>
+    <value>com.huawei.bigdata.hive.listener.TableKeyFileManagerListener,org.apache.hadoop.hive.metastore.listener.FileAclListener</value>
+</property>
+```
+
+We need to change to
+
+```
+<property>
+    <name>metastore.transactional.event.listeners</name>
+    <value>com.huawei.bigdata.hive.listener.TableKeyFileManagerListener,org.apache.hadoop.hive.metastore.listener.FileAclListener,org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+</property>
+```
+
+> Note: To enable automatic update, whether for existing Catalogs or newly created Catalogs, all you need is to set `enable_hms_events_incremental_sync` to `true`, and then restart the FE node. You don't need to manually update the metadata before or after the restart.
 
 ## Hive Version
 
@@ -260,6 +400,14 @@ For Hive/Iceberge/Hudi
 If the variable `truncate_char_or_varchar_columns` is enabled, when the maximum length of the char or varchar column in the schema of the hive table is inconsistent with the schema in the underlying parquet or orc file, it will be truncated according to the maximum length of the hive table column.
 
 The variable default is false.
+
+## Access HMS with broker
+
+Add following setting when creating an HMS catalog, file splitting and scanning for Hive external table will be completed by broker named `test_broker`
+
+```sql
+"broker.name" = "test_broker"
+```
 
 ## Integrate with Apache Ranger
 

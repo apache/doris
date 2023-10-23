@@ -32,32 +32,33 @@ EXPORT
 
 ### Description
 
-该语句用于将指定表的数据导出到指定位置。
+ `EXPORT` 命令用于将指定表的数据导出为文件到指定位置。目前支持通过 Broker 进程, S3 协议或HDFS 协议，导出到远端存储，如 HDFS，S3，BOS，COS（腾讯云）上。
 
-这是一个异步操作，任务提交成功则返回。执行后可使用 [SHOW EXPORT](../../Show-Statements/SHOW-EXPORT.md) 命令查看进度。
+`EXPORT`是一个异步操作，该命令会提交一个`EXPORT JOB`到Doris，任务提交成功立即返回。执行后可使用 [SHOW EXPORT](../../Show-Statements/SHOW-EXPORT.md) 命令查看进度。
 
-```sql
-EXPORT TABLE table_name
-[PARTITION (p1[,p2])]
-[WHERE]
-TO export_path
-[opt_properties]
-WITH BROKER/S3/HDFS
-[broker_properties];
-```
+语法：
 
-**原理**
-Export语句底层实际执行的是`select...outfile..`语句，Export任务会根据`parallelism`参数的值来分解为多个`select...outfile..`语句并发地去执行，每一个`select...outfile..`负责导出部份tablets数据。
+  ```sql
+  EXPORT TABLE table_name
+  [PARTITION (p1[,p2])]
+  [WHERE]
+  TO export_path
+  [opt_properties]
+  WITH BROKER/S3/HDFS
+  [broker_properties];
+  ```
+
+
 
 **说明**：
 
 - `table_name`
 
-  当前要导出的表的表名。仅支持 Doris 本地表数据的导出。
+  当前要导出的表的表名。支持 Doris 本地表、视图View、Catalog外表数据的导出。
 
 - `partition`
 
-  可以只导出指定表的某些指定分区
+  可以只导出指定表的某些指定分区，只对Doris本地表有效。
 
 - `export_path`
 
@@ -73,14 +74,20 @@ Export语句底层实际执行的是`select...outfile..`语句，Export任务会
 
   可以指定如下参数：
 
-  - `label`: 可选参数，指定此次Export任务的label,当不指定时系统会随机给一个label。
-  - `column_separator`：指定导出的列分隔符，默认为\t。仅支持单字节。
-  - `line_delimiter`：指定导出的行分隔符，默认为\n。仅支持单字节。
-  - `columns`：指定导出作业表的某些列。
-  - `timeout`：导出作业的超时时间，默认为2小时，单位是秒。
-  - `format`：导出作业的文件格式，支持：parquet, orc, csv, csv_with_names、csv_with_names_and_types。 默认为csv格式。
-  - `max_file_size`：导出作业单个文件大小限制，如果结果超过这个值，将切割成多个文件。
-  - `parallelism`：导出作业的并发度，默认为`1`，导出作业会分割为`parallelism`个数的`select..outfile..`语句去并发执行。（如果parallelism个数大于表的tablets个数，系统将自动把parallelism设置为tablets个数大小，即每一个`select..outfile..`语句负责一个tablets）
+  - `label`: 可选参数，指定此次Export任务的label，当不指定时系统会随机生成一个label。
+
+  - `column_separator`：指定导出的列分隔符，默认为\t，支持多字节。该参数只用于csv文件格式。
+
+  - `line_delimiter`：指定导出的行分隔符，默认为\n，支持多字节。该参数只用于csv文件格式。
+
+  - `columns`：指定导出表的某些列。
+
+  - `format`：指定导出作业的文件格式，支持：parquet, orc, csv, csv_with_names、csv_with_names_and_types。默认为csv格式。
+
+  - `max_file_size`：导出作业单个文件大小限制，如果结果超过这个值，将切割成多个文件。`max_file_size`取值范围是[5MB, 2GB], 默认为1GB。（当指定导出为orc文件格式时，实际切分文件的大小将是64MB的倍数，如：指定max_file_size = 5MB, 实际将以64MB为切分；指定max_file_size = 65MB, 实际将以128MB为切分）
+
+  - `parallelism`：导出作业的并发度，默认为`1`，导出作业会开启`parallelism`个数的线程去执行`select into outfile`语句。（如果parallelism个数大于表的tablets个数，系统将自动把parallelism设置为tablets个数大小，即每一个`select into outfile`语句负责一个tablets）
+
   - `delete_existing_files`: 默认为false，若指定为true,则会先删除`export_path`所指定目录下的所有文件，然后导出数据到该目录下。例如："export_path" = "/user/tmp", 则会删除"/user/"下所有文件及目录；"file_path" = "/user/tmp/", 则会删除"/user/tmp/"下所有文件及目录。
 
   > 注意：要使用delete_existing_files参数，还需要在fe.conf中添加配置`enable_delete_existing_files = true`并重启fe，此时delete_existing_files才会生效。delete_existing_files = true 是一个危险的操作，建议只在测试环境中使用。
@@ -146,7 +153,7 @@ Export语句底层实际执行的是`select...outfile..`语句，Export任务会
 ### Example
 
 #### export数据到本地
-export数据到本地文件系统，需要在fe.conf中添加`enable_outfile_to_local=true`并且重启FE。
+> export数据到本地文件系统，需要在fe.conf中添加`enable_outfile_to_local=true`并且重启FE。
 
 1. 将test表中的所有数据导出到本地存储, 默认导出csv格式文件
 ```sql
@@ -241,7 +248,7 @@ Export导出数据时会先将`/home/user/`目录下所有文件及目录删除�
 
 #### export with S3
 
-8. 将 s3_test 表中的所有数据导出到 s3 上，以不可见字符 "\x07" 作为列或者行分隔符。如果需要将数据导出到minio，还需要指定use_path_style=true。
+1. 将 s3_test 表中的所有数据导出到 s3 上，以不可见字符 "\x07" 作为列或者行分隔符。如果需要将数据导出到minio，还需要指定use_path_style=true。
 
 ```sql
 EXPORT TABLE s3_test TO "s3://bucket/a/b/c" 
@@ -249,36 +256,22 @@ PROPERTIES (
   "column_separator"="\\x07", 
   "line_delimiter" = "\\x07"
 ) WITH s3 (
-  "AWS_ENDPOINT" = "xxxxx",
-  "AWS_ACCESS_KEY" = "xxxxx",
-  "AWS_SECRET_KEY"="xxxx",
-  "AWS_REGION" = "xxxxx"
-)
-```
-
-```sql
-EXPORT TABLE minio_test TO "s3://bucket/a/b/c" 
-PROPERTIES (
-  "column_separator"="\\x07", 
-  "line_delimiter" = "\\x07"
-) WITH s3 (
-  "AWS_ENDPOINT" = "xxxxx",
-  "AWS_ACCESS_KEY" = "xxxxx",
-  "AWS_SECRET_KEY"="xxxx",
-  "AWS_REGION" = "xxxxx",
-  "use_path_style" = "true"
+  "s3.endpoint" = "xxxxx",
+  "s3.region" = "xxxxx",
+  "s3.secret_key"="xxxx",
+  "s3.access_key" = "xxxxx"
 )
 ```
 
 #### export with HDFS
 
-9. 将 test 表中的所有数据导出到 HDFS 上，导出文件格式为parquet，导出作业单个文件大小限制为1024MB，保留所指定目录下的所有文件。
+1. 将 test 表中的所有数据导出到 HDFS 上，导出文件格式为parquet，导出作业单个文件大小限制为512MB，保留所指定目录下的所有文件。
 
 ```sql
 EXPORT TABLE test TO "hdfs://hdfs_host:port/a/b/c/" 
 PROPERTIES(
     "format" = "parquet",
-    "max_file_size" = "1024MB",
+    "max_file_size" = "512MB",
     "delete_existing_files" = "false"
 )
 with HDFS (
@@ -335,31 +328,38 @@ WITH BROKER "broker_name"
 
 ### Best Practice
 
-#### 子任务的拆分
+#### 并发执行
 
-一个 Export 作业会拆分成多个子任务（执行计划）去执行。有多少查询计划需要执行，取决于总共有多少 Tablet，以及一个查询计划最多可以分配多少个 Tablet。
+一个 Export 作业可以设置`parallelism`参数来并发导出数据。`parallelism`参数实际就是指定执行 EXPORT 作业的线程数量。每一个线程会负责导出表的部分Tablets。
 
-因为多个查询计划是串行执行的，所以如果让一个查询计划处理更多的分片，则可以减少作业的执行时间。
+一个 Export 作业的底层执行逻辑实际上是`SELECT INTO OUTFILE`语句，`parallelism`参数设置的每一个线程都会去执行独立的`SELECT INTO OUTFILE`语句。
 
-但如果查询计划出错（比如调用 Broker 的 RPC 失败，远端存储出现抖动等），过多的 Tablet 会导致一个查询计划的重试成本变高。
+Export 作业拆分成多个`SELECT INTO OUTFILE`的具体逻辑是：将该表的所有tablets平均的分给所有parallel线程，如：
+- num(tablets) = 40, parallelism = 3，则这3个线程各自负责的tablets数量分别为 14，13，13个。
+- num(tablets) = 2, parallelism = 3，则Doris会自动将parallelism设置为2，每一个线程负责一个tablets。
 
-所以需要合理安排查询计划的个数以及每个查询计划所需要扫描的分片数，在执行时间和执行成功率之间做出平衡。
+当一个线程负责的tablest超过 `maximum_tablets_of_outfile_in_export` 数值（默认为10，可在fe.conf中添加`maximum_tablets_of_outfile_in_export`参数来修改该值）时，该线程就会拆分为多个`SELECT INTO OUTFILE`语句，如：
+- 一个线程负责的tablets数量分别为 14，`maximum_tablets_of_outfile_in_export = 10`，则该线程负责两个`SELECT INTO OUTFILE`语句，第一个`SELECT INTO OUTFILE`语句导出10个tablets，第二个`SELECT INTO OUTFILE`语句导出4个tablets，两个`SELECT INTO OUTFILE`语句由该线程串行执行。
 
-一般建议一个查询计划扫描的数据量在 3-5 GB内。
+
+当所要导出的数据量很大时，可以考虑适当调大`parallelism`参数来增加并发导出。若机器核数紧张，无法再增加`parallelism` 而导出表的Tablets又较多 时，可以考虑调大`maximum_tablets_of_outfile_in_export`来增加一个`SELECT INTO OUTFILE`语句负责的tablets数量，也可以加快导出速度。
 
 #### 内存限制
 
 通常一个 Export 作业的查询计划只有 `扫描-导出` 两部分，不涉及需要太多内存的计算逻辑。所以通常 2GB 的默认内存限制可以满足需求。
 
-但在某些场景下，比如一个查询计划，在同一个 BE 上需要扫描的 Tablet 过多，或者 Tablet 的数据版本过多时，可能会导致内存不足。此时需要通过参数 `exec_mem_limit` 设置更大的内存，比如 4GB、8GB 等。
+但在某些场景下，比如一个查询计划，在同一个 BE 上需要扫描的 Tablet 过多，或者 Tablet 的数据版本过多时，可能会导致内存不足。可以调整session变量`exec_mem_limit`来调大内存使用限制。
 
 #### 注意事项
 
 - 不建议一次性导出大量数据。一个 Export 作业建议的导出数据量最大在几十 GB。过大的导出会导致更多的垃圾文件和更高的重试成本。如果表数据量过大，建议按照分区导出。
+
 - 如果 Export 作业运行失败，已经生成的文件不会被删除，需要用户手动删除。
-- Export 作业只会导出 Base 表的数据，不会导出物化视图的数据。
+
 - Export 作业会扫描数据，占用 IO 资源，可能会影响系统的查询延迟。
-- 一个集群内同时运行的 Export 作业最大个数为 5。之后提交的作业将会排队。
+
 - 目前在export时只是简单检查tablets版本是否一致，建议在执行export过程中不要对该表进行导入数据操作。
-- 一个集群内所有Export Job的parallelism加起来最多是50。可以在fe.conf中添加参数`maximum_parallelism_of_export_job`并重启FE来修改该设置。
+
 - 一个Export Job允许导出的分区数量最大为2000，可以在fe.conf中添加参数`maximum_number_of_export_partitions`并重启FE来修改该设置。
+
+- `EXPORT`命令的超时时间同查询的超时时间。可以通过 SET query_timeout=xxx 进行设置

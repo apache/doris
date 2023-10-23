@@ -1,30 +1,30 @@
 ---
 {
-    "title": "Audit log plugin",
+    "title": "Audit Log Plugin",
     "language": "en"
 }
 ---
 
-<!--
+<!-- 
 Licensed to the Apache Software Foundation (ASF) under one
-or more contributor license agreements. See the NOTICE file
+or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
-regarding copyright ownership. The ASF licenses this file
+regarding copyright ownership.  The ASF licenses this file
 to you under the Apache License, Version 2.0 (the
 "License"); you may not use this file except in compliance
-with the License. You may obtain a copy of the License at
+with the License.  You may obtain a copy of the License at
 
-  http://www.apache.org/licenses/LICENSE-2.0
+  http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing,
 software distributed under the License is distributed on an
 "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-KIND, either express or implied. See the License for the
+KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
 
-# Audit log plugin
+# Audit Log Plugin
 
 Doris's audit log plugin was developed based on FE's plugin framework. Is an optional plugin. Users can install or uninstall this plugin at runtime.
 
@@ -34,30 +34,51 @@ This plugin can periodically import the FE audit log into the specified Doris cl
 
 ### FE Configuration
 
-FE's plugin framework is an experimental feature, which is closed by default. In the FE configuration file, add `plugin_enable = true` to enable the plugin framework.
+The audit log plug-in framework is enabled by default in Doris and is controlled by the FE configuration `plugin_enable`
 
 ### AuditLoader Configuration
 
-The configuration of the auditloader plugin is located in `$ {DORIS}/fe_plugins/auditloader/src/main/assembly/`.
+1. Download the Audit Loader plugin
 
-Open `plugin.conf` for configuration. See the comments of the configuration items.
+   The Audit Loader plug-in is provided by default in the Doris distribution. After downloading the Doris installation package through [DOWNLOAD](https://doris.apache.org/download), decompress it and enter the directory, you can find the auditloader.zip file in the extensionsaudit_loader subdirectory.
 
-<version since="1.2.0"></version>
-Audit log plugin supports importing slow query logs into a separate slow table since version 1.2, `doris_slow_log_tbl__`,  which is closed by default. In the plugin configuration file, add `enable_slow_log = true` to enable the function. And you could modify 'qe_slow_log_ms' item in FE configuration file to change slow query threshold.
+2. Unzip the installation package
 
-### Compile
+    ```shell
+    unzip auditloader.zip
+    ```
 
-After executing `sh build_plugin.sh` in the Doris code directory, you will get the `auditloader.zip` file in the `fe_plugins/output` directory.
+    Unzip and generate the following files:
 
-### Deployment
+    * auditloader.jar: plug-in code package.
+    * plugin.properties: plugin properties file.
+    * plugin.conf: plugin configuration file.
 
-You can place this file on an http download server or copy(or unzip) it to the specified directory of all FEs. Here we use the latter.
+You can place this file on an http download server or copy(or unzip) it to the specified directory of all FEs. Here we use the latter.  
+The installation of this plugin can be found in [INSTALL](../sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN.md)  
+After executing install, the AuditLoader directory will be automatically generated.
 
-### Installation
+3. Modify plugin.conf
 
-After deployment is complete, and before installing the plugin, you need to create the audit log database and tables previously specified in `plugin.conf`. If `enable_slow_log` is set true, the slow table `doris_slow_log_tbl__` needs to be created, with the same schema as `doris_audit_log_tbl__`. The database and table creation statement is as follows:
+   The following configurations are available for modification:
 
-```
+    * frontend_host_port: FE node IP address and HTTP port in the format <fe_ip>:<fe_http_port>. The default value is 127.0.0.1:8030.
+    * database: Audit log database name.
+    * audit_log_table: Audit log table name.
+    * slow_log_table: Slow query log table name.
+    * enable_slow_log: Whether to enable the slow query log import function. The default value is false.
+    * user: Cluster username. The user must have INSERT permission on the corresponding table.
+    * password: Cluster user password.
+
+### 创建库表
+
+In Doris, you need to create the library and table of the audit log. The table structure is as follows:
+
+If you need to enable the slow query log import function, you need to create an additional slow table `doris_slow_log_tbl__`, whose table structure is consistent with `doris_audit_log_tbl__`.
+
+Among them, the `dynamic_partition` attribute selects the number of days for audit log retention according to your own needs.
+
+```sql
 create database doris_audit_db__;
 
 create table doris_audit_db__.doris_audit_log_tbl__
@@ -81,7 +102,7 @@ create table doris_audit_db__.doris_audit_log_tbl__
     sql_hash varchar(48) comment "Hash value for this query",
     sql_digest varchar(48) comment "Sql digest for this query",
     peak_memory_bytes bigint comment "Peak memory bytes used on all backends of this query",
-    stmt string comment "The original statement, trimed if longer than 2G "
+    stmt string comment "The original statement, trimed if longer than 2G"
 ) engine=OLAP
 duplicate key(query_id, `time`, client_ip)
 partition by range(`time`) ()
@@ -117,7 +138,7 @@ create table doris_audit_db__.doris_slow_log_tbl__
     sql_hash varchar(48) comment "Hash value for this query",
     sql_digest varchar(48) comment "Sql digest for this query",
     peak_memory_bytes bigint comment "Peak memory bytes used on all backends of this query",
-    stmt string comment "The original statement, trimed if longer than 2G"
+    stmt string comment "The original statement, trimed if longer than 2G "
 ) engine=OLAP
 duplicate key(query_id, `time`, client_ip)
 partition by range(`time`) ()
@@ -137,8 +158,20 @@ properties(
 >
 > In the above table structure: stmt string, this can only be used in 0.15 and later versions, in previous versions, the field type used varchar
 
-The `dynamic_partition` attribute selects the number of days to keep the audit log based on your needs.
+### Deployment
 
-After that, connect to Doris and use the `INSTALL PLUGIN` command to complete the installation. After successful installation, you can see the installed plug-ins through `SHOW PLUGINS`, and the status is `INSTALLED`.
+You can place the packaged auditloader.zip on an http server, or copy `auditloader.zip` to the same specified directory in all FEs.
 
-Upon completion, the plug-in will continuously import audit date into this table at specified intervals.
+### Installation
+
+通过以下语句安装 Audit Loader 插件：
+
+```sql
+INSTALL PLUGIN FROM [source] [PROPERTIES ("key"="value", ...)]
+```
+
+Detailed command reference: [INSTALL-PLUGIN.md](../sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN)
+
+After successful installation, you can see the installed plug-ins through `SHOW PLUGINS`, and the status is `INSTALLED`.
+
+After completion, the plugin will continuously insert audit logs into this table at specified intervals.

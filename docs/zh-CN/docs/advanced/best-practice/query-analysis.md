@@ -96,9 +96,21 @@ Doris 的查询规划过程是先将一个 SQL 语句转换成一个单机执行
 
 可以通过以下三种命令查看一个 SQL 的执行计划。
 
-- `EXPLAIN GRAPH select ...;` 或者 `DESC GRAPH select ...;`
-- `EXPLAIN select ...;`
-- `EXPLAIN VERBOSE select ...;`
+- `EXPLAIN GRAPH select ...;` 或者 `DESC GRAPH select ...;`：这些命令提供了执行计划的图形表示。它们帮助我们可视化查询执行的流程，包括关联路径和数据访问方法。
+
+- `EXPLAIN select ...;`：这个命令显示指定 SQL 查询的执行计划的文本表示形式。它提供了有关查询优化步骤的信息，例如操作的顺序、执行算法和访问方法等。
+
+- `EXPLAIN VERBOSE select ...;`：与前一个命令类似，这个命令提供了更详细的输出结果。
+
+- `EXPLAIN PARSED PLAN select ...;`：这个命令返回 SQL 查询的解析后的执行计划。它显示了计划树和查询处理中涉及的逻辑操作符的信息。
+
+- `EXPLAIN ANALYZED PLAN select ...;`：这个命令返回 SQL 查询的分析后的执行计划。
+
+- `EXPLAIN REWRITTEN PLAN select ...;`：这个命令在数据库引擎对查询进行任何查询转换或优化后显示了重写后的执行计划。它提供了查询为了提高性能而进行的修改的见解。
+
+- `EXPLAIN OPTIMIZED PLAN select ...;` 这个命令返回了 CBO 中得到的最优计划
+
+- `EXPLAIN SHAPE PLAN select ...;`：这个命令以查询的形状和结构为重点，呈现了简化后的最优执行计划。
 
 其中第一个命令以图形化的方式展示一个查询计划，这个命令可以比较直观的展示查询计划的树形结构，以及 Fragment 的划分情况：
 

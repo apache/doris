@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Rollup与查询",
+    "title": "Rollup 与查询",
     "language": "zh-CN"
 }
 ---

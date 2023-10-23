@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-MIN",
+    "title": "WINDOW_FUNCTION_MIN",
     "language": "en"
 }
 ---

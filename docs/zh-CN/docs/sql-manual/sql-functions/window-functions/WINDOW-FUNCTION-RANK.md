@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-RANK",
+    "title": "WINDOW_FUNCTION_RANK",
     "language": "zh-CN"
 }
 ---

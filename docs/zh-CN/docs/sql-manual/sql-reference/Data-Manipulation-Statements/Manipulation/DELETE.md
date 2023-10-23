@@ -101,14 +101,14 @@ DELETE FROM table_name [table_alias]
         WHERE k1 = 3;
     ```
     
-1. 删除 my_table partition p1 中 k1 列值大于等于 3 且 k2 列值为 "abc" 的数据行
+2. 删除 my_table partition p1 中 k1 列值大于等于 3 且 k2 列值为 "abc" 的数据行
     
     ```sql
     DELETE FROM my_table PARTITION p1
     WHERE k1 >= 3 AND k2 = "abc";
     ```
     
-1. 删除 my_table partition p1, p2 中 k1 列值大于等于 3 且 k2 列值为 "abc" 的数据行
+3. 删除 my_table partition p1, p2 中 k1 列值大于等于 3 且 k2 列值为 "abc" 的数据行
     
     ```sql
     DELETE FROM my_table PARTITIONS (p1, p2)
@@ -117,60 +117,60 @@ DELETE FROM table_name [table_alias]
 
 <version since="dev">
 
-1. 使用`t2`和`t3`表连接的结果，删除`t1`中的数据
+4. 使用`t2`和`t3`表连接的结果，删除`t1`中的数据，删除的表只支持unique模型
 
-```sql
--- 创建t1, t2, t3三张表
-CREATE TABLE t1
-  (id INT, c1 BIGINT, c2 STRING, c3 DOUBLE, c4 DATE)
-UNIQUE KEY (id)
-DISTRIBUTED BY HASH (id)
-PROPERTIES('replication_num'='1', "function_column.sequence_col" = "c4");
-
-CREATE TABLE t2
-  (id INT, c1 BIGINT, c2 STRING, c3 DOUBLE, c4 DATE)
-DISTRIBUTED BY HASH (id)
-PROPERTIES('replication_num'='1');
-
-CREATE TABLE t3
-  (id INT)
-DISTRIBUTED BY HASH (id)
-PROPERTIES('replication_num'='1');
-
--- 插入数据
-INSERT INTO t1 VALUES
-  (1, 1, '1', 1.0, '2000-01-01'),
-  (2, 2, '2', 2.0, '2000-01-02'),
-  (3, 3, '3', 3.0, '2000-01-03');
-
-INSERT INTO t2 VALUES
-  (1, 10, '10', 10.0, '2000-01-10'),
-  (2, 20, '20', 20.0, '2000-01-20'),
-  (3, 30, '30', 30.0, '2000-01-30'),
-  (4, 4, '4', 4.0, '2000-01-04'),
-  (5, 5, '5', 5.0, '2000-01-05');
-
-INSERT INTO t3 VALUES
-  (1),
-  (4),
-  (5);
-
--- 删除 t1 中的数据
-DELETE FROM t1
-  USING t2 INNER JOIN t3 ON t2.id = t3.id
-  WHERE t1.id = t2.id;
-```
-
-预期结果为，删除了`t1`表`id`为`1`的列
-
-```
-+----+----+----+--------+------------+
-| id | c1 | c2 | c3     | c4         |
-+----+----+----+--------+------------+
-| 2  | 2  | 2  |    2.0 | 2000-01-02 |
-| 3  | 3  | 3  |    3.0 | 2000-01-03 |
-+----+----+----+--------+------------+
-```
+   ```sql
+   -- 创建t1, t2, t3三张表
+   CREATE TABLE t1
+     (id INT, c1 BIGINT, c2 STRING, c3 DOUBLE, c4 DATE)
+   UNIQUE KEY (id)
+   DISTRIBUTED BY HASH (id)
+   PROPERTIES('replication_num'='1', "function_column.sequence_col" = "c4");
+   
+   CREATE TABLE t2
+     (id INT, c1 BIGINT, c2 STRING, c3 DOUBLE, c4 DATE)
+   DISTRIBUTED BY HASH (id)
+   PROPERTIES('replication_num'='1');
+   
+   CREATE TABLE t3
+     (id INT)
+   DISTRIBUTED BY HASH (id)
+   PROPERTIES('replication_num'='1');
+   
+   -- 插入数据
+   INSERT INTO t1 VALUES
+     (1, 1, '1', 1.0, '2000-01-01'),
+     (2, 2, '2', 2.0, '2000-01-02'),
+     (3, 3, '3', 3.0, '2000-01-03');
+   
+   INSERT INTO t2 VALUES
+     (1, 10, '10', 10.0, '2000-01-10'),
+     (2, 20, '20', 20.0, '2000-01-20'),
+     (3, 30, '30', 30.0, '2000-01-30'),
+     (4, 4, '4', 4.0, '2000-01-04'),
+     (5, 5, '5', 5.0, '2000-01-05');
+   
+   INSERT INTO t3 VALUES
+     (1),
+     (4),
+     (5);
+   
+   -- 删除 t1 中的数据
+   DELETE FROM t1
+     USING t2 INNER JOIN t3 ON t2.id = t3.id
+     WHERE t1.id = t2.id;
+   ```
+   
+   预期结果为，删除了`t1`表`id`为`1`的列
+   
+   ```
+   +----+----+----+--------+------------+
+   | id | c1 | c2 | c3     | c4         |
+   +----+----+----+--------+------------+
+   | 2  | 2  | 2  |    2.0 | 2000-01-02 |
+   | 3  | 3  | 3  |    3.0 | 2000-01-03 |
+   +----+----+----+--------+------------+
+   ```
 
 </version>
 

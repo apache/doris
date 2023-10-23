@@ -1,6 +1,6 @@
 ---
 {
-    "title": "多源数据目录",
+    "title": "概述",
     "language": "zh-CN"
 }
 ---
@@ -25,7 +25,7 @@ under the License.
 -->
 
 
-# 多源数据目录
+# 概述
 
 多源数据目录（Multi-Catalog）功能，旨在能够更方便对接外部数据目录，以增强Doris的数据湖分析和联邦数据查询能力。
 
@@ -294,96 +294,21 @@ Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参�
 
 ## 元数据更新
 
-### 手动刷新
-
 默认情况下，外部数据源的元数据变动，如创建、删除表，加减列等操作，不会同步给 Doris。
 
-用户需要通过 [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) 命令手动刷新元数据。
+用户可以通过以下几种方式刷新元数据。
 
-### 自动刷新
+### 手动刷新
 
-#### Hive Metastore
+用户需要通过 [REFRESH](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) 命令手动刷新元数据。
 
-自动刷新目前仅支持 Hive Metastore 元数据服务。通过让 FE 节点定时读取 HMS 的 notification event 来感知 Hive 表元数据的变更情况，目前支持处理如下event：
-
-|事件 | 事件行为和对应的动作 |
-|---|---|
-| CREATE DATABASE | 在对应数据目录下创建数据库。 |
-| DROP DATABASE | 在对应数据目录下删除数据库。 |
-| ALTER DATABASE  | 此事件的影响主要有更改数据库的属性信息，注释及默认存储位置等，这些改变不影响doris对外部数据目录的查询操作，因此目前会忽略此event。 |
-| CREATE TABLE | 在对应数据库下创建表。 |
-| DROP TABLE  | 在对应数据库下删除表，并失效表的缓存。 |
-| ALTER TABLE | 如果是重命名，先删除旧名字的表，再用新名字创建表，否则失效该表的缓存。 |
-| ADD PARTITION | 在对应表缓存的分区列表里添加分区。 |
-| DROP PARTITION | 在对应表缓存的分区列表里删除分区，并失效该分区的缓存。 |
-| ALTER PARTITION | 如果是重命名，先删除旧名字的分区，再用新名字创建分区，否则失效该分区的缓存。 |
-
-> 当导入数据导致文件变更,分区表会走ALTER PARTITION event逻辑，不分区表会走ALTER TABLE event逻辑。
-> 
-> 如果绕过HMS直接操作文件系统的话，HMS不会生成对应事件，doris因此也无法感知
-
-该特性在 fe.conf 中有如下参数：
-
-1. `enable_hms_events_incremental_sync`: 是否开启元数据自动增量同步功能,默认关闭。
-2. `hms_events_polling_interval_ms`: 读取 event 的间隔时间，默认值为 10000，单位：毫秒。
-3. `hms_events_batch_size_per_rpc`: 每次读取 event 的最大数量，默认值为 500。
-
-如果想使用该特性(华为MRS除外)，需要更改HMS的 hive-site.xml 并重启HMS和HiveServer2：
-
-```
-<property>
-    <name>hive.metastore.event.db.notification.api.auth</name>
-    <value>false</value>
-</property>
-<property>
-    <name>hive.metastore.dml.events</name>
-    <value>true</value>
-</property>
-<property>
-    <name>hive.metastore.transactional.event.listeners</name>
-    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
-</property>
-
-```
-
-华为的MRS需要更改hivemetastore-site.xml 并重启HMS和HiveServer2：
-
-```
-<property>
-    <name>metastore.transactional.event.listeners</name>
-    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
-</property>
-```
-
-注意：value是在原有值的基础上以逗号分隔追加，而不是覆盖。例如MRS 3.1.0默认配置为
-
-```
-<property>
-    <name>metastore.transactional.event.listeners</name>
-    <value>com.huawei.bigdata.hive.listener.TableKeyFileManagerListener,org.apache.hadoop.hive.metastore.listener.FileAclListener</value>
-</property>
-```
-
-我们需要改为
-
-```
-<property>
-    <name>metastore.transactional.event.listeners</name>
-    <value>com.huawei.bigdata.hive.listener.TableKeyFileManagerListener,org.apache.hadoop.hive.metastore.listener.FileAclListener,org.apache.hive.hcatalog.listener.DbNotificationListener</value>
-</property>
-```
-
-> 使用建议： 无论是之前已经创建好的catalog现在想改为自动刷新，还是新创建的 catalog，都只需要把 `enable_hms_events_incremental_sync` 设置为true，重启fe节点，无需重启之前或之后再手动刷新元数据。
-
-#### 定时刷新
+### 定时刷新
 
 在创建catalog时，在properties 中指定刷新时间参数`metadata_refresh_interval_sec` ，以秒为单位，若在创建catalog时设置了该参数，FE 的master节点会根据参数值定时刷新该catalog。目前支持三种类型
 
 - hms：Hive MetaStore
 - es：Elasticsearch
 - jdbc：数据库访问的标准接口(JDBC)
-
-##### Example
 
 ```
 -- 设置catalog刷新间隔为20秒
@@ -393,4 +318,9 @@ CREATE CATALOG es PROPERTIES (
     "metadata_refresh_interval_sec"="20"
 );
 ```
+
+### 自动刷新
+
+自动刷新目前仅支持 [Hive Catalog](./hive.md)。
+
 

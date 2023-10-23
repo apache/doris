@@ -351,7 +351,8 @@ Broker Load 需要借助 Broker 进程访问远端存储，不同的 Broker 需�
      
      比如一个 100G 的文件，集群的 BE 个数为 10 个
      max_broker_concurrency = 10
-     max_bytes_per_broker_scanner >= 10G = 100G / 10
+     # >= 10G = 100G / 10
+     max_bytes_per_broker_scanner = 1069547520
      ```
 
      修改后，所有的 BE 会并发的处理导入任务，每个 BE 处理原始文件的一部分。
@@ -364,7 +365,8 @@ Broker Load 需要借助 Broker 进程访问远端存储，不同的 Broker 需�
      当前导入任务单个 BE 处理的数据量 / 用户 Doris 集群最慢导入速度(MB/s) >= 当前导入任务的 timeout 时间 >= 当前导入任务单个 BE 处理的数据量 / 10M/s
      
      比如一个 100G 的文件，集群的 BE 个数为 10个
-     timeout >= 1000s = 10G / 10M/s
+     # >= 1000s = 10G / 10M/s
+     timeout = 1000
      ```
 
   3. 当用户发现第二步计算出的 timeout 时间超过系统默认的导入最大超时时间 4小时
@@ -419,7 +421,7 @@ FE 的配置参数 `async_loading_load_task_pool_size` 用于限制同时运行�
 
 - 导入报错：`LOAD_RUN_FAIL; msg:Invalid Column Name:xxx`
 
-  如果是PARQUET或者ORC格式的数据,需要再文件头的列名与doris表中的列名一致，如 :
+  如果是PARQUET或者ORC格式的数据，则文件头的列名需要与doris表中的列名保持一致，如:
 
   ```text
   (tmp_c1,tmp_c2)
@@ -433,6 +435,10 @@ FE 的配置参数 `async_loading_load_task_pool_size` 用于限制同时运行�
   代表获取在 parquet 或 orc 中以(tmp_c1, tmp_c2)为列名的列，映射到 doris 表中的(id, name)列。如果没有设置set, 则以column中的列作为映射。
 
   注：如果使用某些 hive 版本直接生成的 orc 文件，orc 文件中的表头并非 hive meta 数据，而是（_col0, _col1, _col2, ...）, 可能导致 Invalid Column Name 错误，那么则需要使用 set 进行映射
+
+- 导入报错：`Failed to get S3 FileSystem for bucket is null/empty`
+  1. bucket信息填写不正确或者不存在。
+  2. bucket的格式不受支持。使用GCS创建带`_`的桶名时，比如：`s3://gs_bucket/load_tbl`，S3 Client访问GCS会报错，建议创建bucket路径时不使用`_`。
 
 ## 更多帮助
 

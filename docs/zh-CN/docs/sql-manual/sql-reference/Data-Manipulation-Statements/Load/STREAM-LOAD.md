@@ -124,17 +124,18 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 16. merge_type: 数据的合并类型，一共支持三种类型APPEND、DELETE、MERGE 其中，APPEND是默认值，表示这批数据全部需要追加到现有数据中，DELETE 表示删除与这批数据key相同的所有行，MERGE 语义 需要与delete 条件联合使用，表示满足delete 条件的数据按照DELETE 语义处理其余的按照APPEND 语义处理， 示例：`-H "merge_type: MERGE" -H "delete: flag=1"`
 
 17. delete: 仅在 MERGE下有意义， 表示数据的删除条件
-        function_column.sequence_col: 只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence列进行REPLACE, source_sequence可以是数据源中的列，也可以是表结构中的一列。
-    
-18. fuzzy_parse: 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高 json 导入效率，但是要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json 格式
-    
-19. num_as_string: 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
-    
-20. read_json_by_line: 布尔类型，为true表示支持每行读取一个json对象，默认值为false。
-    
-21. send_batch_parallelism: 整型，用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。
 
-22. <version since="1.2" type="inline"> hidden_columns: 用于指定导入数据中包含的隐藏列，在Header中不包含columns时生效，多个hidden column用逗号分割。</version>
+18. function_column.sequence_col: 只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence列进行REPLACE, source_sequence可以是数据源中的列，也可以是表结构中的一列。
+    
+19. fuzzy_parse: 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高 json 导入效率，但是要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json 格式
+    
+20. num_as_string: 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
+    
+21. read_json_by_line: 布尔类型，为true表示支持每行读取一个json对象，默认值为false。
+    
+22. send_batch_parallelism: 整型，用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。
+
+23. <version since="1.2" type="inline"> hidden_columns: 用于指定导入数据中包含的隐藏列，在Header中不包含columns时生效，多个hidden column用逗号分割。</version>
 
       ```
       hidden_columns: __DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__
@@ -143,19 +144,14 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 
 24. load_to_single_tablet: 布尔类型，为true表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分桶的 olap 表导数的时候设置。
 
-       ```
-        SHOW LOAD WARNINGS ON 'url'
-       ```
-       其中 url 为 ErrorURL 给出的 url。
+25. compress_type: 指定文件的压缩格式。目前只支持 csv 文件的压缩。支持 gz, lzo, bz2, lz4, lzop, deflate 压缩格式。
 
-24. compress_type
+26. trim_double_quotes: 布尔类型，默认值为 false，为 true 时表示裁剪掉 csv 文件每个字段最外层的双引号。
 
-    指定文件的压缩格式。目前只支持 csv 文件的压缩。支持 gz, lzo, bz2, lz4, lzop, deflate 压缩格式。
+27. skip_lines: <version since="dev" type="inline"> 整数类型, 默认值为0, 含义为跳过csv文件的前几行. 当设置format设置为 `csv_with_names` 或、`csv_with_names_and_types` 时, 该参数会失效. </version>
 
-25. trim_double_quotes: 布尔类型，默认值为 false，为 true 时表示裁剪掉 csv 文件每个字段最外层的双引号。
+28. comment: <version since="1.2.3" type="inline"> 字符串类型, 默认值为空. 给任务增加额外的信息. </version>
 
-26. skip_lines: <version since="dev" type="inline"> 整数类型, 默认值为0, 含义为跳过csv文件的前几行. 当设置format设置为 `csv_with_names` 或、`csv_with_names_and_types` 时, 该参数会失效. </version>
-27. comment: <version since="1.2.3" type="inline"> 字符串类型, 默认值为空. 给任务增加额外的信息. </version>
 ### Example
 
 1. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表，使用Label用于去重。指定超时时间为 100 秒
@@ -350,52 +346,53 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
    }
    ```
 
-   字段释义如下：
+   下面主要解释了 Stream load 导入结果参数：
 
-   - TxnId：导入事务ID，由系统自动生成，全局唯一。
+    - TxnId：导入的事务ID。用户可不感知。
 
-   - Label：导入Label，如果没有指定，则系统会生成一个 UUID。
+    - Label：导入 Label。由用户指定或系统自动生成。
 
-   - Status：
+    - Status：导入完成状态。
 
-     导入结果。有如下取值：
+        "Success"：表示导入成功。
 
-     - Success：表示导入成功，并且数据已经可见。
-     - Publish Timeout：该状态也表示导入已经完成，只是数据可能会延迟可见。
-     - Label Already Exists：Label 重复，需更换 Label。
-     - Fail：导入失败。
+        "Publish Timeout"：该状态也表示导入已经完成，只是数据可能会延迟可见，无需重试。
 
-   - ExistingJobStatus：
+        "Label Already Exists"：Label 重复，需更换 Label。
 
-     已存在的 Label 对应的导入作业的状态。
+        "Fail"：导入失败。
 
-     这个字段只有在当 Status 为 "Label Already Exists" 是才会显示。用户可以通过这个状态，知晓已存在 Label 对应的导入作业的状态。"RUNNING" 表示作业还在执行，"FINISHED" 表示作业成功。
+    - ExistingJobStatus：已存在的 Label 对应的导入作业的状态。
 
-   - Message：导入错误信息。
+        这个字段只有在当 Status 为 "Label Already Exists" 时才会显示。用户可以通过这个状态，知晓已存在 Label 对应的导入作业的状态。"RUNNING" 表示作业还在执行，"FINISHED" 表示作业成功。
 
-   - NumberTotalRows：导入总处理的行数。
+    - Message：导入错误信息。
 
-   - NumberLoadedRows：成功导入的行数。
+    - NumberTotalRows：导入总处理的行数。
 
-   - NumberFilteredRows：数据质量不合格的行数。
+    - NumberLoadedRows：成功导入的行数。
 
-   - NumberUnselectedRows：被 where 条件过滤的行数。
+    - NumberFilteredRows：数据质量不合格的行数。
 
-   - LoadBytes：导入的字节数。
+    - NumberUnselectedRows：被 where 条件过滤的行数。
 
-   - LoadTimeMs：导入完成时间。单位毫秒。
+    - LoadBytes：导入的字节数。
 
-   - BeginTxnTimeMs：向 FE 请求开始一个事务所花费的时间，单位毫秒。
+    - LoadTimeMs：导入完成时间。单位毫秒。
 
-   - StreamLoadPutTimeMs：向 FE 请求获取导入数据执行计划所花费的时间，单位毫秒。
+    - BeginTxnTimeMs：向Fe请求开始一个事务所花费的时间，单位毫秒。
 
-   - ReadDataTimeMs：读取数据所花费的时间，单位毫秒。
+    - StreamLoadPutTimeMs：向Fe请求获取导入数据执行计划所花费的时间，单位毫秒。
 
-   - WriteDataTimeMs：执行写入数据操作所花费的时间，单位毫秒。
+    - ReadDataTimeMs：读取数据所花费的时间，单位毫秒。
 
-   - CommitAndPublishTimeMs：向Fe请求提交并且发布事务所花费的时间，单位毫秒。
+    - WriteDataTimeMs：执行写入数据操作所花费的时间，单位毫秒。
 
-   - ErrorURL：如果有数据质量问题，通过访问这个 URL 查看具体错误行。
+    - CommitAndPublishTimeMs：向Fe请求提交并且发布事务所花费的时间，单位毫秒。
+
+    - ErrorURL：如果有数据质量问题，通过访问这个 URL 查看具体错误行。
+
+    > 注意：由于 Stream load 是同步的导入方式，所以并不会在 Doris 系统中记录导入信息，用户无法异步的通过查看导入命令看到 Stream load。使用时需监听创建导入请求的返回值获取导入结果。
 
 2. 如何正确提交 Stream Load 作业和处理返回结果。
 
