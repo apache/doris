@@ -1084,7 +1084,7 @@ DEFINE_mInt32(scan_thread_nice_value, "0");
 
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
 
-DEFINE_Bool(exit_on_exception, "false")
+DEFINE_Bool(exit_on_exception, "false");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
