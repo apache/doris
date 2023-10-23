@@ -195,7 +195,7 @@ Status S3FileWriter::close() {
     }
     Defer defer {[&]() { _closed = true; }};
     if (_failed) {
-        static_cast<void>(abort());
+        RETURN_IF_ERROR(abort());
         return _st;
     }
     VLOG_DEBUG << "S3FileWriter::close, path: " << _path.native();
@@ -211,7 +211,7 @@ Status S3FileWriter::close() {
         _pending_buf = nullptr;
     }
     DBUG_EXECUTE_IF("s3_file_writer::close", {
-        static_cast<void>(_complete());
+        RETURN_IF_ERROR(_complete());
         return Status::InternalError("failed to close s3 file writer");
     });
     RETURN_IF_ERROR(_complete());
