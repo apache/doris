@@ -29,6 +29,29 @@
 namespace doris {
 using roaring::Roaring;
 
+TEST(BitmapValueTest, Roaring64Map_operator_eq) {
+    detail::Roaring64Map roaring64_map1, roaring64_map2;
+    EXPECT_TRUE(roaring64_map1 == roaring64_map2);
+
+    roaring64_map2.add(uint32_t(100));
+    EXPECT_FALSE(roaring64_map1 == roaring64_map2);
+
+    roaring64_map2.remove(uint32_t(100));
+    EXPECT_TRUE(roaring64_map1 == roaring64_map2);
+
+    roaring64_map1.add(uint32_t(100));
+    EXPECT_FALSE(roaring64_map1 == roaring64_map2);
+
+    roaring64_map2.add(uint32_t(100));
+    EXPECT_TRUE(roaring64_map1 == roaring64_map2);
+
+    roaring64_map2.remove(uint32_t(100));
+    EXPECT_FALSE(roaring64_map1 == roaring64_map2);
+
+    roaring64_map1.remove(uint32_t(100));
+    EXPECT_TRUE(roaring64_map1 == roaring64_map2);
+}
+
 TEST(BitmapValueTest, copy) {
     BitmapValue empty;
     BitmapValue single(1024);
