@@ -207,7 +207,7 @@ Status VFileResultWriter::append_block(Block& block) {
         return status;
     }
     if (_vfile_writer) {
-        _write_file(output_block);
+        RETURN_IF_ERROR(_write_file(output_block));
     } else {
         RETURN_IF_ERROR(_write_csv_file(output_block));
     }

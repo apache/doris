@@ -174,11 +174,14 @@ Status VParquetWriterWrapper::write(const Block& block) {
         for (size_t i = 0; i < block.columns(); i++) {
             auto& raw_column = block.get_by_position(i).column;
             auto nullable = raw_column->is_nullable();
-            const auto col = nullable ? reinterpret_cast<const ColumnNullable*>(
-                                                block.get_by_position(i).column.get())
-                                                ->get_nested_column_ptr()
-                                                .get()
-                                      : block.get_by_position(i).column.get();
+            auto column_ptr = block.get_by_position(i).column->convert_to_full_column_if_const();
+            doris::vectorized::ColumnPtr column;
+            if (nullable) {
+                column = assert_cast<const ColumnNullable&>(*column_ptr).get_nested_column_ptr();
+            } else {
+                column = column_ptr;
+            }
+            auto col = column.get();
             auto null_map = nullable && reinterpret_cast<const ColumnNullable*>(
                                                 block.get_by_position(i).column.get())
                                                     ->has_null()
