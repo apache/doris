@@ -2261,11 +2261,11 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
         "FE扩容时，从主节点同步元数据的timeout时间，根据${meta_dir}/image文件夹下面的image文件大小和节点间的网络环境调整，" +
-            "单位为毫秒，默认值30000",
+            "单位为秒，默认值30",
         "The timeout for new FE Follower/Observer synchronizing metadata from the FE Master, " +
             "adjust by the size of image file in the ${meta_dir}/image and the network environment between nodes. " +
-            "The default values is 3000 ms."
+            "The default values is 30s."
     })
-    public static int sync_new_image_timeout = 30000;
+    public static int sync_new_image_timeout_s = 30000;
 
 }
