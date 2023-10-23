@@ -164,7 +164,7 @@ public class ProfileManager {
         }
 
         ProfileElement element = createElement(profile);
-        if (Strings.isNullOrEmpty(Config.query_profile_filter_pattern)) {
+        if (!Strings.isNullOrEmpty(Config.query_profile_filter_pattern)) {
             Pattern pattern = Pattern.compile(Config.query_profile_filter_pattern, Pattern.CASE_INSENSITIVE);
             if (pattern.matcher(element.infoStrings.get(SummaryProfile.SQL_STATEMENT)).matches()) {
                 return;
