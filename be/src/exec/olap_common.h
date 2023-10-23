@@ -37,7 +37,6 @@
 #include "exec/olap_utils.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
-#include "runtime/datetime_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
@@ -60,9 +59,8 @@ std::string cast_to_string(T value, int scale) {
     } else if constexpr (primitive_type == TYPE_LARGEINT) {
         return vectorized::int128_to_string(value);
     } else if constexpr (primitive_type == TYPE_DATETIMEV2) {
-        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetimev2_val =
-                static_cast<doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>>(
-                        value);
+        DateV2Value<DateTimeV2ValueType> datetimev2_val =
+                static_cast<DateV2Value<DateTimeV2ValueType>>(value);
         char buf[30];
         datetimev2_val.to_string(buf);
         std::stringstream ss;
@@ -904,7 +902,7 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, CppType value
 
         if (FILTER_LARGER_OR_EQUAL == _low_op && FILTER_LESS_OR_EQUAL == _high_op &&
             _high_value == _low_value) {
-            static_cast<void>(add_fixed_value(_high_value));
+            RETURN_IF_ERROR(add_fixed_value(_high_value));
             _high_value = TYPE_MIN;
             _low_value = TYPE_MAX;
         }

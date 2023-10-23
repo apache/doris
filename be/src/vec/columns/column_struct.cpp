@@ -203,7 +203,7 @@ void ColumnStruct::update_xxHash_with_value(size_t start, size_t end, uint64_t& 
     }
 }
 
-void ColumnStruct::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnStruct::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                          const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
         column->update_crc_with_value(start, end, hash, nullptr);
@@ -217,10 +217,11 @@ void ColumnStruct::update_hashes_with_value(uint64_t* __restrict hashes,
     }
 }
 
-void ColumnStruct::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+void ColumnStruct::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                          uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
-        column->update_crcs_with_value(hash, type, null_data);
+        column->update_crcs_with_value(hash, type, rows, offset, null_data);
     }
 }
 

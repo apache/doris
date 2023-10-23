@@ -23,7 +23,6 @@
 #include <cmath>
 #include <limits>
 
-#include "runtime/datetime_value.h"
 #include "util/binary_cast.hpp"
 #include "vec/common/nan_utils.h"
 #include "vec/common/string_ref.h"

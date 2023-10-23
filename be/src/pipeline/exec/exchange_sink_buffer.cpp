@@ -148,6 +148,9 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
         return Status::OK();
     }
     TUniqueId ins_id = request.channel->_fragment_instance_id;
+    if (_is_receiver_eof(ins_id.lo)) {
+        return Status::EndOfFile("receiver eof");
+    }
     bool send_now = false;
     {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[ins_id.lo]);
