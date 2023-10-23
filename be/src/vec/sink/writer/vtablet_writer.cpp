@@ -579,11 +579,11 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
 
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
                                             std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
-    auto st = none_of({_cancelled, _send_finished});
-    if (!st.ok()) {
+    if (_cancelled || _send_finished) { // not run
         return 0;
     }
 
+    // set closure for sending block.
     if (!_add_block_closure->try_set_in_flight()) {
         // There is packet in flight, skip.
         return _send_finished ? 0 : 1;
@@ -591,16 +591,15 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
 
     // We are sure that try_send_batch is not running
     if (_pending_batches_num > 0) {
-        auto s = thread_pool_token->submit_func(
-                std::bind(&VNodeChannel::try_send_pending_block, this, state));
+        auto s = thread_pool_token->submit_func([this, state] { try_send_pending_block(state); });
         if (!s.ok()) {
             _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
-            // clear in flight
+            // sending finished. clear in flight
             _add_block_closure->clear_in_flight();
         }
         // in_flight is cleared in closure::Run
     } else {
-        // clear in flight
+        // sending finished. clear in flight
         _add_block_closure->clear_in_flight();
     }
     return _send_finished ? 0 : 1;
@@ -610,7 +609,7 @@ void VNodeChannel::_cancel_with_msg(const std::string& msg) {
     LOG(WARNING) << "cancel node channel " << channel_info() << ", error message: " << msg;
     {
         std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-        if (_cancel_msg == "") {
+        if (_cancel_msg.empty()) {
             _cancel_msg = msg;
         }
     }
@@ -718,7 +717,7 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             }
         }
 
-        // eos request must be the last request
+        // eos request must be the last request. it's a signal makeing callback function to set _add_batch_finished true.
         _add_block_closure->end_mark();
         _send_finished = true;
         CHECK(_pending_batches_num == 0) << _pending_batches_num;
@@ -923,7 +922,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     }
 
     // waiting for finished, it may take a long time, so we couldn't set a timeout
-    // In pipeline, is_close_done() is false at this time, will not bock.
+    // In pipeline, is_close_done() is false at this time, will not block.
     while (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
         bthread_usleep(1000);
     }
@@ -959,7 +958,7 @@ void VNodeChannel::mark_close() {
     _cur_add_block_request.set_eos(true);
     {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
-        if (!_cur_mutable_block) {
+        if (!_cur_mutable_block) [[unlikely]] {
             // add a dummy block
             _cur_mutable_block = vectorized::MutableBlock::create_unique();
         }
@@ -996,28 +995,29 @@ void VTabletWriter::_send_batch_process() {
     SCOPED_ATTACH_TASK(_state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
-    bool had_effect = false;
     while (true) {
         // incremental open will temporarily make channels into abnormal state. stop checking when this.
         std::unique_lock<std::mutex> l(_stop_check_channel);
 
         int running_channels_num = 0;
+        int opened_nodes = 0;
         for (const auto& index_channel : _channels) {
             index_channel->for_each_node_channel([&running_channels_num,
                                                   this](const std::shared_ptr<VNodeChannel>& ch) {
+                // if this channel all completed(cancelled), got 0. else 1.
                 running_channels_num +=
                         ch->try_send_and_fetch_status(_state, this->_send_batch_thread_pool_token);
             });
+            opened_nodes += index_channel->num_node_channels();
         }
 
+        // auto partition table may have no node channel temporarily. wait to open.
         // if there is no channel, maybe auto partition table. so check does there have had running channels ever.
-        if (running_channels_num == 0 && had_effect) {
+        if (opened_nodes != 0 && running_channels_num == 0) {
             LOG(INFO) << "all node channels are stopped(maybe finished/offending/cancelled), "
                          "sender thread exit. "
                       << print_id(_load_id);
             return;
-        } else if (running_channels_num != 0) {
-            had_effect = true;
         }
         bthread_usleep(config::olap_table_sink_send_interval_ms * 1000);
     }
@@ -1065,7 +1065,7 @@ Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* pr
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
 
-    // start to send batch continually
+    // start to send batch continually. this must be called after _init
     if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {
         return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
     }
@@ -1502,6 +1502,7 @@ Status VTabletWriter::close(Status exec_status) {
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(_profile->total_time_counter());
 
+    // will make the last batch of request. close_wait will wait this finished.
     static_cast<void>(try_close(_state, exec_status));
 
     // If _close_status is not ok, all nodes have been canceled in try_close.

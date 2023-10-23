@@ -256,7 +256,7 @@ public:
 
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
-    // @return: unfinished running channels.
+    // @return: 1 if running, 0 if finished.
     // @caller: VOlapTabletSink::_send_batch_process. it's a continual asynchronous process.
     int try_send_and_fetch_status(RuntimeState* state,
                                   std::unique_ptr<ThreadPoolToken>& thread_pool_token);
