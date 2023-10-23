@@ -311,8 +311,8 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     }
     MutableColumnPtr data_column;
     if (doris_column->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_column)).mutate().get());
+        auto* nullable_column =
+                reinterpret_cast<vectorized::ColumnNullable*>(doris_column->assume_mutable().get());
         data_column = nullable_column->get_nested_column_ptr();
         NullMap& null_map = nullable_column->get_null_map_data();
         size_t origin_size = null_map.size();
@@ -447,7 +447,7 @@ void JniConnector::_generate_predicates(
 std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
     DataTypePtr type = remove_nullable(data_type);
     std::ostringstream buffer;
-    switch (type->get_type_as_primitive_type()) {
+    switch (type->get_type_as_type_descriptor().type) {
     case TYPE_BOOLEAN:
         return "boolean";
     case TYPE_TINYINT:

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Min Load Replica Num",
+    "title": "最小写入副本数",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Min Load Replica Num
+# 最小写入副本数
 
 默认情况下，数据导入要求至少有超过半数的副本写入成功，导入才算成功。然而，这种方式不够灵活，在某些场景会带来不便。
 

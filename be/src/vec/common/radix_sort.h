@@ -29,7 +29,6 @@
 #include "cstdint"
 #include "cstdlib"
 #include "type_traits"
-#include "vec/common/bit_cast.h"
 #include "vec/core/types.h"
 
 /** Radix sort, has the following functionality:
@@ -181,8 +180,8 @@ private:
         return (x >> (N * Traits::PART_SIZE_BITS)) & PART_BITMASK;
     }
 
-    static KeyBits key_to_bits(Key x) { return ext::bit_cast<KeyBits>(x); }
-    static Key bits_to_key(KeyBits x) { return ext::bit_cast<Key>(x); }
+    static KeyBits key_to_bits(Key x) { return std::bit_cast<KeyBits>(x); }
+    static Key bits_to_key(KeyBits x) { return std::bit_cast<Key>(x); }
 
     static void insertion_sort_internal(Element* arr, size_t size) {
         Element* end = arr + size;

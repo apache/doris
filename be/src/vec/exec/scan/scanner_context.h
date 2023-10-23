@@ -57,6 +57,7 @@ namespace vectorized {
 class VScanner;
 class VScanNode;
 class ScannerScheduler;
+class SimplifiedScanScheduler;
 
 // ScannerContext is responsible for recording the execution status
 // of a group of Scanners corresponding to a ScanNode.
@@ -164,6 +165,7 @@ public:
     }
 
     taskgroup::TaskGroup* get_task_group() const;
+    SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
 
     void reschedule_scanner_ctx();
 
@@ -172,6 +174,8 @@ public:
     int32_t queue_idx = -1;
     ThreadPoolToken* thread_token = nullptr;
     std::vector<bthread_t> _btids;
+
+    bool _should_reset_thread_name = true;
 
 private:
     template <typename Parent>
@@ -252,6 +256,7 @@ protected:
     const int64_t _max_bytes_in_queue;
 
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
+    SimplifiedScanScheduler* _simple_scan_scheduler = nullptr; // used for cpu hard limit
     // List "scanners" saves all "unfinished" scanners.
     // The scanner scheduler will pop scanners from this list, run scanner,
     // and then if the scanner is not finished, will be pushed back to this list.

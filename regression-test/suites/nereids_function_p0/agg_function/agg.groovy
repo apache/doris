@@ -2765,4 +2765,16 @@ suite("nereids_agg_fn") {
 
 	qt_max_null "select max(null) from fn_test;"
 
+    qt_sql_map_agg '''
+		select id,map_agg(kint,kstr) from fn_test group by id order by id'''
+
+    qt_sql_map_agg_not_nullable '''
+		select id,map_agg(kint,kstr) from fn_test_not_nullable group by id order by id'''
+
+    qt_sql_array_agg '''
+		select id,array_agg(kint) from fn_test group by id order by id'''
+
+    qt_sql_array_agg_not_nullable '''
+		select id,array_agg(kint) from fn_test_not_nullable group by id order by id'''
+
 }

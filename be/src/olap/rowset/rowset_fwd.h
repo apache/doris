@@ -17,34 +17,15 @@
 
 #pragma once
 
+#include <memory>
+
 namespace doris {
 
-enum TimeUnit {
-    MICROSECOND,
-    SECOND,
-    MINUTE,
-    HOUR,
-    DAY,
-    WEEK,
-    MONTH,
-    QUARTER,
-    YEAR,
-    SECOND_MICROSECOND,
-    MINUTE_MICROSECOND,
-    MINUTE_SECOND,
-    HOUR_MICROSECOND,
-    HOUR_SECOND,
-    HOUR_MINUTE,
-    DAY_MICROSECOND,
-    DAY_SECOND,
-    DAY_MINUTE,
-    DAY_HOUR,
-    YEAR_MONTH
-};
-
-enum TimeType { TIME_TIME = 1, TIME_DATE = 2, TIME_DATETIME = 3 };
-
-// 9999-99-99 99:99:99.999999; 26 + 1('\0')
-const int MAX_DTVALUE_STR_LEN = 27;
+class Rowset;
+using RowsetSharedPtr = std::shared_ptr<Rowset>;
+class RowsetMeta;
+using RowsetMetaSharedPtr = std::shared_ptr<RowsetMeta>;
+class RowsetReader;
+using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
 } // namespace doris

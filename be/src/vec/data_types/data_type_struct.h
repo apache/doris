@@ -72,7 +72,16 @@ public:
     DataTypeStruct(const DataTypes& elems, const Strings& names);
 
     TypeIndex get_type_id() const override { return TypeIndex::Struct; }
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_STRUCT; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        TypeDescriptor desc(TYPE_STRUCT);
+        for (size_t i = 0; i < elems.size(); ++i) {
+            TypeDescriptor sub_desc = elems[i]->get_type_as_type_descriptor();
+            desc.field_names.push_back(names[i]);
+            desc.contains_nulls.push_back(elems[i]->is_nullable());
+            desc.add_sub_type(sub_desc);
+        }
+        return desc;
+    }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::STRUCT;
     }

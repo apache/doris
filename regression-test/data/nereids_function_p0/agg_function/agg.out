@@ -5990,3 +5990,61 @@ true
 -- !max_null --
 \N
 
+-- !sql_map_agg --
+\N	{}
+0	{1:"string1"}
+1	{2:"string2"}
+2	{3:"string3"}
+3	{4:"string1"}
+4	{5:"string2"}
+5	{6:"string3"}
+6	{7:"string1"}
+7	{8:"string2"}
+8	{9:"string3"}
+9	{10:"string1"}
+10	{11:"string2"}
+11	{12:"string3"}
+
+-- !sql_map_agg_not_nullable --
+0	{1:"string1"}
+1	{2:"string2"}
+2	{3:"string3"}
+3	{4:"string1"}
+4	{5:"string2"}
+5	{6:"string3"}
+6	{7:"string1"}
+7	{8:"string2"}
+8	{9:"string3"}
+9	{10:"string1"}
+10	{11:"string2"}
+11	{12:"string3"}
+
+-- !sql_array_agg --
+\N	[NULL]
+0	[1]
+1	[2]
+2	[3]
+3	[4]
+4	[5]
+5	[6]
+6	[7]
+7	[8]
+8	[9]
+9	[10]
+10	[11]
+11	[12]
+
+-- !sql_array_agg_not_nullable --
+0	[1]
+1	[2]
+2	[3]
+3	[4]
+4	[5]
+5	[6]
+6	[7]
+7	[8]
+8	[9]
+9	[10]
+10	[11]
+11	[12]
+

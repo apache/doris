@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapAgg;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Histogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -82,6 +84,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitAnyValue(AnyValue anyValue, C context) {
         return visitAggregateFunction(anyValue, context);
+    }
+
+    default R visitArrayAgg(ArrayAgg arrayAgg, C context) {
+        return visitAggregateFunction(arrayAgg, context);
     }
 
     default R visitAvg(Avg avg, C context) {
@@ -174,6 +180,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitIntersectCount(IntersectCount intersectCount, C context) {
         return visitAggregateFunction(intersectCount, context);
+    }
+
+    default R visitMapAgg(MapAgg mapAgg, C context) {
+        return visitAggregateFunction(mapAgg, context);
     }
 
     default R visitMax(Max max, C context) {
@@ -283,4 +293,5 @@ public interface AggregateFunctionVisitor<R, C> {
     default R visitJavaUdaf(JavaUdaf javaUdaf, C context) {
         return visitAggregateFunction(javaUdaf, context);
     }
+
 }

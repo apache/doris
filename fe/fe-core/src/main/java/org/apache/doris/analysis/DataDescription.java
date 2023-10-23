@@ -51,6 +51,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -865,7 +866,7 @@ public class DataDescription implements InsertStmt.DataDesc {
             return;
         }
         String columnsSQL = "COLUMNS (" + columnDef + ")";
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
+        SqlParser parser = new SqlParser(new org.apache.doris.analysis.SqlScanner(new StringReader(columnsSQL)));
         ImportColumnsStmt columnsStmt;
         try {
             columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
@@ -1000,6 +1001,22 @@ public class DataDescription implements InsertStmt.DataDesc {
         }
         if (analysisMap.containsKey(LoadStmt.KEY_SKIP_LINES)) {
             skipLines = Integer.parseInt(analysisMap.get(LoadStmt.KEY_SKIP_LINES));
+        }
+        if (analysisMap.containsKey(LoadStmt.KEY_ENCLOSE)) {
+            String encloseProp = analysisMap.get(LoadStmt.KEY_ENCLOSE);
+            if (encloseProp.length() == 1) {
+                enclose = encloseProp.getBytes(StandardCharsets.UTF_8)[0];
+            } else {
+                throw new AnalysisException("enclose must be single-char");
+            }
+        }
+        if (analysisMap.containsKey(LoadStmt.KEY_ESCAPE)) {
+            String escapeProp = analysisMap.get(LoadStmt.KEY_ESCAPE);
+            if (escapeProp.length() == 1) {
+                escape = escapeProp.getBytes(StandardCharsets.UTF_8)[0];
+            } else {
+                throw new AnalysisException("escape must be single-char");
+            }
         }
     }
 

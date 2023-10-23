@@ -24,7 +24,6 @@
 
 #include "common/logging.h"
 #include "olap/olap_tuple.h"
-#include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
 
 namespace doris {

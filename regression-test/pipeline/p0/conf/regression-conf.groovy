@@ -55,7 +55,7 @@ testDirectories = ""
 excludeGroups = ""
 // this suites will not be executed
 
-excludeSuites = "test_sql_block_rule,test_ddl,test_stream_load_move_memtable,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_bitmap_filter,nereids_delete_mow_partial_update"
+excludeSuites = "test_sql_block_rule,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter"
 
 // this directories will not be executed
 excludeDirectories = "workload_manager_p1"
@@ -78,7 +78,7 @@ enableBrokerLoad=true
 enableJdbcTest=false
 mysql_57_port=7111
 pg_14_port=7121
-
+mariadb_10_port=3326
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`

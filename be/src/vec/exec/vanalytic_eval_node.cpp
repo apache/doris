@@ -264,6 +264,7 @@ Status VAnalyticEvalNode::alloc_resource(RuntimeState* state) {
 
 Status VAnalyticEvalNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* output_block,
                                bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     if (_input_eos && (_output_block_index == _input_blocks.size() || _input_total_rows == 0)) {
         *eos = true;
         return Status::OK();
@@ -290,6 +291,7 @@ Status VAnalyticEvalNode::pull(doris::RuntimeState* /*state*/, vectorized::Block
 }
 
 void VAnalyticEvalNode::release_resource(RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     if (is_closed()) {
         return;
     }
@@ -335,6 +337,8 @@ Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block
             break;
         }
     }
+
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(_output_current_block(block));
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
     reached_limit(block, eos);
@@ -540,6 +544,7 @@ Status VAnalyticEvalNode::_fetch_next_block_data(RuntimeState* state) {
 
 Status VAnalyticEvalNode::sink(doris::RuntimeState* /*state*/, vectorized::Block* input_block,
                                bool eos) {
+    SCOPED_TIMER(_exec_timer);
     _input_eos = eos;
     if (_input_eos && input_block->rows() == 0) {
         _need_more_input = false;
