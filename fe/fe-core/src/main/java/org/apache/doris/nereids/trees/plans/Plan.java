@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -143,8 +144,12 @@ public interface Plan extends TreeNode<Plan> {
      */
     default String shape(String prefix) {
         StringBuilder builder = new StringBuilder();
-        builder.append(prefix).append(shapeInfo()).append("\n");
-        String childPrefix = prefix + "--";
+        String me = shapeInfo();
+        String prefixTail = "";
+        if (! ConnectContext.get().getSessionVariable().getIgnoreShapePlanNodes().contains(me)) {
+            builder.append(prefix).append(shapeInfo()).append("\n");
+            prefixTail += "--";
+        }
         children().forEach(
                 child -> {
                     builder.append(child.shape(childPrefix));
