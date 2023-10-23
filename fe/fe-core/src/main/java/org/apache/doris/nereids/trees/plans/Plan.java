@@ -150,6 +150,7 @@ public interface Plan extends TreeNode<Plan> {
             builder.append(prefix).append(shapeInfo()).append("\n");
             prefixTail += "--";
         }
+        String childPrefix = prefix + prefixTail;
         children().forEach(
                 child -> {
                     builder.append(child.shape(childPrefix));
