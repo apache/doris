@@ -71,12 +71,17 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     }
     std::unordered_map<std::pair<std::string, std::string>, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(pschema.tuple_desc()));
-
+    // When FE version is less than 2.0.3, But BE upgrade to 2.0.3,
+    // the filed col_type in slot_desc is INVALID_TYPE default.
+    // It can be remove later.
+    bool has_invalid_type = false;
     for (auto& p_slot_desc : pschema.slot_descs()) {
         auto slot_desc = _obj_pool.add(new SlotDescriptor(p_slot_desc));
+        if (slot_desc->col_type() == INVALID_TYPE) has_invalid_type = true;
         _tuple_desc->add_slot(slot_desc);
         string data_type;
         EnumToString(TPrimitiveType, to_thrift(slot_desc->col_type()), data_type);
+        LOG(INFO) << "lightman " << data_type;
         slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()), std::move(data_type)),
                           slot_desc);
     }
@@ -88,8 +93,9 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         for (auto& pcolumn_desc : p_index.columns_desc()) {
             if (!_is_partial_update ||
                 _partial_update_input_columns.count(pcolumn_desc.name()) > 0) {
+                std::string col_type = has_invalid_type ? "INVALID_TYPE" : pcolumn_desc.type();
                 auto it = slots_map.find(
-                        std::make_pair(to_lower(pcolumn_desc.name()), pcolumn_desc.type()));
+                        std::make_pair(to_lower(pcolumn_desc.name()), col_type));
                 if (it == std::end(slots_map)) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  pcolumn_desc.name(), pcolumn_desc.type());
@@ -130,8 +136,13 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     }
     std::unordered_map<std::pair<std::string, PrimitiveType>, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(tschema.tuple_desc));
+    // When FE version is less than 2.0.3, But BE upgrade to 2.0.3,
+    // the filed col_type in slot_desc is INVALID_TYPE default.
+    // It can be remove later.
+    bool has_invalid_type = false;
     for (auto& t_slot_desc : tschema.slot_descs) {
         auto slot_desc = _obj_pool.add(new SlotDescriptor(t_slot_desc));
+        if (slot_desc->col_type() == INVALID_TYPE) has_invalid_type = true;
         _tuple_desc->add_slot(slot_desc);
         slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()), slot_desc->col_type()),
                           slot_desc);
@@ -143,8 +154,9 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
         for (auto& tcolumn_desc : t_index.columns_desc) {
+            TPrimitiveType::type col_type = has_invalid_type ? TPrimitiveType::INVALID_TYPE : tcolumn_desc.column_type.type;
             auto it = slots_map.find(std::make_pair(to_lower(tcolumn_desc.column_name),
-                                                    thrift_to_type(tcolumn_desc.column_type.type)));
+                                                    thrift_to_type(col_type)));
             if (!_is_partial_update ||
                 _partial_update_input_columns.count(tcolumn_desc.column_name) > 0) {
                 if (it == slots_map.end()) {
