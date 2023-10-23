@@ -482,9 +482,12 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                 vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
-        rowset_reader->next_block(ref_block.get());
-        if (ref_block->rows() == 0) {
-            break;
+        auto st = rowset_reader->next_block(ref_block.get());
+        if (!st) {
+            if (st.is<ErrorCode::END_OF_FILE>()) {
+                break;
+            }
+            return st;
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
@@ -552,9 +555,12 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     do {
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
-        rowset_reader->next_block(ref_block.get());
-        if (ref_block->rows() == 0) {
-            break;
+        auto st = rowset_reader->next_block(ref_block.get());
+        if (!st) {
+            if (st.is<ErrorCode::END_OF_FILE>()) {
+                break;
+            }
+            return st;
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
