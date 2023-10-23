@@ -230,6 +230,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _partition_id(b._partition_id),
           _tablet_id(b._tablet_id),
           _schema_hash(b._schema_hash),
+          _replica_id(b._replica_id),
           _shard_id(b._shard_id),
           _creation_time(b._creation_time),
           _cumulative_layer_point(b._cumulative_layer_point),
