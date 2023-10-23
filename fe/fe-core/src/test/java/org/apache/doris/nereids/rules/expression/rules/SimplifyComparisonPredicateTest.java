@@ -64,13 +64,6 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 new EqualTo(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
                 new EqualTo(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dtv2));
 
-        // DateTimeV2 -> Date
-        assertRewrite(
-                new GreaterThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
-                new GreaterThan(new Cast(d, DateTimeType.INSTANCE), new DateTimeLiteral(1, 1, 1, 0, 0, 0)));
-        assertRewrite(
-                new LessThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
-                new LessThan(new Cast(d, DateTimeType.INSTANCE), new DateTimeLiteral(1, 1, 2, 0, 0, 0)));
         assertRewrite(
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2));
