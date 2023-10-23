@@ -50,14 +50,12 @@ import java.util.Map;
 public class Profile {
     private RuntimeProfile rootProfile;
     private SummaryProfile summaryProfile;
-    private SimplifiedProfile simplifiedProfile;
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     private boolean isFinished;
 
     public Profile(String name, boolean isEnable) {
         this.rootProfile = new RuntimeProfile(name);
         this.summaryProfile = new SummaryProfile(rootProfile);
-        this.simplifiedProfile = new SimplifiedProfile(rootProfile);
         // if disabled, just set isFinished to true, so that update() will do nothing
         this.isFinished = !isEnable;
     }
@@ -80,7 +78,6 @@ public class Profile {
         rootProfile.setPlaner(planner);
         rootProfile.setProfileLevel(profileLevel);
         rootProfile.setIsPipelineX(isPipelineX);
-        this.simplifiedProfile.setPlaner(planner);
         ProfileManager.getInstance().pushProfile(this);
         this.isFinished = isFinished;
     }
