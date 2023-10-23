@@ -124,6 +124,8 @@ In all data models, by default, when you use `INSERT INTO` with a given set of c
 set enable_unique_key_partial_update=true
 ```
 
+Please note that the default value of the session variable `enable_insert_strict`, which controls whether the insert statement operates in strict mode, is true. In other words, the insert statement is in strict mode by default, and in this mode, updating non-existing keys in partial column updates is not allowed. Therefore, when using the insert statement for partial columns update and wishing to insert non-existing keys, you need to set `enable_unique_key_partial_update` to true and simultaneously set `enable_insert_strict` to false.
+
 #### Example
 
 Suppose there is an order table `order_tbl` in Doris, where the order ID is the Key column, and the order status and order amount are Value columns. The data status is as follows:

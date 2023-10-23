@@ -357,11 +357,8 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
     LOG(INFO) << "try to start path gc thread!";
     int32_t interval = config::path_gc_check_interval_second;
     do {
-        LOG(INFO) << "try to perform path gc by tablet!";
-        data_dir->perform_path_gc_by_tablet();
-
-        LOG(INFO) << "try to perform path gc by rowsetid!";
-        data_dir->perform_path_gc_by_rowsetid();
+        LOG(INFO) << "try to perform path gc!";
+        data_dir->perform_path_gc();
 
         interval = config::path_gc_check_interval_second;
         if (interval <= 0) {
@@ -370,6 +367,7 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
             interval = 1800; // 0.5 hour
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+    LOG(INFO) << "stop path gc thread!";
 }
 
 void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
@@ -625,6 +623,9 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             /// If it is not cleaned up, the reference count of the tablet will always be greater than 1,
             /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
+                if (compaction_type == CompactionType::BASE_COMPACTION) {
+                    tablet->set_last_base_compaction_schedule_time(UnixMillis());
+                }
                 Status st = _submit_compaction_task(tablet, compaction_type, false);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to submit compaction task for tablet: "
@@ -730,15 +731,15 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
     bool already_exist =
             _push_tablet_into_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
     if (already_exist) {
-        return Status::AlreadyExist("compaction task has already been submitted, tablet_id={}",
-                                    tablet->tablet_id());
+        return Status::AlreadyExist<false>(
+                "compaction task has already been submitted, tablet_id={}", tablet->tablet_id());
     }
 
     already_exist = _push_tablet_into_submitted_compaction(tablet, CompactionType::BASE_COMPACTION);
     if (already_exist) {
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
-        return Status::AlreadyExist("compaction task has already been submitted, tablet_id={}",
-                                    tablet->tablet_id());
+        return Status::AlreadyExist<false>(
+                "compaction task has already been submitted, tablet_id={}", tablet->tablet_id());
     }
     Status st = tablet->prepare_single_replica_compaction(tablet, compaction_type);
     auto clean_single_replica_compaction = [tablet, this]() {
@@ -850,7 +851,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                     max_compaction_score = std::max(max_compaction_score, disk_max_score);
                 } else {
                     LOG_EVERY_N(INFO, 500)
-                            << "Tablet " << tablet->full_name()
+                            << "Tablet " << tablet->tablet_id()
                             << " will be ignored by automatic compaction tasks since it's "
                             << "set to disabled automatic compaction.";
                 }
@@ -936,7 +937,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     }
     bool already_exist = _push_tablet_into_submitted_compaction(tablet, compaction_type);
     if (already_exist) {
-        return Status::AlreadyExist(
+        return Status::AlreadyExist<false>(
                 "compaction task has already been submitted, tablet_id={}, compaction_type={}.",
                 tablet->tablet_id(), compaction_type);
     }

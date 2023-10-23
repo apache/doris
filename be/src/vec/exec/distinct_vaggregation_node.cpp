@@ -35,6 +35,7 @@ DistinctAggregationNode::DistinctAggregationNode(ObjectPool* pool, const TPlanNo
 
 Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
         doris::vectorized::Block* in_block, doris::vectorized::Block* out_block) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_build_timer);
     DCHECK(!_probe_expr_ctxs.empty());
 
@@ -82,13 +83,14 @@ Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
 void DistinctAggregationNode::_emplace_into_hash_table_to_distinct(IColumn::Selector& distinct_row,
                                                                    ColumnRawPtrs& key_columns,
                                                                    const size_t num_rows) {
+    SCOPED_TIMER(_exec_timer);
     std::visit(
             [&](auto&& agg_method) -> void {
                 SCOPED_TIMER(_hash_table_compute_timer);
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
-                AggState state(key_columns, _probe_key_sz);
-                agg_method.init_serialized_keys(key_columns, _probe_key_sz, num_rows);
+                AggState state(key_columns);
+                agg_method.init_serialized_keys(key_columns, num_rows);
 
                 size_t row = 0;
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {

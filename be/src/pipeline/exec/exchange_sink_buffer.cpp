@@ -148,6 +148,9 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
         return Status::OK();
     }
     TUniqueId ins_id = request.channel->_fragment_instance_id;
+    if (_is_receiver_eof(ins_id.lo)) {
+        return Status::EndOfFile("receiver eof");
+    }
     bool send_now = false;
     {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[ins_id.lo]);
@@ -364,11 +367,11 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     if (!_rpc_channel_is_idle[id]) {
         _busy_channels--;
+        _rpc_channel_is_idle[id] = true;
         if (_finish_dependency && _busy_channels == 0) {
             _finish_dependency->set_ready_to_finish();
         }
     }
-    _rpc_channel_is_idle[id] = true;
 }
 
 template <typename Parent>
@@ -384,11 +387,11 @@ void ExchangeSinkBuffer<Parent>::_set_receiver_eof(InstanceLoId id) {
     _instance_to_receiver_eof[id] = true;
     if (!_rpc_channel_is_idle[id]) {
         _busy_channels--;
+        _rpc_channel_is_idle[id] = true;
         if (_finish_dependency && _busy_channels == 0) {
             _finish_dependency->set_ready_to_finish();
         }
     }
-    _rpc_channel_is_idle[id] = true;
 }
 
 template <typename Parent>

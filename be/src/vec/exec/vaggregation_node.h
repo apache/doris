@@ -48,9 +48,9 @@
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/columns_hashing.h"
-#include "vec/common/hash_table/fixed_hash_map.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_map_context.h"
+#include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/hash_table/hash_map_util.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/hash_table/ph_hash_map.h"
@@ -87,9 +87,8 @@ namespace vectorized {
 using AggregatedDataWithoutKey = AggregateDataPtr;
 using AggregatedDataWithStringKey = PHHashMap<StringRef, AggregateDataPtr>;
 using AggregatedDataWithShortStringKey = StringHashMap<AggregateDataPtr>;
-using AggregatedDataWithUInt8Key =
-        FixedImplicitZeroHashMapWithCalculatedSize<UInt8, AggregateDataPtr>;
-using AggregatedDataWithUInt16Key = FixedImplicitZeroHashMap<UInt16, AggregateDataPtr>;
+using AggregatedDataWithUInt8Key = PHHashMap<UInt8, AggregateDataPtr>;
+using AggregatedDataWithUInt16Key = PHHashMap<UInt16, AggregateDataPtr>;
 using AggregatedDataWithUInt32Key = PHHashMap<UInt32, AggregateDataPtr, HashCRC32<UInt32>>;
 using AggregatedDataWithUInt64Key = PHHashMap<UInt64, AggregateDataPtr, HashCRC32<UInt64>>;
 using AggregatedDataWithUInt128Key = PHHashMap<UInt128, AggregateDataPtr, HashCRC32<UInt128>>;
@@ -198,30 +197,6 @@ struct AggregatedDataVariants
             break;
         case Type::int128_key_phase2:
             emplace_single<UInt128, AggregatedDataWithUInt128KeyPhase2, nullable>();
-            break;
-        case Type::int64_keys:
-            emplace_fixed<AggregatedDataWithUInt64Key, nullable>();
-            break;
-        case Type::int64_keys_phase2:
-            emplace_fixed<AggregatedDataWithUInt64KeyPhase2, nullable>();
-            break;
-        case Type::int128_keys:
-            emplace_fixed<AggregatedDataWithUInt128Key, nullable>();
-            break;
-        case Type::int128_keys_phase2:
-            emplace_fixed<AggregatedDataWithUInt128KeyPhase2, nullable>();
-            break;
-        case Type::int136_keys:
-            emplace_fixed<AggregatedDataWithUInt136Key, nullable>();
-            break;
-        case Type::int136_keys_phase2:
-            emplace_fixed<AggregatedDataWithUInt136KeyPhase2, nullable>();
-            break;
-        case Type::int256_keys:
-            emplace_fixed<AggregatedDataWithUInt256Key, nullable>();
-            break;
-        case Type::int256_keys_phase2:
-            emplace_fixed<AggregatedDataWithUInt256KeyPhase2, nullable>();
             break;
         case Type::string_key:
             if (nullable) {
@@ -442,7 +417,6 @@ protected:
     VExprContextSPtrs _probe_expr_ctxs;
     AggregatedDataVariantsUPtr _agg_data;
 
-    std::vector<size_t> _probe_key_sz;
     // left / full join will change the key nullable make output/input solt
     // nullable diff. so we need make nullable of it.
     std::vector<size_t> _make_nullable_keys;
@@ -451,7 +425,6 @@ protected:
     RuntimeProfile::Counter* _hash_table_input_counter;
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _expr_timer;
-    RuntimeProfile::Counter* _exec_timer;
 
 private:
     friend class pipeline::AggSinkOperator;

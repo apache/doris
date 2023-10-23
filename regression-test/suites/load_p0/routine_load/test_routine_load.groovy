@@ -27,6 +27,10 @@ suite("test_routine_load","p0") {
                   "mow_tbl_array",
                  ]
 
+    def multiTables = [
+                  "dup_tbl_basic_multi_table",
+                 ]
+
     def jobs =   [
                   "dup_tbl_basic_job",
                   "uniq_tbl_basic_job",
@@ -118,6 +122,16 @@ suite("test_routine_load","p0") {
                     "k00=unix_timestamp('2007-11-30 10:30:19'),k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17",
                   ]
 
+    def multiTableJobName = [
+                    "multi_table_csv",
+                    "multi_table_json",
+                  ]
+
+    def formats = [
+                    "csv",
+                    "json",
+                  ]            
+
     def loadedRows = [0,0,0,0,17,17,17]
 
     def filteredRows = [20,20,20,20,3,3,3]
@@ -144,7 +158,7 @@ suite("test_routine_load","p0") {
                     PROPERTIES
                     (
                         "exec_mem_limit" = "5",
-                        "max_batch_interval" = "1",
+                        "max_batch_interval" = "5",
                         "max_batch_rows" = "300000",
                         "max_batch_size" = "209715200"
                     )
@@ -886,4 +900,84 @@ suite("test_routine_load","p0") {
     //         }
     //     }
     // }
+
+    // multi_table
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def j = 0
+        for (String jobName in multiTableJobName) {
+            try {
+                for (String tableName in multiTables) {
+                    sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                    sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+                }
+
+                sql """
+                    CREATE ROUTINE LOAD ${jobName}
+                    COLUMNS TERMINATED BY "|"
+                    PROPERTIES
+                    (
+                        "max_batch_interval" = "5",
+                        "format" = "${formats[j]}",
+                        "max_batch_rows" = "300000",
+                        "max_batch_size" = "209715200"
+                    )
+                    FROM KAFKA
+                    (
+                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                        "kafka_topic" = "${jobName}",
+                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                    );
+                """
+                sql "sync"
+
+                i = 0
+                for (String tableName in multiTables) {
+                    while (true) {
+                        sleep(1000)
+                        def res = sql "show routine load for ${jobName}"
+                        def state = res[0][8].toString()
+                        if (state == "NEED_SCHEDULE") {
+                            continue;
+                        }
+                        assertEquals(res[0][8].toString(), "RUNNING")
+                        break;
+                    }
+
+                    def count = 0
+                    def tableName1 =  "routine_load_" + tableName
+                    while (true) {
+                        def res = sql "select count(*) from ${tableName1}"
+                        def state = sql "show routine load for ${jobName}"
+                        log.info("routine load state: ${state[0][8].toString()}".toString())
+                        log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                        log.info("reason of state changed: ${state[0][17].toString()}".toString())
+                        if (res[0][0] > 0) {
+                            break
+                        }
+                        if (count >= 120) {
+                            log.error("routine load can not visible for long time")
+                            assertEquals(20, res[0][0])
+                            break
+                        }
+                        sleep(5000)
+                        count++
+                    }
+                    
+                    if (i <= 3) {
+                        qt_sql_multi_table_one_data "select * from ${tableName1} order by k00,k01"
+                    } else {
+                        qt_sql_multi_table_one_data "select * from ${tableName1} order by k00"
+                    }
+                    
+                    i++
+                }
+            } finally {
+                sql "stop routine load for ${jobName}"
+                for (String tableName in multiTables) {
+                    sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                }
+            }
+            j++
+        }
+    }
 }

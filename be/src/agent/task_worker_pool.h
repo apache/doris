@@ -19,7 +19,6 @@
 
 #include <butil/macros.h>
 #include <gen_cpp/AgentService_types.h>
-#include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
@@ -212,7 +211,6 @@ protected:
                                TFinishTaskRequest* finish_task_request);
 
     void _handle_report(const TReportRequest& request, ReportType type);
-    void _set_disk_infos(TReportRequest& request, TDiskType::type type);
 
     Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
                             int64_t signature, TTabletInfo* tablet_info);

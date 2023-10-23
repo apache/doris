@@ -98,7 +98,7 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _collect_query_statistics_with_every_batch(false),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {
     _report_thread_future = _report_thread_promise.get_future();
-    _start_time = vectorized::VecDateTimeValue::local_time();
+    _start_time = VecDateTimeValue::local_time();
 }
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
@@ -431,7 +431,7 @@ Status PlanFragmentExecutor::execute() {
     return Status::OK();
 }
 
-bool PlanFragmentExecutor::is_timeout(const vectorized::VecDateTimeValue& now) const {
+bool PlanFragmentExecutor::is_timeout(const VecDateTimeValue& now) const {
     if (_timeout_second <= 0) {
         return false;
     }

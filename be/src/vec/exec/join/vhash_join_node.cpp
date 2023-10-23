@@ -84,120 +84,6 @@ template Status HashJoinNode::_extract_join_column<false>(
         std::vector<IColumn const*, std::allocator<IColumn const*>>&,
         std::vector<int, std::allocator<int>> const&);
 
-RuntimeFilterContext::RuntimeFilterContext(HashJoinNode* join_node)
-        : _runtime_filter_descs(join_node->_runtime_filter_descs),
-          _runtime_filter_slots(join_node->_runtime_filter_slots),
-          _build_expr_ctxs(join_node->_build_expr_ctxs),
-          _build_rf_cardinality(join_node->_build_rf_cardinality),
-          _inserted_rows(join_node->_inserted_rows),
-          _push_down_timer(join_node->_push_down_timer),
-          _push_compute_timer(join_node->_push_compute_timer) {}
-
-RuntimeFilterContext::RuntimeFilterContext(pipeline::HashJoinBuildSinkLocalState* local_state)
-        : _runtime_filter_descs(local_state->join_build()->_runtime_filter_descs),
-          _runtime_filter_slots(local_state->_runtime_filter_slots),
-          _build_expr_ctxs(local_state->_build_expr_ctxs),
-          _build_rf_cardinality(local_state->_build_rf_cardinality),
-          _inserted_rows(local_state->_inserted_rows),
-          _push_down_timer(local_state->_push_down_timer),
-          _push_compute_timer(local_state->_push_compute_timer) {}
-
-HashJoinProbeContext::HashJoinProbeContext(HashJoinNode* join_node)
-        : _have_other_join_conjunct(join_node->_have_other_join_conjunct),
-          _is_right_semi_anti(join_node->_is_right_semi_anti),
-          _is_outer_join(join_node->_is_outer_join),
-          _tuple_is_null_left_flag_column(&join_node->_tuple_is_null_left_flag_column),
-          _tuple_is_null_right_flag_column(&join_node->_tuple_is_null_right_flag_column),
-          _other_join_conjuncts(&join_node->_other_join_conjuncts),
-          _right_table_data_types(&join_node->_right_table_data_types),
-          _left_table_data_types(&join_node->_left_table_data_types),
-          _search_hashtable_timer(join_node->_search_hashtable_timer),
-          _build_side_output_timer(join_node->_build_side_output_timer),
-          _probe_side_output_timer(join_node->_probe_side_output_timer),
-          _probe_process_hashtable_timer(join_node->_probe_process_hashtable_timer),
-          _process_other_join_conjunct_timer(join_node->_process_other_join_conjunct_timer),
-          _rows_returned_counter(join_node->_rows_returned_counter),
-          _probe_arena_memory_usage(join_node->_probe_arena_memory_usage),
-          _arena(join_node->_arena),
-          _outer_join_pull_visited_iter(&join_node->_outer_join_pull_visited_iter),
-          _probe_row_match_iter(&join_node->_probe_row_match_iter),
-          _build_blocks(join_node->_build_blocks),
-          _probe_block(&join_node->_probe_block),
-          _probe_columns(&join_node->_probe_columns),
-          _probe_index(&join_node->_probe_index),
-          _ready_probe(&join_node->_ready_probe),
-          _probe_key_sz(join_node->_probe_key_sz),
-          _left_output_slot_flags(&join_node->_left_output_slot_flags),
-          _right_output_slot_flags(&join_node->_right_output_slot_flags),
-          _is_any_probe_match_row_output(&join_node->_is_any_probe_match_row_output),
-          _has_null_value_in_build_side(join_node->_has_null_in_build_side) {}
-
-HashJoinProbeContext::HashJoinProbeContext(pipeline::HashJoinProbeLocalState* local_state)
-        : _have_other_join_conjunct(local_state->join_probe()->_have_other_join_conjunct),
-          _is_right_semi_anti(local_state->join_probe()->_is_right_semi_anti),
-          _is_outer_join(local_state->join_probe()->_is_outer_join),
-          _tuple_is_null_left_flag_column(&local_state->_tuple_is_null_left_flag_column),
-          _tuple_is_null_right_flag_column(&local_state->_tuple_is_null_right_flag_column),
-          _other_join_conjuncts(&local_state->_other_join_conjuncts),
-          _right_table_data_types(&local_state->join_probe()->_right_table_data_types),
-          _left_table_data_types(&local_state->join_probe()->_left_table_data_types),
-          _search_hashtable_timer(local_state->_search_hashtable_timer),
-          _build_side_output_timer(local_state->_build_side_output_timer),
-          _probe_side_output_timer(local_state->_probe_side_output_timer),
-          _probe_process_hashtable_timer(local_state->_probe_process_hashtable_timer),
-          _process_other_join_conjunct_timer(local_state->_process_other_join_conjunct_timer),
-          _rows_returned_counter(local_state->_rows_returned_counter),
-          _probe_arena_memory_usage(local_state->_probe_arena_memory_usage),
-          _arena(local_state->_shared_state->arena),
-          _outer_join_pull_visited_iter(&local_state->_shared_state->outer_join_pull_visited_iter),
-          _probe_row_match_iter(&local_state->_shared_state->probe_row_match_iter),
-          _build_blocks(local_state->_shared_state->build_blocks),
-          _probe_block(&local_state->_probe_block),
-          _probe_columns(&local_state->_probe_columns),
-          _probe_index(&local_state->_probe_index),
-          _ready_probe(&local_state->_ready_probe),
-          _probe_key_sz(local_state->_shared_state->probe_key_sz),
-          _left_output_slot_flags(&local_state->join_probe()->_left_output_slot_flags),
-          _right_output_slot_flags(&local_state->join_probe()->_right_output_slot_flags),
-          _is_any_probe_match_row_output(&local_state->_is_any_probe_match_row_output),
-          _has_null_value_in_build_side(local_state->_shared_state->_has_null_in_build_side) {}
-
-HashJoinBuildContext::HashJoinBuildContext(HashJoinNode* join_node)
-        : _hash_table_memory_usage(join_node->_hash_table_memory_usage),
-          _build_buckets_counter(join_node->_build_buckets_counter),
-          _build_collisions_counter(join_node->_build_collisions_counter),
-          _build_buckets_fill_counter(join_node->_build_buckets_fill_counter),
-          _build_table_insert_timer(join_node->_build_table_insert_timer),
-          _build_table_expanse_timer(join_node->_build_table_expanse_timer),
-          _build_table_convert_timer(join_node->_build_table_convert_timer),
-          _build_side_compute_hash_timer(join_node->_build_side_compute_hash_timer),
-          _build_arena_memory_usage(join_node->_build_arena_memory_usage),
-          _profile(join_node->runtime_profile()),
-          _build_key_sz(join_node->_build_key_sz),
-          _build_unique(join_node->_build_unique),
-          _runtime_filter_descs(join_node->_runtime_filter_descs),
-          _inserted_rows(join_node->_inserted_rows),
-          _arena(join_node->_arena),
-          _build_rf_cardinality(join_node->_build_rf_cardinality) {}
-
-HashJoinBuildContext::HashJoinBuildContext(pipeline::HashJoinBuildSinkLocalState* local_state)
-        : _hash_table_memory_usage(local_state->_hash_table_memory_usage),
-          _build_buckets_counter(local_state->_build_buckets_counter),
-          _build_collisions_counter(local_state->_build_collisions_counter),
-          _build_buckets_fill_counter(local_state->_build_buckets_fill_counter),
-          _build_table_insert_timer(local_state->_build_table_insert_timer),
-          _build_table_expanse_timer(local_state->_build_table_expanse_timer),
-          _build_table_convert_timer(local_state->_build_table_convert_timer),
-          _build_side_compute_hash_timer(local_state->_build_side_compute_hash_timer),
-          _build_arena_memory_usage(local_state->_build_arena_memory_usage),
-          _profile(local_state->profile()),
-          _build_key_sz(local_state->join_build()->_build_key_sz),
-          _build_unique(local_state->join_build()->_build_unique),
-          _runtime_filter_descs(local_state->join_build()->_runtime_filter_descs),
-          _inserted_rows(local_state->_inserted_rows),
-          _arena(local_state->_shared_state->arena),
-          _build_rf_cardinality(local_state->_build_rf_cardinality) {}
-
 HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : VJoinNodeBase(pool, tnode, descs),
           _is_broadcast_join(tnode.hash_join_node.__isset.is_broadcast_join &&
@@ -430,6 +316,7 @@ void HashJoinNode::prepare_for_next() {
 }
 
 Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_probe_timer);
     if (_short_circuit_for_probe) {
         // If we use a short-circuit strategy, should return empty block directly.
@@ -609,6 +496,7 @@ Status HashJoinNode::_filter_data_and_build_output(RuntimeState* state,
 }
 
 Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     _probe_eos = eos;
     if (input_block->rows() > 0) {
         COUNTER_UPDATE(_probe_rows_counter, input_block->rows());
@@ -616,11 +504,11 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
         _probe_columns.resize(probe_expr_ctxs_sz);
 
         std::vector<int> res_col_ids(probe_expr_ctxs_sz);
-        RETURN_IF_ERROR(
-                _do_evaluate(*input_block, _probe_expr_ctxs, *_probe_expr_call_timer, res_col_ids));
         if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
             _probe_column_convert_to_null = _convert_block_to_null(*input_block);
         }
+        RETURN_IF_ERROR(
+                _do_evaluate(*input_block, _probe_expr_ctxs, *_probe_expr_call_timer, res_col_ids));
         // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
         //  so we have to initialize this flag by the first probe block.
         if (!_has_set_need_null_map_for_probe) {
@@ -784,6 +672,7 @@ Status HashJoinNode::open(RuntimeState* state) {
 }
 
 Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_allocate_resource_timer);
     RETURN_IF_ERROR(VJoinNodeBase::alloc_resource(state));
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
@@ -838,6 +727,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
 }
 
 Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_build_timer);
 
     // make one block for each 4 gigabytes
@@ -896,11 +786,8 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                             __builtin_unreachable();
                                         },
                                         [&](auto&& arg) -> Status {
-                                            using HashTableCtxType = std::decay_t<decltype(arg)>;
-                                            RuntimeFilterContext context(this);
-                                            ProcessRuntimeFilterBuild<HashTableCtxType>
-                                                    runtime_filter_build_process(&context);
-                                            return runtime_filter_build_process(state, arg);
+                                            ProcessRuntimeFilterBuild runtime_filter_build_process;
+                                            return runtime_filter_build_process(state, arg, this);
                                         }},
                               *_hash_table_variants);
         if (!ret.ok()) {
@@ -1119,10 +1006,9 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
                     [&](auto&& arg, auto has_null_value,
                         auto short_circuit_for_null_in_build_side) -> Status {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
-                        HashJoinBuildContext context(this);
-                        ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
-                                rows, block, raw_ptrs, &context, state->batch_size(), offset,
-                                state);
+                        ProcessHashTableBuild<HashTableCtxType, HashJoinNode>
+                                hash_table_build_process(rows, block, raw_ptrs, this,
+                                                         state->batch_size(), offset, state);
                         return hash_table_build_process
                                 .template run<has_null_value, short_circuit_for_null_in_build_side>(
                                         arg,
@@ -1200,61 +1086,8 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                     return;
                 }
 
-                bool use_fixed_key = true;
-                bool has_null = false;
-                size_t key_byte_size = 0;
-                size_t bitmap_size = get_bitmap_size(_build_expr_ctxs.size());
-
-                _probe_key_sz.resize(_probe_expr_ctxs.size());
-                _build_key_sz.resize(_build_expr_ctxs.size());
-
-                for (int i = 0; i < _build_expr_ctxs.size(); ++i) {
-                    const auto vexpr = _build_expr_ctxs[i]->root();
-                    const auto& data_type = vexpr->data_type();
-
-                    if (!data_type->have_maximum_size_of_value()) {
-                        use_fixed_key = false;
-                        break;
-                    }
-
-                    auto is_null = data_type->is_nullable();
-                    has_null |= is_null;
-                    _build_key_sz[i] =
-                            data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
-                    _probe_key_sz[i] = _build_key_sz[i];
-                    key_byte_size += _probe_key_sz[i];
-                }
-
-                if (bitmap_size + key_byte_size > sizeof(UInt256)) {
-                    use_fixed_key = false;
-                }
-
-                if (use_fixed_key) {
-                    // TODO: may we should support uint256 in the future
-                    if (has_null) {
-                        if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
-                            _hash_table_variants
-                                    ->emplace<I64FixedKeyHashTableContext<true, RowRefListType>>();
-                        } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
-                            _hash_table_variants
-                                    ->emplace<I128FixedKeyHashTableContext<true, RowRefListType>>();
-                        } else {
-                            _hash_table_variants
-                                    ->emplace<I256FixedKeyHashTableContext<true, RowRefListType>>();
-                        }
-                    } else {
-                        if (key_byte_size <= sizeof(UInt64)) {
-                            _hash_table_variants
-                                    ->emplace<I64FixedKeyHashTableContext<false, RowRefListType>>();
-                        } else if (key_byte_size <= sizeof(UInt128)) {
-                            _hash_table_variants->emplace<
-                                    I128FixedKeyHashTableContext<false, RowRefListType>>();
-                        } else {
-                            _hash_table_variants->emplace<
-                                    I256FixedKeyHashTableContext<false, RowRefListType>>();
-                        }
-                    }
-                } else {
+                if (!try_get_hash_map_context_fixed<PartitionedHashMap, HashCRC32, RowRefListType>(
+                            *_hash_table_variants, _build_expr_ctxs)) {
                     _hash_table_variants->emplace<SerializedHashTableContext<RowRefListType>>();
                 }
             },
@@ -1277,9 +1110,9 @@ void HashJoinNode::_process_hashtable_ctx_variants_init(RuntimeState* state) {
     std::visit(
             [&](auto&& join_op_variants) {
                 using JoinOpType = std::decay_t<decltype(join_op_variants)>;
-                _probe_context.reset(new HashJoinProbeContext(this));
-                _process_hashtable_ctx_variants->emplace<ProcessHashTableProbe<JoinOpType::value>>(
-                        _probe_context.get(), state->batch_size());
+                _process_hashtable_ctx_variants
+                        ->emplace<ProcessHashTableProbe<JoinOpType::value, HashJoinNode>>(
+                                this, state->batch_size());
             },
             _join_op_variants);
 }

@@ -388,13 +388,14 @@ public:
     /// Update state of crc32 hash function with value of n elements to avoid the virtual function call
     /// null_data to mark whether need to do hash compute, null_data == nullptr
     /// means all element need to do hash function, else only *null_data != 0 need to do hash func
-    virtual void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+    virtual void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                        uint32_t rows, uint32_t offset = 0,
                                         const uint8_t* __restrict null_data = nullptr) const {
         LOG(FATAL) << get_name() << "update_crcs_with_value not supported";
     }
 
     // use range for one hash value to avoid virtual function call in loop
-    virtual void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    virtual void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                        const uint8_t* __restrict null_data) const {
         LOG(FATAL) << get_name() << " update_crc_with_value not supported";
     }
@@ -544,10 +545,6 @@ public:
     /// This is greater or equals to byte_size due to memory reservation in containers.
     /// Zero, if could not be determined.
     virtual size_t allocated_bytes() const = 0;
-
-    /// Make memory region readonly with mprotect if it is large enough.
-    /// The operation is slow and performed only for debug builds.
-    virtual void protect() {}
 
     /// If the column contains subcolumns (such as Array, Nullable, etc), do callback on them.
     /// Shallow: doesn't do recursive calls; don't do call for itself.

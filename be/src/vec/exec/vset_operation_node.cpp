@@ -105,6 +105,7 @@ Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeStat
 
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::alloc_resource(RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     // open result expr lists.
     for (const VExprContextSPtrs& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
@@ -155,6 +156,7 @@ template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_TIMER(_exec_timer);
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
     _pull_timer = ADD_TIMER(runtime_profile(), "PullTime");
@@ -215,64 +217,15 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
         }
         return;
     }
-
-    bool use_fixed_key = true;
-    bool has_null = false;
-    size_t key_byte_size = 0;
-    size_t bitmap_size = get_bitmap_size(_child_expr_lists[0].size());
-
-    _build_key_sz.resize(_child_expr_lists[0].size());
-    _probe_key_sz.resize(_child_expr_lists[0].size());
-    for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
-        const auto vexpr = _child_expr_lists[0][i]->root();
-        const auto& data_type = vexpr->data_type();
-
-        if (!data_type->have_maximum_size_of_value()) {
-            use_fixed_key = false;
-            break;
-        }
-
-        auto is_null = data_type->is_nullable();
-        has_null |= is_null;
-        _build_key_sz[i] = data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
-        _probe_key_sz[i] = _build_key_sz[i];
-        key_byte_size += _probe_key_sz[i];
-    }
-
-    if (bitmap_size + key_byte_size > sizeof(UInt256)) {
-        use_fixed_key = false;
-    }
-    if (use_fixed_key) {
-        if (has_null) {
-            if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
-                _hash_table_variants
-                        ->emplace<I64FixedKeyHashTableContext<true, RowRefListWithFlags>>();
-            } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
-                _hash_table_variants
-                        ->emplace<I128FixedKeyHashTableContext<true, RowRefListWithFlags>>();
-            } else {
-                _hash_table_variants
-                        ->emplace<I256FixedKeyHashTableContext<true, RowRefListWithFlags>>();
-            }
-        } else {
-            if (key_byte_size <= sizeof(UInt64)) {
-                _hash_table_variants
-                        ->emplace<I64FixedKeyHashTableContext<false, RowRefListWithFlags>>();
-            } else if (key_byte_size <= sizeof(UInt128)) {
-                _hash_table_variants
-                        ->emplace<I128FixedKeyHashTableContext<false, RowRefListWithFlags>>();
-            } else {
-                _hash_table_variants
-                        ->emplace<I256FixedKeyHashTableContext<false, RowRefListWithFlags>>();
-            }
-        }
-    } else {
+    if (!try_get_hash_map_context_fixed<PartitionedHashMap, HashCRC32, RowRefListWithFlags>(
+                *_hash_table_variants, _child_expr_lists[0])) {
         _hash_table_variants->emplace<SerializedHashTableContext<RowRefListWithFlags>>();
     }
 }
 
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::sink(RuntimeState* state, Block* block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
     if (block->rows() != 0) {
@@ -309,6 +262,7 @@ Status VSetOperationNode<is_intersect>::sink(RuntimeState* state, Block* block, 
 
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::pull(RuntimeState* state, Block* output_block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_pull_timer);
     create_mutable_cols(output_block);
     auto st = std::visit(
@@ -370,7 +324,7 @@ Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     HashTableBuild<HashTableCtxType, is_intersect> hash_table_build_process(
-                            rows, raw_ptrs, this, offset, state);
+                            this, rows, raw_ptrs, offset, state);
                     st = hash_table_build_process(arg, _arena);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
@@ -402,6 +356,7 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::sink_probe(RuntimeState* state, int child_id, Block* block,
                                                    bool eos) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_probe_timer);
     CHECK(_build_finished) << "cannot sink probe data before build finished";
     if (child_id > 1) {
@@ -573,11 +528,12 @@ void VSetOperationNode<is_intersect>::refresh_hash_table() {
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     if constexpr (std::is_same_v<typename HashTableCtxType::Mapped,
                                                  RowRefListWithFlags>) {
-                        HashTableCtxType tmp_hash_table;
+                        auto tmp_hash_table =
+                                std::make_shared<typename HashTableCtxType::HashMapType>();
                         bool is_need_shrink =
                                 arg.hash_table->should_be_shrink(_valid_element_in_hash_tbl);
                         if (is_intersect || is_need_shrink) {
-                            tmp_hash_table.hash_table->init_buf_size(
+                            tmp_hash_table->init_buf_size(
                                     _valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1);
                         }
 
@@ -593,15 +549,13 @@ void VSetOperationNode<is_intersect>::refresh_hash_table() {
                                         if constexpr (is_intersect) { //intersected
                                             if (it->visited) {
                                                 it->visited = false;
-                                                tmp_hash_table.hash_table->insert(
-                                                        iter->get_value());
+                                                tmp_hash_table->insert(iter->get_value());
                                             }
                                             ++iter;
                                         } else { //except
                                             if constexpr (is_need_shrink_const) {
                                                 if (!it->visited) {
-                                                    tmp_hash_table.hash_table->insert(
-                                                            iter->get_value());
+                                                    tmp_hash_table->insert(iter->get_value());
                                                 }
                                             }
                                             ++iter;
@@ -612,7 +566,7 @@ void VSetOperationNode<is_intersect>::refresh_hash_table() {
 
                         arg.reset();
                         if (is_intersect || is_need_shrink) {
-                            arg.hash_table = std::move(tmp_hash_table.hash_table);
+                            arg.hash_table = std::move(tmp_hash_table);
                         }
                     } else {
                         LOG(FATAL) << "FATAL: Invalid RowRefList";

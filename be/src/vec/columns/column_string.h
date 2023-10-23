@@ -118,8 +118,6 @@ public:
         return chars.allocated_bytes() + offsets.allocated_bytes();
     }
 
-    void protect() override;
-
     MutableColumnPtr clone_resized(size_t to_size) const override;
 
     MutableColumnPtr get_shrinked_column() override;
@@ -415,7 +413,7 @@ public:
         }
     }
 
-    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override {
         if (null_data) {
             for (size_t i = start; i < end; ++i) {
@@ -446,7 +444,8 @@ public:
         SIP_HASHES_FUNCTION_COLUMN_IMPL();
     }
 
-    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+    void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
+                                uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
 
     void update_hashes_with_value(uint64_t* __restrict hashes,

@@ -36,7 +36,6 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "vec/common/allocator.h" // IWYU pragma: keep
-#include "vec/common/bit_helpers.h"
 #include "vec/common/memcpy_small.h"
 
 #ifndef NDEBUG
@@ -46,6 +45,23 @@
 #include "vec/common/pod_array_fwd.h"
 
 namespace doris::vectorized {
+
+/** For zero argument, result is zero.
+  * For arguments with most significand bit set, result is zero.
+  * For other arguments, returns value, rounded up to power of two.
+  */
+inline size_t round_up_to_power_of_two_or_zero(size_t n) {
+    --n;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    n |= n >> 32;
+    ++n;
+
+    return n;
+}
 
 /** A dynamic array for POD types.
   * Designed for a small number of large arrays (rather than a lot of small ones).

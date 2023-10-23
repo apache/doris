@@ -20,10 +20,6 @@
 
 #pragma once
 
-#include <glog/logging.h>
-#include <stdint.h>
-#include <sys/types.h>
-
 #include <functional>
 #include <ostream>
 #include <string>
@@ -49,14 +45,9 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 class ColumnSorter;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 using NullMap = ColumnUInt8::Container;
 using ConstNullMapPtr = const NullMap*;
@@ -127,7 +118,7 @@ public:
     void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                        size_t max_row_byte_size) const override;
 
-    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
+    void deserialize_vec(std::vector<StringRef>& keys, size_t num_rows) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert_indices_from(const IColumn& src, const int* indices_begin,
@@ -137,7 +128,7 @@ public:
 
     template <typename ColumnType>
     void insert_from_with_type(const IColumn& src, size_t n) {
-        const ColumnNullable& src_concrete = assert_cast<const ColumnNullable&>(src);
+        const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
         assert_cast<ColumnType*>(nested_column.get())
                 ->insert_from(src_concrete.get_nested_column(), n);
         auto is_null = src_concrete.get_null_map_data()[n];
@@ -220,18 +211,18 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
-    void protect() override;
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+    void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
@@ -253,7 +244,7 @@ public:
     }
 
     bool structure_equals(const IColumn& rhs) const override {
-        if (auto rhs_nullable = typeid_cast<const ColumnNullable*>(&rhs)) {
+        if (const auto* rhs_nullable = typeid_cast<const ColumnNullable*>(&rhs)) {
             return nested_column->structure_equals(*rhs_nullable->nested_column);
         }
         return false;
@@ -342,7 +333,7 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
-        const ColumnNullable& nullable_rhs = assert_cast<const ColumnNullable&>(rhs);
+        const auto& nullable_rhs = assert_cast<const ColumnNullable&>(rhs);
         null_map->replace_column_data(*nullable_rhs.null_map, row, self_row);
 
         if (!nullable_rhs.is_null_at(row)) {

@@ -123,7 +123,7 @@ struct UInt128Hash {
 #if defined(__SSE4_2__) || defined(__aarch64__)
 
 struct UInt128HashCRC32 {
-    size_t operator()(UInt128 x) const {
+    size_t operator()(const UInt128& x) const {
         UInt64 crc = -1ULL;
         crc = _mm_crc32_u64(crc, x.low);
         crc = _mm_crc32_u64(crc, x.high);

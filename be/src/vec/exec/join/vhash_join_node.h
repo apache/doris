@@ -39,6 +39,7 @@
 #include "vec/common/arena.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/hash_map_context.h"
+#include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -69,99 +70,52 @@ constexpr size_t CHECK_FRECUENCY = 65536;
 
 struct UInt128;
 struct UInt256;
-template <int JoinOpType>
+template <int JoinOpType, typename Parent>
 struct ProcessHashTableProbe;
 class HashJoinNode;
 
-struct RuntimeFilterContext {
-    RuntimeFilterContext(HashJoinNode* join_node);
-    RuntimeFilterContext(pipeline::HashJoinBuildSinkLocalState* local_state);
-    std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
-    std::shared_ptr<VRuntimeFilterSlots>& _runtime_filter_slots;
-    VExprContextSPtrs& _build_expr_ctxs;
-    size_t& _build_rf_cardinality;
-    std::unordered_map<const Block*, std::vector<int>>& _inserted_rows;
-    RuntimeProfile::Counter* _push_down_timer;
-    RuntimeProfile::Counter* _push_compute_timer;
-};
-
-template <class HashTableContext>
 struct ProcessRuntimeFilterBuild {
-    ProcessRuntimeFilterBuild(RuntimeFilterContext* context) : _context(context) {}
-
-    Status operator()(RuntimeState* state, HashTableContext& hash_table_ctx) {
-        if (_context->_runtime_filter_descs.empty()) {
+    template <class HashTableContext, typename Parent>
+    Status operator()(RuntimeState* state, HashTableContext& hash_table_ctx, Parent* parent) {
+        if (parent->runtime_filter_descs().empty()) {
             return Status::OK();
         }
-        _context->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-                _context->_build_expr_ctxs, _context->_runtime_filter_descs);
+        parent->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
+                parent->_build_expr_ctxs, parent->runtime_filter_descs());
 
-        RETURN_IF_ERROR(_context->_runtime_filter_slots->init(
-                state, hash_table_ctx.hash_table->size(), _context->_build_rf_cardinality));
+        RETURN_IF_ERROR(parent->_runtime_filter_slots->init(
+                state, hash_table_ctx.hash_table->size(), parent->_build_rf_cardinality));
 
-        if (!_context->_runtime_filter_slots->empty() && !_context->_inserted_rows.empty()) {
+        if (!parent->_runtime_filter_slots->empty() && !parent->_inserted_rows.empty()) {
             {
-                SCOPED_TIMER(_context->_push_compute_timer);
-                _context->_runtime_filter_slots->insert(_context->_inserted_rows);
+                SCOPED_TIMER(parent->_push_compute_timer);
+                parent->_runtime_filter_slots->insert(parent->_inserted_rows);
             }
         }
         {
-            SCOPED_TIMER(_context->_push_down_timer);
-            RETURN_IF_ERROR(_context->_runtime_filter_slots->publish());
+            SCOPED_TIMER(parent->_push_down_timer);
+            RETURN_IF_ERROR(parent->_runtime_filter_slots->publish());
         }
 
         return Status::OK();
     }
-
-private:
-    RuntimeFilterContext* _context;
-};
-
-struct HashJoinBuildContext {
-    HashJoinBuildContext(HashJoinNode* join_node);
-    HashJoinBuildContext(pipeline::HashJoinBuildSinkLocalState* local_state);
-
-    void add_hash_buckets_info(const std::string& info) const {
-        _profile->add_info_string("HashTableBuckets", info);
-    }
-    void add_hash_buckets_filled_info(const std::string& info) const {
-        _profile->add_info_string("HashTableFilledBuckets", info);
-    }
-    RuntimeProfile::Counter* _hash_table_memory_usage;
-    RuntimeProfile::Counter* _build_buckets_counter;
-    RuntimeProfile::Counter* _build_collisions_counter;
-    RuntimeProfile::Counter* _build_buckets_fill_counter;
-    RuntimeProfile::Counter* _build_table_insert_timer;
-    RuntimeProfile::Counter* _build_table_expanse_timer;
-    RuntimeProfile::Counter* _build_table_convert_timer;
-    RuntimeProfile::Counter* _build_side_compute_hash_timer;
-    RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage;
-    RuntimeProfile* _profile;
-
-    Sizes& _build_key_sz;
-    bool& _build_unique;
-    std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;
-    std::unordered_map<const Block*, std::vector<int>>& _inserted_rows;
-    std::shared_ptr<Arena>& _arena;
-    size_t& _build_rf_cardinality;
 };
 
 using ProfileCounter = RuntimeProfile::Counter;
 
-template <class HashTableContext>
+template <class HashTableContext, typename Parent>
 struct ProcessHashTableBuild {
     ProcessHashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
-                          HashJoinBuildContext* join_context, int batch_size, uint8_t offset,
-                          RuntimeState* state)
+                          Parent* parent, int batch_size, uint8_t offset, RuntimeState* state)
             : _rows(rows),
               _skip_rows(0),
               _acquired_block(acquired_block),
               _build_raw_ptrs(build_raw_ptrs),
-              _join_context(join_context),
+              _parent(parent),
               _batch_size(batch_size),
               _offset(offset),
               _state(state),
-              _build_side_compute_hash_timer(join_context->_build_side_compute_hash_timer) {}
+              _build_side_compute_hash_timer(parent->_build_side_compute_hash_timer) {}
 
     template <bool ignore_null, bool short_circuit_for_null>
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
@@ -172,30 +126,30 @@ struct ProcessHashTableBuild {
             int64_t bucket_size = hash_table_ctx.hash_table->get_buffer_size_in_cells();
             int64_t filled_bucket_size = hash_table_ctx.hash_table->size();
             int64_t bucket_bytes = hash_table_ctx.hash_table->get_buffer_size_in_bytes();
-            COUNTER_SET(_join_context->_hash_table_memory_usage, bucket_bytes);
-            COUNTER_SET(_join_context->_build_buckets_counter, bucket_size);
-            COUNTER_SET(_join_context->_build_collisions_counter,
+            COUNTER_SET(_parent->_hash_table_memory_usage, bucket_bytes);
+            COUNTER_SET(_parent->_build_buckets_counter, bucket_size);
+            COUNTER_SET(_parent->_build_collisions_counter,
                         hash_table_ctx.hash_table->get_collisions());
-            COUNTER_SET(_join_context->_build_buckets_fill_counter, filled_bucket_size);
+            COUNTER_SET(_parent->_build_buckets_fill_counter, filled_bucket_size);
 
             auto hash_table_buckets = hash_table_ctx.hash_table->get_buffer_sizes_in_cells();
             std::string hash_table_buckets_info;
             for (auto bucket_count : hash_table_buckets) {
                 hash_table_buckets_info += std::to_string(bucket_count) + ", ";
             }
-            _join_context->add_hash_buckets_info(hash_table_buckets_info);
+            _parent->add_hash_buckets_info(hash_table_buckets_info);
 
             auto hash_table_sizes = hash_table_ctx.hash_table->sizes();
             hash_table_buckets_info.clear();
             for (auto table_size : hash_table_sizes) {
                 hash_table_buckets_info += std::to_string(table_size) + ", ";
             }
-            _join_context->add_hash_buckets_filled_info(hash_table_buckets_info);
+            _parent->add_hash_buckets_filled_info(hash_table_buckets_info);
         }};
 
-        KeyGetter key_getter(_build_raw_ptrs, _join_context->_build_key_sz);
+        KeyGetter key_getter(_build_raw_ptrs);
 
-        SCOPED_TIMER(_join_context->_build_table_insert_timer);
+        SCOPED_TIMER(_parent->_build_table_insert_timer);
         hash_table_ctx.hash_table->reset_resize_timer();
 
         // only not build_unique, we need expanse hash table before insert data
@@ -204,21 +158,21 @@ struct ProcessHashTableBuild {
         // 2. There are many duplicate keys, and the hash table filled bucket is far less than
         // the hash table build bucket, which may waste a lot of memory.
         // TODO, use the NDV expansion of the key column in the optimizer statistics
-        if (!_join_context->_build_unique) {
+        if (!_parent->build_unique()) {
             RETURN_IF_CATCH_EXCEPTION(hash_table_ctx.hash_table->expanse_for_add_elem(
                     std::min<int>(_rows, config::hash_table_pre_expanse_max_rows)));
         }
 
-        vector<int>& inserted_rows = _join_context->_inserted_rows[&_acquired_block];
-        bool has_runtime_filter = !_join_context->_runtime_filter_descs.empty();
+        vector<int>& inserted_rows = _parent->_inserted_rows[&_acquired_block];
+        bool has_runtime_filter = !_parent->runtime_filter_descs().empty();
         if (has_runtime_filter) {
             inserted_rows.reserve(_batch_size);
         }
 
-        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _join_context->_build_key_sz, _rows,
+        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr);
 
-        auto& arena = *(_join_context->_arena);
+        auto& arena = *_parent->arena();
         auto old_build_arena_memory = arena.size();
 
         size_t k = 0;
@@ -229,7 +183,7 @@ struct ProcessHashTableBuild {
             ctor(key, Mapped {k, _offset});
         };
 
-        bool build_unique = _join_context->_build_unique;
+        bool build_unique = _parent->build_unique();
 #define EMPLACE_IMPL(stmt)                                                    \
     for (; k < _rows; ++k) {                                                  \
         if (k % CHECK_FRECUENCY == 0) {                                       \
@@ -258,21 +212,21 @@ struct ProcessHashTableBuild {
         } else if (has_runtime_filter && !build_unique) {
             EMPLACE_IMPL(
                     if (inserted) { inserted_rows.push_back(k); } else {
-                        mapped.insert({k, _offset}, *(_join_context->_arena));
+                        mapped.insert({k, _offset}, *_parent->arena());
                         inserted_rows.push_back(k);
                     });
         } else if (!has_runtime_filter && build_unique) {
             EMPLACE_IMPL(if (!inserted) { _skip_rows++; });
         } else {
-            EMPLACE_IMPL(if (!inserted) { mapped.insert({k, _offset}, *(_join_context->_arena)); });
+            EMPLACE_IMPL(if (!inserted) { mapped.insert({k, _offset}, *_parent->arena()); });
         }
-        _join_context->_build_rf_cardinality += inserted_rows.size();
+        _parent->_build_rf_cardinality += inserted_rows.size();
 
-        _join_context->_build_arena_memory_usage->add(arena.size() - old_build_arena_memory);
+        _parent->_build_arena_memory_usage->add(arena.size() - old_build_arena_memory);
 
-        COUNTER_UPDATE(_join_context->_build_table_expanse_timer,
+        COUNTER_UPDATE(_parent->_build_table_expanse_timer,
                        hash_table_ctx.hash_table->get_resize_timer_value());
-        COUNTER_UPDATE(_join_context->_build_table_convert_timer,
+        COUNTER_UPDATE(_parent->_build_table_convert_timer,
                        hash_table_ctx.hash_table->get_convert_timer_value());
 
         return Status::OK();
@@ -283,7 +237,7 @@ private:
     int _skip_rows;
     Block& _acquired_block;
     ColumnRawPtrs& _build_raw_ptrs;
-    HashJoinBuildContext* _join_context;
+    Parent* _parent;
     int _batch_size;
     uint8_t _offset;
     RuntimeState* _state;
@@ -291,7 +245,6 @@ private:
     ProfileCounter* _build_side_compute_hash_timer;
 };
 
-// TODO: use FixedHashTable instead of HashTable
 template <typename RowRefListType>
 using I8HashTableContext = PrimaryTypeHashTableContext<UInt8, RowRefListType>;
 template <typename RowRefListType>
@@ -313,6 +266,9 @@ using I128FixedKeyHashTableContext = FixedKeyHashTableContext<UInt128, has_null,
 
 template <bool has_null, typename RowRefListType>
 using I256FixedKeyHashTableContext = FixedKeyHashTableContext<UInt256, has_null, RowRefListType>;
+
+template <bool has_null, typename RowRefListType>
+using I136FixedKeyHashTableContext = FixedKeyHashTableContext<UInt136, has_null, RowRefListType>;
 
 using HashTableVariants = std::variant<
         std::monostate, SerializedHashTableContext<RowRefList>, I8HashTableContext<RowRefList>,
@@ -343,73 +299,33 @@ using HashTableVariants = std::variant<
         I128FixedKeyHashTableContext<true, RowRefListWithFlags>,
         I128FixedKeyHashTableContext<false, RowRefListWithFlags>,
         I256FixedKeyHashTableContext<true, RowRefListWithFlags>,
-        I256FixedKeyHashTableContext<false, RowRefListWithFlags>>;
+        I256FixedKeyHashTableContext<false, RowRefListWithFlags>,
+        I136FixedKeyHashTableContext<true, RowRefListWithFlags>,
+        I136FixedKeyHashTableContext<false, RowRefListWithFlags>,
+        I136FixedKeyHashTableContext<true, RowRefListWithFlag>,
+        I136FixedKeyHashTableContext<false, RowRefListWithFlag>,
+        I136FixedKeyHashTableContext<true, RowRefList>,
+        I136FixedKeyHashTableContext<false, RowRefList>>;
 
 class VExprContext;
 
 using HashTableCtxVariants =
-        std::variant<std::monostate, ProcessHashTableProbe<TJoinOp::INNER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::LEFT_SEMI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::LEFT_ANTI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::CROSS_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
+        std::variant<std::monostate, ProcessHashTableProbe<TJoinOp::INNER_JOIN, HashJoinNode>,
+                     ProcessHashTableProbe<TJoinOp::LEFT_SEMI_JOIN, HashJoinNode>,
+                     ProcessHashTableProbe<TJoinOp::LEFT_ANTI_JOIN, HashJoinNode>,
+                     ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN, HashJoinNode>,
+                     ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN, HashJoinNode>,
+                     ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN, HashJoinNode>,
+                     ProcessHashTableProbe<TJoinOp::CROSS_JOIN, HashJoinNode>,
+                     ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN, HashJoinNode>,
+                     ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN, HashJoinNode>,
+                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN, HashJoinNode>>;
 
 using HashTableIteratorVariants =
         std::variant<std::monostate, ForwardIterator<RowRefList>,
                      ForwardIterator<RowRefListWithFlag>, ForwardIterator<RowRefListWithFlags>>;
 
 static constexpr auto HASH_JOIN_MAX_BUILD_BLOCK_COUNT = 128;
-
-struct HashJoinProbeContext {
-    HashJoinProbeContext(HashJoinNode* join_node);
-    HashJoinProbeContext(pipeline::HashJoinProbeLocalState* local_state);
-    bool _have_other_join_conjunct;
-    const bool _is_right_semi_anti;
-    const bool _is_outer_join;
-
-    MutableColumnPtr* _tuple_is_null_left_flag_column;
-    MutableColumnPtr* _tuple_is_null_right_flag_column;
-
-    // other expr
-    VExprContextSPtrs* _other_join_conjuncts;
-
-    DataTypes* _right_table_data_types;
-    DataTypes* _left_table_data_types;
-
-    RuntimeProfile::Counter* _search_hashtable_timer;
-    RuntimeProfile::Counter* _build_side_output_timer;
-    RuntimeProfile::Counter* _probe_side_output_timer;
-    RuntimeProfile::Counter* _probe_process_hashtable_timer;
-    RuntimeProfile::Counter* _process_other_join_conjunct_timer;
-    RuntimeProfile::Counter* _rows_returned_counter;
-    RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage;
-
-    std::shared_ptr<Arena> _arena;
-
-    // for full/right outer join
-    HashTableIteratorVariants* _outer_join_pull_visited_iter;
-    HashTableIteratorVariants* _probe_row_match_iter;
-
-    std::shared_ptr<std::vector<Block>> _build_blocks;
-    Block* _probe_block;
-    ColumnRawPtrs* _probe_columns;
-    int* _probe_index;
-    bool* _ready_probe;
-
-    Sizes _probe_key_sz;
-
-    std::vector<bool>* _left_output_slot_flags;
-    std::vector<bool>* _right_output_slot_flags;
-
-    // for cases when a probe row matches more than batch size build rows.
-    bool* _is_any_probe_match_row_output;
-    bool _has_null_value_in_build_side {};
-};
 
 class HashJoinNode final : public VJoinNodeBase {
 public:
@@ -450,13 +366,25 @@ public:
         return _runtime_filter_slots->ready_finish_publish();
     }
 
+    bool have_other_join_conjunct() const { return _have_other_join_conjunct; }
+    bool is_right_semi_anti() const { return _is_right_semi_anti; }
+    bool is_outer_join() const { return _is_outer_join; }
+    std::shared_ptr<std::vector<Block>> build_blocks() const { return _build_blocks; }
+    std::vector<bool>* left_output_slot_flags() { return &_left_output_slot_flags; }
+    std::vector<bool>* right_output_slot_flags() { return &_right_output_slot_flags; }
+    bool* has_null_in_build_side() { return &_has_null_in_build_side; }
+    DataTypes right_table_data_types() { return _right_table_data_types; }
+    DataTypes left_table_data_types() { return _left_table_data_types; }
+    bool build_unique() const { return _build_unique; }
+    std::vector<TRuntimeFilterDesc>& runtime_filter_descs() { return _runtime_filter_descs; }
+    std::shared_ptr<vectorized::Arena> arena() { return _arena; }
+
 protected:
     void _probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) override;
 
 private:
-    friend struct HashJoinProbeContext;
-    friend struct HashJoinBuildContext;
-    friend struct RuntimeFilterContext;
+    template <int JoinOpType, typename Parent>
+    friend struct ProcessHashTableProbe;
 
     void _init_short_circuit_for_probe() override {
         _short_circuit_for_probe =
@@ -553,9 +481,6 @@ private:
 
     bool _build_side_ignore_null = false;
 
-    Sizes _probe_key_sz;
-    Sizes _build_key_sz;
-
     bool _is_broadcast_join = false;
     bool _should_build_hash_table = true;
     std::shared_ptr<SharedHashTableController> _shared_hashtable_controller = nullptr;
@@ -605,13 +530,12 @@ private:
                                          bool* eos, Block* temp_block,
                                          bool check_rows_count = true);
 
-    template <class HashTableContext>
+    template <class HashTableContext, typename Parent>
     friend struct ProcessHashTableBuild;
 
-    template <int JoinOpType>
+    template <int JoinOpType, typename Parent>
     friend struct ProcessHashTableProbe;
 
-    template <class HashTableContext>
     friend struct ProcessRuntimeFilterBuild;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
@@ -620,8 +544,6 @@ private:
     std::vector<IRuntimeFilter*> _runtime_filters;
     size_t _build_rf_cardinality = 0;
     std::atomic_bool _probe_open_finish = false;
-
-    std::unique_ptr<HashJoinProbeContext> _probe_context;
 };
 } // namespace vectorized
 } // namespace doris
