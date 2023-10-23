@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_writer.h"
@@ -1358,25 +1359,40 @@ void Properties::set_force(const std::string& key, const std::string& val) {
     file_conf_map[key] = val;
 }
 
-Status Properties::dump(const std::string& conffile) {
+void Properties::dump(const std::string& conffile) {
     std::string conffile_tmp = conffile + ".tmp";
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(conffile_tmp, &file_writer));
-    RETURN_IF_ERROR(file_writer->append("# THIS IS AN AUTO GENERATED CONFIG FILE.\n"));
-    RETURN_IF_ERROR(file_writer->append(
-            "# You can modify this file manually, and the configurations in this file\n"));
-    RETURN_IF_ERROR(file_writer->append("# will overwrite the configurations in be.conf\n\n"));
+    Status st;
 
-    for (auto const& iter : file_conf_map) {
-        RETURN_IF_ERROR(file_writer->append(iter.first));
-        RETURN_IF_ERROR(file_writer->append(" = "));
-        RETURN_IF_ERROR(file_writer->append(iter.second));
-        RETURN_IF_ERROR(file_writer->append("\n"));
+    st = io::global_local_filesystem()->create_file(conffile_tmp, &file_writer);
+    if (!st.ok()) {
+        throw Exception(st.code(), "Properties::dump failed!");
     }
 
-    RETURN_IF_ERROR(file_writer->close());
+    st = file_writer->append("# THIS IS AN AUTO GENERATED CONFIG FILE.\n");
+    st = file_writer->append(
+            "# You can modify this file manually, and the configurations in this file\n");
+    st = file_writer->append("# will overwrite the configurations in be.conf\n\n");
 
-    return io::global_local_filesystem()->rename(conffile_tmp, conffile);
+    for (auto const& iter : file_conf_map) {
+        st = file_writer->append(iter.first);
+        st = file_writer->append(" = ");
+        st = file_writer->append(iter.second);
+        st = file_writer->append("\n");
+    }
+    if (!st.ok()) {
+        throw Exception(st.code(), "Properties::dump failed!");
+    }
+
+    st = file_writer->close();
+    if (!st.ok()) {
+        throw Exception(st.code(), "Properties::dump failed!");
+    }
+
+    st = io::global_local_filesystem()->rename(conffile_tmp, conffile);
+    if (!st.ok()) {
+        throw Exception(st.code(), "Properties::dump failed!");
+    }
 }
 
 template <typename T>
@@ -1455,39 +1471,38 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
     return true;
 }
 
-#define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                                  \
-    if (strcmp((FIELD).type, #TYPE) == 0) {                                                        \
-        TYPE new_value;                                                                            \
-        if (!convert((VALUE), new_value)) {                                                        \
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("convert '{}' as {} failed",  \
-                                                                     VALUE, #TYPE);                \
-        }                                                                                          \
-        TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                          \
-        TYPE old_value = ref_conf_value;                                                           \
-        if (RegisterConfValidator::_s_field_validator != nullptr) {                                \
-            auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);        \
-            if (validator != RegisterConfValidator::_s_field_validator->end() &&                   \
-                !(validator->second)()) {                                                          \
-                ref_conf_value = old_value;                                                        \
-                return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("validate {}={} failed",  \
-                                                                         (FIELD).name, new_value); \
-            }                                                                                      \
-        }                                                                                          \
-        ref_conf_value = new_value;                                                                \
-        if (full_conf_map != nullptr) {                                                            \
-            std::ostringstream oss;                                                                \
-            oss << new_value;                                                                      \
-            (*full_conf_map)[(FIELD).name] = oss.str();                                            \
-        }                                                                                          \
-        if (PERSIST) {                                                                             \
-            RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                     \
-        }                                                                                          \
-        return Status::OK();                                                                       \
+#define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                            \
+    if (strcmp((FIELD).type, #TYPE) == 0) {                                                  \
+        TYPE new_value;                                                                      \
+        if (!convert((VALUE), new_value)) {                                                  \
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "convert '{}' as {} failed", VALUE, \
+                            #TYPE);                                                          \
+        }                                                                                    \
+        TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                    \
+        TYPE old_value = ref_conf_value;                                                     \
+        if (RegisterConfValidator::_s_field_validator != nullptr) {                          \
+            auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);  \
+            if (validator != RegisterConfValidator::_s_field_validator->end() &&             \
+                !(validator->second)()) {                                                    \
+                ref_conf_value = old_value;                                                  \
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "validate {}={} failed",        \
+                                (FIELD).name, new_value);                                    \
+            }                                                                                \
+        }                                                                                    \
+        ref_conf_value = new_value;                                                          \
+        if (full_conf_map != nullptr) {                                                      \
+            std::ostringstream oss;                                                          \
+            oss << new_value;                                                                \
+            (*full_conf_map)[(FIELD).name] = oss.str();                                      \
+        }                                                                                    \
+        if (PERSIST) {                                                                       \
+            persist_config(std::string((FIELD).name), VALUE);                                \
+        }                                                                                    \
     }
 
 // write config to be_custom.conf
 // the caller need to make sure that the given config is valid
-Status persist_config(const std::string& field, const std::string& value) {
+void persist_config(const std::string& field, const std::string& value) {
     // lock to make sure only one thread can modify the be_custom.conf
     std::lock_guard<std::mutex> l(custom_conf_lock);
 
@@ -1496,23 +1511,21 @@ Status persist_config(const std::string& field, const std::string& value) {
     Properties tmp_props;
     if (!tmp_props.load(conffile.c_str(), false)) {
         LOG(WARNING) << "failed to load " << conffile;
-        return Status::InternalError("failed to load conf file: {}", conffile);
+        throw Exception(ErrorCode::INTERNAL_ERROR, "failed to load conf file: {}", conffile);
     }
 
     tmp_props.set_force(field, value);
     return tmp_props.dump(conffile);
 }
 
-Status set_config(const std::string& field, const std::string& value, bool need_persist,
-                  bool force) {
+void set_config(const std::string& field, const std::string& value, bool need_persist, bool force) {
     auto it = Register::_s_field_map->find(field);
     if (it == Register::_s_field_map->end()) {
-        return Status::Error<ErrorCode::NOT_FOUND, false>("'{}' is not found", field);
+        throw Exception(ErrorCode::NOT_FOUND, "'{}' is not found", field);
     }
 
     if (!force && !it->second.valmutable) {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(
-                "'{}' is not support to modify", field);
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "'{}' is not support to modify", field);
     }
 
     UPDATE_FIELD(it->second, value, bool, need_persist);
@@ -1527,25 +1540,24 @@ Status set_config(const std::string& field, const std::string& value, bool need_
     }
 
     // The other types are not thread safe to change dynamically.
-    return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(
-            "'{}' is type of '{}' which is not support to modify", field, it->second.type);
+    throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                    "'{}' is type of '{}' which is not support to modify", field, it->second.type);
 }
 
 void set_fuzzy_config(const std::string& field, const std::string& value) {
     LOG(INFO) << fmt::format("FUZZY MODE: {} has been set to {}", field, value);
-    return set_config(field, value, false, true);
+    set_config(field, value, false, true);
 }
 
 void set_fuzzy_configs() {
     // random value true or false
     Random generator {(uint32_t)std::time(nullptr)};
-    static_cast<void>(set_fuzzy_config("disable_storage_page_cache",
-                                       (((generator.Next() % 2) == 0) ? "true" : "false")));
-    static_cast<void>(set_fuzzy_config("enable_system_metrics",
-                                       (((generator.Next() % 2) == 0) ? "true" : "false")));
+    set_fuzzy_config("disable_storage_page_cache",
+                     (((generator.Next() % 2) == 0) ? "true" : "false"));
+    set_fuzzy_config("enable_system_metrics", (((generator.Next() % 2) == 0) ? "true" : "false"));
     // random value from 8 to 48
-    static_cast<void>(set_fuzzy_config("doris_scanner_thread_pool_thread_num",
-                                       std::to_string(((generator.Next() % 41) + 8))));
+    set_fuzzy_config("doris_scanner_thread_pool_thread_num",
+                     std::to_string(((generator.Next() % 41) + 8)));
 }
 
 std::mutex* get_mutable_string_config_lock() {

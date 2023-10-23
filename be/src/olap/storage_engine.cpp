@@ -46,6 +46,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
@@ -1412,7 +1413,12 @@ Status StorageEngine::_persist_broken_paths() {
     }
 
     if (config_value.length() > 0) {
-        auto st = config::set_config("broken_storage_path", config_value, true);
+        Status st;
+        try {
+            config::set_config("broken_storage_path", config_value, true);
+        } catch (const Exception& e) {
+            st = e.to_status();
+        }
         LOG(INFO) << "persist broken_storae_path " << config_value << st;
         return st;
     }

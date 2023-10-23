@@ -1267,7 +1267,7 @@ public:
     void set_force(const std::string& key, const std::string& val);
 
     // dump props to conf file
-    Status dump(const std::string& conffile);
+    void dump(const std::string& conffile);
 
 private:
     std::map<std::string, std::string> file_conf_map;
@@ -1285,10 +1285,10 @@ extern std::mutex custom_conf_lock;
 bool init(const char* conf_file, bool fill_conf_map = false, bool must_exist = true,
           bool set_to_default = true);
 
-Status set_config(const std::string& field, const std::string& value, bool need_persist = false,
-                  bool force = false);
+void set_config(const std::string& field, const std::string& value, bool need_persist = false,
+                bool force = false);
 
-Status persist_config(const std::string& field, const std::string& value);
+void persist_config(const std::string& field, const std::string& value);
 
 std::mutex* get_mutable_string_config_lock();
 

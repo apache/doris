@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
@@ -106,14 +107,18 @@ void ConfigAction::handle_update_config(HttpRequest* req) {
             if (key == PERSIST_PARAM) {
                 continue;
             }
-            s = config::set_config(key, value, need_persist);
-            if (s.ok()) {
-                LOG(INFO) << "set_config " << key << "=" << value
-                          << " success. persist: " << need_persist;
-            } else {
+            try {
+                config::set_config(key, value, need_persist);
+            } catch (const Exception& e) {
+                s = e.to_status();
                 LOG(WARNING) << "set_config " << key << "=" << value << " failed";
                 msg = strings::Substitute("set $0=$1 failed, reason: $2.", key, value,
                                           s.to_string());
+            }
+
+            if (s.ok()) {
+                LOG(INFO) << "set_config " << key << "=" << value
+                          << " success. persist: " << need_persist;
             }
             std::string status(s.ok() ? "OK" : "BAD");
             rapidjson::Value result;
