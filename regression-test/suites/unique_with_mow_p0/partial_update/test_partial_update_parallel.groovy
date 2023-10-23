@@ -333,7 +333,7 @@ suite("test_primary_key_partial_update_parallel", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 
     // case 5: partial update with delete sign in parallel
-    def tableName = "test_primary_key_partial_update_delete_sign"
+    tableName = "test_primary_key_partial_update_delete_sign"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
