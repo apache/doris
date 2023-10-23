@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
 
 public class Config extends ConfigBase {
 
-    @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
+    @ConfField(description = {"用户自定义配置文件的路径，用于 存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
             "The path of the user-defined configuration file, used to store fe_custom.conf. "
                     + "The configuration in this file will override the configuration in fe.conf"})
     public static String custom_config_dir = EnvUtils.getDorisHome() + "/conf";
