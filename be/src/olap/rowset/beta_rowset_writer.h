@@ -85,7 +85,7 @@ public:
     Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,
                                  const FlushContext* ctx = nullptr) override;
 
-    RowsetSharedPtr build() override;
+    Status build(RowsetSharedPtr& rowset) override;
 
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment

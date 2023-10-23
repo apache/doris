@@ -446,10 +446,7 @@ Status DeltaWriter::build_rowset() {
         return Status::InternalError("rows number written by delta writer dosen't match");
     }
     // use rowset meta manager to save meta
-    _cur_rowset = _rowset_writer->build();
-    if (_cur_rowset == nullptr) {
-        return Status::Error<MEM_ALLOC_FAILED>("fail to build rowset");
-    }
+    RETURN_NOT_OK_STATUS_WITH_WARN(_rowset_writer->build(_cur_rowset), "fail to build rowset");
     return Status::OK();
 }
 

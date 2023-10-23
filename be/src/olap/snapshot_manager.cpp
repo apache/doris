@@ -283,10 +283,9 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
                      << " id = " << org_rowset->rowset_id() << " to rowset " << rowset_id;
         return res;
     }
-    RowsetSharedPtr new_rowset = rs_writer->build();
-    if (new_rowset == nullptr) {
-        return Status::Error<MEM_ALLOC_FAILED>("failed to build rowset when rename rowset id");
-    }
+    RowsetSharedPtr new_rowset;
+    RETURN_NOT_OK_STATUS_WITH_WARN(rs_writer->build(new_rowset),
+                                   "failed to build rowset when rename rowset id");
     RETURN_IF_ERROR(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
     org_rowset->remove();
