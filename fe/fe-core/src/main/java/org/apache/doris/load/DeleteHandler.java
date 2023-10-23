@@ -18,6 +18,7 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.InPredicate;
@@ -785,6 +786,9 @@ public class DeleteHandler implements Writable {
                 SlotRef slotRef = getSlotRef(condition);
                 String columnName = slotRef.getColumnName();
                 Column column = indexColNameToColumn.get(columnName);
+                if (column == null) {
+                    column = indexColNameToColumn.get(CreateMaterializedViewStmt.mvColumnBuilder(columnName));
+                }
                 if (column == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR,
                             columnName, "index[" + indexName + "]");
