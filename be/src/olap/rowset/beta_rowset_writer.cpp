@@ -533,6 +533,9 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
             RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, _rowset_meta,
                                          &rowset),
             "rowset init failed when build new rowset");
+    _already_built = true;
+    return Status::OK();
+}
 
 bool BetaRowsetWriter::_is_segment_overlapping(
         const std::vector<KeyBoundsPB>& segments_encoded_key_bounds) {
@@ -781,9 +784,9 @@ Status BetaRowsetWriter::expand_variant_to_subcolumns(vectorized::Block& block,
     }
 
     std::vector<int> variant_column_pos;
-    if (_context.tablet_schema->is_partial_update()) {
+    if (is_partial_update()) {
         // check columns that used to do partial updates should not include variant
-        for (int i : _context.tablet_schema->get_update_cids()) {
+        for (int i : get_partial_update_info()->update_cids) {
             if (_context.tablet_schema->columns()[i].is_variant_type()) {
                 return Status::InvalidArgument("Not implement partial updates for variant");
             }

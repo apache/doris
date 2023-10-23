@@ -149,7 +149,8 @@ public:
             const auto& real_field = vectorized::get<const JsonbField&>(x);
             s = StringRef(real_field.get_value(), real_field.get_size());
         } else {
-            s = vectorized::get<const String&>(x);
+            s.data = vectorized::get<const String&>(x).data();
+            s.size = vectorized::get<const String&>(x).size();
         }
         const size_t old_size = chars.size();
         const size_t size_to_append = s.size;

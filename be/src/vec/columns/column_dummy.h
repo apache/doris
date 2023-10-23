@@ -145,8 +145,6 @@ public:
         for (size_t i = 0; i < selector.size(); ++i) res->insert_from(*this, selector[i]);
     }
 
-    void get_extremes(Field&, Field&) const override {}
-
     void addSize(size_t delta) { s += delta; }
 
     bool is_dummy() const override { return true; }

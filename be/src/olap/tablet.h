@@ -511,8 +511,6 @@ public:
 
     void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
 
-    void update_by_least_common_schema(const TabletSchemaSPtr& update_schema);
-
     void set_skip_compaction(bool skip,
                              CompactionType compaction_type = CompactionType::CUMULATIVE_COMPACTION,
                              int64_t start = -1);

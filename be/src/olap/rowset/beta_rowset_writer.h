@@ -103,8 +103,6 @@ public:
 
     RowsetId rowset_id() override { return _context.rowset_id; }
 
-    const RowsetWriterContext& context() const override { return _context; }
-
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const override {
@@ -139,6 +137,8 @@ public:
     bool is_partial_update() override {
         return _context.partial_update_info && _context.partial_update_info->is_partial_update;
     }
+
+    const RowsetWriterContext& context() const override { return _context; }
 
 private:
     Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);

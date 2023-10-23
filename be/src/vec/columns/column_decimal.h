@@ -228,8 +228,6 @@ public:
 
     void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
-    void get_extremes(Field& min, Field& max) const override;
-
     MutableColumns scatter(IColumn::ColumnIndex num_columns,
                            const IColumn::Selector& selector) const override {
         return this->template scatter_impl<Self>(num_columns, selector);
