@@ -143,7 +143,8 @@ Status DataTypeDateTimeV2SerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-Status DataTypeDateTimeV2SerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
+                                                    const IColumn& column, const NullMap* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
                                                     int start, int end,
                                                     std::vector<StringRef>& buffer_list) const {
@@ -158,14 +159,15 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const IColumn& column, const
         int64_t timestamp = 0;
         DateV2Value<DateTimeV2ValueType> datetime_val =
                 binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(col_data[row_id]);
-        if (!datetime_val.unix_timestamp(&timestamp, TimezoneUtils::default_time_zone)) {
+        if (!datetime_val.unix_timestamp(&timestamp, timezone)) {
             return Status::InternalError("get unix timestamp error.");
         }
 
         // -2177481943 represent '1900-12-31 23:54:17'
         // but -2177481944 represent '1900-12-31 23:59:59'
         // so for timestamp <= -2177481944, we subtract 343 (5min 43s)
-        if (timestamp < timestamp_threshold) {
+        // Reference: https://www.timeanddate.com/time/change/china/shanghai?year=1900
+        if (timezone == TimezoneUtils::default_time_zone && timestamp < timestamp_threshold) {
             timestamp -= timestamp_diff;
         }
 

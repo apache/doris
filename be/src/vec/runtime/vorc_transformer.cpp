@@ -30,6 +30,7 @@
 #include "orc/OrcFile.hh"
 #include "orc/Vector.hh"
 #include "runtime/define_primitive_type.h"
+#include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
 #include "vec/columns/column.h"
@@ -88,14 +89,14 @@ void VOrcOutputStream::set_written_len(int64_t written_len) {
     _written_len = written_len;
 }
 
-VOrcTransformer::VOrcTransformer(doris::io::FileWriter* file_writer,
+VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                                  const VExprContextSPtrs& output_vexpr_ctxs,
                                  const std::string& schema, bool output_object_data)
-        : VFileFormatTransformer(output_vexpr_ctxs, output_object_data),
+        : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
           _write_options(new orc::WriterOptions()),
           _schema_str(schema) {
-    _write_options->setTimezoneName("Asia/Shanghai");
+    _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
 }
 
@@ -106,7 +107,7 @@ Status VOrcTransformer::open() {
         return Status::InternalError("Orc build schema from \"{}\" failed: {}", _schema_str,
                                      e.what());
     }
-    _output_stream = std::unique_ptr<VOrcOutputStream>(new VOrcOutputStream(_file_writer));
+    _output_stream = std::make_unique<VOrcOutputStream>(_file_writer);
     _writer = orc::createWriter(*_schema, _output_stream.get(), *_write_options);
     if (_writer == nullptr) {
         return Status::InternalError("Failed to create file writer");
@@ -163,8 +164,8 @@ Status VOrcTransformer::write(const Block& block) {
     try {
         for (size_t i = 0; i < block.columns(); i++) {
             auto& raw_column = block.get_by_position(i).column;
-            RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(*raw_column, nullptr, root->fields[i],
-                                                            0, sz, buffer_list));
+            RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(
+                    _state->timezone(), *raw_column, nullptr, root->fields[i], 0, sz, buffer_list));
         }
     } catch (const std::exception& e) {
         LOG(WARNING) << "Orc write error: " << e.what();
