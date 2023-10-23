@@ -271,8 +271,8 @@ void Segment::remove_from_segment_cache() const {
     if (config::disable_segment_cache) {
         return;
     }
-    SegmentCache::CacheKey cache_key(_rowset_id, _segment_id);
-    SegmentLoader::instance()->erase_segment(cache_key);
+    SegmentCache::CacheKey cache_key(_rowset_id);
+    SegmentLoader::instance()->erase_segments(cache_key);
 }
 
 Status Segment::load_pk_index_and_bf() {
