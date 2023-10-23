@@ -19,6 +19,7 @@
 
 #include <sqltypes.h>
 
+#include <functional>
 #include <memory>
 #include <mutex>
 
@@ -93,6 +94,8 @@ public:
     }
 
     void remove_first_child() { _children.erase(_children.begin()); }
+
+    virtual bool is_not_fake() const { return true; }
 
 protected:
     int _id;
@@ -279,12 +282,27 @@ public:
 struct FakeSharedState {};
 struct FakeDependency final : public WriteDependency {
 public:
-    FakeDependency(int id) : WriteDependency(0, "FakeDependency") {}
+    FakeDependency(int id) : WriteDependency(id, "FakeDependency") {}
     using SharedState = FakeSharedState;
     void* shared_state() override { return nullptr; }
-
+    [[nodiscard]] Dependency* read_blocked_by() override { return nullptr; }
+    [[nodiscard]] WriteDependency* write_blocked_by() override { return nullptr; }
     [[nodiscard]] int64_t read_watcher_elapse_time() override { return 0; }
     [[nodiscard]] int64_t write_watcher_elapse_time() override { return 0; }
+    bool is_not_fake() const override { return false; }
+};
+
+class AsyncWriterSinkDependency : public WriteDependency {
+public:
+    AsyncWriterSinkDependency(int id) : WriteDependency(id, "AsyncWriterSinkDependency") {}
+    using SharedState = FakeSharedState;
+    void* shared_state() override { return nullptr; }
+    [[nodiscard]] Dependency* read_blocked_by() override { return nullptr; }
+    [[nodiscard]] WriteDependency* write_blocked_by() override { return _call_func(); }
+    void set_write_blocked_by(std::function<WriteDependency*()> call_func) {
+        _call_func = call_func;
+    }
+    std::function<WriteDependency*()> _call_func;
 };
 
 struct AggSharedState {

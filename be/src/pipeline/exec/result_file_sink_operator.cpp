@@ -275,9 +275,4 @@ FinishDependency* ResultFileSinkOperatorX::finish_blocked_by(RuntimeState* state
     return local_state._finish_dependency->finish_blocked_by();
 }
 
-WriteDependency* ResultFileSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state.write_blocked_by();
-}
-
 } // namespace doris::pipeline
