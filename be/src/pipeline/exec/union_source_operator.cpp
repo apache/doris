@@ -108,6 +108,14 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         for (auto& dep : deps) {
             ((UnionDependency*)dep.get())->set_shared_state(ss);
         }
+    } else {
+        auto& deps = info.dependencys;
+        DCHECK(child_count == 0);
+        DCHECK(deps.size() == 1);
+        DCHECK(deps.front() == nullptr);
+        //child_count == 0 , we need to creat a  UnionDependency
+        deps.front() = std::make_shared<UnionDependency>(_parent->operator_id());
+        ((UnionDependency*)deps.front().get())->set_shared_state(ss);
     }
     RETURN_IF_ERROR(Base::init(state, info));
     ss->data_queue.set_dependency(_dependency);

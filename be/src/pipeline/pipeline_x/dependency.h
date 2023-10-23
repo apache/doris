@@ -432,8 +432,10 @@ private:
 struct UnionSharedState {
 public:
     UnionSharedState(int child_count = 1, WriteDependency* dependency = nullptr)
-            : data_queue(child_count, dependency) {};
+            : data_queue(child_count, dependency), _child_count(child_count) {};
+    int child_count() const { return _child_count; }
     DataQueue data_queue;
+    const int _child_count;
 };
 
 class UnionDependency final : public WriteDependency {
@@ -456,7 +458,12 @@ public:
         _read_dependency_watcher.stop();
         _ready_for_read = true;
     }
-
+    [[nodiscard]] Dependency* read_blocked_by() override {
+        if (_union_state->child_count() == 0) {
+            return nullptr;
+        }
+        return WriteDependency::read_blocked_by();
+    }
     void block_reading() override {}
     void block_writing() override {}
 
@@ -761,6 +768,10 @@ public:
         return _set_state->ready_for_read ? nullptr : this;
     }
 
+    [[nodiscard]] WriteDependency* write_blocked_by() override {
+        return _set_state->probe_finished_children_index[_cur_child_id - 1] ? nullptr : this;
+    }
+
     // Notify downstream pipeline tasks this dependency is ready.
     void set_ready_for_read() override {
         if (_set_state->ready_for_read) {
@@ -769,9 +780,11 @@ public:
         _read_dependency_watcher.stop();
         _set_state->ready_for_read = true;
     }
+    void set_cur_child_id(int id) { _cur_child_id = id; }
 
 private:
     std::shared_ptr<SetSharedState> _set_state;
+    int _cur_child_id;
 };
 
 } // namespace pipeline
