@@ -136,7 +136,7 @@ public class ProfileManager {
     public ProfileElement createElement(Profile profile) {
         ProfileElement element = new ProfileElement(profile);
         element.infoStrings.putAll(profile.getSummaryProfile().getAsInfoStings());
-        MultiProfileTreeBuilder builder = new MultiProfileTreeBuilder(profile);
+        MultiProfileTreeBuilder builder = new MultiProfileTreeBuilder(profile.getRootProfile());
         try {
             builder.build();
         } catch (Exception e) {

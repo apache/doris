@@ -82,6 +82,10 @@ public class Profile {
         this.isFinished = isFinished;
     }
 
+    public RuntimeProfile getRootProfile() {
+        return this.rootProfile;
+    }
+
     public SummaryProfile getSummaryProfile() {
         return summaryProfile;
     }
