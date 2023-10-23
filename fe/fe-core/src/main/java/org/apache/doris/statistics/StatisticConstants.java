@@ -79,7 +79,7 @@ public class StatisticConstants {
     public static final int LOAD_RETRY_TIMES = 3;
 
     // union more relation than 512 may cause StackOverFlowException in the future.
-    public static final int UNION_ALL_LIMIT = 512;
+    public static final int UNION_ALL_LIMIT = 2048;
 
     public static final String FULL_AUTO_ANALYZE_START_TIME = "00:00:00";
     public static final String FULL_AUTO_ANALYZE_END_TIME = "23:59:59";

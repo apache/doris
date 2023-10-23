@@ -67,7 +67,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                     + "${partId} AS part_id, "
                     + "COUNT(1) AS row_count, "
                     + "NDV(`${colName}`) AS ndv, "
-                    + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) AS null_count, "
+                    + "COUNT(1) - COUNT(`${colName}`) AS null_count, "
                     + "MIN(`${colName}`) AS min, "
                     + "MAX(`${colName}`) AS max, "
                     + "${dataSizeFunction} AS data_size, "
@@ -83,7 +83,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             + "NULL AS part_id, "
             + "ROUND(COUNT(1) * ${scaleFactor}) AS row_count, "
             + NDV_SAMPLE_TEMPLATE
-            + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor} AS null_count, "
+            + "(COUNT(1) - COUNT(`${colName}`)) * ${scaleFactor} AS null_count, "
             + "NULL AS min, "
             + "NULL AS max, "
             + "${dataSizeFunction} * ${scaleFactor} AS data_size, "

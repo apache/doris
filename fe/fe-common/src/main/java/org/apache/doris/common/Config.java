@@ -1766,7 +1766,7 @@ public class Config extends ConfigBase {
      * Used to determined how many statistics collection SQL could run simultaneously.
      */
     @ConfField
-    public static int statistics_simultaneously_running_task_num = 5;
+    public static int statistics_simultaneously_running_task_num = 3;
 
     /**
      * if table has too many replicas, Fe occur oom when schema change.
