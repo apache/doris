@@ -94,4 +94,26 @@ suite("test_cast") {
         sql "select cast(true as date);"
         result([[null]])
     }
+    sql """ set enable_nereids_dml=true;"""
+    sql """ DROP TABLE IF EXISTS replicationtesttable;"""
+    sql """
+        CREATE TABLE IF NOT EXISTS replicationtesttable (
+            `k1` varchar(144) NOT NULL COMMENT '_key__',
+            `k2` int(11) NOT NULL COMMENT '_key__',
+            v4 decimal(18,4) null,
+            ) ENGINE=OLAP
+            UNIQUE KEY(`k1`, `k2`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 32
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+        """
+    test {
+        sql """insert into replicationtesttable (k1,k2,v4) select 'aaa',10,'22500000900.000000000000000000000000000000';"""
+        exception "Invalid precision and scale - expect (18, 4), but (41, 30)";
+    }
+    test {
+        sql """insert into replicationtesttable (k1,k2,v4) select 'aaa',10,22500000900.000000000000000000000000000000;"""
+        exception "Wrong precision 41, min: 1, max: 38";
+    }
 }

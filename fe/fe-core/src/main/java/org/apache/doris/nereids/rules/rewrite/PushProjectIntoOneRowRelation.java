@@ -19,16 +19,21 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Project(OneRowRelation) -> OneRowRelation
@@ -36,7 +41,8 @@ import java.util.Map;
 public class PushProjectIntoOneRowRelation extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalProject(logicalOneRowRelation()).then(p -> {
+        return logicalProject(logicalOneRowRelation()).thenApply(ctx -> {
+            LogicalProject<LogicalOneRowRelation> p = ctx.root;
             Map<Expression, Expression> replaceMap = Maps.newHashMap();
             Map<Expression, NamedExpression> replaceRootMap = Maps.newHashMap();
             p.child().getProjects().forEach(ne -> {
@@ -55,8 +61,13 @@ public class PushProjectIntoOneRowRelation extends OneRewriteRuleFactory {
                     newProjections.add((NamedExpression) ExpressionUtils.replace(old, replaceMap));
                 }
             }
-            return p.child().withProjects(newProjections.build());
-
+            ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+            return p.child().withProjects(newProjections.build().stream()
+                    .map(expr -> expr instanceof Alias
+                            ? (Alias) expr
+                                    .withChildren(FoldConstantRule.INSTANCE.rewrite(expr, context))
+                            : expr)
+                    .collect(Collectors.toList()));
         }).toRule(RuleType.PUSH_PROJECT_INTO_ONE_ROW_RELATION);
     }
 }

@@ -366,7 +366,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             }
             return castResult;
         } catch (Throwable t) {
-            return cast;
+            if (!cast.isExplicitType() && child instanceof StringLikeLiteral && dataType.isDecimalLikeType()) {
+                throw t;
+            } else {
+                return cast;
+            }
         }
     }
 
