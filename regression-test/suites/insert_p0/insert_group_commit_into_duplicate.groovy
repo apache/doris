@@ -67,6 +67,20 @@ suite("insert_group_commit_into_duplicate") {
         assertTrue(serverInfo.contains("'label':'group_commit_"))
     }
 
+    def none_group_commit_insert = { sql, expected_row_count ->
+        def stmt = prepareStatement """ ${sql}  """
+        def result = stmt.executeUpdate()
+        logger.info("insert result: " + result)
+        def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
+        logger.info("result server info: " + serverInfo)
+        if (result != expected_row_count) {
+            logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
+        }
+        // assertEquals(result, expected_row_count)
+        assertTrue(serverInfo.contains("'status':'VISIBLE'"))
+        assertTrue(!serverInfo.contains("'label':'group_commit_"))
+    }
+
     try {
         // create table
         sql """ drop table if exists ${table}; """
@@ -174,6 +188,13 @@ suite("insert_group_commit_into_duplicate") {
 
             getRowCount(20)
             qt_sql """ select name, score from ${table} order by name asc; """
+
+            none_group_commit_insert """ insert into ${table}(id, name, score) values(10 + 1, 'h', 100);  """, 1
+            none_group_commit_insert """ insert into ${table}(id, name, score) select 10 + 2, 'h', 100;  """, 1
+            none_group_commit_insert """ insert into ${table} with label test_gc_""" + System.currentTimeMillis() + """ (id, name, score) values(13, 'h', 100);  """, 1
+            def rowCount = sql "select count(*) from ${table}"
+            logger.info("row count: " + rowCount)
+            assertEquals(rowCount[0][0], 23)
         }
     } finally {
         // try_sql("DROP TABLE ${table}")

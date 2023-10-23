@@ -17,34 +17,32 @@
 
 #include "runtime/group_commit_mgr.h"
 
-#include <gen_cpp/Descriptors_types.h>
-#include <gen_cpp/FrontendService.h>
-#include <gen_cpp/HeartbeatService.h>
-#include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
 
 #include <memory>
 #include <numeric>
 
 #include "client_cache.h"
+<<<<<<< HEAD
 #include "common/config.h"
 #include "common/object_pool.h"
 #include "exec/data_sink.h"
 #include "io/fs/stream_load_pipe.h"
+=======
+>>>>>>> 6031b601b9 ([improvement](insert) refactor group commit insert into)
 #include "olap/wal_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
-#include "runtime/stream_load/new_load_stream_mgr.h"
-#include "runtime/stream_load/stream_load_context.h"
 #include "util/thrift_rpc_helper.h"
+<<<<<<< HEAD
 #include "vec/core/future_block.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/sink/group_commit_block_sink.h"
+=======
+>>>>>>> 6031b601b9 ([improvement](insert) refactor group commit insert into)
 
 namespace doris {
-
-class TPlan;
 
 Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::FutureBlock> block) {
     DCHECK(block->get_schema_version() == schema_version);
@@ -203,7 +201,7 @@ Status GroupCommitTable::get_first_block_load_queue(
 Status GroupCommitTable::_create_group_commit_load(
         std::shared_ptr<LoadBlockQueue>& load_block_queue) {
     Status st = Status::OK();
-    std::unique_ptr<int, std::function<void(int*)>> remove_pipe_func((int*)0x01, [&](int*) {
+    std::unique_ptr<int, std::function<void(int*)>> finish_plan_func((int*)0x01, [&](int*) {
         if (!st.ok()) {
             std::unique_lock l(_lock);
             _need_plan_fragment = false;
@@ -408,10 +406,6 @@ Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,
 }
 
 GroupCommitMgr::GroupCommitMgr(ExecEnv* exec_env) : _exec_env(exec_env) {
-    static_cast<void>(ThreadPoolBuilder("InsertIntoGroupCommitThreadPool")
-                              .set_min_threads(config::group_commit_insert_threads)
-                              .set_max_threads(config::group_commit_insert_threads)
-                              .build(&_insert_into_thread_pool));
     static_cast<void>(ThreadPoolBuilder("GroupCommitThreadPool")
                               .set_min_threads(1)
                               .set_max_threads(config::group_commit_insert_threads)
@@ -424,127 +418,8 @@ GroupCommitMgr::~GroupCommitMgr() {
 }
 
 void GroupCommitMgr::stop() {
-    _insert_into_thread_pool->shutdown();
     _thread_pool->shutdown();
     LOG(INFO) << "GroupCommitMgr is stopped";
-}
-
-Status GroupCommitMgr::group_commit_insert(int64_t table_id, const TPlan& plan,
-                                           const TDescriptorTable& tdesc_tbl,
-                                           const TScanRangeParams& scan_range_params,
-                                           const PGroupCommitInsertRequest* request,
-                                           PGroupCommitInsertResponse* response) {
-    auto& nodes = plan.nodes;
-    DCHECK(nodes.size() > 0);
-    auto& plan_node = nodes.at(0);
-
-    TUniqueId load_id;
-    load_id.__set_hi(request->load_id().hi());
-    load_id.__set_lo(request->load_id().lo());
-
-    std::vector<std::shared_ptr<doris::vectorized::FutureBlock>> future_blocks;
-    {
-        // 1. Prepare a pipe, then append rows to pipe,
-        // then scan node scans from the pipe, like stream load.
-        std::shared_ptr<LoadBlockQueue> load_block_queue;
-        auto pipe = std::make_shared<io::StreamLoadPipe>(
-                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
-                -1 /* total_length */, true /* use_proto */);
-        std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
-        ctx->pipe = pipe;
-        RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(load_id, ctx));
-        std::unique_ptr<int, std::function<void(int*)>> remove_pipe_func((int*)0x01, [&](int*) {
-            if (load_block_queue != nullptr) {
-                load_block_queue->remove_load_id(load_id);
-            }
-            _exec_env->new_load_stream_mgr()->remove(load_id);
-        });
-        static_cast<void>(_insert_into_thread_pool->submit_func(
-                std::bind<void>(&GroupCommitMgr::_append_row, this, pipe, request)));
-
-        // 2. FileScanNode consumes data from the pipe.
-        std::unique_ptr<RuntimeState> runtime_state = RuntimeState::create_unique();
-        TQueryOptions query_options;
-        query_options.query_type = TQueryType::LOAD;
-        TQueryGlobals query_globals;
-        static_cast<void>(runtime_state->init(load_id, query_options, query_globals, _exec_env));
-        runtime_state->set_query_mem_tracker(std::make_shared<MemTrackerLimiter>(
-                MemTrackerLimiter::Type::LOAD, fmt::format("Load#Id={}", print_id(load_id)), -1));
-        DescriptorTbl* desc_tbl = nullptr;
-        RETURN_IF_ERROR(DescriptorTbl::create(runtime_state->obj_pool(), tdesc_tbl, &desc_tbl));
-        runtime_state->set_desc_tbl(desc_tbl);
-        auto file_scan_node =
-                vectorized::NewFileScanNode(runtime_state->obj_pool(), plan_node, *desc_tbl);
-        std::unique_ptr<int, std::function<void(int*)>> close_scan_node_func((int*)0x01, [&](int*) {
-            static_cast<void>(file_scan_node.close(runtime_state.get()));
-        });
-        // TFileFormatType::FORMAT_PROTO, TFileType::FILE_STREAM, set _range.load_id
-        RETURN_IF_ERROR(file_scan_node.init(plan_node, runtime_state.get()));
-        RETURN_IF_ERROR(file_scan_node.prepare(runtime_state.get()));
-        std::vector<TScanRangeParams> params_vector;
-        params_vector.emplace_back(scan_range_params);
-        file_scan_node.set_scan_ranges(runtime_state.get(), params_vector);
-        RETURN_IF_ERROR(file_scan_node.open(runtime_state.get()));
-
-        // 3. Put the block into block queue.
-        std::unique_ptr<doris::vectorized::Block> _block =
-                doris::vectorized::Block::create_unique();
-        bool eof = false;
-        while (!eof) {
-            // TODO what to do if read one block error
-            RETURN_IF_ERROR(file_scan_node.get_next(runtime_state.get(), _block.get(), &eof));
-            std::shared_ptr<doris::vectorized::FutureBlock> future_block =
-                    std::make_shared<doris::vectorized::FutureBlock>();
-            future_block->swap(*(_block.get()));
-            future_block->set_info(request->base_schema_version(), load_id);
-            if (load_block_queue == nullptr) {
-                RETURN_IF_ERROR(get_first_block_load_queue(request->db_id(), table_id, future_block,
-                                                           load_block_queue));
-                response->set_label(load_block_queue->label);
-                response->set_txn_id(load_block_queue->txn_id);
-            }
-            // TODO what to do if add one block error
-            if (future_block->rows() > 0) {
-                future_blocks.emplace_back(future_block);
-            }
-            RETURN_IF_ERROR(load_block_queue->add_block(future_block));
-        }
-        if (!runtime_state->get_error_log_file_path().empty()) {
-            LOG(INFO) << "id=" << print_id(load_id)
-                      << ", url=" << runtime_state->get_error_log_file_path()
-                      << ", load rows=" << runtime_state->num_rows_load_total()
-                      << ", filter rows=" << runtime_state->num_rows_load_filtered()
-                      << ", unselect rows=" << runtime_state->num_rows_load_unselected()
-                      << ", success rows=" << runtime_state->num_rows_load_success();
-        }
-    }
-    int64_t total_rows = 0;
-    int64_t loaded_rows = 0;
-    // 4. wait to wal
-    for (const auto& future_block : future_blocks) {
-        std::unique_lock<doris::Mutex> l(*(future_block->lock));
-        if (!future_block->is_handled()) {
-            future_block->cv->wait(l);
-        }
-        // future_block->get_status()
-        total_rows += future_block->get_total_rows();
-        loaded_rows += future_block->get_loaded_rows();
-    }
-    response->set_loaded_rows(loaded_rows);
-    response->set_filtered_rows(total_rows - loaded_rows);
-    return Status::OK();
-}
-
-Status GroupCommitMgr::_append_row(std::shared_ptr<io::StreamLoadPipe> pipe,
-                                   const PGroupCommitInsertRequest* request) {
-    for (int i = 0; i < request->data().size(); ++i) {
-        std::unique_ptr<PDataRow> row(new PDataRow());
-        row->CopyFrom(request->data(i));
-        // TODO append may error when pipe is cancelled
-        RETURN_IF_ERROR(pipe->append(std::move(row)));
-    }
-    static_cast<void>(pipe->finish());
-    return Status::OK();
 }
 
 Status GroupCommitMgr::get_first_block_load_queue(
