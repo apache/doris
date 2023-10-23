@@ -1012,8 +1012,9 @@ void VTabletWriter::_send_batch_process() {
         }
 
         // auto partition table may have no node channel temporarily. wait to open.
-        // if there is no channel, maybe auto partition table. so check does there have had running channels ever.
-        if (opened_nodes != 0 && running_channels_num == 0) {
+        // for auto partition tables, there's a situation: we haven't open any node channel but decide to cancel the task.
+        //  then the judge will never be true because opened_nodes won't increase. so we have to specially check wether we called close.
+        if ((opened_nodes != 0 && running_channels_num == 0) || (opened_nodes == 0 && _try_close)) {
             LOG(INFO) << "all node channels are stopped(maybe finished/offending/cancelled), "
                          "sender thread exit. "
                       << print_id(_load_id);
@@ -1219,7 +1220,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
         RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->create_wal_writer(_wal_id, _wal_writer));
     }
 
-    _prepare = true;
+    _inited = true;
     return Status::OK();
 }
 
@@ -1442,6 +1443,7 @@ void VTabletWriter::_cancel_all_channel(Status status) {
 Status VTabletWriter::try_close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
+    _try_close = true;
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
         // if status is not ok, this sink may not be prepared, so that _profile is null
@@ -1470,7 +1472,7 @@ Status VTabletWriter::try_close(RuntimeState* state, Status exec_status) {
     if (!status.ok()) {
         _cancel_all_channel(status);
         _close_status = status;
-        _try_close = true;
+        _close_wait = true;
     }
 
     return Status::OK();
@@ -1478,7 +1480,7 @@ Status VTabletWriter::try_close(RuntimeState* state, Status exec_status) {
 
 bool VTabletWriter::is_close_done() {
     // Only after try_close, need to wait rpc end.
-    if (!_try_close) {
+    if (!_close_wait) {
         return true;
     }
     bool close_done = true;
@@ -1492,7 +1494,7 @@ bool VTabletWriter::is_close_done() {
 }
 
 Status VTabletWriter::close(Status exec_status) {
-    if (!_prepare) {
+    if (!_inited) {
         DCHECK(!exec_status.ok());
         _cancel_all_channel(exec_status);
         _close_status = exec_status;
