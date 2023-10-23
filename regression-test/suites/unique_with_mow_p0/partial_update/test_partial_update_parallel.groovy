@@ -332,14 +332,14 @@ suite("test_primary_key_partial_update_parallel", "p0") {
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 
-    // case 5: partial update with delete sign
+    // case 5: partial update with delete sign in parallel
     def tableName = "test_primary_key_partial_update_delete_sign"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
                 `id` int(11) NOT NULL COMMENT "用户 ID",
-                `name` varchar(65533) NOT NULL COMMENT "用户姓名",
-                `score` int(11) NOT NULL COMMENT "用户得分",
+                `name` varchar(65533) NULL COMMENT "用户姓名",
+                `score` int(11) NULL COMMENT "用户得分",
                 `test` int(11) NULL COMMENT "null test",
                 `dft` int(11) DEFAULT "4321")
                 UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
@@ -414,7 +414,8 @@ suite("test_primary_key_partial_update_parallel", "p0") {
 
     sql "sync"
 
-    qt_sql """ select * from ${tableName} order by id;"""
+    // don't check result here, since the different finish order of t1/t2/t3 will
+    // generate different result, it's hard to check.
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 }
