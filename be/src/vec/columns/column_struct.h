@@ -82,7 +82,7 @@ public:
     }
 
     std::string get_name() const override;
-    bool is_column_struct() const override { return true; }
+    static bool is_column_struct() override { return true; }
     const char* get_family_name() const override { return "Struct"; }
     bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr clone_empty() const override;
