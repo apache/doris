@@ -27,6 +27,19 @@ suite("load_three_step") {
                            d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy""", 2556],
                   "supplier": ["""s_suppkey,s_name,s_address,s_city,s_nation,s_region,s_phone,s_dummy""", 200000]]
 
+    def s3BucketName = getS3BucketName()
+    def s3WithProperties = """WITH S3 (
+        |"AWS_ACCESS_KEY" = "${getS3AK()}",
+        |"AWS_SECRET_KEY" = "${getS3SK()}",
+        |"AWS_ENDPOINT" = "${getS3Endpoint()}",
+        |"AWS_REGION" = "${getS3Region()}")
+        |PROPERTIES(
+        |"exec_mem_limit" = "8589934592",
+        |"load_parallelism" = "3")""".stripMargin()
+
+    // set fe configuration
+    sql "ADMIN SET FRONTEND CONFIG ('max_bytes_per_broker_scanner' = '161061273600')"
+
     tables.each { tableName, rows ->
         // create table
         sql """ DROP TABLE IF EXISTS $tableName """
