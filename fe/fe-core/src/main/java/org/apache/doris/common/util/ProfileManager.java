@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.MultiProfileTreeBuilder;
+import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -66,11 +67,11 @@ public class ProfileManager {
     }
 
     public static class ProfileElement {
-        public ProfileElement(RuntimeProfile profile) {
+        public ProfileElement(Profile profile) {
             this.profile = profile;
         }
 
-        private final RuntimeProfile profile;
+        private final Profile profile;
         // cache the result of getProfileContent method
         private volatile String profileContent = null;
         public Map<String, String> infoStrings = Maps.newHashMap();
@@ -86,7 +87,7 @@ public class ProfileManager {
             if (profileContent == null) {
                 // Simple profile will change the structure of the profile.
                 try {
-                    profileContent = profile.getProfileByLevel();
+                    profileContent = profile.getProfileByLevel(1);
                 } catch (Exception e) {
                     LOG.warn("profile get error : " + e.toString());
                 }
@@ -95,8 +96,7 @@ public class ProfileManager {
         }
 
         public String getProfileBrief() {
-            Gson gson = new GsonBuilder().setPrettyPrinting().create();
-            return gson.toJson(profile.toBrief());
+            return profile.getProfileBrief();
         }
 
         public double getError() {
@@ -136,20 +136,9 @@ public class ProfileManager {
         queryIdToProfileMap = new ConcurrentHashMap<>();
     }
 
-    public ProfileElement createElement(RuntimeProfile profile) {
+    public ProfileElement createElement(Profile profile) {
         ProfileElement element = new ProfileElement(profile);
-        RuntimeProfile summaryProfile = profile.getChildList().get(0).first;
-        for (String header : SummaryProfile.SUMMARY_KEYS) {
-            element.infoStrings.put(header, summaryProfile.getInfoString(header));
-        }
-        List<Pair<RuntimeProfile, Boolean>> childList = summaryProfile.getChildList();
-        if (!childList.isEmpty()) {
-            RuntimeProfile executionProfile = childList.get(0).first;
-            for (String header : SummaryProfile.EXECUTION_SUMMARY_KEYS) {
-                element.infoStrings.put(header, executionProfile.getInfoString(header));
-            }
-        }
-
+        element.infoStrings.putAll(profile.getSummaryProfile().getAsInfoStings());
         MultiProfileTreeBuilder builder = new MultiProfileTreeBuilder(profile);
         try {
             builder.build();
@@ -162,7 +151,7 @@ public class ProfileManager {
         return element;
     }
 
-    public void pushProfile(RuntimeProfile profile) {
+    public void pushProfile(Profile profile) {
         if (profile == null) {
             return;
         }

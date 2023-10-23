@@ -22,6 +22,8 @@ import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.planner.Planner;
 
 import com.google.common.collect.Lists;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 import java.util.List;
 import java.util.Map;
@@ -38,6 +40,7 @@ import java.util.Map;
  * SummaryProfile:
  *     Summary:
  *         Execution Summary:
+ * 
  *
  * ExecutionProfile:
  *     Fragment 0:
@@ -47,12 +50,14 @@ import java.util.Map;
 public class Profile {
     private RuntimeProfile rootProfile;
     private SummaryProfile summaryProfile;
+    private SimplifiedProfile simplifiedProfile;
     private List<ExecutionProfile> executionProfiles = Lists.newArrayList();
     private boolean isFinished;
 
     public Profile(String name, boolean isEnable) {
         this.rootProfile = new RuntimeProfile(name);
         this.summaryProfile = new SummaryProfile(rootProfile);
+        this.simplifiedProfile = new SimplifiedProfile(rootProfile);
         // if disabled, just set isFinished to true, so that update() will do nothing
         this.isFinished = !isEnable;
     }
@@ -75,11 +80,37 @@ public class Profile {
         rootProfile.setPlaner(planner);
         rootProfile.setProfileLevel(profileLevel);
         rootProfile.setIsPipelineX(isPipelineX);
-        ProfileManager.getInstance().pushProfile(rootProfile);
+        this.simplifiedProfile.setPlaner(planner);
+        ProfileManager.getInstance().pushProfile(this);
         this.isFinished = isFinished;
     }
 
     public SummaryProfile getSummaryProfile() {
         return summaryProfile;
+    }
+
+    public SimplifiedProfile getSimplifiedProfile() {
+        return simplifiedProfile;
+    }
+    
+    public String getProfileByLevel(int level) {
+        StringBuilder builder = new StringBuilder();
+        // add summary to builder
+        summaryProfile.prettyPrint(builder);
+        builder.append("\n \n");
+        if (level >= 1) {
+            this.rootProfile.prettyPrintSimplifiedProfile(builder);
+        }
+        if (level >= 3) {
+            for (ExecutionProfile executionProfile : executionProfiles) {
+                executionProfile.getExecutionProfile().prettyPrint(builder, "abcd");
+            }
+        }
+        return builder.toString();
+    }
+    
+    public String getProfileBrief() {
+        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        return gson.toJson(rootProfile.toBrief());
     }
 }

@@ -90,9 +90,8 @@ public abstract class Planner {
         return str.toString();
     }
 
-    public String getExplainStringToProfile(ProfileStatistics statistics) {
+    public void getExplainStringToProfile(ProfileStatistics statistics, StringBuilder str) {
         org.apache.doris.thrift.TExplainLevel explainLevel = org.apache.doris.thrift.TExplainLevel.NORMAL;
-        StringBuilder str = new StringBuilder();
         for (int i = 0; i < fragments.size(); ++i) {
             PlanFragment fragment = fragments.get(i);
             if (i > 0) {
@@ -102,7 +101,6 @@ public abstract class Planner {
             str.append("PLAN FRAGMENT " + i + "\n");
             str.append(fragment.getExplainStringToProfile(explainLevel, statistics, i));
         }
-        return str.toString();
     }
 
     protected void handleLiteralInFe(LiteralExpr literalExpr, List<String> data) {

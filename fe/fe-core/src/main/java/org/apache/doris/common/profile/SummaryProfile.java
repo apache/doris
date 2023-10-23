@@ -25,6 +25,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
+import autovalue.shaded.com.google.common.common.collect.MapMaker;
+
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -147,6 +150,19 @@ public class SummaryProfile {
         for (String key : EXECUTION_SUMMARY_KEYS) {
             executionSummaryProfile.addInfoString(key, "N/A");
         }
+    }
+
+    public void prettyPrint(StringBuilder builder) {
+        summaryProfile.prettyPrint(builder, "Summary");
+        executionSummaryProfile.prettyPrint(builder, "Execution  Summary");
+    }
+
+    public Map<String, String> getAsInfoStings() {
+        Map<String, String> infoStrings = Maps.newHashMap();
+        for (String header : SummaryProfile.SUMMARY_KEYS) {
+            infoStrings.put(header, summaryProfile.getInfoString(header));
+        }
+        return infoStrings;
     }
 
     public void update(Map<String, String> summaryInfo) {
