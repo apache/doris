@@ -484,6 +484,12 @@ DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
 DRAGONBOX_SOURCE=dragonbox-1.1.3
 DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
 
+# AvxToNeon
+AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
+AVX2NEON_NAME=v1.0.0.tar.gz
+AVX2NEON_SOURCE=AvxToNeon-1.0.0
+AVX2NEON_MD5SUM="692d0e0f8b885a86ebc5172a9d8ee8db"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -555,6 +561,7 @@ export TP_ARCHIVES=(
     'FAST_FLOAT'
     'HADOOP_LIBS'
     'DRAGONBOX'
+    'AVX2NEON'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
