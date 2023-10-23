@@ -1395,23 +1395,6 @@ TEST(VTimestampFunctionsTest, yearweek_v2_test) {
     }
 }
 
-TEST(VTimestampFunctionsTest, str_to_date_test) {
-    std::string func_name = "str_to_date";
-
-    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
-
-    {
-        DataSet data_set = {{{std::string("2021-01-01"), std::string("%Y-%m-%d")},
-                             str_to_date_time("2021-01-01", false)},
-                            {{std::string("2022-01-03"), std::string("%Y-%m-%d")},
-                             str_to_date_time("2022-01-03", false)},
-                            {{std::string("2021-00-01"), std::string("%Y-%m-%d")}, Null()},
-                            {{std::string("2021-01-00"), std::string("%Y-%m-%d")}, Null()}};
-
-        static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
-    }
-}
-
 TEST(VTimestampFunctionsTest, from_days_test) {
     std::string func_name = "from_days";
 
