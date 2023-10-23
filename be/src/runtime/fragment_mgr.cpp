@@ -384,7 +384,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     VLOG_DEBUG << "reportExecStatus params is "
                << apache::thrift::ThriftDebugString(params).c_str();
     if (!exec_status.ok()) {
-        LOG(WARNING) << "report error status: " << exec_status.to_string()
+        LOG(WARNING) << "report error status: " << exec_status.msg()
                      << " to coordinator: " << req.coord_addr
                      << ", query id: " << print_id(req.query_id)
                      << ", instance id: " << print_id(req.fragment_instance_id);
@@ -416,7 +416,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     if (!rpc_status.ok()) {
         // we need to cancel the execution of this fragment
         static_cast<void>(req.update_fn(rpc_status));
-        req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, "rpc fail 2");
+        req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, rpc_status.msg());
     }
 }
 

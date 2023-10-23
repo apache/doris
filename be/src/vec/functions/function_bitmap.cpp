@@ -174,15 +174,12 @@ struct ToBitmapWithCheck {
                     if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
                         res_data[i].add(int_value);
                     } else {
-                        std::stringstream ss;
-                        ss << "The input: " << std::string(raw_str, str_size)
-                           << " is not valid, to_bitmap only support bigint value from 0 to "
-                              "18446744073709551615 currently, cannot create MV with to_bitmap on "
-                              "column with negative values or cannot load negative values to "
-                              "column "
-                              "with to_bitmap MV on it.";
-                        LOG(WARNING) << ss.str();
-                        return Status::InternalError(ss.str());
+                        return Status::InvalidArgument(
+                                "The input: {}  is not valid, to_bitmap only support bigint value "
+                                "from 0 to 18446744073709551615 currently, cannot create MV with "
+                                "to_bitmap on column with negative values or cannot load negative "
+                                "values to column with to_bitmap MV on it.",
+                                std::string(raw_str, str_size));
                     }
                 }
             }
@@ -199,20 +196,17 @@ struct ToBitmapWithCheck {
                     if (LIKELY(int_value >= 0)) {
                         res_data[i].add(int_value);
                     } else {
-                        std::stringstream ss;
-                        ss << "The input: " << int_value
-                           << " is not valid, to_bitmap only support bigint value from 0 to "
-                              "18446744073709551615 currently, cannot create MV with to_bitmap on "
-                              "column with negative values or cannot load negative values to "
-                              "column "
-                              "with to_bitmap MV on it.";
-                        LOG(WARNING) << ss.str();
-                        return Status::InternalError(ss.str());
+                        return Status::InvalidArgument(
+                                "The input: {}  is not valid, to_bitmap only support bigint value "
+                                "from 0 to 18446744073709551615 currently, cannot create MV with "
+                                "to_bitmap on column with negative values or cannot load negative "
+                                "values to column with to_bitmap MV on it.",
+                                int_value);
                     }
                 }
             }
         } else {
-            return Status::InternalError("not support type");
+            return Status::InvalidArgument("not support type");
         }
         return Status::OK();
     }

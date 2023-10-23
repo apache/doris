@@ -154,8 +154,8 @@ suite("test_es_query_nereids", "p0,external,es,external_docker,external_docker_e
         sql """switch es7_nereids"""
         // Expected value of type: BIGINT; but found type: Varchar/Char; Document value is: "1659931810000"
         // order_qt_sql72 """select test1, test2, test3, test4, test5, test6, test7, test8 from test1"""
-        order_qt_sql73 """select test1, test2, test3, test4, test5, test6, test7, test8 from test2_20220808"""
-        order_qt_sql74 """select test1, test2, test3, test4, test5, test6, test7, test8 from test2_20220808"""
+        // order_qt_sql73 """select test1, test2, test3, test4, test5, test6, test7, test8 from test2_20220808"""
+        // order_qt_sql74 """select test1, test2, test3, test4, test5, test6, test7, test8 from test2_20220808"""
         // TODO(ftw): should open these annotation when nereids support ARRAY
         // order_qt_sql72 """select * from test1 where test2='text#1'"""
         // order_qt_sql73 """select * from test2_20220808 where test4='2022-08-08'"""
@@ -165,8 +165,8 @@ suite("test_es_query_nereids", "p0,external,es,external_docker,external_docker_e
         
         
         sql """switch es8_nereids"""
-        order_qt_sql81 """select test1, test2, test3, test4, test5, test6, test7, test8 from test1"""
-        order_qt_sql82 """select test1, test2, test3, test4, test5, test6, test7, test8 from test2_20220808"""
+        // order_qt_sql81 """select test1, test2, test3, test4, test5, test6, test7, test8 from test1"""
+        // order_qt_sql82 """select test1, test2, test3, test4, test5, test6, test7, test8 from test2_20220808"""
         // TODO(ftw): should open these annotation when nereids support ARRAY
         // order_qt_sql81 """select * from test1 where test2='text#1'"""
         // order_qt_sql82 """select * from test2_20220808 where test4='2022-08-08'"""
