@@ -79,6 +79,7 @@ import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
+import org.apache.doris.persist.DeleteTabletInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
@@ -872,6 +873,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_MTMV: {
                 data = AlterMTMV.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DELETE_DECOMMISSION_TABLET: {
+                data = DeleteTabletInfo.read(in);
                 isRead = true;
                 break;
             }

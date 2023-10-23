@@ -329,7 +329,8 @@ public class EditLog {
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
                         env.getMaterializedViewHandler().replayDropRollup(
                                 new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
-                                        batchDropInfo.getTableName(), indexId, false, 0),
+                                        batchDropInfo.getTableName(), indexId, false, 0,
+                                        batchDropInfo.getWatermarkTxnId()),
                                 env);
                     }
                     break;
@@ -1114,6 +1115,11 @@ public class EditLog {
                 case OperationType.OP_ALTER_MTMV: {
                     final AlterMTMV alterMtmv = (AlterMTMV) journal.getData();
                     env.getAlterInstance().processAlterMTMV(alterMtmv, true);
+                    break;
+                }
+                case OperationType.OP_DELETE_DECOMMISSION_TABLET: {
+                    DeleteTabletInfo deleteTabletInfo = (DeleteTabletInfo) journal.getData();
+                    Env.getCurrentInvertedIndex().deleteDecommissionTablet(deleteTabletInfo.getTabletId());
                     break;
                 }
                 default: {
@@ -1957,5 +1963,9 @@ public class EditLog {
             return ((BDBJEJournal) journal).getNotReadyReason();
         }
         return "";
+    }
+
+    public void logDeleteDecommissionTablet(DeleteTabletInfo info) {
+        logEdit(OperationType.OP_DELETE_DECOMMISSION_TABLET, info);
     }
 }
