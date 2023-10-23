@@ -141,15 +141,24 @@ dorisSparkRDD.collect()
 
 #### pySpark
 
-```scala
-dorisSparkDF = spark.read.format("doris")
-  .option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
-  .option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
-  .option("user", "$YOUR_DORIS_USERNAME")
-  .option("password", "$YOUR_DORIS_PASSWORD")
-  .load()
-// show 5 lines data 
+```python
+# !/usr/bin/python
+# -*- coding:utf-8 -*-
+
+from pyspark import SparkContext
+from pyspark.sql import SparkSession
+
+sc = SparkContext(master = "spark://node1:7077",appName='PySpark DataFrame From Doris')
+spark = SparkSession.builder.getOrCreate()
+
+dorisSparkDF = spark.read.format("doris").option("doris.table.identifier",
+    "test_doris.user_op_count").option(
+    "doris.fenodes", "192.168.130.180:8030").option("user",
+    "root").option(
+    "password", "").load()
+
 dorisSparkDF.show(5)
+sc.stop()
 ```
 
 ### 写入
