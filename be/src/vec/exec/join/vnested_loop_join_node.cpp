@@ -134,6 +134,7 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
+    SCOPED_TIMER(_exec_timer);
     _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
     _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
     _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
@@ -201,6 +202,7 @@ Status VNestedLoopJoinNode::_materialize_build_side(RuntimeState* state) {
 }
 
 Status VNestedLoopJoinNode::sink(doris::RuntimeState* state, vectorized::Block* block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_build_timer);
     auto rows = block->rows();
     auto mem_usage = block->allocated_bytes();
@@ -230,6 +232,7 @@ Status VNestedLoopJoinNode::sink(doris::RuntimeState* state, vectorized::Block* 
 }
 
 Status VNestedLoopJoinNode::push(doris::RuntimeState* state, vectorized::Block* block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     COUNTER_UPDATE(_probe_rows_counter, block->rows());
     _cur_probe_row_visited_flags.resize(block->rows());
     std::fill(_cur_probe_row_visited_flags.begin(), _cur_probe_row_visited_flags.end(), 0);
@@ -662,6 +665,7 @@ void VNestedLoopJoinNode::_release_mem() {
 }
 
 Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_probe_timer);
     if (_is_output_left_side_only) {
         RETURN_IF_ERROR(_build_output_block(&_left_block, block));

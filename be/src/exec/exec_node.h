@@ -277,7 +277,10 @@ protected:
     // which will providea reference for operator memory.
     std::unique_ptr<MemTracker> _mem_tracker;
 
+    RuntimeProfile::Counter* _exec_timer;
     RuntimeProfile::Counter* _rows_returned_counter;
+    RuntimeProfile::Counter* _output_bytes_counter;
+    RuntimeProfile::Counter* _block_count_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
     RuntimeProfile::Counter* _memory_used_counter;
     RuntimeProfile::Counter* _projection_timer;

@@ -166,6 +166,7 @@ Status VScanNode::prepare(RuntimeState* state) {
 }
 
 Status VScanNode::open(RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_CANCELLED(state);
@@ -173,6 +174,7 @@ Status VScanNode::open(RuntimeState* state) {
 }
 
 Status VScanNode::alloc_resource(RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_alloc_resource_timer);
     if (_opened) {
         return Status::OK();
@@ -220,6 +222,7 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
 }
 
 Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_get_next_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // in inverted index apply logic, in order to optimize query performance,

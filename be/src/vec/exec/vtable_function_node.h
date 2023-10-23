@@ -59,6 +59,7 @@ public:
         return _children[0]->open(state);
     }
     Status alloc_resource(RuntimeState* state) override {
+        SCOPED_TIMER(_exec_timer);
         RETURN_IF_ERROR(ExecNode::alloc_resource(state));
         return VExpr::open(_vfn_ctxs, state);
     }
@@ -73,6 +74,7 @@ public:
     }
 
     Status push(RuntimeState* state, Block* input_block, bool eos) override {
+        SCOPED_TIMER(_exec_timer);
         _child_eos = eos;
         if (input_block->rows() == 0) {
             return Status::OK();
@@ -86,6 +88,7 @@ public:
     }
 
     Status pull(RuntimeState* state, Block* output_block, bool* eos) override {
+        SCOPED_TIMER(_exec_timer);
         RETURN_IF_ERROR(_get_expanded_block(state, output_block, eos));
         reached_limit(output_block, eos);
         return Status::OK();
