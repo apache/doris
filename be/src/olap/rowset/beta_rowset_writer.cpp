@@ -20,6 +20,7 @@
 #include <assert.h>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
+#include <fmt/format.h>
 #include <stdio.h>
 
 #include <ctime> // time
@@ -33,7 +34,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/integral_types.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_options.h"
 #include "io/fs/file_system.h"
@@ -87,8 +87,8 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
     if (!_already_built) {       // abnormal exit, remove all files generated
         _segment_writer.reset(); // ensure all files are closed
-        auto fs = _rowset_meta->fs();
-        if (!fs) {
+        const auto& fs = _rowset_meta->fs();
+        if (!fs || !_rowset_meta->is_local()) { // Remote fs will delete them asynchronously
             return;
         }
         auto max_segment_id = std::max(_num_segment.load(), _next_segment_id.load());
@@ -99,7 +99,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
             WARN_IF_ERROR(fs->delete_file(seg_path),
-                          strings::Substitute("Failed to delete file=$0", seg_path));
+                          fmt::format("Failed to delete file={}", seg_path));
         }
     }
 }
