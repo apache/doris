@@ -114,7 +114,7 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     // | --------- | ----------- |
     // The static ones are original _tablet_schame columns
     flush_schema = std::make_shared<TabletSchema>();
-    flush_schema->copy_from(*_context->tablet_schema);
+    flush_schema->copy_from(*_context->original_tablet_schema);
 
     vectorized::Block flush_block(std::move(block));
     // If column already exist in original tablet schema, then we pick common type

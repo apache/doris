@@ -1190,8 +1190,7 @@ void ColumnObject::finalize(bool ignore_sparse) {
         }
 
         // Check and spilit sparse subcolumns
-        if (!ignore_sparse && (entry->data.check_if_sparse_column(num_rows) ||
-                               !check_if_valid_column_name(entry->path))) {
+        if (!ignore_sparse && (entry->data.check_if_sparse_column(num_rows))) {
             // TODO seperate ambiguous path
             sparse_columns.add(entry->path, entry->data);
             continue;

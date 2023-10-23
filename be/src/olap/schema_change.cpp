@@ -599,6 +599,7 @@ Status VSchemaChangeWithSorting::_internal_sorting(
     context.rowset_state = VISIBLE;
     context.segments_overlap = segments_overlap;
     context.tablet_schema = new_tablet->tablet_schema();
+    context.original_tablet_schema = new_tablet->tablet_schema();
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     RETURN_IF_ERROR(new_tablet->create_rowset_writer(context, &rowset_writer));

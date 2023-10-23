@@ -165,6 +165,7 @@ Status RowsetBuilder::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
+    context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = _tablet->tablet_id();
     context.tablet = _tablet;

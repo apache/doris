@@ -62,6 +62,7 @@ struct RowsetWriterContext {
     io::FileSystemSPtr fs;
     std::string rowset_dir;
     TabletSchemaSPtr tablet_schema;
+    TabletSchemaSPtr original_tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state;
