@@ -175,7 +175,7 @@ struct ToBitmapWithCheck {
                         res_data[i].add(int_value);
                     } else {
                         return Status::InvalidArgument(
-                                "The input: {}  is not valid, to_bitmap only support bigint value "
+                                "The input: {} is not valid, to_bitmap only support bigint value "
                                 "from 0 to 18446744073709551615 currently, cannot create MV with "
                                 "to_bitmap on column with negative values or cannot load negative "
                                 "values to column with to_bitmap MV on it.",
@@ -197,7 +197,7 @@ struct ToBitmapWithCheck {
                         res_data[i].add(int_value);
                     } else {
                         return Status::InvalidArgument(
-                                "The input: {}  is not valid, to_bitmap only support bigint value "
+                                "The input: {} is not valid, to_bitmap only support bigint value "
                                 "from 0 to 18446744073709551615 currently, cannot create MV with "
                                 "to_bitmap on column with negative values or cannot load negative "
                                 "values to column with to_bitmap MV on it.",
