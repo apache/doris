@@ -428,7 +428,6 @@ Status PlanFragmentExecutor::execute() {
     }
     DorisMetrics::instance()->fragment_requests_total->increment(1);
     DorisMetrics::instance()->fragment_request_duration_us->increment(duration_ns / 1000);
-    // TODO: add exist log.
     return Status::OK();
 }
 
