@@ -123,7 +123,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
                             return tablet->get_table_id() == table_id;
                         });
         for (const auto& tablet : tablet_vec) {
-            static_cast<void>(StorageEngine::instance()->submit_compaction_task(
+            RETURN_IF_ERROR(StorageEngine::instance()->submit_compaction_task(
                     tablet, CompactionType::FULL_COMPACTION, false));
         }
     } else {
