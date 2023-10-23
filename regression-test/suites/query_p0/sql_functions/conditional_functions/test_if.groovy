@@ -23,6 +23,9 @@ suite("test_if") {
     qt_select "select if(job_d is null, job_d, array()) as test from (select array('1970-01-01', '1970-01-01') as job_d) t"
 
     // user case https://github.com/apache/doris/issues/25644
-    qt_select "SELECT NOT ISNULL(CASE WHEN IFNULL ((t1.region IN ('US')),0) THEN t1.region ELSE 'other' END) AS account_id, count(*) FROM (select 'US' AS region) as t1 group by 1"
-    qt_select "SELECT NOT ISNULL(CASE WHEN IFNULL (('US' IN ('US')),0) THEN 'US' ELSE 'other' END);"
+    qt_select "SELECT /*+SET_VAR(enable_nereids_planner=true)*/ NOT ISNULL(CASE WHEN IFNULL ((t1.region IN ('US')),0) THEN t1.region ELSE 'other' END) AS account_id, count(*) FROM (select 'US' AS region) as t1 group by 1"
+    qt_select "SELECT /*+SET_VAR(enable_nereids_planner=true)*/ NOT ISNULL(CASE WHEN IFNULL (('US' IN ('US')),0) THEN 'US' ELSE 'other' END);"
+
+    qt_select "SELECT /*+SET_VAR(enable_nereids_planner=false)*/ NOT ISNULL(CASE WHEN IFNULL ((t1.region IN ('US')),0) THEN t1.region ELSE 'other' END) AS account_id, count(*) FROM (select 'US' AS region) as t1 group by 1"
+    qt_select "SELECT /*+SET_VAR(enable_nereids_planner=false)*/ NOT ISNULL(CASE WHEN IFNULL (('US' IN ('US')),0) THEN 'US' ELSE 'other' END);"
 }
