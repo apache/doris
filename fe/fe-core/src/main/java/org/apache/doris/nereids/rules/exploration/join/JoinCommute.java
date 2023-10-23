@@ -54,6 +54,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .when(join -> !justNonInner || !join.getJoinType().isInnerJoin())
+                .when(join -> checkReorder(join))
                 .when(join -> check(swapType, join))
                 .whenNot(LogicalJoin::hasJoinHint)
                 .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))
@@ -87,7 +88,12 @@ public class JoinCommute extends OneExplorationRuleFactory {
             return false;
         }
 
-        return !join.getJoinReorderContext().hasCommute() && !join.getJoinReorderContext().hasExchange();
+        return true;
+    }
+
+    private boolean checkReorder(LogicalJoin<GroupPlan, GroupPlan> join) {
+        return !join.getJoinReorderContext().hasCommute()
+                && !join.getJoinReorderContext().hasExchange();
     }
 
     public static boolean isNotBottomJoin(LogicalJoin<GroupPlan, GroupPlan> join) {

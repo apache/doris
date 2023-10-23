@@ -73,6 +73,9 @@ public class ApplyRuleJob extends Job {
         for (Plan plan : groupExpressionMatching) {
             List<Plan> newPlans = rule.transform(plan, context.getCascadesContext());
             for (Plan newPlan : newPlans) {
+                if (newPlan == plan) {
+                    continue;
+                }
                 CopyInResult result = context.getCascadesContext()
                         .getMemo()
                         .copyIn(newPlan, groupExpression.getOwnerGroup(), false);
