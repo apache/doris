@@ -216,6 +216,8 @@ protected:
     // profile reporting-related
     report_status_callback _report_status_cb;
 
+    DescriptorTbl* _desc_tbl;
+
 private:
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
     bool _group_commit;

@@ -449,6 +449,8 @@ struct TExecPlanFragmentParams {
   24: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
 
   25: optional i64 wal_id
+
+  26: optional bool is_multi_table_load = false;
 }
 
 struct TExecPlanFragmentParamsList {
@@ -664,6 +666,7 @@ struct TPipelineFragmentParams {
   // scan node id -> scan range params, only for external file scan
   29: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
   30: optional bool group_commit = false;
+  31: optional bool is_multi_table_load = false;
 }
 
 struct TPipelineFragmentParamsList {

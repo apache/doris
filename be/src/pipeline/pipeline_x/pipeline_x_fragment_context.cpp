@@ -200,8 +200,13 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
         _runtime_state->set_load_job_id(request.load_job_id);
     }
 
-    auto* desc_tbl = _query_ctx->desc_tbl;
-    _runtime_state->set_desc_tbl(desc_tbl);
+    if (request.is_multi_table_load) {
+        RETURN_IF_ERROR(
+                DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl, &_desc_tbl));
+    } else {
+        _desc_tbl = _query_ctx->desc_tbl;
+    }
+    _runtime_state->set_desc_tbl(_desc_tbl);
     _runtime_state->set_num_per_fragment_instances(request.num_senders);
 
     // 2. Build pipelines with operators in this fragment.
@@ -215,7 +220,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     }
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_create_data_sink(
             _runtime_state->obj_pool(), request.fragment.output_sink, request.fragment.output_exprs,
-            request, root_pipeline->output_row_desc(), _runtime_state.get(), *desc_tbl,
+            request, root_pipeline->output_row_desc(), _runtime_state.get(), *_desc_tbl,
             root_pipeline->id()));
     RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
     static_cast<void>(root_pipeline->set_sink(_sink));
@@ -402,7 +407,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             _runtime_states[i]->set_load_job_id(request.load_job_id);
         }
 
-        _runtime_states[i]->set_desc_tbl(_query_ctx->desc_tbl);
+        _runtime_states[i]->set_desc_tbl(_desc_tbl);
         _runtime_states[i]->set_per_fragment_instance_idx(local_params.sender_id);
         _runtime_states[i]->set_num_per_fragment_instances(request.num_senders);
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
