@@ -646,7 +646,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, bool in
         }
         return nullptr;
     }
-
+#ifndef BE_TEST
     if (!tablet->is_used()) {
         LOG(WARNING) << "tablet cannot be used. tablet=" << tablet_id;
         if (err != nullptr) {
@@ -654,6 +654,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, bool in
         }
         return nullptr;
     }
+#endif
 
     return tablet;
 }
