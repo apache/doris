@@ -31,4 +31,6 @@ suite("one_row_relation") {
         )a"""
         result([[100, "abc", "ab", "de", null]])
     }
+
+    qt_string """ select 'ABC''DEF', 'A''''B' """
 }
