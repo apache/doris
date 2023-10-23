@@ -46,6 +46,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
+import java.util.regex.Pattern;
 
 /*
  * if you want to visit the attribute(such as queryID,defaultDb)
@@ -168,6 +169,12 @@ public class ProfileManager {
         }
 
         ProfileElement element = createElement(profile);
+        if (!Strings.isNullOrEmpty(Config.query_profile_filter_pattern)) {
+            Pattern pattern = Pattern.compile(Config.query_profile_filter_pattern, Pattern.CASE_INSENSITIVE);
+            if (pattern.matcher(element.infoStrings.get(SummaryProfile.SQL_STATEMENT)).matches()) {
+                return;
+            }
+        }
         // 'insert into' does have job_id, put all profiles key with query_id
         String key = element.infoStrings.get(SummaryProfile.PROFILE_ID);
         // check when push in, which can ensure every element in the list has QUERY_ID column,

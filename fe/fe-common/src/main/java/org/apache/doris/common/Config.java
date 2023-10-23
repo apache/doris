@@ -1731,6 +1731,13 @@ public class Config extends ConfigBase {
     public static int max_query_profile_num = 100;
 
     /**
+     * Regular expressions are used to filter query statments.
+     * When a query match the pattern, it will not be recorded to query profile store.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static String query_profile_filter_pattern = null;
+
+    /**
      * Set to true to disable backend black list, so that even if we failed to send task to a backend,
      * that backend won't be added to black list.
      * This should only be set when running tests, such as regression test.
