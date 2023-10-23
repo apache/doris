@@ -56,7 +56,7 @@ public:
     Status try_close(RuntimeState* state) override;
 };
 
-struct OpenDependency : public Dependency {
+struct OpenDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(OpenDependency);
     OpenDependency(int id) : Dependency(id, "OpenDependency") {}
@@ -65,14 +65,14 @@ public:
     [[nodiscard]] int64_t read_watcher_elapse_time() override { return 0; }
 };
 
-class EosDependency : public Dependency {
+class EosDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(EosDependency);
     EosDependency(int id) : Dependency(id, "EosDependency") {}
     void* shared_state() override { return nullptr; }
 };
 
-class ScannerDoneDependency : public Dependency {
+class ScannerDoneDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ScannerDoneDependency);
     ScannerDoneDependency(int id, vectorized::ScannerContext* scanner_ctx)
@@ -90,7 +90,7 @@ private:
     vectorized::ScannerContext* _scanner_ctx;
 };
 
-class DataReadyDependency : public Dependency {
+class DataReadyDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(DataReadyDependency);
     DataReadyDependency(int id, vectorized::ScannerContext* scanner_ctx)

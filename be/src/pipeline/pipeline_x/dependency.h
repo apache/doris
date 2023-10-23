@@ -88,15 +88,11 @@ public:
     void set_parent(std::weak_ptr<Dependency> parent) { _parent = parent; }
 
     void add_child(std::shared_ptr<Dependency> child) {
-        std::unique_lock<std::mutex> l(_lock);
         _children.push_back(child);
         child->set_parent(weak_from_this());
     }
 
-    void remove_first_child() {
-        std::unique_lock<std::mutex> l(_lock);
-        _children.erase(_children.begin());
-    }
+    void remove_first_child() { _children.erase(_children.begin()); }
 
 protected:
     int _id;
@@ -107,7 +103,6 @@ protected:
     std::weak_ptr<Dependency> _parent;
 
     std::list<std::shared_ptr<Dependency>> _children;
-    std::mutex _lock;
 };
 
 class WriteDependency : public Dependency {
@@ -153,7 +148,7 @@ protected:
     MonotonicStopWatch _write_dependency_watcher;
 };
 
-class FinishDependency : public Dependency {
+class FinishDependency final : public Dependency {
 public:
     FinishDependency(int id, std::string name) : Dependency(id, name), _ready_to_finish(true) {}
     ~FinishDependency() override = default;
@@ -195,7 +190,7 @@ protected:
     MonotonicStopWatch _finish_dependency_watcher;
 };
 
-class AndDependency : public WriteDependency {
+class AndDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(AndDependency);
     AndDependency(int id) : WriteDependency(id, "AndDependency") {}
@@ -215,7 +210,6 @@ public:
     std::string debug_string(int indentation_level = 0) override;
 
     [[nodiscard]] Dependency* read_blocked_by() override {
-        std::unique_lock<std::mutex> l(_lock);
         for (auto& child : _children) {
             if (auto* dep = child->read_blocked_by()) {
                 return dep;
@@ -225,7 +219,6 @@ public:
     }
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {
-        std::unique_lock<std::mutex> l(_lock);
         for (auto& child : _children) {
             CHECK(child->is_write_dependency());
             if (auto* dep = ((WriteDependency*)child.get())->write_blocked_by()) {
@@ -236,7 +229,7 @@ public:
     }
 };
 
-class OrDependency : public WriteDependency {
+class OrDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(OrDependency);
     OrDependency(int id) : WriteDependency(id, "OrDependency") {}
@@ -257,7 +250,6 @@ public:
 
     [[nodiscard]] Dependency* read_blocked_by() override {
         Dependency* res = nullptr;
-        std::unique_lock<std::mutex> l(_lock);
         for (auto& child : _children) {
             auto* cur_res = child->read_blocked_by();
             if (cur_res == nullptr) {
@@ -271,7 +263,6 @@ public:
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {
         WriteDependency* res = nullptr;
-        std::unique_lock<std::mutex> l(_lock);
         for (auto& child : _children) {
             CHECK(child->is_write_dependency());
             auto* cur_res = ((WriteDependency*)child.get())->write_blocked_by();
@@ -286,7 +277,7 @@ public:
 };
 
 struct FakeSharedState {};
-struct FakeDependency : public WriteDependency {
+struct FakeDependency final : public WriteDependency {
 public:
     FakeDependency(int id) : WriteDependency(0, "FakeDependency") {}
     using SharedState = FakeSharedState;
@@ -321,7 +312,7 @@ public:
     std::unique_ptr<DataQueue> data_queue = nullptr;
 };
 
-class AggDependency : public WriteDependency {
+class AggDependency final : public WriteDependency {
 public:
     using SharedState = AggSharedState;
     AggDependency(int id) : WriteDependency(id, "AggDependency") {

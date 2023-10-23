@@ -46,7 +46,7 @@ public:
 
 class HashJoinBuildSinkOperatorX;
 
-class SharedHashTableDependency : public WriteDependency {
+class SharedHashTableDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(SharedHashTableDependency);
     SharedHashTableDependency(int id) : WriteDependency(id, "SharedHashTableDependency") {}
