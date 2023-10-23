@@ -111,11 +111,13 @@ oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
 doris_port=9030
+mariadb_10_port=3326
 
 // hive catalog test config
-// To enable hive test, you need first start hive container.
+// To enable hive/paimon test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
+enablePaimonTest=false
 hms_port=9183
 hdfs_port=8120
 hiveServerPort=10000
@@ -166,6 +168,10 @@ extEsHost = "***********"
 extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
+
+enableMaxComputeTest=false
+aliYunAk="***********"
+aliYunSk="***********"
 
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"

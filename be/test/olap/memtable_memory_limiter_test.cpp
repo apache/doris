@@ -19,6 +19,7 @@
 
 #include "exec/tablet_info.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
 #include "olap/delta_writer.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"

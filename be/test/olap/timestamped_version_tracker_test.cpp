@@ -37,6 +37,7 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/strings/substitute.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/version_graph.h"

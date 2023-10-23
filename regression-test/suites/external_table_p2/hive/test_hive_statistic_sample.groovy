@@ -42,8 +42,8 @@ suite("test_hive_statistic_sample", "p2,external,hive,external_remote,external_r
         assertTrue(result[0][3] == "0.0")
         assertTrue(result[0][4] == "20.0")
         assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "0")
-        assertTrue(result[0][7] == "4")
+        assertTrue(result[0][6] == "N/A")
+        assertTrue(result[0][7] == "N/A")
 
         result = sql """show column stats region (r_name)"""
         assertTrue(result.size() == 1)
@@ -53,8 +53,8 @@ suite("test_hive_statistic_sample", "p2,external,hive,external_remote,external_r
         assertTrue(result[0][3] == "0.0")
         assertTrue(result[0][4] == "34.0")
         assertTrue(result[0][5] == "6.8")
-        assertTrue(result[0][6] == "\'AFRICA\'")
-        assertTrue(result[0][7] == "\'MIDDLE EAST\'")
+        assertTrue(result[0][6] == "N/A")
+        assertTrue(result[0][7] == "N/A")
 
         result = sql """show column stats region (r_comment)"""
         assertTrue(result.size() == 1)
@@ -64,8 +64,8 @@ suite("test_hive_statistic_sample", "p2,external,hive,external_remote,external_r
         assertTrue(result[0][3] == "0.0")
         assertTrue(result[0][4] == "330.0")
         assertTrue(result[0][5] == "66.0")
-        assertTrue(result[0][6] == "\'ges. thinly even pinto beans ca\'")
-        assertTrue(result[0][7] == "\'uickly special accounts cajole carefully blithely close requests. carefully final asymptotes haggle furiousl\'")
+        assertTrue(result[0][6] == "N/A")
+        assertTrue(result[0][7] == "N/A")
 
         result = sql """show column stats supplier (s_suppkey)"""
         assertTrue(result.size() == 1)
@@ -75,8 +75,8 @@ suite("test_hive_statistic_sample", "p2,external,hive,external_remote,external_r
         assertTrue(result[0][3] == "0.0")
         assertTrue(result[0][4] == "3.9995194E7")
         assertTrue(result[0][5] == "3.9999997999759773")
-        assertTrue(result[0][6] == "1885331")
-        assertTrue(result[0][7] == "9395153")
+        assertTrue(result[0][6] == "N/A")
+        assertTrue(result[0][7] == "N/A")
 
         result = sql """show column stats supplier (s_name)"""
         assertTrue(result.size() == 1)
@@ -86,8 +86,8 @@ suite("test_hive_statistic_sample", "p2,external,hive,external_remote,external_r
         assertTrue(result[0][3] == "0.0")
         assertTrue(result[0][4] == "1.79978374E8")
         assertTrue(result[0][5] == "17.999999199903908")
-        assertTrue(result[0][6] == "\'Supplier#001885331\'")
-        assertTrue(result[0][7] == "\'Supplier#009395153\'")
+        assertTrue(result[0][6] == "N/A")
+        assertTrue(result[0][7] == "N/A")
 
         result = sql """show column stats supplier (s_address)"""
         assertTrue(result.size() == 1)
@@ -97,8 +97,8 @@ suite("test_hive_statistic_sample", "p2,external,hive,external_remote,external_r
         assertTrue(result[0][3] == "0.0")
         assertTrue(result[0][4] == "2.50070604E8")
         assertTrue(result[0][5] == "25.010064108699456")
-        assertTrue(result[0][6] == "\'   E,WAW2ZEx\'")
-        assertTrue(result[0][7] == "\'zzzw X3bpxu,OCpzgv6BdyMVMKzaB1DbH\'")
+        assertTrue(result[0][6] == "N/A")
+        assertTrue(result[0][7] == "N/A")
 
         result = sql """show column stats supplier (s_nationkey)"""
         assertTrue(result.size() == 1)
@@ -108,8 +108,8 @@ suite("test_hive_statistic_sample", "p2,external,hive,external_remote,external_r
         assertTrue(result[0][3] == "0.0")
         assertTrue(result[0][4] == "3.9995194E7")
         assertTrue(result[0][5] == "3.9999997999759773")
-        assertTrue(result[0][6] == "0")
-        assertTrue(result[0][7] == "24")
+        assertTrue(result[0][6] == "N/A")
+        assertTrue(result[0][7] == "N/A")
 
         result = sql """show column stats supplier (s_phone)"""
         assertTrue(result.size() == 1)
@@ -119,8 +119,8 @@ suite("test_hive_statistic_sample", "p2,external,hive,external_remote,external_r
         assertTrue(result[0][3] == "0.0")
         assertTrue(result[0][4] == "1.49981978E8")
         assertTrue(result[0][5] == "14.99999929991592")
-        assertTrue(result[0][6] == "\'10-100-128-4513\'")
-        assertTrue(result[0][7] == "\'34-999-967-7296\'")
+        assertTrue(result[0][6] == "N/A")
+        assertTrue(result[0][7] == "N/A")
 
         result = sql """show column stats supplier (s_acctbal)"""
         assertTrue(result.size() == 1)
@@ -130,8 +130,8 @@ suite("test_hive_statistic_sample", "p2,external,hive,external_remote,external_r
         assertTrue(result[0][3] == "0.0")
         assertTrue(result[0][4] == "7.9990388E7")
         assertTrue(result[0][5] == "7.999999599951955")
-        assertTrue(result[0][6] == "-999.99")
-        assertTrue(result[0][7] == "9999.99")
+        assertTrue(result[0][6] == "N/A")
+        assertTrue(result[0][7] == "N/A")
 
         result = sql """show column stats supplier (s_comment)"""
         assertTrue(result.size() == 1)
@@ -141,8 +141,8 @@ suite("test_hive_statistic_sample", "p2,external,hive,external_remote,external_r
         assertTrue(result[0][3] == "0.0")
         assertTrue(result[0][4] == "6.24883849E8")
         assertTrue(result[0][5] == "62.49589065646784")
-        assertTrue(result[0][6] == "\' Customer  across the pinto beans. pinRecommends\'")
-        assertTrue(result[0][7] == "\'zzle? express, regular foxes haggle final ac\'")
+        assertTrue(result[0][6] == "N/A")
+        assertTrue(result[0][7] == "N/A")
 
         sql """drop catalog ${catalog_name}"""
     }

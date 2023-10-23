@@ -2626,23 +2626,23 @@ Whether to enable the quantile_state data type
 
 #### `enable_date_conversion`
 
-Default：false
+Default：true
 
 IsMutable：true
 
 MasterOnly：true
 
-If set to TRUE, FE will convert date/datetime to datev2/datetimev2(0) automatically.
+FE will convert date/datetime to datev2/datetimev2(0) automatically.
 
 #### `enable_decimal_conversion`
 
-Default：false
+Default：true
 
 IsMutable：true
 
 MasterOnly：true
 
-If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
+FE will convert DecimalV2 to DecimalV3 automatically.
 
 #### `proxy_auth_magic_prefix`
 

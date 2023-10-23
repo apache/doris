@@ -150,9 +150,9 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
             for (int i = 0; i < table_num; ++i) {
                 datas[i] = &str_slot;
             }
-            static_cast<void>(fill_dest_column_for_range(block, 0, datas));
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
         } else {
-            static_cast<void>(fill_dest_column_for_range(block, 0, null_datas));
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, null_datas));
         }
     }
     // schema
@@ -162,7 +162,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < table_num; ++i) {
             datas[i] = &str_slot;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 1, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // name
     {
@@ -172,7 +172,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(src->c_str(), src->size());
             datas[i] = strs + i;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 2, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // type
     {
@@ -182,7 +182,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(src->c_str(), src->size());
             datas[i] = strs + i;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 3, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     // engine
     {
@@ -197,12 +197,12 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        static_cast<void>(fill_dest_column_for_range(block, 4, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
     }
     // version
-    { static_cast<void>(fill_dest_column_for_range(block, 5, null_datas)); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, null_datas)); }
     // row_format
-    { static_cast<void>(fill_dest_column_for_range(block, 6, null_datas)); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, null_datas)); }
     // rows
     {
         int64_t srcs[table_num];
@@ -215,7 +215,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        static_cast<void>(fill_dest_column_for_range(block, 7, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
     }
     // avg_row_length
     {
@@ -229,7 +229,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        static_cast<void>(fill_dest_column_for_range(block, 8, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 8, datas));
     }
     // data_length
     {
@@ -243,19 +243,19 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        static_cast<void>(fill_dest_column_for_range(block, 9, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, datas));
     }
     // max_data_length
-    { static_cast<void>(fill_dest_column_for_range(block, 10, null_datas)); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, null_datas)); }
     // index_length
-    { static_cast<void>(fill_dest_column_for_range(block, 11, null_datas)); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, null_datas)); }
     // data_free
-    { static_cast<void>(fill_dest_column_for_range(block, 12, null_datas)); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, null_datas)); }
     // auto_increment
-    { static_cast<void>(fill_dest_column_for_range(block, 13, null_datas)); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, null_datas)); }
     // creation_time
     {
-        vectorized::VecDateTimeValue srcs[table_num];
+        VecDateTimeValue srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             if (tbl_status.__isset.create_time) {
@@ -270,11 +270,11 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        static_cast<void>(fill_dest_column_for_range(block, 14, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 14, datas));
     }
     // update_time
     {
-        vectorized::VecDateTimeValue srcs[table_num];
+        VecDateTimeValue srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             if (tbl_status.__isset.update_time) {
@@ -289,11 +289,11 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        static_cast<void>(fill_dest_column_for_range(block, 15, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 15, datas));
     }
     // check_time
     {
-        vectorized::VecDateTimeValue srcs[table_num];
+        VecDateTimeValue srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             if (tbl_status.__isset.last_check_time) {
@@ -308,7 +308,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        static_cast<void>(fill_dest_column_for_range(block, 16, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 16, datas));
     }
     // collation
     {
@@ -323,12 +323,12 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        static_cast<void>(fill_dest_column_for_range(block, 17, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, datas));
     }
     // checksum
-    { static_cast<void>(fill_dest_column_for_range(block, 18, null_datas)); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, null_datas)); }
     // create_options
-    { static_cast<void>(fill_dest_column_for_range(block, 19, null_datas)); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 19, null_datas)); }
     // create_comment
     {
         StringRef strs[table_num];
@@ -337,7 +337,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(src->c_str(), src->size());
             datas[i] = strs + i;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 20, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 20, datas));
     }
     return Status::OK();
 }
