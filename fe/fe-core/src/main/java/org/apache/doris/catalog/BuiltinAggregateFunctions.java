@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapAgg;
@@ -82,6 +83,7 @@ import java.util.Set;
 public class BuiltinAggregateFunctions implements FunctionHelper {
     public final List<AggregateFunc> aggregateFunctions = ImmutableList.of(
             agg(AnyValue.class, "any", "any_value"),
+            agg(ArrayAgg.class, "array_agg"),
             agg(Avg.class, "avg"),
             agg(AvgWeighted.class, "avg_weighted"),
             agg(BitmapAgg.class, "bitmap_agg"),
