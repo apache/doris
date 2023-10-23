@@ -72,6 +72,7 @@ struct StrToDate {
     static DataTypes get_variadic_argument_types() { return {}; }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        //TODO: it doesn't matter now. maybe sometime we should find the function signature with return_type together
         return make_nullable(std::make_shared<DataTypeDateTime>());
     }
 
@@ -115,6 +116,8 @@ struct StrToDate {
         auto& rdata = specific_char_column->get_chars();
         auto& roffsets = specific_char_column->get_offsets();
 
+        // Because of we cant distinguish by return_type when we find function. so the return_type may NOT be same with real return type
+        // which decided by FE. that's found by which.
         ColumnPtr res = nullptr;
         WhichDataType which(remove_nullable(block.get_by_position(result).type));
         if (which.is_date_time_v2()) {

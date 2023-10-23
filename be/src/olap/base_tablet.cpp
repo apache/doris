@@ -18,14 +18,7 @@
 #include "olap/base_tablet.h"
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 
-#include <vector>
-
-#include "gutil/strings/substitute.h"
-#include "olap/data_dir.h"
-#include "olap/olap_define.h"
-#include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema_cache.h"
 #include "util/doris_metrics.h"
 
@@ -35,21 +28,19 @@ using namespace ErrorCode;
 extern MetricPrototype METRIC_query_scan_bytes;
 extern MetricPrototype METRIC_query_scan_rows;
 extern MetricPrototype METRIC_query_scan_count;
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
 
-BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
-        : _state(tablet_meta->tablet_state()), _tablet_meta(tablet_meta), _data_dir(data_dir) {
-    _schema = TabletSchemaCache::instance()->insert(_tablet_meta->tablet_schema()->to_key());
-    _gen_tablet_path();
-
-    _full_name = fmt::format("{}.{}.{}", _tablet_meta->tablet_id(), _tablet_meta->schema_hash(),
-                             _tablet_meta->tablet_uid().to_string());
-
+BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move(tablet_meta)) {
+    TabletSchemaCache::instance()->insert(_tablet_meta->tablet_schema()->to_key());
     _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
-            strings::Substitute("Tablet.$0", tablet_id()),
-            {{"tablet_id", std::to_string(tablet_id())}}, MetricEntityType::kTablet);
+            fmt::format("Tablet.{}", tablet_id()), {{"tablet_id", std::to_string(tablet_id())}},
+            MetricEntityType::kTablet);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_rows);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_count);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
+    INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
 }
 
 BaseTablet::~BaseTablet() {
@@ -62,26 +53,16 @@ Status BaseTablet::set_tablet_state(TabletState state) {
                 "could not change tablet state from shutdown to {}", state);
     }
     _tablet_meta->set_tablet_state(state);
-    _state = state;
     return Status::OK();
 }
 
-void BaseTablet::_gen_tablet_path() {
-    if (_data_dir != nullptr && _tablet_meta != nullptr) {
-        _tablet_path = fmt::format("{}/{}/{}/{}/{}", _data_dir->path(), DATA_PREFIX, shard_id(),
-                                   tablet_id(), schema_hash());
+void BaseTablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
+    std::lock_guard wrlock(_meta_lock);
+    // Double Check for concurrent update
+    if (!_max_version_schema ||
+        tablet_schema->schema_version() > _max_version_schema->schema_version()) {
+        _max_version_schema = tablet_schema;
     }
-}
-
-bool BaseTablet::set_tablet_schema_into_rowset_meta() {
-    bool flag = false;
-    for (RowsetMetaSharedPtr rowset_meta : _tablet_meta->all_mutable_rs_metas()) {
-        if (!rowset_meta->tablet_schema()) {
-            rowset_meta->set_tablet_schema(_schema);
-            flag = true;
-        }
-    }
-    return flag;
 }
 
 } /* namespace doris */
