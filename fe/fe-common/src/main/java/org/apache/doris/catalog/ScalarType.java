@@ -1193,9 +1193,9 @@ public class ScalarType extends Type {
      * default decimal v3
      */
     public boolean isDefaultDecimal() {
-        return (isDecimalV3() || isDecimalV2()) &&
-                DEFAULT_PRECISION == this.precision &&
-                DEFAULT_SCALE == this.scale;
+        return (isDecimalV3() || isDecimalV2())
+                && DEFAULT_PRECISION == this.precision
+                && DEFAULT_SCALE == this.scale;
     }
 
     @Override
