@@ -44,7 +44,8 @@ public class TopNScanOpt extends PlanPostProcessor {
         Plan child = topN.child().accept(this, ctx);
         topN = rewriteTopN(topN);
         if (child != topN.child()) {
-            topN = ((PhysicalTopN) topN.withChildren(child)).copyStatsAndGroupIdFrom(topN);        }
+            topN = ((PhysicalTopN) topN.withChildren(child)).copyStatsAndGroupIdFrom(topN);
+        }
         return topN;
     }
 
