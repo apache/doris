@@ -361,6 +361,7 @@ struct RegexpExtractAllImpl {
         }
 
         if (res_matches.empty()) {
+            StringOP::push_empty_string(index_now, result_data, result_offset);
             return;
         }
 

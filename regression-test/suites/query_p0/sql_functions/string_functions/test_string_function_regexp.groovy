@@ -58,6 +58,7 @@ suite("test_string_function_regexp") {
     qt_sql "select regexp_extract_all('xxfs','f');"
     qt_sql "select regexp_extract_all('asdfg', '(z|x|c|)');"
     qt_sql "select regexp_extract_all('abcdfesscca', '(ab|c|)');"
+    qt_sql_regexp_extract_all "select regexp_extract_all('', '\"([^\"]+)\":'), length(regexp_extract_all('', '\"([^\"]+)\":')) from test_string_function_regexp;"
 
     qt_sql "SELECT regexp_replace('a b c', \" \", \"-\");"
     qt_sql "SELECT regexp_replace('a b c','(b)','<\\\\1>');"
