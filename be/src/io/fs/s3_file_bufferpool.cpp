@@ -102,7 +102,7 @@ Status UploadFileBuffer::append_data(const Slice& data) {
                     break;
                 }
                 if (_index_offset != 0) {
-                    static_cast<void>(segment->change_cache_type_self(CacheType::INDEX));
+                    RETURN_IF_ERROR(segment->change_cache_type_self(CacheType::INDEX));
                 }
             }
             // if cache_is_not_enough, cannot use it !
