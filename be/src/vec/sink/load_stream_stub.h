@@ -85,6 +85,8 @@ class LoadStreamStub {
 private:
     class LoadStreamReplyHandler : public brpc::StreamInputHandler {
     public:
+        LoadStreamReplyHandler(LoadStreamStub* stub) : _stub(stub) {}
+
         int on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
                                  size_t size) override;
 
@@ -92,44 +94,8 @@ private:
 
         void on_closed(brpc::StreamId id) override;
 
-        bool is_closed() { return _is_closed.load(); }
-
-        Status close_wait(int64_t timeout_ms) {
-            std::unique_lock<bthread::Mutex> lock(_mutex);
-            if (_is_closed) {
-                return Status::OK();
-            }
-            if (timeout_ms > 0) {
-                int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
-                return ret == 0 ? Status::OK()
-                                : Status::Error<true>(ret, "stream close_wait timeout");
-            }
-            _close_cv.wait(lock);
-            return Status::OK();
-        };
-
-        std::vector<int64_t> success_tablets() {
-            std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
-            return _success_tablets;
-        }
-
-        std::vector<int64_t> failed_tablets() {
-            std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
-            return _failed_tablets;
-        }
-
-        void set_dst_id(int64_t dst_id) { _dst_id = dst_id; }
-
     private:
-        int64_t _dst_id = -1; // for logging
-        std::atomic<bool> _is_closed;
-        bthread::Mutex _mutex;
-        bthread::ConditionVariable _close_cv;
-
-        bthread::Mutex _success_tablets_mutex;
-        bthread::Mutex _failed_tablets_mutex;
-        std::vector<int64_t> _success_tablets;
-        std::vector<int64_t> _failed_tablets;
+        LoadStreamStub* _stub;
     };
 
 public:
@@ -169,10 +135,16 @@ public:
     // wait remote to close stream,
     // remote will close stream when it receives CLOSE_LOAD
     Status close_wait(int64_t timeout_ms = 0) {
-        if (!_is_init.load() || _handler.is_closed()) {
+        std::unique_lock<bthread::Mutex> lock(_mutex);
+        if (!_is_init || _is_closed) {
             return Status::OK();
         }
-        return _handler.close_wait(timeout_ms);
+        if (timeout_ms > 0) {
+            int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
+            return ret == 0 ? Status::OK() : Status::Error<true>(ret, "stream close_wait timeout");
+        }
+        _close_cv.wait(lock);
+        return Status::OK();
     }
 
     std::shared_ptr<TabletSchema> tablet_schema(int64_t index_id) const {
@@ -183,9 +155,15 @@ public:
         return _enable_unique_mow_for_index->at(index_id);
     }
 
-    std::vector<int64_t> success_tablets() { return _handler.success_tablets(); }
+    std::vector<int64_t> success_tablets() {
+        std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
+        return _success_tablets;
+    }
 
-    std::vector<int64_t> failed_tablets() { return _handler.failed_tablets(); }
+    std::vector<int64_t> failed_tablets() {
+        std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
+        return _failed_tablets;
+    }
 
     brpc::StreamId stream_id() const { return _stream_id; }
 
@@ -199,8 +177,10 @@ private:
     Status _send_with_retry(butil::IOBuf& buf);
 
 protected:
-    std::atomic<bool> _is_init;
+    bool _is_init = false;
+    bool _is_closed = false;
     bthread::Mutex _mutex;
+    bthread::ConditionVariable _close_cv;
 
     std::atomic<int> _num_open;
 
@@ -212,7 +192,12 @@ protected:
     brpc::StreamId _stream_id;
     int64_t _src_id = -1; // source backend_id
     int64_t _dst_id = -1; // destination backend_id
-    LoadStreamReplyHandler _handler;
+    LoadStreamReplyHandler _handler {this};
+
+    bthread::Mutex _success_tablets_mutex;
+    bthread::Mutex _failed_tablets_mutex;
+    std::vector<int64_t> _success_tablets;
+    std::vector<int64_t> _failed_tablets;
 
     std::shared_ptr<IndexToTabletSchema> _tablet_schema_for_index;
     std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
