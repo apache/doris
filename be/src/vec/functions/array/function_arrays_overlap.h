@@ -139,10 +139,10 @@ public:
         ColumnArrayExecutionData left_exec_data;
         ColumnArrayExecutionData right_exec_data;
 
-        Status ret = Status::RuntimeError(
-                fmt::format("execute failed, unsupported types for function {}({}, {})", get_name(),
-                            block.get_by_position(arguments[0]).type->get_name(),
-                            block.get_by_position(arguments[1]).type->get_name()));
+        Status ret = Status::InvalidArgument(
+                "execute failed, unsupported types for function {}({}, {})", get_name(),
+                block.get_by_position(arguments[0]).type->get_name(),
+                block.get_by_position(arguments[1]).type->get_name());
 
         // extract array column
         if (!extract_column_array_info(*left_column, left_exec_data) ||

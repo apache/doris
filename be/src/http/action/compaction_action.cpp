@@ -123,7 +123,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
                             return tablet->get_table_id() == table_id;
                         });
         for (const auto& tablet : tablet_vec) {
-            static_cast<void>(StorageEngine::instance()->submit_compaction_task(
+            RETURN_IF_ERROR(StorageEngine::instance()->submit_compaction_task(
                     tablet, CompactionType::FULL_COMPACTION, false));
         }
     } else {
@@ -242,14 +242,8 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         BaseCompaction base_compaction(tablet);
         res = base_compaction.compact();
         if (!res) {
-            if (res.is<BE_NO_SUITABLE_VERSION>()) {
-                // Ignore this error code.
-                VLOG_NOTICE << "failed to init base compaction due to no suitable version, tablet="
-                            << tablet->tablet_id();
-            } else {
+            if (!res.is<BE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
-                LOG(WARNING) << "failed to init base compaction. res=" << res
-                             << ", tablet=" << tablet->tablet_id();
             }
         }
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {

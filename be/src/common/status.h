@@ -320,7 +320,8 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::CANCELLED
         && code != ErrorCode::UNINITIALIZED
         && code != ErrorCode::PIP_WAIT_FOR_RF
-        && code != ErrorCode::PIP_WAIT_FOR_SC;
+        && code != ErrorCode::PIP_WAIT_FOR_SC
+        && code != ErrorCode::INVALID_ARGUMENT;
 }
 // clang-format on
 
@@ -501,6 +502,8 @@ public:
 
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
 
+    std::string msg() const { return _err_msg ? _err_msg->_msg : ""; }
+
 private:
     int _code;
     struct ErrMsg {
@@ -519,7 +522,7 @@ private:
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']';
-    ostr << (status._err_msg ? status._err_msg->_msg : "");
+    ostr << status.msg();
 #ifdef ENABLE_STACKTRACE
     if (status._err_msg && !status._err_msg->_stack.empty()) {
         ostr << '\n' << status._err_msg->_stack;

@@ -140,7 +140,6 @@ public class PushTask extends AgentTask {
                     ArrayList<String> conditionValues = new ArrayList<String>();
                     SlotRef slotRef = (SlotRef) condition.getChild(0);
                     String columnName = new String(slotRef.getColumnName());
-                    tCondition.setColumnName(columnName);
                     TColumn column = colNameToColDesc.get(slotRef.getColumnName());
                     if (column == null) {
                         columnName = CreateMaterializedViewStmt.mvColumnBuilder(columnName);
