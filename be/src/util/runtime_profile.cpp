@@ -52,8 +52,10 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
           _metadata(-1),
           _timestamp(-1),
           _is_averaged_profile(is_averaged_profile),
-          _counter_total_time(TUnit::TIME_NS, 0, 1),
+          _counter_total_time(TUnit::TIME_NS, 0, 3),
           _local_time_percent(0) {
+    // TotalTime counter has level3 to disable it from plan profile, because
+    // it contains its child running time, we use exec time instead.
     _counter_map["TotalTime"] = &_counter_total_time;
 }
 
