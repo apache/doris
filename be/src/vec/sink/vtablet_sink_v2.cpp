@@ -250,6 +250,9 @@ Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, Streams& streams) {
 }
 
 Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
+    COUNTER_UPDATE(_blocks_sent_counter, 1);
+    COUNTER_UPDATE(_output_rows_counter, input_block->rows());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -359,6 +362,7 @@ Status VOlapTableSinkV2::_cancel(Status status) {
 }
 
 Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
+    SCOPED_TIMER(_exec_timer);
     if (_closed) {
         return _close_status;
     }

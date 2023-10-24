@@ -132,6 +132,9 @@ Status VResultSink::second_phase_fetch_data(RuntimeState* state, Block* final_bl
 }
 
 Status VResultSink::send(RuntimeState* state, Block* block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
+    COUNTER_UPDATE(_blocks_sent_counter, 1);
+    COUNTER_UPDATE(_output_rows_counter, block->rows());
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         DCHECK(_sink_type == TResultSinkType::MYSQL_PROTOCAL);
         RETURN_IF_ERROR(second_phase_fetch_data(state, block));
