@@ -116,6 +116,13 @@ Status EngineCloneTask::_do_clone() {
     // Check local tablet exist or not
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(_clone_req.tablet_id);
+    if (tablet && tablet->tablet_state() == TABLET_NOTREADY) {
+        LOG(WARNING) << "tablet state is not ready when clone, need to drop old tablet, tablet_id="
+                     << tablet->tablet_id();
+        RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->drop_tablet(
+                tablet->tablet_id(), tablet->replica_id(), false));
+        tablet.reset();
+    }
     bool is_new_tablet = tablet == nullptr;
     // try to incremental clone
     std::vector<Version> missed_versions;

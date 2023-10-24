@@ -477,6 +477,9 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
 
             auto& read_source = tablets_read_source.emplace_back();
             {
+                LOG_INFO("capture rs readers")
+                        .tag("tablet_id", tablet->tablet_id())
+                        .tag("version", version);
                 std::shared_lock rdlock(tablet->get_header_lock());
                 auto st = tablet->capture_rs_readers({0, version}, &read_source.rs_splits);
                 if (!st.ok()) {

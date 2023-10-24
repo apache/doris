@@ -219,6 +219,9 @@ Status NewOlapScanner::init() {
             Version rd_version(0, _version);
             ReadSource read_source;
             {
+                LOG_INFO("capture rs readers")
+                        .tag("tablet_id", _tablet->tablet_id())
+                        .tag("version", _version);
                 std::shared_lock rdlock(_tablet->get_header_lock());
                 auto st = _tablet->capture_rs_readers(rd_version, &read_source.rs_splits);
                 if (!st.ok()) {
