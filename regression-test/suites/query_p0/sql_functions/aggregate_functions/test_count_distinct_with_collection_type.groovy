@@ -31,7 +31,6 @@ suite("test_count_distinct_with_collection_type", "p0") {
     DISTRIBUTED BY HASH(`id`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1",
-    "min_load_replica_num" = "-1",
     "is_being_synced" = "false",
     "storage_format" = "V2",
     "light_schema_change" = "true",

@@ -253,16 +253,12 @@ public class UtFrameUtils {
         FeConstants.runningUnitTest = true;
         FeConstants.enableInternalSchemaDb = false;
         int feRpcPort = startFEServer(runningDir);
-        List<Backend> bes = Lists.newArrayList();
         for (int i = 0; i < backendNum; i++) {
             String host = "127.0.0." + (i + 1);
             createBackend(host, feRpcPort);
         }
-        System.out.println("after create backend");
-        checkBEHeartbeat(bes);
         // sleep to wait first heartbeat
-        // Thread.sleep(6000);
-        System.out.println("after create backend2");
+        Thread.sleep(6000);
     }
 
     public static Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
@@ -297,7 +293,6 @@ public class UtFrameUtils {
         diskInfo1.setTotalCapacityB(1000000);
         diskInfo1.setAvailableCapacityB(500000);
         diskInfo1.setDataUsedCapacityB(480000);
-        diskInfo1.setPathHash(be.getId());
         disks.put(diskInfo1.getRootPath(), diskInfo1);
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(true);
