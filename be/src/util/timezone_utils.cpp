@@ -36,6 +36,7 @@
 #include <shared_mutex>
 #include <string>
 
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 
@@ -77,8 +78,10 @@ void TimezoneUtils::load_timezone_names() {
     path += '/';
 
     if (!std::filesystem::exists(path)) {
-        LOG_WARNING("Cannot find system tzfile. Abandon to preload timezone name cache.");
-        return;
+        LOG_WARNING("Cannot find system tzfile. Use default instead.");
+        path = config::default_tzfiles_path + '/';
+        CHECK(std::filesystem::exists(path))
+                << "Can't find system tzfiles or default tzfiles neither.";
     }
 
     auto path_prefix_len = path.size();
@@ -236,10 +239,12 @@ void TimezoneUtils::load_timezones_to_cache() {
     base_str += tzdir;
     base_str += '/';
 
-    const auto root_path = std::filesystem::path {base_str};
+    auto root_path = std::filesystem::path {base_str};
     if (!std::filesystem::exists(root_path)) {
-        LOG_WARNING("Cannot find system tzfile. Abandon to preload timezone cache.");
-        return;
+        LOG_WARNING("Cannot find system tzfile. Use default instead.");
+        root_path = config::default_tzfiles_path + '/';
+        CHECK(std::filesystem::exists(root_path))
+                << "Can't find system tzfiles or default tzfiles neither.";
     }
 
     std::set<std::string> ignore_paths = {"posix", "right"}; // duplications
@@ -266,7 +271,7 @@ void TimezoneUtils::load_timezones_to_cache() {
 
 bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) {
     zone_cache_rw_lock.lock_shared();
-    if (auto it = zone_cache->find(timezone); it != nullptr) {
+    if (auto it = zone_cache->find(timezone); it != zone_cache->end()) {
         ctz = it->second;
         zone_cache_rw_lock.unlock_shared();
         return true;

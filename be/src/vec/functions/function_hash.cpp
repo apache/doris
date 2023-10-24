@@ -20,13 +20,6 @@
 
 #include "vec/functions/function_hash.h"
 
-#include <glog/logging.h>
-#include <stddef.h>
-
-#include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
-#include <string>
-
 #include "common/status.h"
 #include "util/hash_util.hpp"
 #include "util/murmur_hash3.h"
@@ -34,8 +27,8 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/bit_cast.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
@@ -45,52 +38,54 @@
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
+constexpr uint64_t emtpy_value = 0xe28dbde7fe22e41c;
+
 struct MurmurHash2Impl64 {
     static constexpr auto name = "murmurHash2_64";
     using ReturnType = UInt64;
 
     static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
-        ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
-        vec_to.get_data().assign(input_rows_count, static_cast<ReturnType>(0xe28dbde7fe22e41c));
+        auto& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
+        vec_to.get_data().assign(input_rows_count, static_cast<ReturnType>(emtpy_value));
         return Status::OK();
     }
 
     static Status first_apply(const IDataType* type, const IColumn* column, size_t input_rows_count,
                               IColumn& icolumn) {
-        execute_any<true>(type, column, icolumn, input_rows_count);
+        static_cast<void>(execute_any<true>(type, column, icolumn, input_rows_count));
         return Status::OK();
     }
 
     static Status combine_apply(const IDataType* type, const IColumn* column,
                                 size_t input_rows_count, IColumn& icolumn) {
-        execute_any<false>(type, column, icolumn, input_rows_count);
+        static_cast<void>(execute_any<false>(type, column, icolumn, input_rows_count));
         return Status::OK();
     }
 
     template <typename FromType, bool first>
     static Status execute_int_type(const IColumn* column, IColumn& col_to,
                                    size_t input_rows_count) {
-        if (const ColumnVector<FromType>* col_from =
-                    check_and_get_column<ColumnVector<FromType>>(column)) {
+        if (const auto* col_from = check_and_get_column<ColumnVector<FromType>>(column)) {
             const typename ColumnVector<FromType>::Container& vec_from = col_from->get_data();
             size_t size = vec_from.size();
             for (size_t i = 0; i < size; ++i) {
                 ReturnType val = HashUtil::murmur_hash2_64(
                         reinterpret_cast<const char*>(reinterpret_cast<const char*>(&vec_from[i])),
                         sizeof(vec_from[i]), 0);
-                if (first)
+                if (first) {
                     col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
-                else
+                } else {
                     assert_cast<ColumnVector<ReturnType>&>(col_to).get_data()[i] =
                             IntHash64Impl::apply(
                                     assert_cast<ColumnVector<ReturnType>&>(col_to).get_data()[i]) ^
                             val;
+                }
             }
         } else if (auto col_from_const =
                            check_and_get_column_const<ColumnVector<FromType>>(column)) {
-            auto value = col_from_const->template get_value<FromType>();
+            ReturnType value = col_from_const->template get_value<FromType>();
             ReturnType val;
-            val = IntHash64Impl::apply(ext::bit_cast<ReturnType>(value));
+            val = IntHash64Impl::apply(value);
             for (size_t i = 0; i < input_rows_count; ++i) {
                 if (first) {
                     col_to.insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
@@ -111,7 +106,7 @@ struct MurmurHash2Impl64 {
 
     template <bool first>
     static Status execute_string(const IColumn* column, IColumn& col_to, size_t input_rows_count) {
-        if (const ColumnString* col_from = check_and_get_column<ColumnString>(column)) {
+        if (const auto* col_from = check_and_get_column<ColumnString>(column)) {
             const typename ColumnString::Chars& data = col_from->get_chars();
             const typename ColumnString::Offsets& offsets = col_from->get_offsets();
             size_t size = offsets.size();
@@ -122,19 +117,20 @@ struct MurmurHash2Impl64 {
                         reinterpret_cast<const char*>(&data[current_offset]),
                         offsets[i] - current_offset, 0);
 
-                if (first)
+                if (first) {
                     col_to.insert_data(reinterpret_cast<const char*>(&val), 0);
-                else
+                } else {
                     assert_cast<ColumnVector<ReturnType>&>(col_to).get_data()[i] =
                             IntHash64Impl::apply(
                                     assert_cast<ColumnVector<ReturnType>&>(col_to).get_data()[i]) ^
                             val;
+                }
 
                 current_offset = offsets[i];
             }
         } else if (const ColumnConst* col_from_const =
                            check_and_get_column_const_string_or_fixedstring(column)) {
-            String value = col_from_const->get_value<String>().data();
+            auto value = col_from_const->get_value<String>();
             const ReturnType val = HashUtil::murmur_hash2_64(value.data(), value.size(), 0);
 
             for (size_t i = 0; i < input_rows_count; ++i) {
@@ -192,7 +188,7 @@ struct MurmurHash3Impl {
 
     static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
         ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
-        vec_to.get_data().assign(input_rows_count, static_cast<ReturnType>(0xe28dbde7fe22e41c));
+        vec_to.get_data().assign(input_rows_count, static_cast<ReturnType>(emtpy_value));
         return Status::OK();
     }
 
@@ -210,7 +206,7 @@ struct MurmurHash3Impl {
     static Status execute(const IDataType* type, const IColumn* column, size_t input_rows_count,
                           IColumn& col_to) {
         auto* col_to_data = assert_cast<ColumnVector<ReturnType>&>(col_to).get_data().data();
-        if (const ColumnString* col_from = check_and_get_column<ColumnString>(column)) {
+        if (const auto* col_from = check_and_get_column<ColumnString>(column)) {
             const typename ColumnString::Chars& data = col_from->get_chars();
             const typename ColumnString::Offsets& offsets = col_from->get_offsets();
             size_t size = offsets.size();
@@ -235,18 +231,20 @@ struct MurmurHash3Impl {
                     if constexpr (std::is_same_v<ReturnType, Int32>) {
                         col_to_data[i] = HashUtil::murmur_hash3_32(
                                 reinterpret_cast<const char*>(&data[current_offset]),
-                                offsets[i] - current_offset, ext::bit_cast<UInt32>(col_to[i]));
+                                offsets[i] - current_offset,
+                                assert_cast<ColumnInt32&>(col_to).get_data()[i]);
                     } else {
                         murmur_hash3_x64_64(reinterpret_cast<const char*>(&data[current_offset]),
                                             offsets[i] - current_offset,
-                                            ext::bit_cast<UInt64>(col_to[i]), col_to_data + i);
+                                            assert_cast<ColumnInt64&>(col_to).get_data()[i],
+                                            col_to_data + i);
                     }
                 }
                 current_offset = offsets[i];
             }
         } else if (const ColumnConst* col_from_const =
                            check_and_get_column_const_string_or_fixedstring(column)) {
-            String value = col_from_const->get_value<String>().data();
+            auto value = col_from_const->get_value<String>();
             for (size_t i = 0; i < input_rows_count; ++i) {
                 if (first) {
                     if constexpr (std::is_same_v<ReturnType, Int32>) {
@@ -263,10 +261,12 @@ struct MurmurHash3Impl {
                 } else {
                     if constexpr (std::is_same_v<ReturnType, Int32>) {
                         col_to_data[i] = HashUtil::murmur_hash3_32(
-                                value.data(), value.size(), ext::bit_cast<UInt32>(col_to[i]));
+                                value.data(), value.size(),
+                                assert_cast<ColumnInt32&>(col_to).get_data()[i]);
                     } else {
                         murmur_hash3_x64_64(value.data(), value.size(),
-                                            ext::bit_cast<UInt64>(col_to[i]), col_to_data + i);
+                                            assert_cast<ColumnInt64&>(col_to).get_data()[i],
+                                            col_to_data + i);
                     }
                 }
             }

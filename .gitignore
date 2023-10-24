@@ -1,4 +1,5 @@
 # ignore file with wildcard anywhere
+*.swo
 *.swp
 *.pyc
 *.class
@@ -96,6 +97,7 @@ be/tags
 be/test/olap/test_data/tablet_meta_test.hdr
 be/.devcontainer/
 be/src/apache-orc/
+zoneinfo/
 
 ## tools
 tools/ssb-tools/ssb-data/
@@ -120,3 +122,6 @@ lru_cache_test
 /conf/log4j2-spring.xml
 /fe/fe-core/src/test/resources/real-help-resource.zip
 /ui/dist
+
+# other
+compile_commands.json

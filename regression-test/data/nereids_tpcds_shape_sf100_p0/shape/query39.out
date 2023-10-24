@@ -8,17 +8,18 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)
-------------------hashJoin[INNER_JOIN](inventory.inv_item_sk = item.i_item_sk)
---------------------hashJoin[INNER_JOIN](inventory.inv_date_sk = date_dim.d_date_sk)
-----------------------PhysicalOlapScan[inventory]
+----------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk))otherCondition=()
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_item_sk = item.i_item_sk))otherCondition=()
+----------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk))otherCondition=()
+------------------------PhysicalOlapScan[inventory]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((date_dim.d_year = 1998) and d_moy IN (1, 2))
+------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(d_moy IN (1, 2)(date_dim.d_year = 1998))
-----------------------------PhysicalOlapScan[date_dim]
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[item]
+--------------------------PhysicalOlapScan[item]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[warehouse]
@@ -27,7 +28,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute
 --------PhysicalQuickSort
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN](inv1.w_warehouse_sk = inv2.w_warehouse_sk)(inv1.i_item_sk = inv2.i_item_sk)
+------------hashJoin[INNER_JOIN] hashCondition=((inv1.i_item_sk = inv2.i_item_sk) and (inv1.w_warehouse_sk = inv2.w_warehouse_sk))otherCondition=()
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------filter((inv1.d_moy = 1))

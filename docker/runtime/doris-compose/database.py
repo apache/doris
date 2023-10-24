@@ -38,9 +38,10 @@ class FEState(object):
 
 class BEState(object):
 
-    def __init__(self, id, decommissioned, alive, tablet_num, last_heartbeat,
-                 err_msg):
+    def __init__(self, id, backend_id, decommissioned, alive, tablet_num,
+                 last_heartbeat, err_msg):
         self.id = id
+        self.backend_id = backend_id
         self.decommissioned = decommissioned
         self.alive = alive
         self.tablet_num = tablet_num
@@ -120,7 +121,7 @@ class DBManager(object):
         except Exception as e:
             if str(e).find("Backend does not exist") >= 0:
                 LOG.info("Decommission be {} with id {} from db succ " \
-                        "cause it does not exist in db.",format(be_endpoint, id))
+                        "cause it does not exist in db.".format(be_endpoint, id))
                 return
             raise e
 
@@ -142,12 +143,12 @@ class DBManager(object):
     def _load_fe_states(self, query_ports):
         fe_states = {}
         alive_master_fe_port = None
-        for record in self._exec_query("show frontends;"):
-            ip = record[1]
-            is_master = record[7] == "true"
-            alive = record[10] == "true"
-            last_heartbeat = record[12]
-            err_msg = record[14]
+        for record in self._exec_query('''
+            select Host, IsMaster, Alive, LastHeartbeat, ErrMsg
+            from frontends()'''):
+            ip, is_master, alive, last_heartbeat, err_msg = record
+            is_master = utils.is_true(is_master)
+            alive = utils.is_true(alive)
             id = CLUSTER.Node.get_id_from_ip(ip)
             query_port = query_ports.get(id, None)
             fe = FEState(id, query_port, is_master, alive, last_heartbeat,
@@ -162,16 +163,17 @@ class DBManager(object):
 
     def _load_be_states(self):
         be_states = {}
-        for record in self._exec_query("show backends;"):
-            ip = record[1]
-            last_heartbeat = record[7]
-            alive = record[8] == "true"
-            decommissioned = record[9] == "true"
-            tablet_num = int(record[10])
-            err_msg = record[18]
+        for record in self._exec_query('''
+            select BackendId, Host, LastHeartbeat, Alive, SystemDecommissioned, TabletNum, ErrMsg
+            from backends()'''):
+            backend_id, ip, last_heartbeat, alive, decommissioned, tablet_num, err_msg = record
+            backend_id = int(backend_id)
+            alive = utils.is_true(alive)
+            decommissioned = utils.is_true(decommissioned)
+            tablet_num = int(tablet_num)
             id = CLUSTER.Node.get_id_from_ip(ip)
-            be = BEState(id, decommissioned, alive, tablet_num, last_heartbeat,
-                         err_msg)
+            be = BEState(id, backend_id, decommissioned, alive, tablet_num,
+                         last_heartbeat, err_msg)
             be_states[id] = be
         self.be_states = be_states
 

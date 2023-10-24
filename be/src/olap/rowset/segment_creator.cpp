@@ -128,7 +128,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
     VLOG_DEBUG << "tablet_id:" << _context.tablet_id
-               << " flushing filename: " << writer->get_data_dir()->path()
+               << " flushing rowset_dir: " << _context.rowset_dir
                << " rowset_id:" << _context.rowset_id;
 
     KeyBoundsPB key_bounds;
@@ -179,7 +179,7 @@ int64_t SegmentFlusher::Writer::max_row_to_add(size_t row_avg_size_in_bytes) {
 }
 
 Status SegmentCreator::init(const RowsetWriterContext& rowset_writer_context) {
-    _segment_flusher.init(rowset_writer_context);
+    static_cast<void>(_segment_flusher.init(rowset_writer_context));
     return Status::OK();
 }
 

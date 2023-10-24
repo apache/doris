@@ -131,7 +131,7 @@ void FileBlock::reset_downloader(std::lock_guard<std::mutex>& segment_lock) {
 
 void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& segment_lock) {
     if (_downloaded_size == range().size()) {
-        set_downloaded(segment_lock);
+        static_cast<void>(set_downloaded(segment_lock));
     } else {
         _downloaded_size = 0;
         _download_state = State::EMPTY;
@@ -193,6 +193,36 @@ Status FileBlock::read_at(Slice buffer, size_t read_offset) {
     size_t bytes_reads = buffer.size;
     RETURN_IF_ERROR(reader->read_at(read_offset, buffer, &bytes_reads));
     DCHECK(bytes_reads == buffer.size);
+    return st;
+}
+
+bool FileBlock::change_cache_type(CacheType new_type) {
+    std::unique_lock segment_lock(_mutex);
+    if (new_type == _cache_type) {
+        return true;
+    }
+    if (_download_state == State::DOWNLOADED) {
+        std::error_code ec;
+        std::filesystem::rename(get_path_in_local_cache(),
+                                _cache->get_path_in_local_cache(key(), offset(), new_type), ec);
+        if (ec) {
+            LOG(ERROR) << "change cache type failed due to rename error " << ec.message();
+            return false;
+        }
+    }
+    _cache_type = new_type;
+    return true;
+}
+
+Status FileBlock::change_cache_type_self(CacheType new_type) {
+    std::lock_guard cache_lock(_cache->_mutex);
+    std::unique_lock segment_lock(_mutex);
+    Status st = Status::OK();
+    if (_cache_type == CacheType::TTL || new_type == _cache_type) {
+        return st;
+    }
+    _cache_type = new_type;
+    _cache->change_cache_type(_file_key, _segment_range.left, new_type, cache_lock);
     return st;
 }
 

@@ -1259,10 +1259,10 @@ public:
     }
 
     static std::string empty_bitmap() {
-        static BitmapValue btmap;
+        static BitmapValue bitmap;
         std::string buf;
-        buf.resize(btmap.getSizeInBytes());
-        btmap.write_to((char*)buf.c_str());
+        buf.resize(bitmap.getSizeInBytes());
+        bitmap.write_to(buf.data());
         return buf;
     }
 
@@ -1335,6 +1335,7 @@ public:
                 return is_v1 ? BitmapTypeCode::type::BITMAP64 : BitmapTypeCode::type::BITMAP64_V2;
             }
         }
+        __builtin_unreachable();
     }
 
     template <typename T>

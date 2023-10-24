@@ -81,9 +81,10 @@ public:
     using Base = AggSinkLocalState<AggDependency, StreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(StreamingAggSinkLocalState);
     StreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
+    ~StreamingAggSinkLocalState() override = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
 
 private:
@@ -108,6 +109,7 @@ private:
 class StreamingAggSinkOperatorX final : public AggSinkOperatorX<StreamingAggSinkLocalState> {
 public:
     StreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    ~StreamingAggSinkOperatorX() override = default;
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;

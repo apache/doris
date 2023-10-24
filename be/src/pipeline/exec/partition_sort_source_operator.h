@@ -57,24 +57,18 @@ public:
     using Base = PipelineXLocalState<PartitionSortDependency>;
     PartitionSortSourceLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<PartitionSortDependency>(state, parent),
-              _get_next_timer(nullptr) {}
+              _get_sorted_timer(nullptr),
+              _get_next_timer(nullptr),
+              _num_rows_returned(0) {}
 
-    Status init(RuntimeState* state, LocalStateInfo& info) override {
-        RETURN_IF_ERROR(PipelineXLocalState<PartitionSortDependency>::init(state, info));
-        _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
-        _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
-        _shared_state->previous_row = std::make_unique<vectorized::SortCursorCmp>();
-        return Status::OK();
-    }
-
-    Status close(RuntimeState* state) override;
-
-    int64_t _num_rows_returned = 0;
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
 
 private:
     friend class PartitionSortSourceOperatorX;
     RuntimeProfile::Counter* _get_sorted_timer;
-    RuntimeProfile::Counter* _get_next_timer = nullptr;
+    RuntimeProfile::Counter* _get_next_timer;
+    int64_t _num_rows_returned;
+    int _sort_idx = 0;
 };
 
 class PartitionSortSourceOperatorX final : public OperatorX<PartitionSortSourceLocalState> {

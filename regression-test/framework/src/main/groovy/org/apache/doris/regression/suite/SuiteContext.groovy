@@ -29,6 +29,12 @@ import java.sql.DriverManager
 import java.util.concurrent.ExecutorService
 import java.util.function.Function
 
+class ConnectionInfo {
+    Connection conn
+    String username
+    String password
+}
+
 @Slf4j
 @CompileStatic
 class SuiteContext implements Closeable {
@@ -36,7 +42,9 @@ class SuiteContext implements Closeable {
     public final String suiteName
     public final String group
     public final String dbName
-    public final ThreadLocal<Connection> threadLocalConn = new ThreadLocal<>()
+    public final ThreadLocal<ConnectionInfo> threadLocalConn = new ThreadLocal<>()
+    public final ThreadLocal<Connection> threadHiveDockerConn = new ThreadLocal<>()
+    public final ThreadLocal<Connection> threadHiveRemoteConn = new ThreadLocal<>()
     private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
     public final Config config
     public final File dataPath
@@ -119,10 +127,31 @@ class SuiteContext implements Closeable {
     }
 
     Connection getConnection() {
-        def threadConn = threadLocalConn.get()
+        def threadConnInfo = threadLocalConn.get()
+        if (threadConnInfo == null) {
+            threadConnInfo = new ConnectionInfo()
+            threadConnInfo.conn = config.getConnectionByDbName(dbName)
+            threadConnInfo.username = config.jdbcUser
+            threadConnInfo.password = config.jdbcPassword
+            threadLocalConn.set(threadConnInfo)
+        }
+        return threadConnInfo.conn
+    }
+
+    Connection getHiveDockerConnection(){
+        def threadConn = threadHiveDockerConn.get()
         if (threadConn == null) {
-            threadConn = config.getConnectionByDbName(dbName)
-            threadLocalConn.set(threadConn)
+            threadConn = getConnectionByHiveDockerConfig()
+            threadHiveDockerConn.set(threadConn)
+        }
+        return threadConn
+    }
+
+    Connection getHiveRemoteConnection(){
+        def threadConn = threadHiveRemoteConn.get()
+        if (threadConn == null) {
+            threadConn = getConnectionByHiveRemoteConfig()
+            threadHiveRemoteConn.set(threadConn)
         }
         return threadConn
     }
@@ -160,6 +189,26 @@ class SuiteContext implements Closeable {
         return spec
     }
 
+    Connection getConnectionByHiveDockerConfig() {
+        Class.forName("org.apache.hive.jdbc.HiveDriver");
+        String hiveHost = config.otherConfigs.get("externalEnvIp")
+        String hivePort = config.otherConfigs.get("hiveServerPort")
+        String hiveJdbcUrl = "jdbc:hive2://${hiveHost}:${hivePort}/default"
+        String hiveJdbcUser =  "hadoop"
+        String hiveJdbcPassword = "hadoop"
+        return DriverManager.getConnection(hiveJdbcUrl, hiveJdbcUser, hiveJdbcPassword)
+    }
+
+    Connection getConnectionByHiveRemoteConfig() {
+        Class.forName("org.apache.hive.jdbc.HiveDriver");
+        String hiveHost = config.otherConfigs.get("extHiveHmsHost")
+        String hivePort = config.otherConfigs.get("extHiveServerPort")
+        String hiveJdbcUrl = "jdbc:hive2://${hiveHost}:${hivePort}/default"
+        String hiveJdbcUser =  "hadoop"
+        String hiveJdbcPassword = "hadoop"
+        return DriverManager.getConnection(hiveJdbcUrl, hiveJdbcUser, hiveJdbcPassword)
+    }
+
     Connection getTargetConnection(Suite suite) {
         def context = getSyncer(suite).context
         if (context.targetConnection == null) {
@@ -173,7 +222,11 @@ class SuiteContext implements Closeable {
         try {
             log.info("Create new connection for user '${user}'")
             return DriverManager.getConnection(url, user, password).withCloseable { newConn ->
-                threadLocalConn.set(newConn)
+                def newConnInfo = new ConnectionInfo()
+                newConnInfo.conn = newConn
+                newConnInfo.username = user
+                newConnInfo.password = password
+                threadLocalConn.set(newConnInfo)
                 return actionSupplier.call()
             }
         } finally {
@@ -272,15 +325,36 @@ class SuiteContext implements Closeable {
             }
         }
 
-        Connection conn = threadLocalConn.get()
+        ConnectionInfo conn = threadLocalConn.get()
         if (conn != null) {
             threadLocalConn.remove()
             try {
-                conn.close()
+                conn.conn.close()
             } catch (Throwable t) {
                 log.warn("Close connection failed", t)
             }
         }
+        
+        Connection hive_docker_conn = threadHiveDockerConn.get()
+        if (hive_docker_conn != null) {
+            threadHiveDockerConn.remove()
+            try {
+                hive_docker_conn.close()
+            } catch (Throwable t) {
+                log.warn("Close connection failed", t)
+            }
+        }
+        
+        Connection hive_remote_conn = threadHiveRemoteConn.get()
+        if (hive_remote_conn != null) {
+            threadHiveRemoteConn.remove()
+            try {
+                hive_remote_conn.close()
+            } catch (Throwable t) {
+                log.warn("Close connection failed", t)
+            }
+        }
+        
     }
 
     public <T> T start(Function<SuiteContext, T> func) {

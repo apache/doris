@@ -277,7 +277,10 @@ protected:
     // which will providea reference for operator memory.
     std::unique_ptr<MemTracker> _mem_tracker;
 
+    RuntimeProfile::Counter* _exec_timer;
     RuntimeProfile::Counter* _rows_returned_counter;
+    RuntimeProfile::Counter* _output_bytes_counter;
+    RuntimeProfile::Counter* _block_count_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
     RuntimeProfile::Counter* _memory_used_counter;
     RuntimeProfile::Counter* _projection_timer;
@@ -318,11 +321,6 @@ protected:
     static Status create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                               const DescriptorTbl& descs, ExecNode** node);
 
-    static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
-                                     const std::vector<TPlanNode>& tnodes,
-                                     const DescriptorTbl& descs, ExecNode* parent, int* node_idx,
-                                     ExecNode** root);
-
     virtual bool is_scan_node() const { return false; }
 
     void init_runtime_profile(const std::string& name);
@@ -333,6 +331,11 @@ protected:
     std::atomic<bool> _can_read = false;
 
 private:
+    static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
+                                     const std::vector<TPlanNode>& tnodes,
+                                     const DescriptorTbl& descs, ExecNode* parent, int* node_idx,
+                                     ExecNode** root);
+
     friend class pipeline::OperatorBase;
     bool _is_closed;
     bool _is_resource_released = false;

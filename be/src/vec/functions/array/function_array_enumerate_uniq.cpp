@@ -39,6 +39,7 @@
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_map.h"
+#include "vec/common/hash_table/hash_map_context.h"
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
 #include "vec/common/pod_array_fwd.h"
@@ -116,7 +117,7 @@ public:
 #endif // __GNUC__
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         ColumnRawPtrs data_columns(arguments.size());
         const ColumnArray::Offsets64* offsets = nullptr;
         ColumnPtr src_offsets;
@@ -205,11 +206,8 @@ public:
                 _execute_string(data_columns, *offsets, null_map, dst_values);
             }
         } else {
-            using HashMapContainer =
-                    HashMapWithStackMemory<UInt128, Int64, UInt128TrivialHash, INITIAL_SIZE_DEGREE>;
-            using HashMethod = ColumnsHashing::HashMethodHashed<DataTypeUInt64, Int64, false>;
-            _execute_by_hash<HashMapContainer, HashMethod, false>(data_columns, *offsets, nullptr,
-                                                                  dst_values);
+            _execute_by_hash<MethodSerialized<PHHashMap<StringRef, Int64>>, false>(
+                    data_columns, *offsets, nullptr, dst_values);
         }
 
         ColumnPtr nested_column = dst_nested_column->get_ptr();
@@ -231,18 +229,23 @@ public:
     }
 
 private:
-    template <typename HashMapContainer, typename HashMethod, bool is_nullable>
+    template <typename HashTableContext, bool is_nullable>
     void _execute_by_hash(const ColumnRawPtrs& columns, const ColumnArray::Offsets64& offsets,
                           [[maybe_unused]] const NullMap* null_map,
-                          ColumnInt64::Container& dst_values) {
-        HashMapContainer hash_map;
-        HashMethod hash_method(columns, {}, nullptr);
+                          ColumnInt64::Container& dst_values) const {
+        HashTableContext ctx;
+        ctx.init_serialized_keys(columns, columns[0]->size(),
+                                 null_map ? null_map->data() : nullptr);
+
+        using KeyGetter = typename HashTableContext::State;
+        KeyGetter key_getter(columns);
+
+        auto creator = [&](const auto& ctor, auto& key, auto& origin) { ctor(key, 0); };
+        auto creator_for_null_key = [&](auto& mapped) { mapped = 0; };
 
         ColumnArray::Offset64 prev_off = 0;
-        Arena pool;
-
         for (size_t off : offsets) {
-            hash_map.clear();
+            ctx.hash_table->clear_and_shrink();
             Int64 null_count = 0;
             for (ColumnArray::Offset64 j = prev_off; j < off; ++j) {
                 if constexpr (is_nullable) {
@@ -251,10 +254,9 @@ private:
                         continue;
                     }
                 }
-                auto result = hash_method.emplace_key(hash_map, j, pool);
-                auto idx = result.get_mapped() + 1;
-                result.set_mapped(idx);
-                dst_values[j] = idx;
+                auto& mapped = ctx.lazy_emplace(key_getter, j, creator, creator_for_null_key);
+                mapped++;
+                dst_values[j] = mapped;
             }
             prev_off = off;
         }
@@ -262,35 +264,26 @@ private:
 
     template <typename ColumnType>
     void _execute_number(const ColumnRawPtrs& columns, const ColumnArray::Offsets64& offsets,
-                         const NullMapType* null_map, ColumnInt64::Container& dst_values) {
+                         const NullMapType* null_map, ColumnInt64::Container& dst_values) const {
         using NestType = typename ColumnType::value_type;
         using ElementNativeType = typename NativeType<NestType>::Type;
-
-        using HashMapContainer =
-                HashMapWithStackMemory<ElementNativeType, Int64, DefaultHash<ElementNativeType>,
-                                       INITIAL_SIZE_DEGREE>;
         using HashMethod =
-                ColumnsHashing::HashMethodOneNumber<UInt64, Int64, ElementNativeType, false>;
+                MethodOneNumber<ElementNativeType,
+                                PHHashMap<ElementNativeType, Int64, HashCRC32<ElementNativeType>>>;
         if (null_map != nullptr) {
-            _execute_by_hash<HashMapContainer, HashMethod, false>(columns, offsets, null_map,
-                                                                  dst_values);
+            _execute_by_hash<HashMethod, true>(columns, offsets, null_map, dst_values);
         } else {
-            _execute_by_hash<HashMapContainer, HashMethod, true>(columns, offsets, nullptr,
-                                                                 dst_values);
+            _execute_by_hash<HashMethod, false>(columns, offsets, nullptr, dst_values);
         }
     }
 
     void _execute_string(const ColumnRawPtrs& columns, const ColumnArray::Offsets64& offsets,
-                         const NullMapType* null_map, ColumnInt64::Container& dst_values) {
-        using HashMapContainer = HashMapWithStackMemory<StringRef, Int64, DefaultHash<StringRef>,
-                                                        INITIAL_SIZE_DEGREE>;
-        using HashMethod = ColumnsHashing::HashMethodString<UInt64, Int64, false, false>;
+                         const NullMapType* null_map, ColumnInt64::Container& dst_values) const {
+        using HashMethod = MethodStringNoCache<PHHashMap<StringRef, Int64>>;
         if (null_map != nullptr) {
-            _execute_by_hash<HashMapContainer, HashMethod, false>(columns, offsets, nullptr,
-                                                                  dst_values);
+            _execute_by_hash<HashMethod, true>(columns, offsets, null_map, dst_values);
         } else {
-            _execute_by_hash<HashMapContainer, HashMethod, true>(columns, offsets, nullptr,
-                                                                 dst_values);
+            _execute_by_hash<HashMethod, false>(columns, offsets, nullptr, dst_values);
         }
     }
 };

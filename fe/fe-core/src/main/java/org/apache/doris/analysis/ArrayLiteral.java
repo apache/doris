@@ -40,7 +40,7 @@ public class ArrayLiteral extends LiteralExpr {
         children = new ArrayList<>();
     }
 
-    public ArrayLiteral(Type type, LiteralExpr... exprs) throws AnalysisException {
+    public ArrayLiteral(Type type, LiteralExpr... exprs) {
         this.type = type;
         children = new ArrayList<>(Arrays.asList(exprs));
         analysisDone();

@@ -38,6 +38,7 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/string_util.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 
 using std::string;
@@ -434,14 +435,24 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
     // check if tablet uid is valid
     if (_tablet_uid.hi == 0 && _tablet_uid.lo == 0) {
         LOG(FATAL) << "tablet_uid is invalid"
-                   << " tablet=" << full_name() << " _tablet_uid=" << _tablet_uid.to_string();
+                   << " tablet=" << tablet_id() << " _tablet_uid=" << _tablet_uid.to_string();
     }
     string meta_binary;
+
+    auto t1 = MonotonicMicros();
     RETURN_IF_ERROR(serialize(&meta_binary));
+    auto t2 = MonotonicMicros();
     Status status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
     if (!status.ok()) {
         LOG(FATAL) << "fail to save tablet_meta. status=" << status << ", tablet_id=" << tablet_id()
                    << ", schema_hash=" << schema_hash();
+    }
+    auto t3 = MonotonicMicros();
+    auto cost = t3 - t1;
+    if (cost > 1 * 1000 * 1000) {
+        LOG(INFO) << "save tablet(" << tablet_id() << ") meta too slow. serialize cost " << t2 - t1
+                  << "(us), serialized binary size: " << meta_binary.length()
+                  << "(bytes), write rocksdb cost " << t3 - t2 << "(us)";
     }
     return status;
 }
@@ -451,7 +462,7 @@ Status TabletMeta::serialize(string* meta_binary) {
     to_meta_pb(&tablet_meta_pb);
     bool serialize_success = tablet_meta_pb.SerializeToString(meta_binary);
     if (!serialize_success) {
-        LOG(FATAL) << "failed to serialize meta " << full_name();
+        LOG(FATAL) << "failed to serialize meta " << tablet_id();
     }
     return Status::OK();
 }
@@ -687,19 +698,6 @@ Version TabletMeta::max_version() const {
     return max_version;
 }
 
-// Find the rowset with specified version and return its schema
-// Currently, this API is used by delete condition
-const TabletSchemaSPtr TabletMeta::tablet_schema(Version version) const {
-    auto it = _rs_metas.begin();
-    while (it != _rs_metas.end()) {
-        if ((*it)->version() == version) {
-            return (*it)->tablet_schema();
-        }
-        ++it;
-    }
-    return nullptr;
-}
-
 Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     // check RowsetMeta is valid
     for (auto& rs : _rs_metas) {
@@ -707,7 +705,7 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
             if (rs->rowset_id() != rs_meta->rowset_id()) {
                 return Status::Error<PUSH_VERSION_ALREADY_EXIST>(
                         "version already exist. rowset_id={}, version={}, tablet={}",
-                        rs->rowset_id().to_string(), rs->version().to_string(), full_name());
+                        rs->rowset_id().to_string(), rs->version().to_string(), tablet_id());
             } else {
                 // rowsetid,version is equal, it is a duplicate req, skip it
                 return Status::OK();
@@ -826,36 +824,6 @@ RowsetMetaSharedPtr TabletMeta::acquire_stale_rs_meta_by_version(const Version& 
         }
     }
     return nullptr;
-}
-
-const std::vector<RowsetMetaSharedPtr> TabletMeta::delete_predicates() const {
-    std::vector<RowsetMetaSharedPtr> res;
-    for (auto& del_pred : _rs_metas) {
-        if (del_pred->has_delete_predicate()) {
-            res.push_back(del_pred);
-        }
-    }
-    return res;
-}
-
-bool TabletMeta::version_for_delete_predicate(const Version& version) {
-    if (version.first != version.second) {
-        return false;
-    }
-
-    for (auto& del_pred : _rs_metas) {
-        if (del_pred->version().first == version.first && del_pred->has_delete_predicate()) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-std::string TabletMeta::full_name() const {
-    std::stringstream ss;
-    ss << _tablet_id << "." << _schema_hash << "." << _tablet_uid.to_string();
-    return ss.str();
 }
 
 Status TabletMeta::set_partition_id(int64_t partition_id) {

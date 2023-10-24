@@ -8,18 +8,18 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](partsupp.ps_partkey = lineitem.l_partkey)(partsupp.ps_suppkey = lineitem.l_suppkey)
+----------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey))otherCondition=()
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](orders.o_orderkey = lineitem.l_orderkey)
+----------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey))otherCondition=()
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[orders]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN](supplier.s_suppkey = lineitem.l_suppkey)
+----------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey))otherCondition=()
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN](part.p_partkey = lineitem.l_partkey)
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey))otherCondition=()
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[lineitem]
@@ -28,7 +28,7 @@ PhysicalResultSink
 ----------------------------------------filter((p_name like '%green%'))
 ------------------------------------------PhysicalOlapScan[part]
 ------------------------------PhysicalDistribute
---------------------------------hashJoin[INNER_JOIN](supplier.s_nationkey = nation.n_nationkey)
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey))otherCondition=()
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[supplier]
 ----------------------------------PhysicalDistribute

@@ -70,7 +70,7 @@ suite("test_repeat_operator") {
         ORDER BY k1, k2,k3;
     """
     
-    sql"""set experimental_enable_pipeline_x_engine=false;    """
+    sql"""set experimental_enable_pipeline_x_engine=true;    """
 
     qt_pipelineX """
         SELECT k1, k2

@@ -72,7 +72,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& src_column_array = check_and_get_column<ColumnArray>(*src_column);
@@ -111,7 +111,7 @@ private:
         GE = 6,
     };
     template <typename T, ApplyOp op>
-    bool apply(T data, T comp) {
+    bool apply(T data, T comp) const {
         if constexpr (op == ApplyOp::EQ) {
             return data == comp;
         }
@@ -137,7 +137,7 @@ private:
     // need exception safety
     template <typename T, ApplyOp op>
     ColumnPtr _apply_internal(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                              const ColumnConst& cmp) {
+                              const ColumnConst& cmp) const {
         T rhs_val = *reinterpret_cast<const T*>(cmp.get_data_at(0).data);
         auto column_filter = ColumnUInt8::create(src_column.size(), 0);
         auto& column_filter_data = column_filter->get_data();
@@ -218,7 +218,7 @@ private:
     // need exception safety
     Status _execute(const IColumn& nested_src, DataTypePtr nested_type,
                     const ColumnArray::Offsets64& offsets, const std::string& condition,
-                    const ColumnConst& rhs_value_column, ColumnPtr* dst) {
+                    const ColumnConst& rhs_value_column, ColumnPtr* dst) const {
         if (condition == "=") {
             APPLY_ALL_TYPES(nested_src, offsets, ApplyOp::EQ, rhs_value_column, dst);
         } else if (condition == "!=") {

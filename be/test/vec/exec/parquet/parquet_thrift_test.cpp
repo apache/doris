@@ -83,7 +83,7 @@ TEST_F(ParquetThriftReaderTest, normal) {
 
     FileMetaData* meta_data;
     size_t meta_size;
-    parse_thrift_footer(reader, &meta_data, &meta_size, nullptr);
+    static_cast<void>(parse_thrift_footer(reader, &meta_data, &meta_size, nullptr));
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
     LOG(WARNING) << "=====================================";
@@ -117,10 +117,10 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
     FileMetaData* metadata;
     size_t meta_size;
-    parse_thrift_footer(reader, &metadata, &meta_size, nullptr);
+    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schemaDescriptor;
-    schemaDescriptor.parse_from_thrift(t_metadata.schema);
+    static_cast<void>(schemaDescriptor.parse_from_thrift(t_metadata.schema));
 
     // table columns
     ASSERT_EQ(schemaDescriptor.get_column_index("name"), 0);
@@ -195,11 +195,11 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     ColumnChunkReader chunk_reader(&stream_reader, column_chunk, field_schema, &ctz, nullptr);
     // initialize chunk reader
-    chunk_reader.init();
+    static_cast<void>(chunk_reader.init());
     // seek to next page header
-    chunk_reader.next_page();
+    static_cast<void>(chunk_reader.next_page());
     // load page data into underlying container
-    chunk_reader.load_page_data();
+    static_cast<void>(chunk_reader.load_page_data());
     int rows = chunk_reader.remaining_num_values();
     // definition levels
     if (field_schema->definition_level == 0) { // required field
@@ -391,37 +391,40 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
     create_block(block);
     FileMetaData* metadata;
     size_t meta_size;
-    parse_thrift_footer(reader, &metadata, &meta_size, nullptr);
+    static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
     FieldDescriptor schema_descriptor;
-    schema_descriptor.parse_from_thrift(t_metadata.schema);
+    static_cast<void>(schema_descriptor.parse_from_thrift(t_metadata.schema));
     level_t defs[rows];
 
     for (int c = 0; c < 14; ++c) {
         auto& column_name_with_type = block->get_by_position(c);
         auto& data_column = column_name_with_type.column;
         auto& data_type = column_name_with_type.type;
-        get_column_values(reader, &t_metadata.row_groups[0].columns[c],
-                          const_cast<FieldSchema*>(schema_descriptor.get_column(c)), data_column,
-                          data_type, defs);
+        static_cast<void>(
+                get_column_values(reader, &t_metadata.row_groups[0].columns[c],
+                                  const_cast<FieldSchema*>(schema_descriptor.get_column(c)),
+                                  data_column, data_type, defs));
     }
     // `date_v2_col` date, // 14 - 13, DATEV2
     {
         auto& column_name_with_type = block->get_by_position(14);
         auto& data_column = column_name_with_type.column;
         auto& data_type = column_name_with_type.type;
-        get_column_values(reader, &t_metadata.row_groups[0].columns[13],
-                          const_cast<FieldSchema*>(schema_descriptor.get_column(13)), data_column,
-                          data_type, defs);
+        static_cast<void>(
+                get_column_values(reader, &t_metadata.row_groups[0].columns[13],
+                                  const_cast<FieldSchema*>(schema_descriptor.get_column(13)),
+                                  data_column, data_type, defs));
     }
     // `timestamp_v2_col` timestamp, // 15 - 9, DATETIMEV2
     {
         auto& column_name_with_type = block->get_by_position(15);
         auto& data_column = column_name_with_type.column;
         auto& data_type = column_name_with_type.type;
-        get_column_values(reader, &t_metadata.row_groups[0].columns[9],
-                          const_cast<FieldSchema*>(schema_descriptor.get_column(9)), data_column,
-                          data_type, defs);
+        static_cast<void>(
+                get_column_values(reader, &t_metadata.row_groups[0].columns[9],
+                                  const_cast<FieldSchema*>(schema_descriptor.get_column(9)),
+                                  data_column, data_type, defs));
     }
 
     io::FileReaderSPtr result;
@@ -431,7 +434,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
     result_buf[result->size()] = '\0';
     size_t bytes_read;
     Slice res(result_buf, result->size());
-    result->read_at(0, res, &bytes_read);
+    static_cast<void>(result->read_at(0, res, &bytes_read));
     ASSERT_STREQ(block->dump_data(0, rows).c_str(), reinterpret_cast<char*>(result_buf));
     delete metadata;
 }
@@ -513,7 +516,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     // prepare metadata
     FileMetaData* meta_data;
     size_t meta_size;
-    parse_thrift_footer(file_reader, &meta_data, &meta_size, nullptr);
+    static_cast<void>(parse_thrift_footer(file_reader, &meta_data, &meta_size, nullptr));
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
 
     cctz::time_zone ctz;
@@ -553,7 +556,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     result_buf[result->size()] = '\0';
     size_t bytes_read;
     Slice res(result_buf, result->size());
-    result->read_at(0, res, &bytes_read);
+    static_cast<void>(result->read_at(0, res, &bytes_read));
     ASSERT_STREQ(block.dump_data(0, 10).c_str(), reinterpret_cast<char*>(result_buf));
     delete meta_data;
 }

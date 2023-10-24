@@ -90,7 +90,7 @@ public:
         return Status::OK();
     }
 
-    Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
     Status _distinct_pre_agg_with_serialized_key(vectorized::Block* in_block,
                                                  vectorized::Block* out_block);
 
@@ -103,6 +103,7 @@ private:
     std::unique_ptr<vectorized::Block> _output_block = vectorized::Block::create_unique();
     std::shared_ptr<char> dummy_mapped_data = nullptr;
     vectorized::IColumn::Selector _distinct_row;
+    vectorized::Arena _arena;
     int64_t _output_distinct_rows = 0;
 };
 
@@ -116,7 +117,7 @@ public:
                 SourceState source_state) override;
 
     WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
+        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
         return local_state._dependency->write_blocked_by();
     }
 };

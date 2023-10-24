@@ -31,6 +31,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/runtime_filter.h"
 #include "runtime/exec_env.h"
@@ -218,7 +219,8 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
 
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
-    cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, -1, false);
+    static_cast<void>(
+            cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, -1, false));
     _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
     return Status::OK();
 }
@@ -240,7 +242,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
 
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
-    cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options);
+    static_cast<void>(cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options));
     _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
     return Status::OK();
 }
@@ -321,7 +323,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         RuntimeFilterWrapperHolder holder;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_state, &params, pool, holder.getHandle()));
         RETURN_IF_ERROR(cntVal->filter->merge_from(holder.getHandle()->get()));
-        cntVal->arrive_id.insert(UniqueId(request->fragment_id()));
+        cntVal->arrive_id.insert(UniqueId(request->fragment_instance_id()));
         merged_size = cntVal->arrive_id.size();
         // TODO: avoid log when we had acquired a lock
         VLOG_ROW << "merge size:" << merged_size << ":" << cntVal->producer_size;
@@ -440,10 +442,11 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 }
                 rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
 
-                // set fragment-id
-                auto request_fragment_id = rpc_contexts[cur]->request.mutable_fragment_id();
-                request_fragment_id->set_hi(targets[cur].target_fragment_instance_id.hi);
-                request_fragment_id->set_lo(targets[cur].target_fragment_instance_id.lo);
+                // set fragment_instance_id
+                auto request_fragment_instance_id =
+                        rpc_contexts[cur]->request.mutable_fragment_instance_id();
+                request_fragment_instance_id->set_hi(targets[cur].target_fragment_instance_id.hi);
+                request_fragment_instance_id->set_lo(targets[cur].target_fragment_instance_id.lo);
 
                 std::shared_ptr<PBackendService_Stub> stub(
                         ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
@@ -561,7 +564,7 @@ Status RuntimeFilterMergeController::remove_entity(UniqueId query_id) {
 // auto called while call ~std::shared_ptr<RuntimeFilterMergeControllerEntity>
 void runtime_filter_merge_entity_close(RuntimeFilterMergeController* controller,
                                        RuntimeFilterMergeControllerEntity* entity) {
-    controller->remove_entity(entity->query_id());
+    static_cast<void>(controller->remove_entity(entity->query_id()));
     delete entity;
 }
 

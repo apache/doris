@@ -39,6 +39,8 @@ suite("test_hive_hudi", "p2,external,hive,hudi") {
         // match colum name in lower case
         qt_lowercase_column """select RoWiD, PaRtiTionID, PrEComB, VerSIonID from partitioned_mor_rt order by rowid, versionid"""
 
+        // test complex types
+        qt_complex_types """select * from complex_type_rt order by name desc limit 100"""
 
         // skip logs
         sql """drop catalog if exists ${catalog_name};"""

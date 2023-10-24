@@ -53,18 +53,6 @@
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/io/io_helper.h"
-
-namespace doris {
-namespace vectorized {
-class DataTypeDate;
-class VecDateTimeValue;
-struct DateTimeV2ValueType;
-struct DateV2ValueType;
-template <typename T>
-class DateV2Value;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
 
 template <typename DateValueType, typename ArgType>
@@ -189,7 +177,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 
         bool col_const[3];

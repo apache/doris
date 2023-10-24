@@ -8,19 +8,19 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](lineitem.l_orderkey = orders.o_orderkey)
+----------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey))otherCondition=()
 ------------------PhysicalProject
 --------------------filter((lineitem.l_returnflag = 'R'))
 ----------------------PhysicalOlapScan[lineitem]
 ------------------PhysicalDistribute
---------------------hashJoin[INNER_JOIN](customer.c_nationkey = nation.n_nationkey)
+--------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = nation.n_nationkey))otherCondition=()
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN](customer.c_custkey = orders.o_custkey)
+------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey))otherCondition=()
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[customer]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter((orders.o_orderdate < 1994-01-01)(orders.o_orderdate >= 1993-10-01))
+------------------------------filter((orders.o_orderdate < '1994-01-01') and (orders.o_orderdate >= '1993-10-01'))
 --------------------------------PhysicalOlapScan[orders]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject

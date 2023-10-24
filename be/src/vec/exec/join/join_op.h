@@ -103,17 +103,6 @@ public:
     }
     RowRefType* operator->() { return &(**this); }
 
-    bool operator==(const ForwardIterator<RowRefListType>& rhs) const {
-        if (ok() != rhs.ok()) {
-            return false;
-        }
-        if (first && rhs.first) {
-            return true;
-        }
-        return batch == rhs.batch && position == rhs.position;
-    }
-    bool operator!=(const ForwardIterator<RowRefListType>& rhs) const { return !(*this == rhs); }
-
     void operator++() {
         if (first) {
             first = false;
@@ -131,8 +120,6 @@ public:
 
     bool ok() const { return first || batch; }
 
-    static ForwardIterator<RowRefListType> end() { return ForwardIterator(); }
-
 private:
     RowRefListType* root;
     bool first;
@@ -147,7 +134,6 @@ struct RowRefList : RowRef {
     RowRefList(size_t row_num_, uint8_t block_offset_) : RowRef(row_num_, block_offset_) {}
 
     ForwardIterator<RowRefList> begin() { return ForwardIterator<RowRefList>(this); }
-    static ForwardIterator<RowRefList> end() { return ForwardIterator<RowRefList>::end(); }
 
     /// insert element after current one
     void insert(RowRefType&& row_ref, Arena& pool) {
@@ -157,8 +143,6 @@ struct RowRefList : RowRef {
         }
         next = next->insert(std::move(row_ref), pool);
     }
-
-    bool is_single() const { return next == nullptr; }
 
 private:
     friend class ForwardIterator<RowRefList>;
@@ -176,10 +160,6 @@ struct RowRefListWithFlag : RowRef {
         return ForwardIterator<RowRefListWithFlag>(this);
     }
 
-    static ForwardIterator<RowRefListWithFlag> end() {
-        return ForwardIterator<RowRefListWithFlag>::end();
-    }
-
     /// insert element after current one
     void insert(RowRef&& row_ref, Arena& pool) {
         if (!next) {
@@ -188,8 +168,6 @@ struct RowRefListWithFlag : RowRef {
         }
         next = next->insert(std::move(row_ref), pool);
     }
-
-    bool is_single() const { return next == nullptr; }
 
     bool visited = false;
 
@@ -209,9 +187,6 @@ struct RowRefListWithFlags : RowRefWithFlag {
     ForwardIterator<RowRefListWithFlags> const begin() {
         return ForwardIterator<RowRefListWithFlags>(this);
     }
-    static ForwardIterator<RowRefListWithFlags> end() {
-        return ForwardIterator<RowRefListWithFlags>::end();
-    }
 
     /// insert element after current one
     void insert(RowRefWithFlag&& row_ref, Arena& pool) {
@@ -221,8 +196,6 @@ struct RowRefListWithFlags : RowRefWithFlag {
         }
         next = next->insert(std::move(row_ref), pool);
     }
-
-    bool is_single() const { return next == nullptr; }
 
 private:
     friend class ForwardIterator<RowRefListWithFlags>;

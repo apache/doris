@@ -68,18 +68,14 @@ std::string OrDependency::debug_string(int indentation_level) {
 Status AggDependency::reset_hash_table() {
     return std::visit(
             [&](auto&& agg_method) {
-                auto& hash_table = agg_method.data;
-                using HashMethodType = std::decay_t<decltype(agg_method)>;
+                auto& hash_table = *agg_method.hash_table;
                 using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                if constexpr (vectorized::ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                      HashMethodType>::value) {
-                    agg_method.reset();
-                }
+                agg_method.reset();
 
                 hash_table.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        destroy_agg_status(mapped);
+                        static_cast<void>(destroy_agg_status(mapped));
                         mapped = nullptr;
                     }
                 });
@@ -125,7 +121,7 @@ Status AggDependency::merge_spilt_data() {
         CHECK_LT(_agg_state.spill_context.read_cursor, reader->block_count());
         reader->seek(_agg_state.spill_context.read_cursor);
         vectorized::Block block;
-        bool eos;
+        bool eos = false;
         RETURN_IF_ERROR(reader->read(&block, &eos));
 
         // TODO

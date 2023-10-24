@@ -44,8 +44,9 @@
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"       // ExecEnv
-#include "runtime/runtime_state.h"  // RuntimeState
+#include "runtime/exec_env.h"      // ExecEnv
+#include "runtime/runtime_state.h" // RuntimeState
+#include "runtime/types.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/defer_op.h"
 #include "vec/columns/column.h"
@@ -130,6 +131,8 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
     }
     vectorized::DataTypeSerDeSPtrs serdes;
     std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
+    std::vector<std::string> default_values;
+    default_values.resize(_fetch_option.desc->slots().size());
     auto merge_function = [&](const PMultiGetResponse& resp) {
         Status st(Status::create(resp.status()));
         if (!st.ok()) {
@@ -149,12 +152,13 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                 serdes = vectorized::create_data_type_serdes(_fetch_option.desc->slots());
                 for (int i = 0; i < _fetch_option.desc->slots().size(); ++i) {
                     col_uid_to_idx[_fetch_option.desc->slots()[i]->col_unique_id()] = i;
+                    default_values[i] = _fetch_option.desc->slots()[i]->col_default_value();
                 }
             }
             for (int i = 0; i < resp.binary_row_data_size(); ++i) {
                 vectorized::JsonbSerializeUtil::jsonb_to_block(
                         serdes, resp.binary_row_data(i).data(), resp.binary_row_data(i).size(),
-                        col_uid_to_idx, *output_block);
+                        col_uid_to_idx, *output_block, default_values);
             }
             return Status::OK();
         }
@@ -233,17 +237,17 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     // shrink for char type
     std::vector<size_t> char_type_idx;
     for (size_t i = 0; i < _fetch_option.desc->slots().size(); i++) {
-        auto column_desc = _fetch_option.desc->slots()[i];
-        auto type_desc = column_desc->type();
+        const auto& column_desc = _fetch_option.desc->slots()[i];
+        const TypeDescriptor* type_desc = &column_desc->type();
         do {
-            if (type_desc.type == TYPE_CHAR) {
+            if (type_desc->type == TYPE_CHAR) {
                 char_type_idx.emplace_back(i);
                 break;
-            } else if (type_desc.type != TYPE_ARRAY) {
+            } else if (type_desc->type != TYPE_ARRAY) {
                 break;
             }
             // for Array<Char> or Array<Array<Char>>
-            type_desc = type_desc.children[0];
+            type_desc = &type_desc->children[0];
         } while (true);
     }
     res_block->shrink_char_type_column_suffix_zero(char_type_idx);

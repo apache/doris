@@ -125,10 +125,6 @@ public interface LoadTaskInfo {
         return false;
     }
 
-    default boolean isIgnoreMode() {
-        return false;
-    }
-
     class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();
         public boolean isColumnDescsRewrited = false;

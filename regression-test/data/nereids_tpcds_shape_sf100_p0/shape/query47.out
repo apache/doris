@@ -13,10 +13,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalDistribute
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
+--------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
---------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk))otherCondition=()
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[store_sales]
 ----------------------------------PhysicalDistribute
@@ -35,14 +35,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute
 ----------PhysicalTopN
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN](v1.i_category = v1_lag.i_category)(v1.i_brand = v1_lag.i_brand)(v1.s_store_name = v1_lag.s_store_name)(v1.s_company_name = v1_lag.s_company_name)(v1.rn = expr_(rn + 1))
-----------------hashJoin[INNER_JOIN](v1.i_category = v1_lead.i_category)(v1.i_brand = v1_lead.i_brand)(v1.s_store_name = v1_lead.s_store_name)(v1.s_company_name = v1_lead.s_company_name)(v1.rn = expr_(rn - 1))
+--------------hashJoin[INNER_JOIN] hashCondition=((v1.i_brand = v1_lag.i_brand) and (v1.i_category = v1_lag.i_category) and (v1.rn = expr_(rn + 1)) and (v1.s_company_name = v1_lag.s_company_name) and (v1.s_store_name = v1_lag.s_store_name))otherCondition=()
+----------------hashJoin[INNER_JOIN] hashCondition=((v1.i_brand = v1_lead.i_brand) and (v1.i_category = v1_lead.i_category) and (v1.rn = expr_(rn - 1)) and (v1.s_company_name = v1_lead.s_company_name) and (v1.s_store_name = v1_lead.s_store_name))otherCondition=()
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------filter((if((avg_monthly_sales > 0.0000), (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)), NULL) > 0.1)(v2.d_year = 2001)(v2.avg_monthly_sales > 0.0000))
+----------------------filter((if((avg_monthly_sales > 0.0000), (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)), NULL) > 0.1) and (v2.avg_monthly_sales > 0.0000) and (v2.d_year = 2001))
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------PhysicalDistribute
 ------------------PhysicalProject

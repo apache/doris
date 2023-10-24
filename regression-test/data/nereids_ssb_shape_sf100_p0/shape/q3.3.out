@@ -8,24 +8,24 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](lineorder.lo_orderdate = dates.d_datekey)
+----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey))otherCondition=()
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](lineorder.lo_custkey = customer.c_custkey)
+----------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_custkey = customer.c_custkey))otherCondition=()
 ------------------------PhysicalDistribute
---------------------------hashJoin[INNER_JOIN](lineorder.lo_suppkey = supplier.s_suppkey)
+--------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey))otherCondition=()
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[lineorder]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter(s_city IN ('UNITED KI5', 'UNITED KI1'))
+--------------------------------filter(s_city IN ('UNITED KI1', 'UNITED KI5'))
 ----------------------------------PhysicalOlapScan[supplier]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter(c_city IN ('UNITED KI5', 'UNITED KI1'))
+----------------------------filter(c_city IN ('UNITED KI1', 'UNITED KI5'))
 ------------------------------PhysicalOlapScan[customer]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------filter((dates.d_year <= 1997)(dates.d_year >= 1992))
+----------------------filter((dates.d_year <= 1997) and (dates.d_year >= 1992))
 ------------------------PhysicalOlapScan[dates]
 

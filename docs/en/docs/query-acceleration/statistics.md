@@ -52,9 +52,9 @@ Syntax:
 
 ```SQL
 ANALYZE < TABLE | DATABASE table_name | db_name >
-    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT] ]
+    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT ] ]
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ]]
+    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH SQL ] ]
     [ PROPERTIES ("key" = "value", ...) ];
 ```
 
@@ -65,6 +65,7 @@ Where:
 - `column_name`: Specifies the target column. It must be an existing column in `table_name`, and multiple column names are separated by commas.
 - `sync`: Collect statistics synchronously. Returns upon completion. If not specified, it executes asynchronously and returns a task ID.
 - `sample percent | rows`: Collect statistics using sampling. You can specify either the sampling percentage or the number of sampled rows.
+- `sql`: Collect statistics for external partition column with sql. By default, it uses meta data for partition columns, which is faster but may inaccurate for row count and size. Using sql could collect the accurate stats.
 
 ### Automatic Statistics Collection
 
@@ -237,16 +238,16 @@ Automatic collection tasks do not support viewing the completion status and fail
 |full_auto_analyze_end_time|End time for automatic statistics collection|02:00:00|
 |enable_auto_sample|Enable automatic sampling for large tables. When enabled, statistics will be automatically collected through sampling for tables larger than the `huge_table_lower_bound_size_in_bytes` threshold.| false|
 |auto_analyze_job_record_count|Controls the persistence of records for automatically triggered statistics collection jobs.|20000|
-|huge_table_default_sample_rows|Defines the number of sample rows for large tables when automatic sampling is enabled.|200000|
+|huge_table_default_sample_rows|Defines the number of sample rows for large tables when automatic sampling is enabled.|4194304|
 |huge_table_lower_bound_size_in_bytes|Defines the lower size threshold for large tables. When `enable_auto_sample` is enabled, statistics will be automatically collected through sampling for tables larger than this value.|5368 709120|
 |huge_table_auto_analyze_interval_in_millis|Controls the minimum time interval for automatic ANALYZE on large tables. Within this interval, tables larger than `huge_table_lower_bound_size_in_bytes` will only be analyzed once.|43200000|
 |table_stats_health_threshold|Takes a value between 0-100. When the data update volume reaches (100 - table_stats_health_threshold)% since the last statistics collection operation, the statistics for the table are considered outdated.|80|
-|enable_full_auto_analyze|Enable automatic collection functionality|true|
 
 |Session Variable|Description|Default Value|
 |---|---|---|
 |full_auto_analyze_start_time|Start time for automatic statistics collection|00:00:00|
 |full_auto_analyze_end_time|End time for automatic statistics collection|02:00:00|
+|enable_full_auto_analyze|Enable automatic collection functionality|true|
 
 Please note that when both FE configuration and global session variables are configured for the same parameter, the value of the global session variable takes precedence.
 

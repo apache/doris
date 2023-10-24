@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */ d_year, s_nation, p_category,
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */ d_year, s_nation, p_category,
 SUM(lo_revenue - lo_supplycost) AS PROFIT
 FROM date, customer, supplier, part, lineorder
 WHERE lo_custkey = c_custkey

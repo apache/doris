@@ -76,17 +76,11 @@ namespace doris::vectorized {
     }
 
 static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
-    if (slot->type().is_date_type() && expr->type().is_date_type()) {
-        return true;
-    }
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
     }
     if (slot->type().is_array_type()) {
         if (slot->type().children[0].type == expr->type().type) {
-            return true;
-        }
-        if (slot->type().children[0].is_date_type() && expr->type().is_date_type()) {
             return true;
         }
         if (slot->type().children[0].is_string_type() && expr->type().is_string_type()) {
@@ -172,6 +166,7 @@ Status VScanNode::prepare(RuntimeState* state) {
 }
 
 Status VScanNode::open(RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_CANCELLED(state);
@@ -179,6 +174,7 @@ Status VScanNode::open(RuntimeState* state) {
 }
 
 Status VScanNode::alloc_resource(RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_alloc_resource_timer);
     if (_opened) {
         return Status::OK();
@@ -226,6 +222,7 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
 }
 
 Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_get_next_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     // in inverted index apply logic, in order to optimize query performance,
@@ -264,10 +261,6 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
         return Status::OK();
     }
 
-    if (scan_block == nullptr) {
-        LOG(FATAL) << "Scan block nullptr error _context_queue_id:" << _context_queue_id
-                   << " context debug string:" << _scanner_ctx->debug_string();
-    }
     // get scanner's block memory
     block->swap(*scan_block);
     _scanner_ctx->return_free_block(std::move(scan_block));
@@ -539,8 +532,9 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
 
             if (pdt == PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                _normalize_compound_predicate(cur_expr, context, &pdt, _is_runtime_filter_predicate,
-                                              in_predicate_checker, eq_predicate_checker);
+                static_cast<void>(_normalize_compound_predicate(
+                        cur_expr, context, &pdt, _is_runtime_filter_predicate, in_predicate_checker,
+                        eq_predicate_checker));
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
@@ -664,6 +658,12 @@ bool VScanNode::_is_predicate_acting_on_slot(
 
     auto entry = _slot_id_to_value_range.find(slot_ref->slot_id());
     if (_slot_id_to_value_range.end() == entry) {
+        return false;
+    }
+    // if the slot is a complex type(array/map/struct), we do not push down the predicate, because
+    // we delete pack these type into predict column, and origin pack action is wrong. we should
+    // make sense to push down this complex type after we delete predict column.
+    if (is_complex_type(remove_nullable(slot_ref->data_type()))) {
         return false;
     }
     *slot_desc = entry->second.first;
@@ -1024,8 +1024,8 @@ Status VScanNode::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                _normalize_binary_in_compound_predicate(child_expr, expr_ctx, slot,
-                                                                        value_range, pdt);
+                                static_cast<void>(_normalize_binary_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);
 
@@ -1046,17 +1046,17 @@ Status VScanNode::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                _normalize_match_in_compound_predicate(child_expr, expr_ctx, slot,
-                                                                       value_range, pdt);
+                                static_cast<void>(_normalize_match_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);
 
                     _compound_value_ranges.emplace_back(active_range);
                 }
             } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
-                _normalize_compound_predicate(child_expr, expr_ctx, pdt,
-                                              _is_runtime_filter_predicate, in_predicate_checker,
-                                              eq_predicate_checker);
+                static_cast<void>(_normalize_compound_predicate(
+                        child_expr, expr_ctx, pdt, _is_runtime_filter_predicate,
+                        in_predicate_checker, eq_predicate_checker));
             }
         }
     }

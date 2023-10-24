@@ -164,13 +164,16 @@ Status NewJsonReader::init_reader(
     // generate _col_default_value_map
     RETURN_IF_ERROR(_get_column_default_value(_file_slot_descs, col_default_value_ctx));
 
+#ifdef __AVX2__
     if (config::enable_simdjson_reader) {
         RETURN_IF_ERROR(_simdjson_init_reader());
         return Status::OK();
     }
+#endif
+
     RETURN_IF_ERROR(_get_range_params());
 
-    RETURN_IF_ERROR(_open_file_reader());
+    RETURN_IF_ERROR(_open_file_reader(false));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
     }
@@ -189,7 +192,7 @@ Status NewJsonReader::init_reader(
         }
     }
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        _slot_desc_index[_file_slot_descs[i]->col_name()] = i;
+        _slot_desc_index[StringRef {_file_slot_descs[i]->col_name()}] = i;
     }
     return Status::OK();
 }
@@ -237,7 +240,7 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
                                         std::vector<TypeDescriptor>* col_types) {
     RETURN_IF_ERROR(_get_range_params());
 
-    RETURN_IF_ERROR(_open_file_reader());
+    RETURN_IF_ERROR(_open_file_reader(true));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
     }
@@ -373,7 +376,7 @@ Status NewJsonReader::_get_range_params() {
     return Status::OK();
 }
 
-Status NewJsonReader::_open_file_reader() {
+Status NewJsonReader::_open_file_reader(bool need_schema) {
     int64_t start_offset = _range.start_offset;
     if (start_offset != 0) {
         start_offset -= 1;
@@ -382,7 +385,9 @@ Status NewJsonReader::_open_file_reader() {
     _current_offset = start_offset;
 
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state));
+        // Due to http_stream needs to pre read a portion of the data to parse column information, so it is set to true here
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state,
+                                                        need_schema));
     } else {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         io::FileReaderOptions reader_options =
@@ -978,7 +983,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
 Status NewJsonReader::_simdjson_init_reader() {
     RETURN_IF_ERROR(_get_range_params());
 
-    RETURN_IF_ERROR(_open_file_reader());
+    RETURN_IF_ERROR(_open_file_reader(false));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
     }
@@ -998,7 +1003,7 @@ Status NewJsonReader::_simdjson_init_reader() {
     }
     _ondemand_json_parser = std::make_unique<simdjson::ondemand::parser>();
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        _slot_desc_index[_file_slot_descs[i]->col_name()] = i;
+        _slot_desc_index[StringRef {_file_slot_descs[i]->col_name()}] = i;
     }
     _simdjson_ondemand_padding_buffer.resize(_padded_size);
     _simdjson_ondemand_unscape_padding_buffer.resize(_padded_size);
@@ -1148,9 +1153,8 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
                 simdjson::ondemand::value val;
                 Status st = JsonFunctions::extract_from_object(cur, _parsed_json_root, &val);
                 if (UNLIKELY(!st.ok())) {
-                    if (st.is<NOT_FOUND>()) {
-                        RETURN_IF_ERROR(
-                                _append_error_msg(nullptr, "JsonPath not found", "", nullptr));
+                    if (st.is<DATA_QUALITY_ERROR>()) {
+                        RETURN_IF_ERROR(_append_error_msg(nullptr, st.to_string(), "", nullptr));
                         ADVANCE_ROW();
                         continue;
                     }
@@ -1594,11 +1598,11 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         Status st;
         if (i < _parsed_jsonpaths.size()) {
             st = JsonFunctions::extract_from_object(*value, _parsed_jsonpaths[i], &json_value);
-            if (!st.ok() && !st.is<NOT_FOUND>()) {
+            if (!st.ok() && !st.is<DATA_QUALITY_ERROR>()) {
                 return st;
             }
         }
-        if (i >= _parsed_jsonpaths.size() || st.is<NOT_FOUND>()) {
+        if (i >= _parsed_jsonpaths.size() || st.is<DATA_QUALITY_ERROR>()) {
             // not match in jsondata, filling with default value
             RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
             if (!(*valid)) {

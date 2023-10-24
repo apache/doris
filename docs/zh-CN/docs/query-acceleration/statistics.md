@@ -51,9 +51,9 @@ Doris支持用户通过提交ANALYZE语句来触发统计信息的收集和更�
 
 ```SQL
 ANALYZE < TABLE | DATABASE table_name | db_name > 
-    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT] ]
+    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT ] ]
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ]]
+    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH SQL ] ]
     [ PROPERTIES ("key" = "value", ...) ];
 ```
 
@@ -64,6 +64,7 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 - column_name: 指定的目标列。必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 - sync：同步收集统计信息。收集完后返回。若不指定则异步执行并返回任务 ID。
 - sample percent | rows：抽样收集统计信息。可以指定抽样比例或者抽样行数。
+- sql：执行sql来收集外表分区列统计信息。默认从元数据收集分区列信息，这样效率比较高但是行数和数据量大小可能不准。用户可以指定使用sql来收集，这样可以收集到准确的分区列信息。
 
 
 ### 自动收集
@@ -249,16 +250,16 @@ SHOW AUTO ANALYZE [ptable_name]
 |full_auto_analyze_end_time|自动统计信息收集结束时间|02:00:00|
 |enable_auto_sample|是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集| false|
 |auto_analyze_job_record_count|控制统计信息的自动触发作业执行记录的持久化行数|20000|
-|huge_table_default_sample_rows|定义开启开启大表自动sample后，对大表的采样行数|200000|
+|huge_table_default_sample_rows|定义开启开启大表自动sample后，对大表的采样行数|4194304|
 |huge_table_lower_bound_size_in_bytes|定义大表的大小下界，在开启enable_auto_sample的情况下，大小超过该值的表将会自动通过采样收集统计信息|5368 709120|
 |huge_table_auto_analyze_interval_in_millis|控制对大表的自动ANALYZE的最小时间间隔，在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes的表仅ANALYZE一次|43200000|
 |table_stats_health_threshold|取值在0-100之间，当自上次统计信息收集操作之后，数据更新量达到 (100 - table_stats_health_threshold)% ，认为该表的统计信息已过时|80|
-|enable_full_auto_analyze|开启自动收集功能|true|
 
 |会话变量|说明|默认值|
 |---|---|---|
 |full_auto_analyze_start_time|自动统计信息收集开始时间|00:00:00|
 |full_auto_analyze_end_time|自动统计信息收集结束时间|02:00:00|
+|enable_full_auto_analyze|开启自动收集功能|true|
 
 注意，对于fe配置和全局会话变量中均可配置的参数都设置的情况下，优先使用全局会话变量参数值。
 

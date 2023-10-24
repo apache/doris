@@ -51,7 +51,7 @@ public enum ExpressionFunctions {
 
     private static final Logger LOG = LogManager.getLogger(ExpressionFunctions.class);
     private ImmutableMultimap<String, FEFunctionInvoker> functions;
-    private static final Set<String> unfixedFn = ImmutableSet.of(
+    public static final Set<String> unfixedFn = ImmutableSet.of(
             "now",
             "current_time",
             "current_date",
@@ -77,6 +77,9 @@ public enum ExpressionFunctions {
                 || constExpr instanceof FunctionCallExpr
                 || constExpr instanceof TimestampArithmeticExpr) {
             Function fn = constExpr.getFn();
+            if (fn == null) {
+                return constExpr;
+            }
             if (ConnectContext.get() != null
                     && ConnectContext.get().getSessionVariable() != null
                     && !ConnectContext.get().getSessionVariable().isEnableFoldNondeterministicFn()

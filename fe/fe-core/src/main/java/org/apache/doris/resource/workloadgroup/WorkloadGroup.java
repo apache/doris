@@ -45,6 +45,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String CPU_SHARE = "cpu_share";
 
+    public static final String CPU_HARD_LIMIT = "cpu_hard_limit";
+
     public static final String MEMORY_LIMIT = "memory_limit";
 
     public static final String ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
@@ -60,7 +62,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>()
             .add(CPU_SHARE).add(MEMORY_LIMIT).add(ENABLE_MEMORY_OVERCOMMIT).add(MAX_CONCURRENCY)
-            .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).build();
+            .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).build();
 
     @SerializedName(value = "id")
     private long id;
@@ -82,6 +84,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     private int maxQueueSize = 0;
     private int queueTimeout = 0;
 
+    private int cpuHardLimit = 0;
+
     private WorkloadGroup(long id, String name, Map<String, String> properties) {
         this(id, name, properties, 0);
     }
@@ -95,6 +99,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         this.memoryLimitPercent = Double.parseDouble(memoryLimitString.substring(0, memoryLimitString.length() - 1));
         if (properties.containsKey(ENABLE_MEMORY_OVERCOMMIT)) {
             properties.put(ENABLE_MEMORY_OVERCOMMIT, properties.get(ENABLE_MEMORY_OVERCOMMIT).toLowerCase());
+        }
+        if (properties.containsKey(CPU_HARD_LIMIT)) {
+            this.cpuHardLimit = Integer.parseInt(properties.get(CPU_HARD_LIMIT));
         }
     }
 
@@ -182,6 +189,13 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             throw new DdlException(CPU_SHARE + " " + cpuSchedulingWeight + " requires a positive integer.");
         }
 
+        if (properties.containsKey(CPU_HARD_LIMIT)) {
+            String cpuHardLimit = properties.get(CPU_HARD_LIMIT);
+            if (!StringUtils.isNumeric(cpuHardLimit) || Long.parseLong(cpuHardLimit) <= 0) {
+                throw new DdlException(CPU_HARD_LIMIT + " " + cpuHardLimit + " requires a positive integer.");
+            }
+        }
+
         String memoryLimit = properties.get(MEMORY_LIMIT);
         if (!memoryLimit.endsWith("%")) {
             throw new DdlException(MEMORY_LIMIT + " " + memoryLimit + " requires a percentage and ends with a '%'");
@@ -259,13 +273,21 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         }
     }
 
+    public int getCpuHardLimit() {
+        return cpuHardLimit;
+    }
+
     @Override
     public String toString() {
         return GsonUtils.GSON.toJson(this);
     }
 
     public TPipelineWorkloadGroup toThrift() {
-        return new TPipelineWorkloadGroup().setId(id).setName(name).setProperties(properties).setVersion(version);
+        //note(wb) we need add a new key-value to properties and then transfer it to be, so need a copy here
+        // see WorkloadGroupMgr.getWorkloadGroup
+        HashMap<String, String> clonedHashMap = new HashMap<>();
+        clonedHashMap.putAll(properties);
+        return new TPipelineWorkloadGroup().setId(id).setName(name).setProperties(clonedHashMap).setVersion(version);
     }
 
     @Override
@@ -288,6 +310,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         } else {
             this.memoryLimitPercent = 100;
             this.properties.put(MEMORY_LIMIT, "100%");
+        }
+        if (properties.containsKey(CPU_HARD_LIMIT)) {
+            this.cpuHardLimit = Integer.parseInt(properties.get(CPU_HARD_LIMIT));
         }
         this.initQueryQueue();
     }

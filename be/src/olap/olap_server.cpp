@@ -116,29 +116,29 @@ Status StorageEngine::start_bg_threads() {
         data_dirs.push_back(tmp_store.second);
     }
 
-    ThreadPoolBuilder("BaseCompactionTaskThreadPool")
-            .set_min_threads(config::max_base_compaction_threads)
-            .set_max_threads(config::max_base_compaction_threads)
-            .build(&_base_compaction_thread_pool);
-    ThreadPoolBuilder("CumuCompactionTaskThreadPool")
-            .set_min_threads(config::max_cumu_compaction_threads)
-            .set_max_threads(config::max_cumu_compaction_threads)
-            .build(&_cumu_compaction_thread_pool);
-    ThreadPoolBuilder("SingleReplicaCompactionTaskThreadPool")
-            .set_min_threads(config::max_single_replica_compaction_threads)
-            .set_max_threads(config::max_single_replica_compaction_threads)
-            .build(&_single_replica_compaction_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
+                              .set_min_threads(config::max_base_compaction_threads)
+                              .set_max_threads(config::max_base_compaction_threads)
+                              .build(&_base_compaction_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+                              .set_min_threads(config::max_cumu_compaction_threads)
+                              .set_max_threads(config::max_cumu_compaction_threads)
+                              .build(&_cumu_compaction_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("SingleReplicaCompactionTaskThreadPool")
+                              .set_min_threads(config::max_single_replica_compaction_threads)
+                              .set_max_threads(config::max_single_replica_compaction_threads)
+                              .build(&_single_replica_compaction_thread_pool));
 
     if (config::enable_segcompaction) {
-        ThreadPoolBuilder("SegCompactionTaskThreadPool")
-                .set_min_threads(config::segcompaction_num_threads)
-                .set_max_threads(config::segcompaction_num_threads)
-                .build(&_seg_compaction_thread_pool);
+        static_cast<void>(ThreadPoolBuilder("SegCompactionTaskThreadPool")
+                                  .set_min_threads(config::segcompaction_num_threads)
+                                  .set_max_threads(config::segcompaction_num_threads)
+                                  .build(&_seg_compaction_thread_pool));
     }
-    ThreadPoolBuilder("ColdDataCompactionTaskThreadPool")
-            .set_min_threads(config::cold_data_compaction_thread_num)
-            .set_max_threads(config::cold_data_compaction_thread_num)
-            .build(&_cold_data_compaction_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("ColdDataCompactionTaskThreadPool")
+                              .set_min_threads(config::cold_data_compaction_thread_num)
+                              .set_max_threads(config::cold_data_compaction_thread_num)
+                              .build(&_cold_data_compaction_thread_pool));
 
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
@@ -156,14 +156,14 @@ Status StorageEngine::start_bg_threads() {
     if (max_checkpoint_thread_num < 0) {
         max_checkpoint_thread_num = data_dirs.size();
     }
-    ThreadPoolBuilder("TabletMetaCheckpointTaskThreadPool")
-            .set_max_threads(max_checkpoint_thread_num)
-            .build(&_tablet_meta_checkpoint_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("TabletMetaCheckpointTaskThreadPool")
+                              .set_max_threads(max_checkpoint_thread_num)
+                              .build(&_tablet_meta_checkpoint_thread_pool));
 
-    ThreadPoolBuilder("MultiGetTaskThreadPool")
-            .set_min_threads(config::multi_get_max_threads)
-            .set_max_threads(config::multi_get_max_threads)
-            .build(&_bg_multi_get_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("MultiGetTaskThreadPool")
+                              .set_min_threads(config::multi_get_max_threads)
+                              .set_max_threads(config::multi_get_max_threads)
+                              .build(&_bg_multi_get_thread_pool));
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "tablet_checkpoint_tasks_producer_thread",
             [this, data_dirs]() { this->_tablet_checkpoint_callback(data_dirs); },
@@ -201,10 +201,10 @@ Status StorageEngine::start_bg_threads() {
         LOG(INFO) << "path scan/gc threads started. number:" << get_stores().size();
     }
 
-    ThreadPoolBuilder("CooldownTaskThreadPool")
-            .set_min_threads(config::cooldown_thread_num)
-            .set_max_threads(config::cooldown_thread_num)
-            .build(&_cooldown_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("CooldownTaskThreadPool")
+                              .set_min_threads(config::cooldown_thread_num)
+                              .set_max_threads(config::cooldown_thread_num)
+                              .build(&_cooldown_thread_pool));
     LOG(INFO) << "cooldown thread pool started";
 
     RETURN_IF_ERROR(Thread::create(
@@ -226,10 +226,10 @@ Status StorageEngine::start_bg_threads() {
     LOG(INFO) << "cold data compaction producer thread started";
 
     // add tablet publish version thread pool
-    ThreadPoolBuilder("TabletPublishTxnThreadPool")
-            .set_min_threads(config::tablet_publish_txn_max_thread)
-            .set_max_threads(config::tablet_publish_txn_max_thread)
-            .build(&_tablet_publish_txn_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("TabletPublishTxnThreadPool")
+                              .set_min_threads(config::tablet_publish_txn_max_thread)
+                              .set_max_threads(config::tablet_publish_txn_max_thread)
+                              .build(&_tablet_publish_txn_thread_pool));
 
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "aync_publish_version_thread",
@@ -357,11 +357,8 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
     LOG(INFO) << "try to start path gc thread!";
     int32_t interval = config::path_gc_check_interval_second;
     do {
-        LOG(INFO) << "try to perform path gc by tablet!";
-        data_dir->perform_path_gc_by_tablet();
-
-        LOG(INFO) << "try to perform path gc by rowsetid!";
-        data_dir->perform_path_gc_by_rowsetid();
+        LOG(INFO) << "try to perform path gc!";
+        data_dir->perform_path_gc();
 
         interval = config::path_gc_check_interval_second;
         if (interval <= 0) {
@@ -370,6 +367,7 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
             interval = 1800; // 0.5 hour
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+    LOG(INFO) << "stop path gc thread!";
 }
 
 void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
@@ -625,6 +623,9 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             /// If it is not cleaned up, the reference count of the tablet will always be greater than 1,
             /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
+                if (compaction_type == CompactionType::BASE_COMPACTION) {
+                    tablet->set_last_base_compaction_schedule_time(UnixMillis());
+                }
                 Status st = _submit_compaction_task(tablet, compaction_type, false);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to submit compaction task for tablet: "
@@ -730,15 +731,15 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
     bool already_exist =
             _push_tablet_into_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
     if (already_exist) {
-        return Status::AlreadyExist("compaction task has already been submitted, tablet_id={}",
-                                    tablet->tablet_id());
+        return Status::AlreadyExist<false>(
+                "compaction task has already been submitted, tablet_id={}", tablet->tablet_id());
     }
 
     already_exist = _push_tablet_into_submitted_compaction(tablet, CompactionType::BASE_COMPACTION);
     if (already_exist) {
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
-        return Status::AlreadyExist("compaction task has already been submitted, tablet_id={}",
-                                    tablet->tablet_id());
+        return Status::AlreadyExist<false>(
+                "compaction task has already been submitted, tablet_id={}", tablet->tablet_id());
     }
     Status st = tablet->prepare_single_replica_compaction(tablet, compaction_type);
     auto clean_single_replica_compaction = [tablet, this]() {
@@ -850,7 +851,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                     max_compaction_score = std::max(max_compaction_score, disk_max_score);
                 } else {
                     LOG_EVERY_N(INFO, 500)
-                            << "Tablet " << tablet->full_name()
+                            << "Tablet " << tablet->tablet_id()
                             << " will be ignored by automatic compaction tasks since it's "
                             << "set to disabled automatic compaction.";
                 }
@@ -936,7 +937,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     }
     bool already_exist = _push_tablet_into_submitted_compaction(tablet, compaction_type);
     if (already_exist) {
-        return Status::AlreadyExist(
+        return Status::AlreadyExist<false>(
                 "compaction task has already been submitted, tablet_id={}, compaction_type={}.",
                 tablet->tablet_id(), compaction_type);
     }
@@ -1157,47 +1158,50 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& [tablet, score] : tablet_to_compact) {
             LOG(INFO) << "submit cold data compaction. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
-                auto compaction = std::make_shared<ColdDataCompaction>(t);
-                {
-                    std::lock_guard lock(tablet_submitted_mtx);
-                    tablet_submitted.insert(t->tablet_id());
-                }
-                std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
-                                                      std::try_to_lock);
-                if (!cold_compaction_lock.owns_lock()) {
-                    LOG(WARNING) << "try cold_compaction_lock failed, tablet_id=" << t->tablet_id();
-                }
-                auto st = compaction->compact();
-                {
-                    std::lock_guard lock(tablet_submitted_mtx);
-                    tablet_submitted.erase(t->tablet_id());
-                }
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to do cold data compaction. tablet_id="
-                                 << t->tablet_id() << " err=" << st;
-                }
-            });
+            static_cast<void>(
+                    _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
+                        auto compaction = std::make_shared<ColdDataCompaction>(t);
+                        {
+                            std::lock_guard lock(tablet_submitted_mtx);
+                            tablet_submitted.insert(t->tablet_id());
+                        }
+                        std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
+                                                              std::try_to_lock);
+                        if (!cold_compaction_lock.owns_lock()) {
+                            LOG(WARNING) << "try cold_compaction_lock failed, tablet_id="
+                                         << t->tablet_id();
+                        }
+                        auto st = compaction->compact();
+                        {
+                            std::lock_guard lock(tablet_submitted_mtx);
+                            tablet_submitted.erase(t->tablet_id());
+                        }
+                        if (!st.ok()) {
+                            LOG(WARNING) << "failed to do cold data compaction. tablet_id="
+                                         << t->tablet_id() << " err=" << st;
+                        }
+                    }));
         }
 
         for (auto& [tablet, score] : tablet_to_follow) {
             LOG(INFO) << "submit to follow cooldown meta. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
-                {
-                    std::lock_guard lock(tablet_submitted_mtx);
-                    tablet_submitted.insert(t->tablet_id());
-                }
-                auto st = t->cooldown();
-                {
-                    std::lock_guard lock(tablet_submitted_mtx);
-                    tablet_submitted.erase(t->tablet_id());
-                }
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to cooldown. tablet_id=" << t->tablet_id()
-                                 << " err=" << st;
-                }
-            });
+            static_cast<void>(
+                    _cold_data_compaction_thread_pool->submit_func([&, t = std::move(tablet)]() {
+                        {
+                            std::lock_guard lock(tablet_submitted_mtx);
+                            tablet_submitted.insert(t->tablet_id());
+                        }
+                        auto st = t->cooldown();
+                        {
+                            std::lock_guard lock(tablet_submitted_mtx);
+                            tablet_submitted.erase(t->tablet_id());
+                        }
+                        if (!st.ok()) {
+                            LOG(WARNING) << "failed to cooldown. tablet_id=" << t->tablet_id()
+                                         << " err=" << st;
+                        }
+                    }));
         }
     }
 }
@@ -1215,9 +1219,9 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
         PendingPublishInfoPB pending_publish_info_pb;
         pending_publish_info_pb.set_partition_id(partition_id);
         pending_publish_info_pb.set_transaction_id(transaction_id);
-        TabletMetaManager::save_pending_publish_info(tablet->data_dir(), tablet->tablet_id(),
-                                                     publish_version,
-                                                     pending_publish_info_pb.SerializeAsString());
+        static_cast<void>(TabletMetaManager::save_pending_publish_info(
+                tablet->data_dir(), tablet->tablet_id(), publish_version,
+                pending_publish_info_pb.SerializeAsString()));
     }
     LOG(INFO) << "add pending publish task, tablet_id: " << tablet_id
               << " version: " << publish_version << " txn_id:" << transaction_id
@@ -1278,16 +1282,17 @@ void StorageEngine::_async_publish_callback() {
 
                 auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
                         tablet, partition_id, transaction_id, version);
-                StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
-                        [=]() { async_publish_task->handle(); });
+                static_cast<void>(
+                        StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
+                                [=]() { async_publish_task->handle(); }));
                 tablet_iter->second.erase(task_iter);
                 need_removed_tasks.emplace_back(tablet, version);
                 tablet_iter++;
             }
         }
         for (auto& [tablet, publish_version] : need_removed_tasks) {
-            TabletMetaManager::remove_pending_publish_info(tablet->data_dir(), tablet->tablet_id(),
-                                                           publish_version);
+            static_cast<void>(TabletMetaManager::remove_pending_publish_info(
+                    tablet->data_dir(), tablet->tablet_id(), publish_version));
         }
     }
 }

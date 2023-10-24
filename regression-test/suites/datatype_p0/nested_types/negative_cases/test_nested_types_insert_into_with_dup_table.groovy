@@ -30,22 +30,22 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
 
     test {
         sql "insert into tbl_array_nested_types_dup (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=ARRAY<TINYINT(4)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=ARRAY<TINYINT>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_dup (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=ARRAY<SMALLINT(6)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=ARRAY<SMALLINT>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_dup (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=ARRAY<INT(11)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=ARRAY<INT>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_dup (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=ARRAY<LARGEINT(40)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=ARRAY<LARGEINT>")
     }
 
     test {
@@ -113,22 +113,22 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
 
     test {
         sql "insert into tbl_array_nested_types_dup2 (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=ARRAY<ARRAY<TINYINT(4)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=ARRAY<ARRAY<TINYINT>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_dup2 (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=ARRAY<ARRAY<SMALLINT(6)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=ARRAY<ARRAY<SMALLINT>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_dup2 (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=ARRAY<ARRAY<INT(11)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=ARRAY<ARRAY<INT>>")
     }
 
     test {
         sql "insert into tbl_array_nested_types_dup2 (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=ARRAY<ARRAY<LARGEINT(40)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=ARRAY<ARRAY<LARGEINT>>")
     }
 
     test {
@@ -197,22 +197,22 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
 
     test {
         sql "insert into tbl_map_types_dup (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=MAP<TINYINT(4),TINYINT(4)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=MAP<TINYINT,TINYINT>")
     }
 
     test {
         sql "insert into tbl_map_types_dup (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=MAP<SMALLINT(6),SMALLINT(6)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=MAP<SMALLINT,SMALLINT>")
     }
 
     test {
         sql "insert into tbl_map_types_dup (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=MAP<INT(11),INT(11)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=MAP<INT,INT>")
     }
 
     test {
         sql "insert into tbl_map_types_dup (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=MAP<LARGEINT(40),LARGEINT(40)>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=MAP<LARGEINT,LARGEINT>")
     }
 
     test {
@@ -280,22 +280,22 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
 
     test {
         sql "insert into tbl_array_map_types_dup (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=ARRAY<MAP<TINYINT(4),TINYINT(4)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=ARRAY<MAP<TINYINT,TINYINT>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_dup (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=ARRAY<MAP<SMALLINT(6),SMALLINT(6)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=ARRAY<MAP<SMALLINT,SMALLINT>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_dup (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=ARRAY<MAP<INT(11),INT(11)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=ARRAY<MAP<INT,INT>>")
     }
 
     test {
         sql "insert into tbl_array_map_types_dup (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=ARRAY<MAP<LARGEINT(40),LARGEINT(40)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=ARRAY<MAP<LARGEINT,LARGEINT>>")
     }
 
     test {
@@ -364,22 +364,22 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
 
     test {
         sql "insert into tbl_map_array_types_dup (c_tinyint) select c_tinyint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=MAP<TINYINT(4),ARRAY<TINYINT(4)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type TINYINT to target type=MAP<TINYINT,ARRAY<TINYINT>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_dup (c_smallint) select c_smallint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=MAP<SMALLINT(6),ARRAY<SMALLINT(6)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type SMALLINT to target type=MAP<SMALLINT,ARRAY<SMALLINT>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_dup (c_int) select c_int from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=MAP<INT(11),ARRAY<INT(11)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type INT to target type=MAP<INT,ARRAY<INT>>")
     }
 
     test {
         sql "insert into tbl_map_array_types_dup (c_largeint) select c_largeint from tbl_scalar_types_dup"
-        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=MAP<LARGEINT(40),ARRAY<LARGEINT(40)>>")
+        exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type LARGEINT to target type=MAP<LARGEINT,ARRAY<LARGEINT>>")
     }
 
     test {

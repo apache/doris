@@ -33,6 +33,8 @@
 #include <stdint.h>
 
 #include <atomic>
+
+#include "olap/wal_writer.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
@@ -71,7 +73,7 @@
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/runtime/vfile_writer_wrapper.h"
+#include "vec/runtime/vfile_format_transformer.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
 #include "vec/sink/writer/async_result_writer.h"
@@ -527,7 +529,7 @@ class VTabletWriter final : public AsyncResultWriter {
 public:
     VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    void init_properties(ObjectPool* pool, bool group_commit);
+    Status init_properties(ObjectPool* pool, bool group_commit);
 
     Status append_block(Block& block) override;
 
@@ -575,7 +577,14 @@ private:
 
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
 
-    void _group_commit_block(vectorized::Block* input_block, int64_t rows, int64_t filter_rows);
+    Status write_wal(OlapTableBlockConvertor* block_convertor, OlapTabletFinder* tablet_finder,
+                     vectorized::Block* block, RuntimeState* state, int64_t num_rows,
+                     int64_t filtered_rows);
+
+    void _group_commit_block(vectorized::Block* input_block, int64_t num_rows, int64_t filter_rows,
+                             RuntimeState* state, vectorized::Block* block,
+                             OlapTableBlockConvertor* block_convertor,
+                             OlapTabletFinder* tablet_finder);
 
     TDataSink _t_sink;
 
@@ -673,5 +682,9 @@ private:
     RuntimeState* _state = nullptr;     // not owned, set when open
     RuntimeProfile* _profile = nullptr; // not owned, set when open
     bool _group_commit = false;
+    std::shared_ptr<WalWriter> _wal_writer = nullptr;
+    int64_t _tb_id;
+    int64_t _db_id;
+    int64_t _wal_id;
 };
 } // namespace doris::vectorized

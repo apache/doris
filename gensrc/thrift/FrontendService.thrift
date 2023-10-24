@@ -569,6 +569,7 @@ struct TBeginTxnResult {
     2: optional i64 txn_id
     3: optional string job_status // if label already used, set status of existing job
     4: optional i64 db_id
+    5: optional Types.TNetworkAddress master_address
 }
 
 // StreamLoad request, used to load a streaming to engine
@@ -639,7 +640,7 @@ struct TStreamLoadPutRequest {
     // only valid when file type is CSV
     52: optional i8 escape
     53: optional bool memtable_on_sink_node;
-    54: optional bool ignore_mode = false
+    54: optional bool group_commit
 }
 
 struct TStreamLoadPutResult {
@@ -649,6 +650,8 @@ struct TStreamLoadPutResult {
     3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
     // used for group commit
     4: optional i64 base_schema_version
+    5: optional i64 db_id
+    6: optional i64 table_id
 }
 
 struct TStreamLoadMultiTablePutResult {
@@ -665,6 +668,16 @@ struct TStreamLoadWithLoadStatusResult {
     4: optional i64 loaded_rows
     5: optional i64 filtered_rows
     6: optional i64 unselected_rows
+}
+
+struct TCheckWalRequest {
+    1: optional i64 wal_id
+    2: optional i64 db_id
+}
+
+struct TCheckWalResult {
+    1: optional Status.TStatus status
+    2: optional bool need_recovery
 }
 
 struct TKafkaRLTaskProgress {
@@ -731,6 +744,7 @@ struct TCommitTxnRequest {
 
 struct TCommitTxnResult {
     1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
 }
 
 struct TLoadTxn2PCRequest {
@@ -744,6 +758,7 @@ struct TLoadTxn2PCRequest {
     8: optional i64 auth_code
     9: optional string token
     10: optional i64 thrift_rpc_timeout_ms
+    11: optional string label
 }
 
 struct TLoadTxn2PCResult {
@@ -766,6 +781,7 @@ struct TRollbackTxnRequest {
 
 struct TRollbackTxnResult {
     1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
 }
 
 struct TLoadTxnRollbackRequest {
@@ -871,6 +887,7 @@ struct TMetadataTableRequestParams {
   4: optional list<string> columns_name
   5: optional PlanNodes.TFrontendsMetadataParams frontends_metadata_params
   6: optional Types.TUserIdentity current_user_ident
+  7: optional PlanNodes.TQueriesMetadataParams queries_metadata_params
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1031,6 +1048,7 @@ enum TBinlogType {
   BARRIER = 10,
   MODIFY_PARTITIONS = 11,
   REPLACE_PARTITIONS = 12,
+  TRUNCATE_TABLE = 13,
 }
 
 struct TBinlog {
@@ -1084,6 +1102,7 @@ struct TGetSnapshotResult {
     1: optional Status.TStatus status
     2: optional binary meta
     3: optional binary job_info
+    4: optional Types.TNetworkAddress master_address
 }
 
 struct TTableRef {
@@ -1108,6 +1127,7 @@ struct TRestoreSnapshotRequest {
 
 struct TRestoreSnapshotResult {
     1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
 }
 
 struct TGetMasterTokenRequest {
@@ -1119,6 +1139,7 @@ struct TGetMasterTokenRequest {
 struct TGetMasterTokenResult {
     1: optional Status.TStatus status
     2: optional string token
+    3: optional Types.TNetworkAddress master_address
 }
 
 typedef TGetBinlogRequest TGetBinlogLagRequest

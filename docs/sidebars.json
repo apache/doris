@@ -93,6 +93,13 @@
                                 "data-operate/import/import-way/insert-into-manual",
                                 "data-operate/import/import-way/load-json-format"
                             ]
+                        },
+                        {
+                            "type": "category",
+                            "label": "Import Advanced",
+                            "items": [
+                                "data-operate/import/import-advanced/min-load-replica-num"
+                            ]
                         }
                     ]
                 },
@@ -111,6 +118,7 @@
                     "items": [
                         "data-operate/update-delete/batch-delete-manual",
                         "data-operate/update-delete/update",
+                        "data-operate/update-delete/partial-update",
                         "data-operate/update-delete/delete-manual",
                         "data-operate/update-delete/sequence-column-manual"
                     ]
@@ -559,7 +567,8 @@
                                 "sql-manual/sql-functions/aggregate-functions/grouping",
                                 "sql-manual/sql-functions/aggregate-functions/grouping-id",
                                 "sql-manual/sql-functions/aggregate-functions/count-by-enum",
-                                "sql-manual/sql-functions/aggregate-functions/histogram"
+                                "sql-manual/sql-functions/aggregate-functions/histogram",
+                                "sql-manual/sql-functions/aggregate-functions/map-agg"
                             ]
                         },
                         {
@@ -642,8 +651,10 @@
                                 "sql-manual/sql-functions/json-functions/get-json-double",
                                 "sql-manual/sql-functions/json-functions/get-json-int",
                                 "sql-manual/sql-functions/json-functions/get-json-bigint",
-                                "sql-manual/sql-functions/json-functions/get-json-string"
-                                
+                                "sql-manual/sql-functions/json-functions/get-json-string",
+                                "sql-manual/sql-functions/json-functions/json-insert",
+                                "sql-manual/sql-functions/json-functions/json-replace",
+                                "sql-manual/sql-functions/json-functions/json-set"
                             ]
                         },
                         {
@@ -922,6 +933,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-COLOCATE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/PAUSE-JOB",
@@ -1255,6 +1267,7 @@
                                 "admin-manual/http-actions/fe/upload-action",
                                 "admin-manual/http-actions/fe/import-action",
                                 "admin-manual/http-actions/fe/meta-info-action-V2",
+                                "admin-manual/http-actions/fe/debug-point-action",
                                 "admin-manual/http-actions/fe/statistic-action"
                             ]
                         },
@@ -1308,6 +1321,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",
                 "releasenotes/release-2.0.0",
                 "releasenotes/release-1.2.7",

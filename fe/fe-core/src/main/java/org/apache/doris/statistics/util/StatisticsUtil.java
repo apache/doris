@@ -174,6 +174,7 @@ public class StatisticsUtil {
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
+        sessionVariable.enablePageCache = false;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(false);
@@ -300,13 +301,13 @@ public class StatisticsUtil {
 
     }
 
-
     public static DBObjects convertTableNameToObjects(TableName tableName) {
-        CatalogIf<DatabaseIf> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalogIf =
+                Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalogIf == null) {
             throw new IllegalStateException(String.format("Catalog:%s doesn't exist", tableName.getCtl()));
         }
-        DatabaseIf<TableIf> databaseIf = catalogIf.getDbNullable(tableName.getDb());
+        DatabaseIf<? extends TableIf> databaseIf = catalogIf.getDbNullable(tableName.getDb());
         if (databaseIf == null) {
             throw new IllegalStateException(String.format("DB:%s doesn't exist", tableName.getDb()));
         }
@@ -317,12 +318,17 @@ public class StatisticsUtil {
         return new DBObjects(catalogIf, databaseIf, tableIf);
     }
 
+    public static DBObjects convertIdToObjects(long catalogId, long dbId, long tblId) {
+        return new DBObjects(findCatalog(catalogId), findDatabase(catalogId, dbId), findTable(catalogId, dbId, tblId));
+    }
+
     public static Column findColumn(long catalogId, long dbId, long tblId, long idxId, String columnName) {
-        CatalogIf<DatabaseIf<TableIf>> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalogIf =
+                Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
         if (catalogIf == null) {
             return null;
         }
-        DatabaseIf<TableIf> db = catalogIf.getDb(dbId).orElse(null);
+        DatabaseIf<? extends TableIf> db = catalogIf.getDb(dbId).orElse(null);
         if (db == null) {
             return null;
         }
@@ -360,6 +366,16 @@ public class StatisticsUtil {
         }
     }
 
+    public static TableIf findTable(long catalogId, long dbId, long tblId) {
+        try {
+            DatabaseIf<? extends TableIf> db = findDatabase(catalogId, dbId);
+            return db.getTableOrException(tblId,
+                    t -> new RuntimeException("Table: " + t + " not exists"));
+        } catch (Throwable t) {
+            throw new RuntimeException("Table: `" + catalogId + "." + dbId + "." + tblId + "` not exists");
+        }
+    }
+
     /**
      * Throw RuntimeException if database not exists.
      */
@@ -370,6 +386,12 @@ public class StatisticsUtil {
                 d -> new RuntimeException("DB: " + d + " not exists"));
     }
 
+    public static DatabaseIf<? extends TableIf> findDatabase(long catalogId, long dbId)  {
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = findCatalog(catalogId);
+        return catalog.getDbOrException(dbId,
+                d -> new RuntimeException("DB: " + d + " not exists"));
+    }
+
     /**
      * Throw RuntimeException if catalog not exists.
      */
@@ -377,6 +399,11 @@ public class StatisticsUtil {
     public static CatalogIf findCatalog(String catalogName) {
         return Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(catalogName, c -> new RuntimeException("Catalog: " + c + " not exists"));
+    }
+
+    public static CatalogIf<? extends DatabaseIf<? extends TableIf>> findCatalog(long catalogId) {
+        return Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(catalogId,
+                c -> new RuntimeException("Catalog: " + c + " not exists"));
     }
 
     public static boolean isNullOrEmpty(String str) {
@@ -539,6 +566,19 @@ public class StatisticsUtil {
     }
 
     /**
+     * Get total size parameter from HMS.
+     * @param table Hive HMSExternalTable to get HMS total size parameter.
+     * @return Long value of table total size, return 0 if not found.
+     */
+    public static long getTotalSizeFromHMS(HMSExternalTable table) {
+        Map<String, String> parameters = table.getRemoteTable().getParameters();
+        if (parameters == null) {
+            return 0;
+        }
+        return parameters.containsKey(TOTAL_SIZE) ? Long.parseLong(parameters.get(TOTAL_SIZE)) : 0;
+    }
+
+    /**
      * Estimate iceberg table row count.
      * Get the row count by adding all task file recordCount.
      *
@@ -573,13 +613,47 @@ public class StatisticsUtil {
         if (table.isView()) {
             return 0;
         }
+        HiveMetaStoreCache.HivePartitionValues partitionValues = getPartitionValuesForTable(table);
+        int totalPartitionSize = partitionValues == null ? 1 : partitionValues.getIdToPartitionItem().size();
+
+        // Get files for all partitions.
+        int samplePartitionSize = Config.hive_stats_partition_sample_size;
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions
+                = getFilesForPartitions(table, partitionValues, samplePartitionSize);
+        long totalSize = 0;
+        // Calculate the total file size.
+        for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
+            for (HiveMetaStoreCache.HiveFileStatus file : files.getFiles()) {
+                totalSize += file.getLength();
+            }
+        }
+        // Estimate row count: totalSize/estimatedRowSize
+        long estimatedRowSize = 0;
+        List<Column> partitionColumns = table.getPartitionColumns();
+        for (Column column : table.getFullSchema()) {
+            // Partition column shouldn't count to the row size, because it is not in the data file.
+            if (partitionColumns != null && partitionColumns.contains(column)) {
+                continue;
+            }
+            estimatedRowSize += column.getDataType().getSlotSize();
+        }
+        if (estimatedRowSize == 0) {
+            return 1;
+        }
+        if (samplePartitionSize < totalPartitionSize) {
+            totalSize = totalSize * totalPartitionSize / samplePartitionSize;
+        }
+        return totalSize / estimatedRowSize;
+    }
+
+    public static HiveMetaStoreCache.HivePartitionValues getPartitionValuesForTable(HMSExternalTable table) {
+        if (table.isView()) {
+            return null;
+        }
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) table.getCatalog());
         List<Type> partitionColumnTypes = table.getPartitionColumnTypes();
         HiveMetaStoreCache.HivePartitionValues partitionValues = null;
-        List<HivePartition> hivePartitions = Lists.newArrayList();
-        int samplePartitionSize = Config.hive_stats_partition_sample_size;
-        int totalPartitionSize = 1;
         // Get table partitions from cache.
         if (!partitionColumnTypes.isEmpty()) {
             // It is ok to get partition values from cache,
@@ -587,17 +661,28 @@ public class StatisticsUtil {
             // because it has enough space to keep partition info of all tables in cache.
             partitionValues = cache.getPartitionValues(table.getDbName(), table.getName(), partitionColumnTypes);
         }
+        return partitionValues;
+    }
+
+    public static List<HiveMetaStoreCache.FileCacheValue> getFilesForPartitions(
+            HMSExternalTable table, HiveMetaStoreCache.HivePartitionValues partitionValues, int sampleSize) {
+        if (table.isView()) {
+            return Lists.newArrayList();
+        }
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) table.getCatalog());
+        List<HivePartition> hivePartitions = Lists.newArrayList();
         if (partitionValues != null) {
             Map<Long, PartitionItem> idToPartitionItem = partitionValues.getIdToPartitionItem();
-            totalPartitionSize = idToPartitionItem.size();
+            int totalPartitionSize = idToPartitionItem.size();
             Collection<PartitionItem> partitionItems;
             List<List<String>> partitionValuesList;
             // If partition number is too large, randomly choose part of them to estimate the whole table.
-            if (samplePartitionSize < totalPartitionSize) {
+            if (sampleSize > 0 && sampleSize < totalPartitionSize) {
                 List<PartitionItem> items = new ArrayList<>(idToPartitionItem.values());
                 Collections.shuffle(items);
-                partitionItems = items.subList(0, samplePartitionSize);
-                partitionValuesList = Lists.newArrayListWithCapacity(samplePartitionSize);
+                partitionItems = items.subList(0, sampleSize);
+                partitionValuesList = Lists.newArrayListWithCapacity(sampleSize);
             } else {
                 partitionItems = idToPartitionItem.values();
                 partitionValuesList = Lists.newArrayListWithCapacity(totalPartitionSize);
@@ -608,34 +693,15 @@ public class StatisticsUtil {
             // get partitions without cache, so that it will not invalid the cache when executing
             // non query request such as `show table status`
             hivePartitions = cache.getAllPartitionsWithoutCache(table.getDbName(), table.getName(),
-                    partitionValuesList);
+                partitionValuesList);
         } else {
             hivePartitions.add(new HivePartition(table.getDbName(), table.getName(), true,
                     table.getRemoteTable().getSd().getInputFormat(),
                     table.getRemoteTable().getSd().getLocation(), null));
         }
         // Get files for all partitions.
-        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = cache.getFilesByPartitionsWithoutCache(
-                hivePartitions, true);
-        long totalSize = 0;
-        // Calculate the total file size.
-        for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
-            for (HiveMetaStoreCache.HiveFileStatus file : files.getFiles()) {
-                totalSize += file.getLength();
-            }
-        }
-        // Estimate row count: totalSize/estimatedRowSize
-        long estimatedRowSize = 0;
-        for (Column column : table.getFullSchema()) {
-            estimatedRowSize += column.getDataType().getSlotSize();
-        }
-        if (estimatedRowSize == 0) {
-            return 1;
-        }
-        if (samplePartitionSize < totalPartitionSize) {
-            totalSize = totalSize * totalPartitionSize / samplePartitionSize;
-        }
-        return totalSize / estimatedRowSize;
+        String bindBrokerName = table.getCatalog().bindBrokerName();
+        return cache.getFilesByPartitionsWithoutCache(hivePartitions, true, bindBrokerName);
     }
 
     /**
@@ -649,8 +715,8 @@ public class StatisticsUtil {
         TableScan tableScan = table.newScan().includeColumnStats();
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         columnStatisticBuilder.setCount(0);
-        columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
-        columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
         columnStatisticBuilder.setDataSize(0);
         columnStatisticBuilder.setAvgSizeByte(0);
         columnStatisticBuilder.setNumNulls(0);
@@ -729,15 +795,25 @@ public class StatisticsUtil {
         return table instanceof ExternalTable;
     }
 
-    public static boolean checkAnalyzeTime(LocalTime now) {
+    public static boolean isExternalTable(long catalogId, long dbId, long tblId) {
+        TableIf table;
+        try {
+            table = findTable(catalogId, dbId, tblId);
+        } catch (Throwable e) {
+            LOG.warn(e.getMessage());
+            return false;
+        }
+        return table instanceof ExternalTable;
+    }
+
+    public static boolean inAnalyzeTime(LocalTime now) {
         try {
             Pair<LocalTime, LocalTime> range = findRangeFromGlobalSessionVar();
-            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
-            LocalTime start = range == null
-                    ? LocalTime.parse(Config.full_auto_analyze_start_time, timeFormatter) : range.first;
-            LocalTime end = range == null
-                    ? LocalTime.parse(Config.full_auto_analyze_end_time, timeFormatter) : range.second;
-
+            if (range == null) {
+                return false;
+            }
+            LocalTime start = range.first;
+            LocalTime end = range.second;
             if (start.isAfter(end) && (now.isAfter(start) || now.isBefore(end))) {
                 return true;
             } else {
@@ -754,13 +830,14 @@ public class StatisticsUtil {
             String startTime =
                     findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_START_TIME)
                             .fullAutoAnalyzeStartTime;
+            // For compatibility
             if (StringUtils.isEmpty(startTime)) {
-                return null;
+                startTime = StatisticConstants.FULL_AUTO_ANALYZE_START_TIME;
             }
             String endTime = findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_END_TIME)
                     .fullAutoAnalyzeEndTime;
             if (StringUtils.isEmpty(startTime)) {
-                return null;
+                endTime = StatisticConstants.FULL_AUTO_ANALYZE_END_TIME;
             }
             DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
             return Pair.of(LocalTime.parse(startTime, timeFormatter), LocalTime.parse(endTime, timeFormatter));
@@ -774,5 +851,14 @@ public class StatisticsUtil {
         VariableExpr variableExpr = new VariableExpr(varName, SetType.GLOBAL);
         VariableMgr.getValue(sessionVariable, variableExpr);
         return sessionVariable;
+    }
+
+    public static boolean enableAutoAnalyze() {
+        try {
+            return findRangeFromGlobalSessionVar(SessionVariable.ENABLE_FULL_AUTO_ANALYZE).enableFullAutoAnalyze;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of enable auto analyze, return false by default", e);
+        }
+        return false;
     }
 }

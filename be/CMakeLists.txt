@@ -260,7 +260,8 @@ if (COMPILER_GCC)
     add_compile_options(-fdiagnostics-color=always
                         -Wno-nonnull
                         -Wno-stringop-overread
-                        -Wno-stringop-overflow)
+                        -Wno-stringop-overflow
+                        -Wno-array-bounds)
 endif ()
 
 if (COMPILER_CLANG)
@@ -278,6 +279,7 @@ if (COMPILER_CLANG)
                         -Wunused-member-function
                         -Wunused-macros)
     add_compile_options(-Wno-vla-extension)
+    add_compile_options(-Wno-gnu-statement-expression)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         if (NOT OS_MACOSX)
@@ -370,7 +372,7 @@ set(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-set(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
+set(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -mcmodel=medium -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
@@ -468,6 +470,7 @@ set(DORIS_LINK_LIBS
     GeoType
     Vec
     Pipeline
+    Cloud
     ${WL_END_GROUP}
 )
 
@@ -510,6 +513,7 @@ if (absl_FOUND)
         absl::flags_reflection
         absl::random_internal_pool_urbg
         absl::random_internal_randen
+        absl::random_internal_seed_material
         absl::spinlock_wait
         absl::status
         absl::statusor
@@ -716,6 +720,7 @@ add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/udf)
+add_subdirectory(${SRC_DIR}/cloud)
 
 option(BUILD_META_TOOL "Build meta tool" OFF)
 if (BUILD_META_TOOL)

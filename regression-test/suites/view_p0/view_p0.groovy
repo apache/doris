@@ -130,4 +130,10 @@ suite("view_p0") {
     qt_sql2 "select * from test_vv1;"
 
     sql "drop view if exists test_vv1;"
+
+    sql "drop view if exists test_view_abc;"
+
+    sql """CREATE VIEW IF NOT EXISTS `test_view_abc`(`a`) AS WITH T1 AS (SELECT 1 AS 'a'), T2 AS (SELECT 2 AS 'a') SELECT T1.a FROM T1 UNION ALL SELECT T2.a FROM T2;"""
+
+    sql "drop view if exists test_view_abc;" 
 }

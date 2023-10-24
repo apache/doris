@@ -45,7 +45,7 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
                             {{Null(), vec1}, Null()},
                             {{empty_arr, vec1}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // arrays_overlap(Array<Int128>, Array<Int128>)
@@ -58,7 +58,7 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         DataSet data_set = {
                 {{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // arrays_overlap(Array<Float64>, Array<Float64>)
@@ -71,7 +71,7 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         DataSet data_set = {
                 {{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // arrays_overlap(Array<Date>, Array<Date>)
@@ -85,7 +85,7 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         DataSet data_set = {
                 {{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // arrays_overlap(Array<DateTime>, Array<DateTime>)
@@ -102,7 +102,7 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
                             {{Null(), vec1}, Null()},
                             {{empty_arr, vec1}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // arrays_overlap(Array<Decimal128>, Array<Decimal128>)
@@ -116,7 +116,7 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         DataSet data_set = {
                 {{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     // arrays_overlap(Array<String>, Array<String>)
@@ -132,7 +132,7 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
                             {{Null(), vec1}, Null()},
                             {{empty_arr, vec1}, UInt8(0)}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 }
 

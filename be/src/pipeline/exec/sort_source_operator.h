@@ -47,18 +47,13 @@ public:
 
 class SortSourceOperatorX;
 class SortLocalState final : public PipelineXLocalState<SortDependency> {
-    ENABLE_FACTORY_CREATOR(SortLocalState);
-
 public:
+    ENABLE_FACTORY_CREATOR(SortLocalState);
     SortLocalState(RuntimeState* state, OperatorXBase* parent);
-
-    Status init(RuntimeState* state, LocalStateInfo& info) override;
-    Status close(RuntimeState* state) override;
+    ~SortLocalState() override = default;
 
 private:
     friend class SortSourceOperatorX;
-
-    RuntimeProfile::Counter* _get_next_timer = nullptr;
 };
 
 class SortSourceOperatorX final : public OperatorX<SortLocalState> {

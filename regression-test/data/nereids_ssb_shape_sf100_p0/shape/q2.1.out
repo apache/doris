@@ -8,19 +8,20 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](lineorder.lo_orderdate = dates.d_datekey)
-------------------hashJoin[INNER_JOIN](lineorder.lo_suppkey = supplier.s_suppkey)
---------------------hashJoin[INNER_JOIN](lineorder.lo_partkey = part.p_partkey)
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[lineorder]
+----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey))otherCondition=()
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey))otherCondition=()
+----------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_partkey = part.p_partkey))otherCondition=()
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[lineorder]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((part.p_category = 'MFGR#12'))
+------------------------------PhysicalOlapScan[part]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((part.p_category = 'MFGR#12'))
-----------------------------PhysicalOlapScan[part]
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------filter((supplier.s_region = 'AMERICA'))
---------------------------PhysicalOlapScan[supplier]
+--------------------------filter((supplier.s_region = 'AMERICA'))
+----------------------------PhysicalOlapScan[supplier]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[dates]

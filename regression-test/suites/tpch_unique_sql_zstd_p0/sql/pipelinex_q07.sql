@@ -1,5 +1,5 @@
 -- tables: supplier,lineitem,orders,customer,nation
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
   supp_nation,
   cust_nation,
   l_year,

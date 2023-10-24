@@ -113,6 +113,7 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VSortNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_TIMER(_exec_timer);
     _runtime_profile->add_info_string("TOP-N", _limit == -1 ? "false" : "true");
 
     _memory_usage_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
@@ -127,6 +128,7 @@ Status VSortNode::prepare(RuntimeState* state) {
 }
 
 Status VSortNode::alloc_resource(doris::RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     RETURN_IF_CANCELLED(state);
@@ -136,6 +138,7 @@ Status VSortNode::alloc_resource(doris::RuntimeState* state) {
 }
 
 Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     if (input_block->rows() > 0) {
         RETURN_IF_ERROR(_sorter->append_block(input_block));
         RETURN_IF_CANCELLED(state);
@@ -192,7 +195,7 @@ Status VSortNode::open(RuntimeState* state) {
 
     } while (!eos);
 
-    child(0)->close(state);
+    static_cast<void>(child(0)->close(state));
 
     mem_tracker()->consume(_sorter->data_size());
     COUNTER_UPDATE(_sort_blocks_memory_usage, _sorter->data_size());
@@ -201,6 +204,7 @@ Status VSortNode::open(RuntimeState* state) {
 }
 
 Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_get_next_timer);
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sorter->get_next(state, output_block, eos));
     reached_limit(output_block, eos);

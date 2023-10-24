@@ -6,16 +6,16 @@ PhysicalResultSink
 ------PhysicalTopN
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN](orders.o_orderkey = lineitem.l_orderkey)
+------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey))otherCondition=()
 --------------PhysicalProject
 ----------------PhysicalOlapScan[lineitem]
 --------------PhysicalDistribute
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](customer.c_custkey = orders.o_custkey)
+------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey))otherCondition=()
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[customer]
 --------------------PhysicalDistribute
-----------------------hashJoin[LEFT_SEMI_JOIN](orders.o_orderkey = lineitem.l_orderkey)
+----------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey))otherCondition=()
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[orders]
 ------------------------PhysicalProject

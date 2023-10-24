@@ -27,9 +27,11 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
+#include "olap/comparison_predicate.h"
 #include "olap/decimal12.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/iterators.h"
@@ -337,12 +339,37 @@ bool ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates
                                      col_predicates);
 }
 
+bool ColumnReader::prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
+                                                const int column_id) const {
+    if (_zone_map_index == nullptr) {
+        return false;
+    }
+
+    FieldType type = _type_info->type();
+    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
+    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
+    _parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get());
+
+    auto pruned = false;
+    for (auto it = predicates.begin(); it != predicates.end();) {
+        auto predicate = *it;
+        if (predicate->column_id() == column_id &&
+            predicate->is_always_true({min_value.get(), max_value.get()})) {
+            pruned = true;
+            it = predicates.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    return pruned;
+}
+
 void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                                    WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
-        min_value_container->from_string(zone_map.min());
-        max_value_container->from_string(zone_map.max());
+        static_cast<void>(min_value_container->from_string(zone_map.min()));
+        static_cast<void>(max_value_container->from_string(zone_map.max()));
     }
     // for compatible original Cond eval logic
     if (zone_map.has_null()) {
@@ -360,8 +387,8 @@ void ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
                                              WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
-        min_value_container->from_string(zone_map.min());
-        max_value_container->from_string(zone_map.max());
+        static_cast<void>(min_value_container->from_string(zone_map.min()));
+        static_cast<void>(max_value_container->from_string(zone_map.max()));
     }
 
     if (!zone_map.has_not_null()) {
@@ -974,7 +1001,7 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         // it has bad impact on primary key query. For example, select * from table where pk = 1, and
         // the table has 2000 columns.
         if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING && opts.is_predicate_column) {
-            seek_to_ordinal(_reader->num_rows() - 1);
+            static_cast<void>(seek_to_ordinal(_reader->num_rows() - 1));
             _is_all_dict_encoding = _page.is_dict_encoding;
             _reader->set_dict_encoding_type(_is_all_dict_encoding
                                                     ? ColumnReader::ALL_DICT_ENCODING
@@ -1037,7 +1064,7 @@ void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset
         pos_in_data = offset_in_data + skips - skip_nulls;
     }
 
-    page->data_decoder->seek_to_position_in_page(pos_in_data);
+    static_cast<void>(page->data_decoder->seek_to_position_in_page(pos_in_data));
     page->offset_in_page = offset_in_page;
 }
 
@@ -1157,7 +1184,8 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 }
 
                 if (!is_null) {
-                    _page.data_decoder->seek_to_position_in_page(origin_index + this_run);
+                    static_cast<void>(
+                            _page.data_decoder->seek_to_position_in_page(origin_index + this_run));
                 }
 
                 already_read += this_read_count;
@@ -1349,11 +1377,11 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
                sizeof(FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
         std::string str = FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::to_string(mem_value);
 
-        vectorized::VecDateTimeValue value;
+        VecDateTimeValue value;
         value.from_date_str(str.c_str(), str.length());
         value.cast_to_date();
 
-        int64 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
+        int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
         dst->insert_many_data(data_ptr, data_len, n);
         break;
     }
@@ -1367,11 +1395,11 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         std::string str =
                 FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>::to_string(mem_value);
 
-        vectorized::VecDateTimeValue value;
+        VecDateTimeValue value;
         value.from_date_str(str.c_str(), str.length());
         value.to_datetime();
 
-        int64 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
+        int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
         dst->insert_many_data(data_ptr, data_len, n);
         break;
     }

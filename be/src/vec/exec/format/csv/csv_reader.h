@@ -40,7 +40,6 @@
 namespace doris {
 
 class LineReader;
-class TextConverter;
 class Decompressor;
 class SlotDescriptor;
 class RuntimeProfile;
@@ -213,6 +212,10 @@ private:
     void _init_system_properties();
     void _init_file_description();
 
+    //if from_json = false , deserialize from hive_text
+    template <bool from_json>
+    Status deserialize_nullable_string(IColumn& column, Slice& slice);
+
     // used for parse table schema of csv file.
     // Currently, this feature is for table valued function.
     Status _prepare_parse(size_t* read_line, bool* is_parse_name);
@@ -286,6 +289,7 @@ private:
     std::vector<Slice> _split_values;
     std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
     TTextSerdeType::type _text_serde_type;
+    std::vector<int> _use_nullable_string_opt;
 };
 } // namespace vectorized
 } // namespace doris

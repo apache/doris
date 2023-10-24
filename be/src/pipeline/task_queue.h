@@ -187,6 +187,8 @@ public:
     void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
                              taskgroup::TGPTEntityPtr entity) override;
 
+    void reset_empty_group_entity();
+
 private:
     template <bool from_executor>
     Status _push_back(PipelineTask* task);
@@ -209,6 +211,13 @@ private:
     int _total_cpu_share = 0;
     std::atomic<taskgroup::TGPTEntityPtr> _min_tg_entity = nullptr;
     uint64_t _min_tg_v_runtime_ns = 0;
+
+    // empty group
+    taskgroup::TaskGroupEntity<std::queue<pipeline::PipelineTask*>>* _empty_group_entity =
+            new taskgroup::TaskGroupEntity<std::queue<pipeline::PipelineTask*>>();
+    PipelineTask* _empty_pip_task = new PipelineTask();
+    // todo(wb) support auto-switch cpu mode between soft limit and hard limit
+    bool _enable_cpu_hard_limit = config::enable_cpu_hard_limit;
 };
 
 } // namespace pipeline

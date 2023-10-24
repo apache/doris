@@ -31,6 +31,7 @@
 
 #include "common/config.h"
 #include "vec/sink/async_writer_sink.h"
+#include "vec/sink/group_commit_block_sink.h"
 #include "vec/sink/multi_cast_data_stream_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vmemory_scratch_sink.h"
@@ -147,7 +148,8 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::OLAP_TABLE_SINK: {
         Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        if (state->query_options().enable_memtable_on_sink_node) {
+        if (state->query_options().enable_memtable_on_sink_node &&
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
             sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
         } else {
             sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, false));
@@ -159,6 +161,13 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
         sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, true));
+        RETURN_IF_ERROR(status);
+        break;
+    }
+    case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
+        Status status = Status::OK();
+        DCHECK(thrift_sink.__isset.olap_table_sink);
+        sink->reset(new vectorized::GroupCommitBlockSink(pool, row_desc, output_exprs, &status));
         RETURN_IF_ERROR(status);
         break;
     }
@@ -294,7 +303,8 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::OLAP_TABLE_SINK: {
         Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        if (state->query_options().enable_memtable_on_sink_node) {
+        if (state->query_options().enable_memtable_on_sink_node &&
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
             sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
         } else {
             sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, false));
@@ -314,6 +324,13 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
         sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, true));
+        RETURN_IF_ERROR(status);
+        break;
+    }
+    case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
+        Status status = Status::OK();
+        DCHECK(thrift_sink.__isset.olap_table_sink);
+        sink->reset(new vectorized::GroupCommitBlockSink(pool, row_desc, output_exprs, &status));
         RETURN_IF_ERROR(status);
         break;
     }
@@ -346,6 +363,24 @@ Status DataSink::init(const TDataSink& thrift_sink) {
 
 Status DataSink::prepare(RuntimeState* state) {
     return Status::OK();
+}
+
+bool DataSink::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
+    OlapTableSchemaParam schema;
+    if (!schema.init(sink.schema).ok()) {
+        return false;
+    }
+    if (schema.is_partial_update()) {
+        return true;
+    }
+    for (const auto& index_schema : schema.indexes()) {
+        for (const auto& index : index_schema->indexes) {
+            if (index->index_type() == INVERTED) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 } // namespace doris

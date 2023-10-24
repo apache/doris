@@ -163,7 +163,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         if (argument_types[0]->is_nullable()) {
             return Status::InternalError("Agg state function input type must be not nullable");
         }
-        if (argument_types[0]->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+        if (argument_types[0]->get_type_as_type_descriptor().type !=
+            PrimitiveType::TYPE_AGG_STATE) {
             return Status::InternalError(
                     "Agg state function input type must be agg_state but get {}",
                     argument_types[0]->get_family_name());
@@ -179,7 +180,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                         "Union function return type must be not nullable, real={}",
                         _data_type->get_name());
             }
-            if (_data_type->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+            if (_data_type->get_type_as_type_descriptor().type != PrimitiveType::TYPE_AGG_STATE) {
                 return Status::InternalError(
                         "Union function return type must be AGG_STATE, real={}",
                         _data_type->get_name());
@@ -335,6 +336,22 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
           _function(evaluator._function),
           _expr_name(evaluator._expr_name),
           _agg_columns(evaluator._agg_columns) {
+    if (evaluator._fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
+        DataTypes tmp_argument_types;
+        tmp_argument_types.reserve(evaluator._input_exprs_ctxs.size());
+        // prepare for argument
+        for (int i = 0; i < evaluator._input_exprs_ctxs.size(); ++i) {
+            auto data_type = evaluator._input_exprs_ctxs[i]->root()->data_type();
+            tmp_argument_types.emplace_back(data_type);
+        }
+        const DataTypes& argument_types =
+                _real_argument_types.empty() ? tmp_argument_types : _real_argument_types;
+        _function = AggregateJavaUdaf::create(evaluator._fn, argument_types, evaluator._data_type);
+        static_cast<void>(
+                static_cast<AggregateJavaUdaf*>(_function.get())->check_udaf(evaluator._fn));
+    }
+    DCHECK(_function != nullptr);
+
     _input_exprs_ctxs.resize(evaluator._input_exprs_ctxs.size());
     for (size_t i = 0; i < _input_exprs_ctxs.size(); i++) {
         WARN_IF_ERROR(evaluator._input_exprs_ctxs[i]->clone(state, _input_exprs_ctxs[i]), "");
