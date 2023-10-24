@@ -1002,7 +1002,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
     }
 };
 
-
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
         : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {

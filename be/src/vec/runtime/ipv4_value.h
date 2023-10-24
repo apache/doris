@@ -121,4 +121,4 @@ private:
     vectorized::IPv4 _value;
 };
 
-}
+} // namespace doris

@@ -58,9 +58,7 @@ public:
         }
 
         std::transform(ipv6.begin(), ipv6.end(), ipv6.begin(),
-                       [] (unsigned char ch) {
-            return std::tolower(ch);
-        });
+                       [] (unsigned char ch) { return std::tolower(ch); });
         std::istringstream iss(ipv6);
         std::string field;
         uint16_t fields[8] = {0};
@@ -145,8 +143,7 @@ public:
                               static_cast<uint16_t>((x.low >> 48) & 0xFFFF),
                               static_cast<uint16_t>((x.low >> 32) & 0xFFFF),
                               static_cast<uint16_t>((x.low >> 16) & 0xFFFF),
-                              static_cast<uint16_t>(x.low & 0xFFFF)
-        };
+                              static_cast<uint16_t>(x.low & 0xFFFF)};
 
         uint8_t zero_start = 0, zero_end = 0;
 
@@ -211,8 +208,7 @@ public:
                               static_cast<uint8_t>((x.low >> 24) & 0xFF),
                               static_cast<uint8_t>((x.low >> 16) & 0xFF),
                               static_cast<uint8_t>((x.low >> 8) & 0xFF),
-                              static_cast<uint8_t>(x.low & 0xFF)
-        };
+                              static_cast<uint8_t>(x.low & 0xFF)};
 
         std::stringstream ss;
 
@@ -258,4 +254,5 @@ private:
     vectorized::IPv6 _value;
 };
 
-}
+} // namespace doris
+
