@@ -106,6 +106,8 @@ public:
         return nullptr;
     }
 
+    PUniqueId load_id() override { return _context.load_id; }
+
     Version version() override { return _context.version; }
 
     int64_t num_rows() const override { return _segment_creator.num_rows_written(); }
