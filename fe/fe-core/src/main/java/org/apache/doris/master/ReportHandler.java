@@ -784,6 +784,10 @@ public class ReportHandler extends Daemon {
                         continue;
                     }
 
+                    BinlogConfig binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
+
+                    ReplicaState state = replica.getState();
+
                     // check report version again
                     long currentBackendReportVersion = Env.getCurrentSystemInfo()
                             .getBackendReportVersion(backendId);
@@ -791,9 +795,6 @@ public class ReportHandler extends Daemon {
                         continue;
                     }
 
-                    BinlogConfig binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
-
-                    ReplicaState state = replica.getState();
                     if (state == ReplicaState.NORMAL || state == ReplicaState.SCHEMA_CHANGE) {
                         // if state is PENDING / ROLLUP / CLONE
                         // it's normal that the replica is not created in BE but exists in meta.
