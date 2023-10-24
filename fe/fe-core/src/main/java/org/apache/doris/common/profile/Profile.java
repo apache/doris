@@ -96,11 +96,14 @@ public class Profile {
         summaryProfile.prettyPrint(builder);
         builder.append("\n \n");
         if (level >= 1) {
+            builder.append("Simplified Profile \n");
             this.rootProfile.prettyPrintSimplifiedProfile(builder);
         }
         if (level >= 3) {
+            builder.append("\n \n");
+            builder.append("Detail Profile \n");
             for (ExecutionProfile executionProfile : executionProfiles) {
-                executionProfile.getExecutionProfile().prettyPrint(builder, "abcd");
+                executionProfile.getExecutionProfile().prettyPrint(builder, "");
             }
         }
         return builder.toString();
