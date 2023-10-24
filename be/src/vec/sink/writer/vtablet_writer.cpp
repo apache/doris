@@ -17,6 +17,7 @@
 
 #include "vtablet_writer.h"
 
+#include <bits/ranges_algo.h>
 #include <brpc/http_method.h>
 #include <bthread/bthread.h>
 #include <fmt/format.h>
@@ -1012,13 +1013,30 @@ void VTabletWriter::_send_batch_process() {
         }
 
         // auto partition table may have no node channel temporarily. wait to open.
-        // for auto partition tables, there's a situation: we haven't open any node channel but decide to cancel the task.
-        //  then the judge will never be true because opened_nodes won't increase. so we have to specially check wether we called close.
-        if ((opened_nodes != 0 && running_channels_num == 0) || (opened_nodes == 0 && _try_close)) {
-            LOG(INFO) << "all node channels are stopped(maybe finished/offending/cancelled), "
+        if (opened_nodes != 0 && running_channels_num == 0) {
+            LOG(INFO) << "All node channels are stopped(maybe finished/offending/cancelled), "
                          "sender thread exit. "
                       << print_id(_load_id);
             return;
+        }
+
+        // for auto partition tables, there's a situation: we haven't open any node channel but decide to cancel the task.
+        // then the judge in front will never be true because opened_nodes won't increase. so we have to specially check wether we called close.
+        // we must RECHECK opened_nodes below, after got closed signal, because it may changed. Think of this:
+        //      checked opened_nodes = 0 ---> new block arrived ---> task finished, close() was called ---> we got _try_close here
+        // if we don't check again, we may lose the last package.
+        if (_try_close) {
+            opened_nodes = 0;
+            std::ranges::for_each(_channels,
+                                  [&opened_nodes](const std::shared_ptr<IndexChannel>& ich) {
+                                      opened_nodes += ich->num_node_channels();
+                                  });
+            if (opened_nodes == 0) {
+                LOG(INFO) << "No node channel have ever opened but now we have to close. sender "
+                             "thread exit. "
+                          << print_id(_load_id);
+                return;
+            }
         }
         bthread_usleep(config::olap_table_sink_send_interval_ms * 1000);
     }
