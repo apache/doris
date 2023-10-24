@@ -149,10 +149,10 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                 // TODO(tsy): make it fail here after FE forbidding hard-link-schema-change
                 continue;
             }
-            if (tablet_schema.field_index(delete_cond.column_unique_id) == -1) {
+            if (tablet_schema.columns()[0].unique_id() < 0) {
                 const auto& err_msg =
-                        fmt::format("column id={} does not exists, table id={}",
-                                    delete_cond.column_unique_id, tablet_schema.table_id());
+                        fmt::format("column id does not exists in tablet={}, schema version={},",
+                                    tablet->tablet_id(), tablet_schema.schema_version());
                 return Status::Aborted(err_msg);
             }
             if (!iequal(tablet_schema.column_by_uid(delete_cond.column_unique_id).name(),
