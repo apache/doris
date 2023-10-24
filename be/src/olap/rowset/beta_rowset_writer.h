@@ -95,7 +95,7 @@ public:
     Status build(RowsetSharedPtr& rowset) override;
 
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override;
-    
+
     PUniqueId load_id() override { return _context.load_id; }
 
     Version version() override { return _context.version; }
