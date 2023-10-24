@@ -761,6 +761,7 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
     tablet_schema.to_schema_pb(&tablet_schema_pb);
     init_from_pb(tablet_schema_pb);
+    _table_id = tablet_schema.table_id();
 }
 
 std::string TabletSchema::to_key() const {
