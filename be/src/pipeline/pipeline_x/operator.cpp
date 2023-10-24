@@ -297,17 +297,17 @@ PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* 
                                                          RuntimeState* state)
         : _parent(parent),
           _state(state),
-          _finish_dependency(new FinishDependency(parent->id(), parent->get_name())) {}
+          _finish_dependency(
+                  new FinishDependency(parent->id(), parent->get_name() + "_FINISH_DEPENDENCY")) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
         : _num_rows_returned(0),
           _rows_returned_counter(nullptr),
-          _rows_returned_rate(nullptr),
-          _memory_used_counter(nullptr),
           _peak_memory_usage_counter(nullptr),
           _parent(parent),
           _state(state),
-          _finish_dependency(new FinishDependency(parent->id(), parent->get_name())) {}
+          _finish_dependency(
+                  new FinishDependency(parent->id(), parent->get_name() + "_FINISH_DEPENDENCY")) {}
 
 template <typename DependencyType>
 Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalStateInfo& info) {
@@ -316,6 +316,8 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
     _runtime_profile->set_metadata(_parent->node_id());
     _runtime_profile->set_is_sink(false);
     info.parent_profile->add_child(_runtime_profile.get(), true, nullptr);
+    _wait_for_finish_dependency_timer =
+            ADD_TIMER(_runtime_profile, "WaitForPendingFinishDependency");
     if constexpr (!std::is_same_v<FakeDependency, Dependency>) {
         auto& deps = info.dependencys;
         _dependency = (DependencyType*)deps.front().get();
@@ -341,11 +343,6 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
     _projection_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ProjectionTime", 1);
     _open_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "OpenTime", 1);
     _close_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "CloseTime", 1);
-    _rows_returned_rate = profile()->add_derived_counter(
-            doris::ExecNode::ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
-            std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
-                               profile()->total_time_counter()),
-            "");
     _mem_tracker = std::make_unique<MemTracker>("PipelineXLocalState:" + _runtime_profile->name());
     _memory_used_counter = ADD_LABEL_COUNTER(_runtime_profile, "MemoryUsage");
     _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
@@ -361,6 +358,8 @@ Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
     if (_dependency) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->read_watcher_elapse_time());
     }
+    COUNTER_SET(_wait_for_finish_dependency_timer,
+                _finish_dependency->finish_watcher_elapse_time());
     if (_rows_returned_counter != nullptr) {
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     }
@@ -376,6 +375,7 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
     _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + id_name()));
     _profile->set_metadata(_parent->node_id());
     _profile->set_is_sink(true);
+    _wait_for_finish_dependency_timer = ADD_TIMER(_profile, "PendingFinishDependency");
     if constexpr (!std::is_same_v<FakeDependency, Dependency>) {
         auto& deps = info.dependencys;
         _dependency = (DependencyType*)deps.front().get();
@@ -401,6 +401,8 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
     if (_dependency) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->write_watcher_elapse_time());
     }
+    COUNTER_SET(_wait_for_finish_dependency_timer,
+                _finish_dependency->finish_watcher_elapse_time());
     _closed = true;
     return Status::OK();
 }

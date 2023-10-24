@@ -171,6 +171,11 @@ public class ColumnType {
         return type == Type.DATETIMEV2;
     }
 
+    public boolean isPrimitive() {
+        return type == Type.BOOLEAN || type == Type.BYTE || type == Type.TINYINT || type == Type.SMALLINT
+                || type == Type.INT || type == Type.BIGINT || type == Type.FLOAT || type == Type.DOUBLE;
+    }
+
     public Type getType() {
         return type;
     }
@@ -353,8 +358,9 @@ public class ColumnType {
                         String keyValue = lowerCaseType.substring(4, lowerCaseType.length() - 1);
                         int index = findNextNestedField(keyValue);
                         if (index != keyValue.length() && index != 0) {
-                            ColumnType keyType = parseType("key", keyValue.substring(0, index));
-                            ColumnType valueType = parseType("value", keyValue.substring(index + 1));
+                            ColumnType keyType = parseType("key", keyValue.substring(0, index).trim());
+                            ColumnType valueType =
+                                    parseType("value", keyValue.substring(index + 1).trim());
                             ColumnType mapType = new ColumnType(columnName, Type.MAP);
                             mapType.setChildTypes(Arrays.asList(keyType, valueType));
                             return mapType;

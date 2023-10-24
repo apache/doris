@@ -188,9 +188,8 @@ Status WalTable::send_request(int64_t wal_id, const std::string& wal, const std:
     evhttp_add_header(req->output_headers, HTTP_AUTH_CODE.c_str(), std::to_string(wal_id).c_str());
     evhttp_add_header(req->output_headers, HTTP_WAL_ID_KY.c_str(), std::to_string(wal_id).c_str());
     std::stringstream ss;
-    ss << "insert into " << std::to_string(_table_id) << " WITH LABEL " << label
-       << " select * from "
-          "http_stream(\"format\" = \"wal\", \"table_id\" = \""
+    ss << "insert into doris_internal_table_id(" << _table_id << ") WITH LABEL " << label
+       << " select * from http_stream(\"format\" = \"wal\", \"table_id\" = \""
        << std::to_string(_table_id) << "\")";
     evhttp_add_header(req->output_headers, HTTP_SQL.c_str(), ss.str().c_str());
     evbuffer* output = evhttp_request_get_output_buffer(req);

@@ -180,7 +180,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         _nano_seconds = 0;
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
-        vectorized::VecDateTimeValue dt;
+        VecDateTimeValue dt;
         dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
@@ -237,7 +237,7 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
         _nano_seconds = 0;
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
-        vectorized::VecDateTimeValue dt;
+        VecDateTimeValue dt;
         dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
@@ -313,6 +313,7 @@ Status RuntimeState::query_status() {
 }
 
 bool RuntimeState::is_cancelled() const {
+    // Maybe we should just return _is_cancelled.load()
     return _is_cancelled.load() || (_query_ctx && _query_ctx->is_cancelled());
 }
 

@@ -27,7 +27,6 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
-#include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_filter_mgr.h"
@@ -72,7 +71,7 @@ public:
               _exec_env(exec_env),
               _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
               _query_options(query_options) {
-        _start_time = vectorized::VecDateTimeValue::local_time();
+        _start_time = VecDateTimeValue::local_time();
         _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
         _shared_scanner_controller.reset(new vectorized::SharedScannerController());
     }
@@ -103,7 +102,7 @@ public:
 
     ExecEnv* exec_env() { return _exec_env; }
 
-    bool is_timeout(const vectorized::VecDateTimeValue& now) const {
+    bool is_timeout(const VecDateTimeValue& now) const {
         if (timeout_second <= 0) {
             return false;
         }
@@ -225,6 +224,18 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
+    void set_task_scheduler(pipeline::TaskScheduler* task_scheduler) {
+        _task_scheduler = task_scheduler;
+    }
+
+    pipeline::TaskScheduler* get_task_scheduler() { return _task_scheduler; }
+
+    void set_scan_task_scheduler(vectorized::SimplifiedScanScheduler* scan_task_scheduler) {
+        _scan_task_scheduler = scan_task_scheduler;
+    }
+
+    vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
+
 public:
     DescriptorTbl* desc_tbl;
     bool set_rsc_info = false;
@@ -246,7 +257,7 @@ public:
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
-    std::vector<TUniqueId> fragment_ids;
+    std::vector<TUniqueId> fragment_instance_ids;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
@@ -255,7 +266,7 @@ public:
 private:
     TUniqueId _query_id;
     ExecEnv* _exec_env;
-    vectorized::VecDateTimeValue _start_time;
+    VecDateTimeValue _start_time;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -283,6 +294,9 @@ private:
     // All pipeline tasks use the same query context to report status. So we need a `_exec_status`
     // to report the real message if failed.
     Status _exec_status = Status::OK();
+
+    pipeline::TaskScheduler* _task_scheduler = nullptr;
+    vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
 };
 
 } // namespace doris

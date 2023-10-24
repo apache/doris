@@ -495,12 +495,14 @@ enum PFilterType {
     MINMAX_FILTER = 2;
     IN_FILTER = 3;
     IN_OR_BLOOM_FILTER = 4;
+    MIN_FILTER = 5;
+    MAX_FILTER = 6;
 };
 
 message PMergeFilterRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
-    required PUniqueId fragment_id = 3;
+    required PUniqueId fragment_instance_id = 3;
     required PFilterType filter_type = 4;
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
@@ -516,7 +518,7 @@ message PMergeFilterResponse {
 message PPublishFilterRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
-    required PUniqueId fragment_id = 3;
+    required PUniqueId fragment_instance_id = 3;
     required PFilterType filter_type = 4;
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;

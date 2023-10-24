@@ -40,7 +40,6 @@
 namespace doris {
 
 class LineReader;
-class TextConverter;
 class Decompressor;
 class SlotDescriptor;
 class RuntimeProfile;

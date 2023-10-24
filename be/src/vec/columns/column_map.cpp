@@ -282,7 +282,7 @@ void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& has
     }
 }
 
-void ColumnMap::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnMap::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                       const uint8_t* __restrict null_data) const {
     auto& offsets = get_offsets();
     if (null_data) {
@@ -328,9 +328,9 @@ void ColumnMap::update_hashes_with_value(uint64_t* hashes, const uint8_t* null_d
     }
 }
 
-void ColumnMap::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
-                                       const uint8_t* __restrict null_data) const {
-    auto s = hash.size();
+void ColumnMap::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                       uint32_t offset, const uint8_t* __restrict null_data) const {
+    auto s = rows;
     DCHECK(s == size());
 
     if (null_data) {
@@ -450,9 +450,8 @@ void ColumnMap::reserve(size_t n) {
 }
 
 void ColumnMap::resize(size_t n) {
-    get_offsets().resize(n);
-    keys_column->resize(n);
-    values_column->resize(n);
+    auto last_off = get_offsets().back();
+    get_offsets().resize_fill(n, last_off);
 }
 
 size_t ColumnMap::byte_size() const {
