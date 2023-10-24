@@ -79,7 +79,7 @@ struct RuntimeFilterBuild {
         if (!runtime_filter_slots.empty() && !_join_node->_build_blocks.empty()) {
             SCOPED_TIMER(_join_node->_push_compute_timer);
             for (auto& build_block : _join_node->_build_blocks) {
-                runtime_filter_slots.insert(&build_block);
+                RETURN_IF_ERROR(runtime_filter_slots.insert(&build_block));
             }
         }
         {
@@ -187,7 +187,7 @@ Status VNestedLoopJoinNode::_materialize_build_side(RuntimeState* state) {
                               std::placeholders::_3)));
         }
 
-        sink(state, &block, eos);
+        RETURN_IF_ERROR(sink(state, &block, eos));
 
         if (eos) {
             break;
@@ -213,7 +213,7 @@ Status VNestedLoopJoinNode::sink(doris::RuntimeState* state, vectorized::Block* 
 
     if (eos) {
         COUNTER_UPDATE(_build_rows_counter, _build_rows);
-        RuntimeFilterBuild(this)(state);
+        RETURN_IF_ERROR(RuntimeFilterBuild(this)(state));
 
         // optimize `in bitmap`, see https://github.com/apache/doris/issues/14338
         if (_is_output_left_side_only &&
@@ -268,7 +268,7 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     RETURN_IF_CANCELLED(state);
     while (need_more_input_data()) {
         RETURN_IF_ERROR(_fresh_left_block(state));
-        push(state, &_left_block, _left_side_eos);
+        RETURN_IF_ERROR(push(state, &_left_block, _left_side_eos));
     }
 
     return pull(state, block, eos);
@@ -637,7 +637,7 @@ Status VNestedLoopJoinNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     // We can close the right child to release its resources because its input has been
     // fully consumed.
-    child(1)->close(state);
+    RETURN_IF_ERROR(child(1)->close(state));
     return Status::OK();
 }
 
