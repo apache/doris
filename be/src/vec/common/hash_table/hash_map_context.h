@@ -69,7 +69,7 @@ struct MethodBase {
         }
     }
     virtual void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
-                                      const uint8_t* null_map = nullptr) = 0;
+                                      const uint8_t* null_map = nullptr, bool is_build = false) = 0;
 
     void init_hash_values(size_t num_rows, const uint8_t* null_map) {
         if (null_map == nullptr) {
@@ -81,7 +81,6 @@ struct MethodBase {
             if (null_map[k]) {
                 continue;
             }
-
             hash_values[k] = hash_table->hash(keys[k]);
         }
     }
@@ -95,7 +94,7 @@ struct MethodBase {
 
     void calculate_bucket(size_t num_rows) {
         size_t mask = hash_table->get_bucket_mask();
-        for (int i = 0; i < num_rows; i++) {
+        for (size_t i = 0; i < num_rows; i++) {
             hash_values[i] &= mask;
         }
     }
@@ -164,7 +163,7 @@ struct MethodSerialized : public MethodBase<TData> {
     }
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
-                              const uint8_t* null_map = nullptr) override {
+                              const uint8_t* null_map = nullptr, bool is_build = false) override {
         Base::arena.clear();
         stored_keys.resize(num_rows);
 
@@ -222,7 +221,7 @@ struct MethodStringNoCache : public MethodBase<TData> {
     std::vector<StringRef> stored_keys;
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
-                              const uint8_t* null_map = nullptr) override {
+                              const uint8_t* null_map = nullptr, bool is_build = false) override {
         const IColumn& column = *key_columns[0];
         const auto& column_string = assert_cast<const ColumnString&>(
                 column.is_nullable()
@@ -258,7 +257,7 @@ struct MethodOneNumber : public MethodBase<TData> {
                                                       FieldType>;
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
-                              const uint8_t* null_map = nullptr) override {
+                              const uint8_t* null_map = nullptr, bool is_build = false) override {
         Base::keys = (FieldType*)(key_columns[0]->is_nullable()
                                           ? assert_cast<const ColumnNullable*>(key_columns[0])
                                                     ->get_nested_column_ptr()
@@ -291,7 +290,9 @@ struct MethodKeysFixed : public MethodBase<TData> {
 
     using State = ColumnsHashing::HashMethodKeysFixed<typename Base::Value, Key, Mapped,
                                                       has_nullable_keys>;
-
+    // need keep until the hash probe end.
+    std::vector<Key> build_stored_keys;
+    // refresh each time probe
     std::vector<Key> stored_keys;
     Sizes key_sizes;
 
@@ -360,7 +361,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
     }
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
-                              const uint8_t* null_map = nullptr) override {
+                              const uint8_t* null_map = nullptr, bool is_build = false) override {
         ColumnRawPtrs actual_columns;
         ColumnRawPtrs null_maps;
         if (has_nullable_keys) {
@@ -378,8 +379,14 @@ struct MethodKeysFixed : public MethodBase<TData> {
         } else {
             actual_columns = key_columns;
         }
-        stored_keys = pack_fixeds<Key>(num_rows, actual_columns, null_maps);
-        Base::keys = stored_keys.data();
+
+        if (is_build) {
+            build_stored_keys = pack_fixeds<Key>(num_rows, actual_columns, null_maps);
+            Base::keys = build_stored_keys.data();
+        } else {
+            stored_keys = pack_fixeds<Key>(num_rows, actual_columns, null_maps);
+            Base::keys = stored_keys.data();
+        }
         Base::init_hash_values(num_rows, null_map);
     }
 

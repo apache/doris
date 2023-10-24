@@ -134,7 +134,6 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
         if (max_size == -1) {
             max_size = rhs.max_size;
         }
-        max_size = rhs.max_size;
 
         for (auto& rhs_elem : rhs.data_set) {
             if constexpr (HasLimit::value) {

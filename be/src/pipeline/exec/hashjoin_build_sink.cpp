@@ -194,29 +194,30 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     Status st = _dependency->extract_join_column<true>(block, null_map_val, raw_ptrs, res_col_ids);
 
     st = std::visit(
-            Overload {
-                    [&](std::monostate& arg, auto has_null_value,
-                        auto short_circuit_for_null_in_build_side) -> Status {
-                        LOG(FATAL) << "FATAL: uninited hash table";
-                        __builtin_unreachable();
-                        return Status::OK();
-                    },
-                    [&](auto&& arg, auto has_null_value,
-                        auto short_circuit_for_null_in_build_side) -> Status {
-                        using HashTableCtxType = std::decay_t<decltype(arg)>;
-                        vectorized::ProcessHashTableBuild<HashTableCtxType,
-                                                          HashJoinBuildSinkLocalState>
-                                hash_table_build_process(rows, block, raw_ptrs, this,
-                                                         state->batch_size(), state);
-                        return hash_table_build_process
-                                .template run<has_null_value, short_circuit_for_null_in_build_side>(
-                                        arg,
-                                        has_null_value || short_circuit_for_null_in_build_side
-                                                ? &null_map_val->get_data()
-                                                : nullptr,
-                                        &_shared_state->_has_null_in_build_side);
-                    }},
-            *_shared_state->hash_table_variants,
+            Overload {[&](std::monostate& arg, auto join_op, auto has_null_value,
+                          auto short_circuit_for_null_in_build_side) -> Status {
+                          LOG(FATAL) << "FATAL: uninited hash table";
+                          __builtin_unreachable();
+                          return Status::OK();
+                      },
+                      [&](auto&& arg, auto&& join_op, auto has_null_value,
+                          auto short_circuit_for_null_in_build_side) -> Status {
+                          using HashTableCtxType = std::decay_t<decltype(arg)>;
+                          using JoinOpType = std::decay_t<decltype(join_op)>;
+                          vectorized::ProcessHashTableBuild<HashTableCtxType,
+                                                            HashJoinBuildSinkLocalState>
+                                  hash_table_build_process(rows, block, raw_ptrs, this,
+                                                           state->batch_size(), state);
+                          return hash_table_build_process
+                                  .template run<JoinOpType::value, has_null_value,
+                                                short_circuit_for_null_in_build_side>(
+                                          arg,
+                                          has_null_value || short_circuit_for_null_in_build_side
+                                                  ? &null_map_val->get_data()
+                                                  : nullptr,
+                                          &_shared_state->_has_null_in_build_side);
+                      }},
+            *_shared_state->hash_table_variants, _shared_state->join_op_variants,
             vectorized::make_bool_variant(_build_side_ignore_null),
             vectorized::make_bool_variant(p._short_circuit_for_null_in_build_side));
 
