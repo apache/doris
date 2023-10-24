@@ -17,7 +17,6 @@
 
 #include "vec/data_types/data_type_ipv6.h"
 
-
 #include "util/binary_cast.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"

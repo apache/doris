@@ -73,9 +73,9 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_ipv6.h"
-#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -916,8 +916,8 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
         return try_read_bool_text(x, rb);
     }
 
-    if constexpr (std::is_integral_v<typename DataType::FieldType>
-                  && !std::is_same_v<typename DataType::FieldType, IPv6>) {
+    if constexpr (std::is_integral_v<typename DataType::FieldType> &&
+                  !std::is_same_v<typename DataType::FieldType, IPv6>) {
         return try_read_int_text(x, rb);
     }
 }

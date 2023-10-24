@@ -83,7 +83,7 @@ public:
 
     virtual void direct_copy(void* dest, const void* src) const = 0;
 
-    // Use only in zone map to cut data.
+    // Use only in zone map to cut data.StringParser::string_to_unsigned_int<uint32_t>
     virtual void direct_copy_may_cut(void* dest, const void* src) const = 0;
 
     virtual Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
@@ -982,7 +982,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        uint32_t value = StringParser::string_to_unsigned_int<uint32_t>(scan_key.c_str(), scan_key.size(), &result);
+        uint32_t value = StringParser::string_to_unsigned_int<uint32_t>(scan_key.c_str(),
+                                                                        scan_key.size(), &result);
 
         if (result == StringParser::PARSE_FAILURE) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
@@ -995,10 +996,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
     static std::string to_string(const void* src) {
         uint32_t value = *reinterpret_cast<const uint32_t*>(src);
         std::stringstream ss;
-        ss << ((value >> 24) & 0xFF) << '.'
-           << ((value >> 16) & 0xFF) << '.'
-           << ((value >> 8) & 0xFF) << '.'
-           << (value & 0xFF);
+        ss << ((value >> 24) & 0xFF) << '.' << ((value >> 16) & 0xFF) << '.'
+           << ((value >> 8) & 0xFF) << '.' << (value & 0xFF);
         return ss.str();
     }
 };

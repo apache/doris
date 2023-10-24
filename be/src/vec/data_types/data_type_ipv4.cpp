@@ -17,7 +17,6 @@
 
 #include "vec/data_types/data_type_ipv4.h"
 
-
 #include "util/binary_cast.hpp"
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
@@ -57,10 +56,8 @@ Status DataTypeIPv4::from_string(ReadBuffer& rb, IColumn* column) const {
 
 std::string DataTypeIPv4::convert_ipv4_to_string(IPv4 ipv4) {
     std::stringstream ss;
-    ss << ((ipv4 >> 24) & 0xFF) << '.'
-       << ((ipv4 >> 16) & 0xFF) << '.'
-       << ((ipv4 >> 8) & 0xFF) << '.'
-       << (ipv4 & 0xFF);
+    ss << ((ipv4 >> 24) & 0xFF) << '.' << ((ipv4 >> 16) & 0xFF) << '.' << ((ipv4 >> 8) & 0xFF)
+       << '.' << (ipv4 & 0xFF);
     return ss.str();
 }
 

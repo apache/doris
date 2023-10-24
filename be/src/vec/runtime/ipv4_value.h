@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include <algorithm>
-#include <regex>
 #include <stdint.h>
 
+#include <algorithm>
+#include <regex>
 #include <sstream>
 #include <string>
 
@@ -32,33 +32,19 @@ class IPv4Value {
 public:
     IPv4Value() = default;
 
-    explicit IPv4Value(vectorized::IPv4 ipv4) {
-        _value = ipv4;
-    }
+    explicit IPv4Value(vectorized::IPv4 ipv4) { _value = ipv4; }
 
-    explicit IPv4Value(std::string ipv4) {
+    explicit IPv4Value(std::string ipv4) {}
 
-    }
+    [[nodiscard]] const vectorized::IPv4& value() const { return _value; }
 
-    [[nodiscard]] const vectorized::IPv4& value() const {
-        return _value;
-    }
+    vectorized::IPv4& value() { return _value; }
 
-    vectorized::IPv4& value() {
-        return _value;
-    }
+    void set_value(vectorized::IPv4 ipv4) { _value = ipv4; }
 
-    void set_value(vectorized::IPv4 ipv4) {
-        _value = ipv4;
-    }
+    bool from_string(std::string ipv4) { return from_string(_value, ipv4); }
 
-    bool from_string(std::string ipv4) {
-        return from_string(_value, ipv4);
-    }
-
-    [[nodiscard]] std::string to_string() const {
-        return to_string(_value);
-    }
+    [[nodiscard]] std::string to_string() const { return to_string(_value); }
 
     static bool from_string(vectorized::IPv4& value, std::string ipv4) {
         remove_ipv4_space(ipv4);
@@ -79,7 +65,8 @@ public:
             }
 
             StringParser::ParseResult result;
-            vectorized::IPv4 val = StringParser::string_to_unsigned_int<vectorized::IPv4>(octet.c_str(), octet.length(), &result);
+            vectorized::IPv4 val = StringParser::string_to_unsigned_int<vectorized::IPv4>(
+                    octet.c_str(), octet.length(), &result);
             if (result != StringParser::PARSE_SUCCESS || val > 255) {
                 return false;
             }
@@ -97,10 +84,8 @@ public:
 
     static std::string to_string(vectorized::IPv4 value) {
         std::stringstream ss;
-        ss << ((value >> 24) & 0xFF) << '.'
-           << ((value >> 16) & 0xFF) << '.'
-           << ((value >> 8) & 0xFF) << '.'
-           << (value & 0xFF);
+        ss << ((value >> 24) & 0xFF) << '.' << ((value >> 16) & 0xFF) << '.'
+           << ((value >> 8) & 0xFF) << '.' << (value & 0xFF);
         return ss.str();
     }
 
@@ -123,7 +108,9 @@ public:
     }
 
     static bool is_valid_string(std::string ipv4) {
-        static std::regex IPV4_STD_REGEX("^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$");
+        static std::regex IPV4_STD_REGEX(
+                "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-"
+                "9]?)$");
         if (ipv4.size() > 15 || !std::regex_match(ipv4, IPV4_STD_REGEX)) {
             return false;
         }
