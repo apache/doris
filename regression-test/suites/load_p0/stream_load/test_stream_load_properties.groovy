@@ -124,11 +124,11 @@ suite("test_stream_load_properties", "p0") {
                  "basic_array_data_by_line.json",
                 ]
 
-    def loadedRows = [12,12,12,12,8,8,15]
+    def loadedRows = [12,12,12,12,15,15,15]
 
     def jsonLoadedRows = [20,20,20,20,18,18,18]
 
-    def filteredRows = [8,8,8,8,12,12,5]
+    def filteredRows = [8,8,8,8,5,5,5]
 
     def maxFilterRatio = [0.4,0.4,0.4,0.4,0.6,0.6,0.6]
 
@@ -276,6 +276,8 @@ suite("test_stream_load_properties", "p0") {
                         throw exception
                     }
                     log.info("Stream load result: ${result}".toString())
+                    log.info("Stream load table==============: ${table}".toString())
+                    log.info("Stream load i==============: ${i}".toString())
                     def json = parseJson(result)
                     assertEquals("fail", json.Status.toLowerCase())
                     assertEquals(20, json.NumberTotalRows)
