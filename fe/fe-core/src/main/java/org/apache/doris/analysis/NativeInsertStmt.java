@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -72,6 +73,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -389,6 +391,23 @@ public class NativeInsertStmt extends InsertStmt {
                     targetPartitionIds.add(part.getId());
                 }
             }
+
+            if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null && targetColumnNames != null) {
+                Optional<String> foundCol = targetColumnNames.stream()
+                            .filter(c -> c.equalsIgnoreCase(olapTable.getSequenceMapCol())).findAny();
+                Optional<Column> seqCol = olapTable.getFullSchema().stream()
+                                .filter(col -> col.getName().equals(olapTable.getSequenceMapCol()))
+                                .findFirst();
+                if (seqCol.isPresent() && !foundCol.isPresent() && !isPartialUpdate && !isFromDeleteOrUpdateStmt
+                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+                    if (seqCol.get().getDefaultValue() == null
+                                    || !seqCol.get().getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                        throw new AnalysisException("Table " + olapTable.getName()
+                                + " has sequence column, need to specify the sequence column");
+                    }
+                }
+            }
+
             if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
                     && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
                 partialUpdateCols.add(Column.SEQUENCE_COL);

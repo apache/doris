@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "olap/memtable.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
@@ -137,6 +138,10 @@ public:
     // For UT
     DeleteBitmapPtr get_delete_bitmap() { return _delete_bitmap; }
 
+    std::shared_ptr<PartialUpdateInfo> get_partial_update_info() const {
+        return _partial_update_info;
+    }
+
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
                 const UniqueId& load_id);
@@ -197,6 +202,8 @@ private:
 
     // total rows num written by DeltaWriter
     int64_t _total_received_rows = 0;
+
+    std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _lock_timer = nullptr;

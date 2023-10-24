@@ -63,16 +63,22 @@
 
 namespace doris::vectorized {
 
+template <typename DateType>
 struct StrToDate {
     static constexpr auto name = "str_to_date";
 
     static bool is_variadic() { return false; }
 
-    static DataTypes get_variadic_argument_types() { return {}; }
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        //TODO: it doesn't matter now. maybe sometime we should find the function signature with return_type together
-        return make_nullable(std::make_shared<DataTypeDateTime>());
+        if constexpr (IsDateType<DateType> || IsDateV2Type<DateType>) {
+            return make_nullable(std::make_shared<DataTypeDateV2>());
+        }
+        //datetimev2
+        return make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
     }
 
     static StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
@@ -1270,7 +1276,8 @@ public:
     }
 };
 
-using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate>;
+using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate<DataTypeDateV2>>;
+using FunctionStrToDatetime = FunctionOtherTypesToDateType<StrToDate<DataTypeDateTimeV2>>;
 using FunctionMakeDate = FunctionOtherTypesToDateType<MakeDateImpl>;
 using FunctionDateTrunc = FunctionOtherTypesToDateType<DateTrunc<VecDateTimeValue, Int64>>;
 using FunctionDateTruncV2 =
@@ -1278,6 +1285,7 @@ using FunctionDateTruncV2 =
 
 void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
+    factory.register_function<FunctionStrToDatetime>();
     factory.register_function<FunctionMakeDate>();
     factory.register_function<FromDays>();
     factory.register_function<FunctionDateTrunc>();
