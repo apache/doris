@@ -17,35 +17,25 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.system.SystemInfoService.HostInfo;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-
 import java.util.List;
 
-public class CancelAlterSystemStmt extends CancelStmt {
+public class CancelDecommissionBackendStmt extends CancelAlterSystemStmt {
 
-    protected List<String> hostPorts;
-    protected List<HostInfo> hostInfos;
-
-    public CancelAlterSystemStmt(List<String> hostPorts) {
-        this.hostPorts = hostPorts;
-        this.hostInfos = Lists.newArrayList();
-    }
-
-    public List<HostInfo> getHostInfos() {
-        return hostInfos;
+    public CancelDecommissionBackendStmt(List<String> hostPorts) {
+        super(hostPorts);
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        for (String hostPort : hostPorts) {
-            HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
-            this.hostInfos.add(hostInfo);
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("CANCEL DECOMMISSION BACKEND ");
+        for (int i = 0; i < hostPorts.size(); i++) {
+            sb.append("\"").append(hostPorts.get(i)).append("\"");
+            if (i != hostPorts.size() - 1) {
+                sb.append(", ");
+            }
         }
-        Preconditions.checkState(!this.hostInfos.isEmpty());
+
+        return sb.toString();
     }
 }

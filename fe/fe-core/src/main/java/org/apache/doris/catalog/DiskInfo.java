@@ -30,6 +30,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DiskInfo implements Writable {
     private static final Logger LOG = LogManager.getLogger(DiskInfo.class);
@@ -55,6 +56,8 @@ public class DiskInfo implements Writable {
     private long diskAvailableCapacityB;
     @SerializedName("state")
     private DiskState state;
+    @SerializedName("isDecommissioned")
+    private AtomicBoolean isDecommissioned;
     // path hash and storage medium are reported from Backend and no need to persist
     private long pathHash = 0;
     private TStorageMedium storageMedium;
@@ -70,6 +73,7 @@ public class DiskInfo implements Writable {
         this.trashUsedCapacityB = 0;
         this.diskAvailableCapacityB = DEFAULT_CAPACITY_B;
         this.state = DiskState.ONLINE;
+        this.isDecommissioned = new AtomicBoolean(false);
         this.pathHash = 0;
         this.storageMedium = TStorageMedium.HDD;
     }
@@ -161,6 +165,26 @@ public class DiskInfo implements Writable {
 
     public void setStorageMedium(TStorageMedium storageMedium) {
         this.storageMedium = storageMedium;
+    }
+
+    public boolean setDecommissioned(boolean isDecommissioned) {
+        if (this.isDecommissioned == null) {
+            this.isDecommissioned =  new AtomicBoolean(isDecommissioned);
+            return true;
+        }
+        if (this.isDecommissioned.compareAndSet(!isDecommissioned, isDecommissioned)) {
+            LOG.warn("{} set decommission: {}", this.toString(), isDecommissioned);
+            return true;
+        }
+        return false;
+    }
+
+    public boolean isDecommissioned() {
+        return this.isDecommissioned != null && this.isDecommissioned.get();
+    }
+
+    public boolean isScheduleAvailable() {
+        return state == DiskState.ONLINE && !isDecommissioned();
     }
 
     /*

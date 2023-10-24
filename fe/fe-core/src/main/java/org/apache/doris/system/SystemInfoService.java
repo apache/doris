@@ -864,6 +864,10 @@ public class SystemInfoService {
         return Status.OK;
     }
 
+    public DiskInfo getDisk(long pathHash) {
+        return pathHashToDiskInfoRef.get(pathHash);
+    }
+
     // update the path info when disk report
     // there is only one thread can update path info, so no need to worry about concurrency control
     public void updatePathInfo(List<DiskInfo> addedDisks, List<DiskInfo> removedDisks) {

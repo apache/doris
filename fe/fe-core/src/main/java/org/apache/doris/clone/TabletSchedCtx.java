@@ -18,6 +18,7 @@
 package org.apache.doris.clone;
 
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -676,6 +677,13 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be == null || !be.isScheduleAvailable()) {
                 LOG.debug("replica's backend {} does not exist or is not scheduler available, skip. tablet: {}",
+                        replica.getBackendId(), tabletId);
+                continue;
+            }
+
+            DiskInfo disk = infoService.getDisk(replica.getPathHash());
+            if (disk == null || !disk.isScheduleAvailable()) {
+                LOG.debug("replica's disk {} does not exist or is not scheduler available, skip. tablet: {}",
                         replica.getBackendId(), tabletId);
                 continue;
             }

@@ -17,35 +17,24 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.system.SystemInfoService.HostInfo;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-
 import java.util.List;
 
-public class CancelAlterSystemStmt extends CancelStmt {
-
-    protected List<String> hostPorts;
-    protected List<HostInfo> hostInfos;
-
-    public CancelAlterSystemStmt(List<String> hostPorts) {
-        this.hostPorts = hostPorts;
-        this.hostInfos = Lists.newArrayList();
-    }
-
-    public List<HostInfo> getHostInfos() {
-        return hostInfos;
+public class DecommissionDiskClause extends DiskClause {
+    public DecommissionDiskClause(String hostPorts, List<String> rootPaths) {
+        super(hostPorts, rootPaths);
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        for (String hostPort : hostPorts) {
-            HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
-            this.hostInfos.add(hostInfo);
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("DECOMMISSION DISK ");
+        for (int i = 0; i < rootPaths.size(); i++) {
+            sb.append("\"").append(rootPaths.get(i)).append("\"");
+            if (i != rootPaths.size() - 1) {
+                sb.append(", ");
+            }
         }
-        Preconditions.checkState(!this.hostInfos.isEmpty());
+        sb.append(" ON BACKEND ").append("\"").append(hostPort).append("\" ");
+        return sb.toString();
     }
 }

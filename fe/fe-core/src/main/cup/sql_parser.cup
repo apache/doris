@@ -1663,6 +1663,10 @@ alter_system_clause ::=
     {:
         RESULT = new DecommissionBackendClause(hostPorts);
     :}
+    | KW_DECOMMISSION KW_DISK string_list:rootPaths KW_ON KW_BACKEND STRING_LITERAL:hostPort
+    {:
+        RESULT = new DecommissionDiskClause(hostPort, rootPaths);
+    :}
     | KW_ADD KW_OBSERVER STRING_LITERAL:hostPort
     {:
         RESULT = new AddObserverClause(hostPort);
@@ -4568,7 +4572,11 @@ cancel_param ::=
     :}
     | KW_DECOMMISSION KW_BACKEND string_list:hostPorts
     {:
-        RESULT = new CancelAlterSystemStmt(hostPorts);
+        RESULT = new CancelDecommissionBackendStmt(hostPorts);
+    :}
+    | KW_DECOMMISSION KW_DISK string_list:rootPaths KW_ON KW_BACKEND STRING_LITERAL:hostPort
+    {:
+        RESULT = new CancelDecommissionDiskStmt(hostPort, rootPaths);
     :}
     | KW_BACKUP opt_db:db
     {:

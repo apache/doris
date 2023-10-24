@@ -17,35 +17,49 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.List;
+import java.util.Map;
 
-public class CancelAlterSystemStmt extends CancelStmt {
+public class DiskClause extends AlterClause {
+    protected String hostPort;
+    protected SystemInfoService.HostInfo hostInfo;
+    protected List<String> rootPaths;
 
-    protected List<String> hostPorts;
-    protected List<HostInfo> hostInfos;
-
-    public CancelAlterSystemStmt(List<String> hostPorts) {
-        this.hostPorts = hostPorts;
-        this.hostInfos = Lists.newArrayList();
+    protected DiskClause(String hostPort, List<String> rootPaths) {
+        super(AlterOpType.ALTER_OTHER);
+        this.hostPort = hostPort;
+        this.rootPaths = rootPaths;
+        this.hostInfo = null;
     }
 
-    public List<HostInfo> getHostInfos() {
-        return hostInfos;
+    public List<String> getRootPaths() {
+        return rootPaths;
+    }
+
+    public SystemInfoService.HostInfo getHostInfo() {
+        return hostInfo;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        for (String hostPort : hostPorts) {
-            HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
-            this.hostInfos.add(hostInfo);
-        }
-        Preconditions.checkState(!this.hostInfos.isEmpty());
+        hostInfo = SystemInfoService.getHostAndPort(hostPort);
+        Preconditions.checkState(!rootPaths.isEmpty());
+    }
+
+    @Override
+    public String toSql() {
+        throw new NotImplementedException("Not support toSql for DiskClause");
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        throw new NotImplementedException("Not support getProperties for DiskClause");
     }
 }

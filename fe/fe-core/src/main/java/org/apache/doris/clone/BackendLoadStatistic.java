@@ -237,6 +237,13 @@ public class BackendLoadStatistic {
 
         ImmutableMap<String, DiskInfo> disks = be.getDisks();
         for (DiskInfo diskInfo : disks.values()) {
+            if (diskInfo.isDecommissioned()) {
+                // Skip the decommission disk.
+                // Otherwise, before the decommission is done, these paths will always to treated
+                // as LOW paths. But the balancer will not handle paths in decommission state.
+                // So balance will be blocked.
+                continue;
+            }
             TStorageMedium medium = diskInfo.getStorageMedium();
             if (diskInfo.getState() == DiskState.ONLINE) {
                 // we only collect online disk's capacity
@@ -247,8 +254,8 @@ public class BackendLoadStatistic {
             }
 
             RootPathLoadStatistic pathStatistic = new RootPathLoadStatistic(beId, diskInfo.getRootPath(),
-                    diskInfo.getPathHash(), diskInfo.getStorageMedium(),
-                    diskInfo.getTotalCapacityB(), diskInfo.getDiskUsedCapacityB(), diskInfo.getState());
+                    diskInfo.getPathHash(), diskInfo.getStorageMedium(), diskInfo.getTotalCapacityB(),
+                    diskInfo.getDiskUsedCapacityB(), diskInfo.getState());
             pathStatistics.add(pathStatistic);
         }
 
@@ -419,7 +426,6 @@ public class BackendLoadStatistic {
                         beId, pathStatistic.getPath(), pathStatistic.getStorageMedium(), medium);
                 continue;
             }
-
             BalanceStatus bStatus = pathStatistic.isFit(tabletSize, isSupplement);
             if (!bStatus.ok()) {
                 status.addErrMsgs(bStatus.getErrMsgs());
