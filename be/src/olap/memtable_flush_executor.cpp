@@ -25,6 +25,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/signal_handler.h"
 #include "olap/memtable.h"
 #include "olap/rowset/rowset_writer.h"
 #include "util/doris_metrics.h"
@@ -106,6 +107,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
                   << ", rows: " << memtable->stat().raw_rows;
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
+    signal::set_signal_task_id(_rowset_writer.load_id());
     std::unique_ptr<vectorized::Block> block = memtable->to_block();
     {
         SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());

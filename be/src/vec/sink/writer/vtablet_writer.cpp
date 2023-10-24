@@ -59,6 +59,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/object_pool.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "runtime/client_cache.h"
@@ -637,6 +638,7 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     SCOPED_ATTACH_TASK(state);
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
+    signal::set_signal_task_id(_parent->_load_id);
     AddBlockReq send_block;
     {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
@@ -1031,6 +1033,7 @@ static void* periodic_send_batch(void* writer) {
 
 Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* profile) {
     RETURN_IF_ERROR(_init(state, profile));
+    signal::set_signal_task_id(_load_id);
     SCOPED_TIMER(profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
