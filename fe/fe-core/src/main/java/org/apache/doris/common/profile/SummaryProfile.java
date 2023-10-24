@@ -150,8 +150,8 @@ public class SummaryProfile {
     }
 
     public void prettyPrint(StringBuilder builder) {
-        summaryProfile.prettyPrint(builder, "Summary");
-        executionSummaryProfile.prettyPrint(builder, "Execution  Summary");
+        summaryProfile.prettyPrint(builder, "");
+        executionSummaryProfile.prettyPrint(builder, "");
     }
 
     public Map<String, String> getAsInfoStings() {
