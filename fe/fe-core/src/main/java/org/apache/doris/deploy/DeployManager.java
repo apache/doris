@@ -40,10 +40,12 @@ import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
+import java.util.stream.Collectors;
 
 /*
  * This deploy manager is to support Kubernetes, Ambari or other system for automating deployment.
@@ -422,9 +424,7 @@ public class DeployManager extends MasterDaemon {
 
     private boolean needDrop(boolean found, HostInfo localHostInfo) {
         if (found) {
-            if (counterMap.containsKey(localHostInfo.getIdent())) {
-                counterMap.remove(localHostInfo.getIdent());
-            }
+            counterMap.remove(localHostInfo.getIdent());
             return false;
         } else {
             if (maxMissingTime <= 0) {
@@ -477,36 +477,40 @@ public class DeployManager extends MasterDaemon {
         }
 
         // 2.1 Find local node which need to be dropped.
+        List<HostInfo> dropHostInfos = new ArrayList<>(localHostInfos);
         for (HostInfo localHostInfo : localHostInfos) {
             HostInfo foundHostInfo = getFromHostInfos(remoteHostInfos, localHostInfo);
             boolean needDrop = needDrop(foundHostInfo != null, localHostInfo);
             if (needDrop) {
                 if (this instanceof LocalFileDeployManager && Config.disable_local_deploy_manager_drop_node) {
                     LOG.warn("For now, Local File Deploy Manager dose not handle shrinking operations");
+                    dropHostInfos.remove(foundHostInfo);
                     continue;
                 }
-                dealDropLocal(localHostInfo, nodeType);
+                dealDropLocal(dropHostInfos, nodeType);
             }
         }
 
         // 2.2. Find remote node which need to be added.
+        List<HostInfo> addRemoteHostInfos = new ArrayList<>();
         for (HostInfo remoteHostInfo : remoteHostInfos) {
             HostInfo foundHostInfo = getFromHostInfos(localHostInfos, remoteHostInfo);
             if (foundHostInfo == null) {
-                dealAddRemote(remoteHostInfo, nodeType);
+                addRemoteHostInfos.add(remoteHostInfo);
             }
         }
+        dealAddRemote(addRemoteHostInfos, nodeType);
     }
 
-    private void dealDropLocal(HostInfo localHostInfo, NodeType nodeType) {
-        Integer localPort = localHostInfo.getPort();
-        String localHost = localHostInfo.getHost();
-        // Double check if is itself
-        if (isSelf(localHostInfo)) {
-            // This is itself. Shut down now.
-            LOG.error("self host {} does not exist in remote hosts. master is: {}:{}. Showdown.",
-                    localHostInfo, env.getMasterHost(), Config.edit_log_port);
-            System.exit(-1);
+    private void dealDropLocal(List<HostInfo> localHostInfo, NodeType nodeType) {
+        for (HostInfo hostInfo : localHostInfo) {
+            // Double check if is itself
+            if (isSelf(hostInfo)) {
+                // This is itself. Shut down now.
+                LOG.error("self host {} does not exist in remote hosts. master is: {}:{}. Showdown.",
+                        localHostInfo, env.getMasterHost(), Config.edit_log_port);
+                System.exit(-1);
+            }
         }
 
         // Can not find local host from remote host list,
@@ -514,57 +518,56 @@ public class DeployManager extends MasterDaemon {
         try {
             switch (nodeType) {
                 case ELECTABLE:
-                    env.dropFrontend(FrontendNodeType.FOLLOWER, localHost, localPort);
+                    env.dropFrontend(FrontendNodeType.FOLLOWER, localHostInfo);
                     break;
                 case OBSERVER:
-                    env.dropFrontend(FrontendNodeType.OBSERVER, localHost, localPort);
+                    env.dropFrontend(FrontendNodeType.OBSERVER, localHostInfo);
                     break;
                 case BACKEND:
                 case BACKEND_CN:
-                    Env.getCurrentSystemInfo().dropBackend(localHost, localPort);
+                    Env.getCurrentSystemInfo().dropBackends(localHostInfo);
                     break;
                 case BROKER:
-                    env.getBrokerMgr().dropBrokers(getBrokerName(), Lists.newArrayList(Pair.of(localHost, localPort)));
+                    List<Pair<String, Integer>> hostInfos = localHostInfo.stream().map(hostInfo
+                            -> Pair.of(hostInfo.getHost(), hostInfo.getPort())).collect(Collectors.toList());
+                    env.getBrokerMgr().dropBrokers(getBrokerName(), hostInfos);
                     break;
                 default:
                     break;
             }
         } catch (DdlException e) {
-            LOG.error("Failed to drop {} node: {}:{}", nodeType, localHost, localPort, e);
+            LOG.error("Failed to drop {} nodes.", nodeType, e);
         }
 
-        LOG.info("Finished to drop {} node: {}:{}", nodeType, localHost, localPort);
+        LOG.info("Finished to drop {} nodes", nodeType);
     }
 
-    private void dealAddRemote(HostInfo remoteHostInfo, NodeType nodeType) {
-        Integer remotePort = remoteHostInfo.getPort();
-        String remoteHost = remoteHostInfo.getHost();
-
+    private void dealAddRemote(List<HostInfo> localHostInfo, NodeType nodeType) {
         try {
             switch (nodeType) {
                 case ELECTABLE:
-                    env.addFrontend(FrontendNodeType.FOLLOWER, remoteHost, remotePort);
+                    env.addFrontend(FrontendNodeType.FOLLOWER, localHostInfo);
                     break;
                 case OBSERVER:
-                    env.addFrontend(FrontendNodeType.OBSERVER, remoteHost, remotePort);
+                    env.addFrontend(FrontendNodeType.OBSERVER, localHostInfo);
                     break;
                 case BACKEND:
                 case BACKEND_CN:
-                    List<HostInfo> newBackends = Lists.newArrayList();
-                    newBackends.add(new HostInfo(remoteHost, remotePort));
-                    Env.getCurrentSystemInfo().addBackends(newBackends, false);
+                    Env.getCurrentSystemInfo().addBackends(localHostInfo, false);
                     break;
                 case BROKER:
-                    env.getBrokerMgr().addBrokers(getBrokerName(), Lists.newArrayList(Pair.of(remoteHost, remotePort)));
+                    List<Pair<String, Integer>> hostInfos = localHostInfo.stream().map(hostInfo
+                            -> Pair.of(hostInfo.getHost(), hostInfo.getPort())).collect(Collectors.toList());
+                    env.getBrokerMgr().addBrokers(getBrokerName(), hostInfos);
                     break;
                 default:
                     break;
             }
         } catch (UserException e) {
-            LOG.error("Failed to add {} node: {}:{}", nodeType, remoteHost, remotePort, e);
+            LOG.error("Failed to add {} nodes", nodeType, e);
         }
 
-        LOG.info("Finished to add {} node: {}:{}", nodeType, remoteHost, remotePort);
+        LOG.info("Finished to add {} nodes.", nodeType);
     }
 
     // Get host port pair from pair list. Return null if not found

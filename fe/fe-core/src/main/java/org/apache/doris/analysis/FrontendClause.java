@@ -28,32 +28,24 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
+import lombok.Getter;
 import org.apache.commons.lang3.NotImplementedException;
 
+import java.util.List;
 import java.util.Map;
 
 public class FrontendClause extends AlterClause {
-    protected String hostPort;
-    protected String host;
-    protected int port;
+    protected List<String> params;
+    @Getter
+    protected List<String> names;
     protected FrontendNodeType role;
+    @Getter
+    protected List<HostInfo> hostInfos;
 
-    protected FrontendClause(String hostPort, FrontendNodeType role) {
+    protected FrontendClause(List<String> params, FrontendNodeType role) {
         super(AlterOpType.ALTER_OTHER);
-        this.hostPort = hostPort;
+        this.params = params;
         this.role = role;
-    }
-
-    public String getIp() {
-        return host;
-    }
-
-    public String getHost() {
-        return host;
-    }
-
-    public int getPort() {
-        return port;
     }
 
     @Override
@@ -62,10 +54,14 @@ public class FrontendClause extends AlterClause {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                                                 analyzer.getQualifiedUser());
         }
-
-        HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
-        this.host = hostInfo.getHost();
-        this.port = hostInfo.getPort();
+        for (String param : params) {
+            if (!param.contains(":")) {
+                names.add(param);
+            } else {
+                HostInfo hostInfo = SystemInfoService.getHostAndPort(param);
+                this.hostInfos.add(hostInfo);
+            }
+        }
     }
 
     @Override

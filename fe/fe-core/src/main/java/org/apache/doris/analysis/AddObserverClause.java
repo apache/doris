@@ -19,16 +19,23 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.ha.FrontendNodeType;
 
+import java.util.List;
+
 public class AddObserverClause extends FrontendClause {
-    public AddObserverClause(String hostPort) {
-        super(hostPort, FrontendNodeType.OBSERVER);
+    public AddObserverClause(List<String> params) {
+        super(params, FrontendNodeType.OBSERVER);
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER CLUSTER ADD OBSERVER \"");
-        sb.append(hostPort).append("\"");
+        for (int i = 0; i < params.size(); i++) {
+            sb.append("\"").append(params.get(i)).append("\"");
+            if (i != params.size() - 1) {
+                sb.append(", ");
+            }
+        }
         return sb.toString();
     }
 }

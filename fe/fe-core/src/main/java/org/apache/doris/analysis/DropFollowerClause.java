@@ -19,16 +19,23 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.ha.FrontendNodeType;
 
+import java.util.List;
+
 public class DropFollowerClause extends FrontendClause {
-    public DropFollowerClause(String hostPort) {
-        super(hostPort, FrontendNodeType.FOLLOWER);
+    public DropFollowerClause(List<String> params) {
+        super(params, FrontendNodeType.FOLLOWER);
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER CLUSTER DROP FOLLOWER \"");
-        sb.append(hostPort).append("\"");
+        for (int i = 0; i < params.size(); i++) {
+            sb.append("\"").append(params.get(i)).append("\"");
+            if (i != params.size() - 1) {
+                sb.append(", ");
+            }
+        }
         return sb.toString();
     }
 }

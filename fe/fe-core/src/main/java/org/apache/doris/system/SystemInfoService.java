@@ -80,8 +80,8 @@ public class SystemInfoService {
     private volatile ImmutableMap<Long, DiskInfo> pathHashToDiskInfoRef = ImmutableMap.of();
 
     public static class HostInfo implements Comparable<HostInfo> {
-        public String host;
-        public int port;
+        private String host;
+        private int port;
 
         public HostInfo(String host, int port) {
             this.host = host;

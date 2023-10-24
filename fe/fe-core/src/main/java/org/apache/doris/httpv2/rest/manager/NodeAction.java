@@ -62,6 +62,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -661,9 +662,9 @@ public class NodeAction extends RestBaseController {
             }
             HostInfo info = SystemInfoService.getHostAndPort(reqInfo.getHostPort());
             if ("ADD".equals(action)) {
-                currentEnv.addFrontend(frontendNodeType, info.getHost(), info.getPort());
+                currentEnv.addFrontend(frontendNodeType, Collections.singletonList(info));
             } else if ("DROP".equals(action)) {
-                currentEnv.dropFrontend(frontendNodeType, info.getHost(), info.getPort());
+                currentEnv.dropFrontend(frontendNodeType, Collections.singletonList(info));
             }
         } catch (Exception e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());

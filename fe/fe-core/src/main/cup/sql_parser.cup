@@ -431,7 +431,7 @@ terminal String
     KW_ISOLATION,
     KW_INVERTED,
     KW_JOB,
-    KW_JOBS,    
+    KW_JOBS,
     KW_JOIN,
     KW_JSON,
     KW_JSONB,
@@ -561,7 +561,7 @@ terminal String
     KW_ROWS,
     KW_S3,
     KW_SAMPLE,
-    KW_SCHEDULER,    
+    KW_SCHEDULER,
     KW_SCHEMA,
     KW_SCHEMAS,
     KW_SECOND,
@@ -581,7 +581,7 @@ terminal String
     KW_SQL,
     KW_SQL_BLOCK_RULE,
     KW_START,
-    KW_STARTS,    
+    KW_STARTS,
     KW_STATS,
     KW_STATUS,
     KW_STOP,
@@ -1147,16 +1147,16 @@ stmt ::=
     {: RESULT = stmt; :}
     | show_create_routine_load_stmt : stmt
     {: RESULT = stmt; :}
-    | create_job_stmt : stmt   
+    | create_job_stmt : stmt
     {: RESULT = stmt; :}
-    | pause_job_stmt : stmt   
+    | pause_job_stmt : stmt
     {: RESULT = stmt; :}
-    | show_job_stmt : stmt   
+    | show_job_stmt : stmt
     {: RESULT = stmt; :}
-    | stop_job_stmt : stmt   
+    | stop_job_stmt : stmt
     {: RESULT = stmt; :}
-    | resume_job_stmt : stmt                    
-    {: RESULT = stmt; :}   
+    | resume_job_stmt : stmt
+    {: RESULT = stmt; :}
     | show_create_load_stmt : stmt
     {: RESULT = stmt; :}
     | show_create_reporitory_stmt : stmt
@@ -1663,21 +1663,21 @@ alter_system_clause ::=
     {:
         RESULT = new DecommissionBackendClause(hostPorts);
     :}
-    | KW_ADD KW_OBSERVER STRING_LITERAL:hostPort
+    | KW_ADD KW_OBSERVER string_list:hostPorts
     {:
-        RESULT = new AddObserverClause(hostPort);
+        RESULT = new AddObserverClause(hostPorts);
     :}
-    | KW_DROP KW_OBSERVER STRING_LITERAL:hostPort
+    | KW_DROP KW_OBSERVER string_list:hostPorts
     {:
-        RESULT = new DropObserverClause(hostPort);
+        RESULT = new DropObserverClause(hostPorts);
     :}
-    | KW_ADD KW_FOLLOWER STRING_LITERAL:hostPort
+    | KW_ADD KW_FOLLOWER string_list:hostPorts
     {:
-        RESULT = new AddFollowerClause(hostPort);
+        RESULT = new AddFollowerClause(hostPorts);
     :}
-    | KW_DROP KW_FOLLOWER STRING_LITERAL:hostPort
+    | KW_DROP KW_FOLLOWER string_list:hostPorts
     {:
-        RESULT = new DropFollowerClause(hostPort);
+        RESULT = new DropFollowerClause(hostPorts);
     :}
     /* Broker manipulation */
     | KW_ADD KW_BROKER ident_or_text:brokerName string_list:hostPorts
@@ -2655,58 +2655,58 @@ opt_broker ::=
     :}
     ;
 
-resource_desc ::=                                                               
-    KW_WITH KW_RESOURCE ident_or_text:resourceName                                 
-    {:                                                                               
-        RESULT = new ResourceDesc(resourceName, null);                               
-    :}                                                                               
+resource_desc ::=
+    KW_WITH KW_RESOURCE ident_or_text:resourceName
+    {:
+        RESULT = new ResourceDesc(resourceName, null);
+    :}
     | KW_WITH KW_RESOURCE ident_or_text:resourceName LPAREN key_value_map:properties RPAREN
-    {:                                                                               
-        RESULT = new ResourceDesc(resourceName, properties);                         
-    :}                                                                               
-    ; 
+    {:
+        RESULT = new ResourceDesc(resourceName, properties);
+    :}
+    ;
 create_job_stmt ::=
-     KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_job_starts:startsTime opt_job_ends:endsTime opt_comment:comment KW_DO stmt:executeSql  
+     KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_job_starts:startsTime opt_job_ends:endsTime opt_comment:comment KW_DO stmt:executeSql
     {:
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,null,false,time_interval,time_unit, startsTime, endsTime,comment,executeSql);
         RESULT = stmt;
     :}
-    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_STREAMING KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_STREAMING KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql
     {:
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,atTime,true,null,null,null,null,comment,executeSql);
         RESULT = stmt;
-    :}    
-    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+    :}
+    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql
     {:
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,atTime,false,null,null,null,null,comment,executeSql);
         RESULT = stmt;
     :}
-    ;                           
- opt_job_starts ::= 
+    ;
+ opt_job_starts ::=
      {:
          RESULT = null;
      :}
-     | KW_STARTS STRING_LITERAL:startTime 
-     {: 
-        RESULT = startTime;    
+     | KW_STARTS STRING_LITERAL:startTime
+     {:
+        RESULT = startTime;
      :}
      ;
- 
- opt_job_ends ::= 
+
+ opt_job_ends ::=
      {:
          RESULT = null;
-     :}    
-     | KW_ENDS STRING_LITERAL:endTime 
-     {:  
-          RESULT = endTime;  
      :}
-     ;       
+     | KW_ENDS STRING_LITERAL:endTime
+     {:
+          RESULT = endTime;
+     :}
+     ;
 resume_job_stmt ::=
     KW_RESUME KW_JOB  KW_FOR job_label:jobLabel
     {:
         RESULT = new ResumeJobStmt(jobLabel);
     :}
-    ;    
+    ;
 show_job_stmt ::=
     KW_SHOW KW_JOBS
     {:
@@ -2719,7 +2719,7 @@ show_job_stmt ::=
     | KW_SHOW KW_JOB KW_TASKS KW_FOR job_label:jobLabel
     {:
         RESULT = new ShowJobTaskStmt(null,jobLabel);
-    :}    
+    :}
     ;
 pause_job_stmt ::=
     KW_PAUSE KW_JOB KW_FOR job_label:jobLabel
@@ -2733,7 +2733,7 @@ stop_job_stmt ::=
     {:
         RESULT = new StopJobStmt(jobLabel);
     :}
-    ;                       
+    ;
 // Routine load statement
 create_routine_load_stmt ::=
     KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName
@@ -2747,7 +2747,7 @@ create_routine_load_stmt ::=
          properties, type, customProperties, mergeType, comment);
     :}
     ;
-optional_on_ident ::= KW_ON ident:tableName 
+optional_on_ident ::= KW_ON ident:tableName
                     {: RESULT = tableName; :}
                   | {: RESULT = null; :};
 opt_load_property_list ::=
@@ -3262,7 +3262,7 @@ opt_partition ::=
     | KW_AUTO KW_PARTITION KW_BY KW_RANGE function_name:functionName LPAREN expr_list:l COMMA
         KW_INTERVAL expr:v ident:u RPAREN LPAREN opt_all_partition_desc_list:list RPAREN
     {:
-        Expr fnExpr = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u); 
+        Expr fnExpr = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u);
         ArrayList<Expr> exprs = new ArrayList<Expr>();
         exprs.add(fnExpr);
         RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
@@ -4156,7 +4156,7 @@ show_param ::=
     {:
         RESULT = new ShowTrashDiskStmt(backend);
     :}
-    | KW_TRASH 
+    | KW_TRASH
     {:
         RESULT = new ShowTrashStmt();
     :}
@@ -4518,7 +4518,7 @@ describe_stmt ::=
     {:
         query.setIsExplain(options);
         RESULT = query;
-    :}   
+    :}
     | describe_command opt_explain_options:options insert_stmt:stmt
     {:
         stmt.getQueryStmt().setIsExplain(options);
@@ -5435,9 +5435,9 @@ literal_values ::=
 
 args_list ::=
     {:
-        RESULT = Lists.newArrayList();     
+        RESULT = Lists.newArrayList();
     :}
-    | KW_USING LPAREN literal_values:values RPAREN 
+    | KW_USING LPAREN literal_values:values RPAREN
     {:
         RESULT = values;
     :}
@@ -5899,19 +5899,19 @@ tablet_list ::=
 partition_names ::=
     KW_PARTITION LPAREN ident_list:partitions RPAREN
     {:
-        RESULT = new PartitionNames(false, partitions);  
+        RESULT = new PartitionNames(false, partitions);
     :}
     | KW_TEMPORARY KW_PARTITION LPAREN ident_list:partitions RPAREN
     {:
-        RESULT = new PartitionNames(true, partitions);  
+        RESULT = new PartitionNames(true, partitions);
     :}
     | KW_PARTITIONS LPAREN ident_list:partitions RPAREN
     {:
-        RESULT = new PartitionNames(false, partitions);  
+        RESULT = new PartitionNames(false, partitions);
     :}
     | KW_TEMPORARY KW_PARTITIONS LPAREN ident_list:partitions RPAREN
     {:
-        RESULT = new PartitionNames(true, partitions);  
+        RESULT = new PartitionNames(true, partitions);
     :}
     | KW_PARTITION ident:partName
     {:
@@ -6604,11 +6604,11 @@ function_call_expr ::=
   | KW_REGEXP LPAREN function_params:params RPAREN
   {: RESULT = new FunctionCallExpr("regexp", params); :}
   | function_name:fn_name LPAREN ident:id ARROW expr:e COMMA function_params:params RPAREN
-  {: 
+  {:
     List<Expr> exprs = params.exprs();
     LambdaFunctionExpr lambda = new LambdaFunctionExpr(e, id, exprs);
     exprs.add(lambda);
-    RESULT = new LambdaFunctionCallExpr(fn_name, exprs); 
+    RESULT = new LambdaFunctionCallExpr(fn_name, exprs);
   :}
   | function_name:fn_name LPAREN LPAREN ident:id COMMA ident_list:idList RPAREN ARROW expr:e COMMA function_params:params RPAREN
   {:
@@ -6809,16 +6809,16 @@ non_pred_expr ::=
   | KW_KEY encryptkey_name:name
   {: RESULT = new EncryptKeyRef(name); :}
   | KW_CONVERT LPAREN expr:e KW_USING ident:character RPAREN
-  {: 
+  {:
     ArrayList<Expr> exprs = new ArrayList<>();
     exprs.add(e);
     exprs.add(new StringLiteral(character));
-    RESULT = new FunctionCallExpr("convert_to", new FunctionParams(exprs)); 
+    RESULT = new FunctionCallExpr("convert_to", new FunctionParams(exprs));
   :}
   | KW_CHAR LPAREN expr_list:exprs opt_using_charset:charset_name RPAREN
-  {: 
+  {:
     exprs.add(0, new StringLiteral(charset_name));
-    RESULT = new FunctionCallExpr("char", new FunctionParams(exprs)); 
+    RESULT = new FunctionCallExpr("char", new FunctionParams(exprs));
   :}
   ;
 
@@ -6980,9 +6980,9 @@ timestamp_arithmetic_expr ::=
     }
     //eg: date_floor("0001-01-01 00:00:18",interval 5 second) convert to
     //second_floor("0001-01-01 00:00:18", 5, "0001-01-01 00:00:00");
-    if ("date_floor".equalsIgnoreCase(functionName.getFunction()) || 
+    if ("date_floor".equalsIgnoreCase(functionName.getFunction()) ||
         "date_ceil".equalsIgnoreCase(functionName.getFunction())) {
-      RESULT = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u); 
+      RESULT = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u);
     } else {
       RESULT = new TimestampArithmeticExpr(functionName.getFunction(), l.get(0), v, u);
     }
@@ -7012,7 +7012,7 @@ literal ::=
   {: RESULT = new NullLiteral(); :}
   | PLACEHOLDER
   {: RESULT = new PlaceHolderExpr(); parser.placeholder_expr_list.add((PlaceHolderExpr) RESULT); :}
-  | MOD 
+  | MOD
   {: RESULT = new PlaceHolderExpr(); parser.placeholder_expr_list.add((PlaceHolderExpr) RESULT); :}
   | UNMATCHED_STRING_LITERAL:l expr:e
   {:
@@ -7637,7 +7637,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_JOB:id
     {: RESULT = id; :}
-    | KW_JOBS:id    
+    | KW_JOBS:id
     {: RESULT = id; :}
     | KW_JSON:id
     {: RESULT = id; :}
@@ -7775,7 +7775,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_STREAM:id
     {: RESULT = id; :}
-    | KW_STREAMING:id    
+    | KW_STREAMING:id
     {: RESULT = id; :}
     | KW_STRUCT:id
     {: RESULT = id; :}
@@ -7843,19 +7843,19 @@ keyword ::=
     {: RESULT = id; :}
     | KW_TASK:id
     {: RESULT = id; :}
-    | KW_TASKS:id    
+    | KW_TASKS:id
     {: RESULT = id; :}
     | KW_ROUTINE:id
     {: RESULT = id; :}
-    | KW_EVERY:id   
+    | KW_EVERY:id
     {: RESULT = id; :}
-    | KW_AT:id         
+    | KW_AT:id
     {: RESULT = id; :}
-    | KW_ROLLUP:id    
+    | KW_ROLLUP:id
     {: RESULT = id; :}
-    | KW_STARTS:id     
+    | KW_STARTS:id
     {: RESULT = id; :}
-    | KW_ENDS:id                  
+    | KW_ENDS:id
     {: RESULT = id; :}
     | KW_PAUSE:id
     {: RESULT = id; :}
