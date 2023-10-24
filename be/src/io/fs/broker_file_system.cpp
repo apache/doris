@@ -95,7 +95,8 @@ Status BrokerFileSystem::connect_impl() {
     return status;
 }
 
-Status BrokerFileSystem::create_file_impl(const Path& path, FileWriterPtr* writer) {
+Status BrokerFileSystem::create_file_impl(const Path& path, FileWriterPtr* writer,
+                                          const FileWriterOptions* opts) {
     *writer = std::make_unique<BrokerFileWriter>(ExecEnv::GetInstance(), _broker_addr, _broker_prop,
                                                  path, 0 /* offset */, getSPtr());
     return Status::OK();
@@ -356,7 +357,7 @@ Status BrokerFileSystem::upload_impl(const Path& local_file, const Path& remote_
 
     // NOTICE: broker writer must be closed before calling rename
     FileWriterPtr broker_writer = nullptr;
-    RETURN_IF_ERROR(create_file_impl(remote_file, &broker_writer));
+    RETURN_IF_ERROR(create_file_impl(remote_file, &broker_writer, nullptr));
 
     constexpr size_t buf_sz = 1024 * 1024;
     char read_buf[buf_sz];
@@ -391,7 +392,7 @@ Status BrokerFileSystem::batch_upload_impl(const std::vector<Path>& local_files,
 
 Status BrokerFileSystem::direct_upload_impl(const Path& remote_file, const std::string& content) {
     FileWriterPtr broker_writer = nullptr;
-    RETURN_IF_ERROR(create_file_impl(remote_file, &broker_writer));
+    RETURN_IF_ERROR(create_file_impl(remote_file, &broker_writer, nullptr));
     RETURN_IF_ERROR(broker_writer->append({content}));
     return broker_writer->close();
 }
