@@ -78,13 +78,13 @@ suite("test_http_stream_properties", "p0") {
                 ]
 
     def errorFiles = [
-                  "basic_data_with_errors.csv",
-                  "basic_data_with_errors.csv",
-                  "basic_data_with_errors.csv",
-                  "basic_data_with_errors.csv",
-                  "basic_array_data_with_errors.csv",
-                  "basic_array_data_with_errors.csv",
-                  "basic_array_data_with_errors.csv",
+                  "../stream_load/basic_data_with_errors.csv",
+                  "../stream_load/basic_data_with_errors.csv",
+                  "../stream_load/basic_data_with_errors.csv",
+                  "../stream_load/basic_data_with_errors.csv",
+                  "../stream_load/basic_array_data_with_errors.csv",
+                  "../stream_load/basic_array_data_with_errors.csv",
+                  "../stream_load/basic_array_data_with_errors.csv",
                 ]
 
     // def compress_type = [
@@ -138,9 +138,9 @@ suite("test_http_stream_properties", "p0") {
                         ],
                     ]
 
-    def loadedRows = [12,12,12,12,8,8,15]
+    def loadedRows = [18,18,18,19,9,9,18]
 
-    def filteredRows = [8,8,8,8,12,12,5]
+    def filteredRows = [2,2,2,1,11,11,2]
 
     def maxFilterRatio = [0.4,0.4,0.4,0.4,0.6,0.6,0.6]
 
@@ -190,7 +190,48 @@ suite("test_http_stream_properties", "p0") {
     // TODO strict_mode
 
     // TODO max_filter_ratio
+    i = 0
+    try {
+        for (String tableName in tables) {
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_drop.sql""").text
+            sql new File("""${context.file.parent}/../stream_load/ddl/${tableName}_create.sql""").text
 
+            def tableNm = "stream_load_" + tableName
+
+            streamLoad {
+                set 'version', '1'
+                set 'sql', """
+                        insert into ${db}.${tableNm}(${target_columns[i]}) select ${columns[i]} from http_stream("format"="CSV", "column_separator"="|", "max_filter_ratio"="${maxFilterRatio[i]}")
+                        """
+                file errorFiles[i]
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(loadedRows[i], json.NumberLoadedRows)
+                    assertEquals(filteredRows[i], json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            def tableName1 =  "stream_load_" + tableName
+            if (i <= 3) {
+                qt_sql_max_filter_ratio "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_max_filter_ratio "select * from ${tableName1} order by k00"
+            }
+            i++
+        }
+    } finally {
+        for (String table in tables) {
+            sql new File("""${context.file.parent}/../stream_load/ddl/${table}_drop.sql""").text
+        }
+    }
     // sequence
     try {
             sql new File("""${context.file.parent}/../stream_load/ddl/uniq_tbl_basic_drop_sequence.sql""").text
