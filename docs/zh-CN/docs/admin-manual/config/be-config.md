@@ -542,7 +542,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 类型：int64
 * 描述：Cumulative compaction的输出rowset总磁盘大小低于此配置大小，该rowset将不进行base compaction，仍然处于cumulative compaction流程中。单位是m字节。
   - 一般情况下，配置在512m以内，配置过大会导致base版本早期的大小过小，一直不进行base compaction。
-* 默认值：64
+* 默认值：128
 
 #### `compaction_min_size_mbytes`
 
