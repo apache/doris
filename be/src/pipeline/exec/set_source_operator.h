@@ -87,11 +87,6 @@ public:
             : Base(pool, tnode, operator_id, descs) {};
     ~SetSourceOperatorX() override = default;
 
-    Dependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state._dependency->read_blocked_by();
-    }
-
     [[nodiscard]] bool is_source() const override { return true; }
 
     Status get_block(RuntimeState* state, vectorized::Block* block,

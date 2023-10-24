@@ -95,11 +95,6 @@ public:
                          const DescriptorTbl& descs)
             : Base(pool, tnode, operator_id, descs), _child_size(tnode.num_children) {};
     ~UnionSourceOperatorX() override = default;
-    Dependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state._dependency->read_blocked_by();
-    }
-
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
 

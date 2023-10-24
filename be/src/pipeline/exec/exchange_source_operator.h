@@ -96,7 +96,7 @@ class ExchangeLocalState final : public PipelineXLocalState<> {
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-
+    Dependency* dependency() override { return source_dependency.get(); }
     std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
@@ -112,7 +112,6 @@ class ExchangeSourceOperatorX final : public OperatorX<ExchangeLocalState> {
 public:
     ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                             const DescriptorTbl& descs, int num_senders);
-    Dependency* wait_for_dependency(RuntimeState* state) override;
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;

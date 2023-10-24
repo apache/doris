@@ -81,8 +81,6 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
 
-    Dependency* wait_for_dependency(RuntimeState* state) override;
-
     bool is_source() const override { return true; }
 
 private:

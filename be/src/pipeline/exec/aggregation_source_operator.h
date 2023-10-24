@@ -119,7 +119,6 @@ public:
     AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                        const DescriptorTbl& descs);
     ~AggSourceOperatorX() = default;
-    Dependency* wait_for_dependency(RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;

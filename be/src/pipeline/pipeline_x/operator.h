@@ -107,6 +107,8 @@ public:
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const;
 
+    virtual Dependency* dependency() { return nullptr; }
+
 protected:
     friend class OperatorXBase;
 
@@ -214,8 +216,6 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    virtual Dependency* wait_for_dependency(RuntimeState* state) { return nullptr; }
-
     virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
 
     [[nodiscard]] virtual const RowDescriptor& intermediate_row_desc() const {
@@ -308,11 +308,6 @@ public:
     ~OperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
-
-    Dependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state.dependency()->read_blocked_by();
-    }
     using LocalState = LocalStateType;
 };
 
@@ -329,7 +324,7 @@ public:
 
     [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 
-    Dependency* dependency() { return _dependency; }
+    Dependency* dependency() override { return _dependency; }
 
 protected:
     DependencyType* _dependency;
@@ -380,6 +375,8 @@ public:
     }
 
     RuntimeProfile::Counter* rows_input_counter() { return _rows_input_counter; }
+
+    virtual WriteDependency* dependency() { return nullptr; }
 
 protected:
     DataSinkOperatorXBase* _parent;
@@ -479,8 +476,6 @@ public:
         return false;
     }
 
-    virtual WriteDependency* wait_for_dependency(RuntimeState* state) { return nullptr; }
-
     virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
 
     [[nodiscard]] std::string debug_string() const override { return ""; }
@@ -558,10 +553,6 @@ public:
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
     void get_dependency(std::vector<DependencySPtr>& dependency) override;
 
-    WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state.dependency()->write_blocked_by();
-    }
     using LocalState = LocalStateType;
 };
 
@@ -585,7 +576,7 @@ public:
 
     virtual std::string id_name() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
 
-    WriteDependency* dependency() { return _dependency; }
+    WriteDependency* dependency() override { return _dependency; }
 
 protected:
     DependencyType* _dependency = nullptr;

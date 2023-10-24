@@ -55,9 +55,4 @@ Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
     return Status::OK();
 }
 
-Dependency* SortSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->read_blocked_by();
-}
-
 } // namespace doris::pipeline

@@ -414,11 +414,6 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     return Status::OK();
 }
 
-Dependency* AnalyticSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->read_blocked_by();
-}
-
 Status AnalyticLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_close_timer);

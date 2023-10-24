@@ -225,6 +225,8 @@ class ScanLocalState : public ScanLocalStateBase {
 
     int64_t get_push_down_count() override;
 
+    Dependency* dependency() override { return _source_dependency.get(); }
+
 protected:
     template <typename LocalStateType>
     friend class ScanOperatorX;
@@ -416,7 +418,6 @@ public:
 
     Status try_close(RuntimeState* state) override;
 
-    Dependency* wait_for_dependency(RuntimeState* state) override;
     FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;

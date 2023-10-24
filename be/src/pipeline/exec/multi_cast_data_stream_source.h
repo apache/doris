@@ -129,10 +129,6 @@ public:
         _op_name = "MULTI_CAST_DATA_STREAM_SOURCE_OPERATOR";
     };
     ~MultiCastDataStreamerSourceOperatorX() override = default;
-    Dependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state._dependency->can_read(_consumer_id);
-    }
 
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::prepare(state));

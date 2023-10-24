@@ -102,12 +102,6 @@ Status SetProbeSinkOperatorX<is_intersect>::open(RuntimeState* state) {
 }
 
 template <bool is_intersect>
-WriteDependency* SetProbeSinkOperatorX<is_intersect>::wait_for_dependency(RuntimeState* state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->write_blocked_by();
-}
-
-template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
                                                  SourceState source_state) {
     RETURN_IF_CANCELLED(state);

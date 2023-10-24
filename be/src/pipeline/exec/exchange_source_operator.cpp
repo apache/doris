@@ -167,11 +167,6 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     return status;
 }
 
-Dependency* ExchangeSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state.source_dependency->read_blocked_by();
-}
-
 Status ExchangeLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_close_timer);

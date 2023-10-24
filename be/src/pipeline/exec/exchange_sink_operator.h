@@ -135,7 +135,7 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-
+    WriteDependency* dependency() override { return _exchange_sink_dependency.get(); }
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer);
     Status get_next_available_buffer(vectorized::BroadcastPBlockHolder** holder);
@@ -234,7 +234,6 @@ public:
                            int num_receivers = 1);
 
     Status try_close(RuntimeState* state, Status exec_status) override;
-    WriteDependency* wait_for_dependency(RuntimeState* state) override;
     FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
 private:

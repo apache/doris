@@ -80,6 +80,7 @@ public:
     void add_hash_buckets_filled_info(const std::string& info) const {
         _profile->add_info_string("HashTableFilledBuckets", info);
     }
+    WriteDependency* dependency() override { return _shared_hash_table_dependency.get(); }
 
 protected:
     void _hash_table_init(RuntimeState* state);
@@ -144,11 +145,6 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state._shared_hash_table_dependency->write_blocked_by();
-    }
 
     bool should_dry_run(RuntimeState* state) override {
         return _is_broadcast_join && !state->get_sink_local_state(operator_id())

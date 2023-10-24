@@ -206,9 +206,4 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     return final_status;
 }
 
-WriteDependency* ResultSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._result_sink_dependency->write_blocked_by();
-}
-
 } // namespace doris::pipeline

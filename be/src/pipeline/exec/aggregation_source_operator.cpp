@@ -552,10 +552,5 @@ Status AggLocalState::close(RuntimeState* state) {
     return Base::close(state);
 }
 
-Dependency* AggSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->read_blocked_by();
-}
-
 } // namespace pipeline
 } // namespace doris

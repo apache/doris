@@ -83,8 +83,6 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    WriteDependency* wait_for_dependency(RuntimeState* state) override;
-
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
                                 vectorized::IColumn* dst_column, size_t length);

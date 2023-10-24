@@ -505,13 +505,14 @@ public:
     void set_shared_state(std::shared_ptr<MultiCastSharedState> multi_cast_state) {
         _multi_cast_state = multi_cast_state;
     }
-    MultiCastDependency* can_read(const int consumer_id) {
-        if (_multi_cast_state->multi_cast_data_streamer.can_read(consumer_id)) {
+    WriteDependency* read_blocked_by() override {
+        if (_multi_cast_state->multi_cast_data_streamer.can_read(_consumer_id)) {
             return nullptr;
-        } else {
-            return this;
         }
+        return this;
     }
+    int _consumer_id {};
+    void set_consumer_id(int consumer_id) { _consumer_id = consumer_id; }
 
 private:
     std::shared_ptr<MultiCastSharedState> _multi_cast_state;
