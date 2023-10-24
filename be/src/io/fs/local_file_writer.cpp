@@ -67,8 +67,8 @@ Status sync_dir(const io::Path& dirname) {
 
 namespace io {
 
-LocalFileWriter::LocalFileWriter(Path path, int fd, FileSystemSPtr fs)
-        : FileWriter(std::move(path), fs), _fd(fd) {
+LocalFileWriter::LocalFileWriter(Path path, int fd, FileSystemSPtr fs, bool sync_data)
+        : FileWriter(std::move(path), fs), _fd(fd), _sync_data(sync_data) {
     _opened = true;
     DorisMetrics::instance()->local_file_open_writing->increment(1);
     DorisMetrics::instance()->local_file_writer_total->increment(1);
@@ -85,7 +85,7 @@ LocalFileWriter::~LocalFileWriter() {
 }
 
 Status LocalFileWriter::close() {
-    return _close(true);
+    return _close(_sync_data);
 }
 
 Status LocalFileWriter::abort() {
