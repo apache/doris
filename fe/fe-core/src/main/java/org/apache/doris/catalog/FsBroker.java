@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.BrokerHbResponse;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
@@ -123,7 +124,7 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
 
     @Override
     public String toString() {
-        return host + ":" + port;
+        return NetUtils.getHostPortInAccessibleFormat(host, port);
     }
 
     public static FsBroker readIn(DataInput in) throws IOException {
