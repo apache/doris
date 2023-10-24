@@ -197,7 +197,7 @@ Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<F
         files->push_back(std::move(file_info));
     }
     if (ec) {
-        return Status::IOError("failed to list {}: {}", dir.native(), errcode_to_str(ec));
+        return Status::IOError<false>("failed to list {}: {}", dir.native(), errcode_to_str(ec));
     }
     return Status::OK();
 }
