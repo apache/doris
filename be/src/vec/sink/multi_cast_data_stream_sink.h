@@ -27,6 +27,7 @@ public:
     MultiCastDataStreamSink(std::shared_ptr<pipeline::MultiCastDataStreamer>& streamer)
             : DataSink(streamer->row_desc()), _multi_cast_data_streamer(streamer) {
         _profile = _multi_cast_data_streamer->profile();
+        init_sink_common_profile();
     };
 
     ~MultiCastDataStreamSink() override = default;

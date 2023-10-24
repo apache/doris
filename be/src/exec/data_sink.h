@@ -131,6 +131,16 @@ protected:
     std::shared_ptr<QueryStatistics> _query_statistics;
 
     OpentelemetrySpan _span {};
+    RuntimeProfile::Counter* _exec_timer;
+    RuntimeProfile::Counter* _output_block_counter;
+    RuntimeProfile::Counter* _output_rows_counter;
+
+    void init_sink_common_profile() {
+        _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
+        _output_rows_counter = ADD_COUNTER_WITH_LEVEL(_profile, "OutputRows", TUnit::UNIT, 1);
+        _output_block_counter =
+                ADD_COUNTER_WITH_LEVEL(_profile, "OutputBlockCount", TUnit::UNIT, 1);
+    }
 };
 
 } // namespace doris
