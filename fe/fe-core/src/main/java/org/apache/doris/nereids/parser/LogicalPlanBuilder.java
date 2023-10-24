@@ -1709,7 +1709,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Literal visitStringLiteral(StringLiteralContext ctx) {
         // TODO: add unescapeSQLString.
         String txt = ctx.STRING_LITERAL().getText();
-        String s = LogicalPlanBuilderAssistant.escapeBackSlash(txt.substring(1, txt.length() - 1));
+        String s = txt.substring(1, txt.length() - 1);
+        s = s.replace("''", "'").replace("\"\"", "\"");
+        s = LogicalPlanBuilderAssistant.escapeBackSlash(s);
         return new VarcharLiteral(s);
     }
 

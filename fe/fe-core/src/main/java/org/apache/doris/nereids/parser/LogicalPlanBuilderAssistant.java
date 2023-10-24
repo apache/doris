@@ -44,8 +44,6 @@ public class LogicalPlanBuilderAssistant {
      */
     public static String escapeBackSlash(String str) {
         StringBuilder sb = new StringBuilder();
-        str = str.replace("''", "'");
-        str = str.replace("\"\"", "\"");
         int strLen = str.length();
         for (int i = 0; i < strLen; ++i) {
             char c = str.charAt(i);
