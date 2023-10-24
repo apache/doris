@@ -149,7 +149,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
-            _has_inverted_index(thrift_sink.olap_table_sink)) {
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
             sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
         } else {
             sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, false));
@@ -304,7 +304,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         Status status = Status::OK();
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
-            _has_inverted_index(thrift_sink.olap_table_sink)) {
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
             sink->reset(new vectorized::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
         } else {
             sink->reset(new vectorized::VOlapTableSink(pool, row_desc, output_exprs, false));
@@ -365,10 +365,13 @@ Status DataSink::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-bool DataSink::_has_inverted_index(TOlapTableSink sink) {
+bool DataSink::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
     OlapTableSchemaParam schema;
     if (!schema.init(sink.schema).ok()) {
         return false;
+    }
+    if (schema.is_partial_update()) {
+        return true;
     }
     for (const auto& index_schema : schema.indexes()) {
         for (const auto& index : index_schema->indexes) {

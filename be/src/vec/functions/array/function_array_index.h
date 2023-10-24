@@ -303,55 +303,57 @@ private:
         auto right_type = remove_nullable(block.get_by_position(arguments[1]).type);
 
         ColumnPtr return_column = nullptr;
+        WhichDataType left_which_type(left_element_type);
+
         if (is_string(right_type) && is_string(left_element_type)) {
             return_column = _execute_string(offsets, nested_null_map, *nested_column, *right_column,
                                             right_nested_null_map, array_null_map);
         } else if (is_number(right_type) && is_number(left_element_type)) {
-            if (check_column<ColumnUInt8>(*nested_column)) {
+            if (left_which_type.is_uint8()) {
                 return_column = _execute_number_expanded<ColumnUInt8>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (check_column<ColumnInt8>(*nested_column)) {
+            } else if (left_which_type.is_int8()) {
                 return_column = _execute_number_expanded<ColumnInt8>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (check_column<ColumnInt16>(*nested_column)) {
+            } else if (left_which_type.is_int16()) {
                 return_column = _execute_number_expanded<ColumnInt16>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (check_column<ColumnInt32>(*nested_column)) {
+            } else if (left_which_type.is_int32()) {
                 return_column = _execute_number_expanded<ColumnInt32>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (check_column<ColumnInt64>(*nested_column)) {
+            } else if (left_which_type.is_int64()) {
                 return_column = _execute_number_expanded<ColumnInt64>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (check_column<ColumnInt128>(*nested_column)) {
+            } else if (left_which_type.is_int128()) {
                 return_column = _execute_number_expanded<ColumnInt128>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (check_column<ColumnFloat32>(*nested_column)) {
+            } else if (left_which_type.is_float32()) {
                 return_column = _execute_number_expanded<ColumnFloat32>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (check_column<ColumnFloat64>(*nested_column)) {
+            } else if (left_which_type.is_float64()) {
                 return_column = _execute_number_expanded<ColumnFloat64>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (check_column<ColumnDecimal32>(*nested_column)) {
+            } else if (left_which_type.is_decimal32()) {
                 return_column = _execute_number_expanded<ColumnDecimal32>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (check_column<ColumnDecimal64>(*nested_column)) {
+            } else if (left_which_type.is_decimal64()) {
                 return_column = _execute_number_expanded<ColumnDecimal64>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (check_column<ColumnDecimal128I>(*nested_column)) {
+            } else if (left_which_type.is_decimal128i()) {
                 return_column = _execute_number_expanded<ColumnDecimal128I>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (check_column<ColumnDecimal128>(*nested_column)) {
+            } else if (left_which_type.is_decimal128()) {
                 return_column = _execute_number_expanded<ColumnDecimal128>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
@@ -359,19 +361,19 @@ private:
         } else if ((is_date_or_datetime(right_type) || is_date_v2_or_datetime_v2(right_type)) &&
                    (is_date_or_datetime(left_element_type) ||
                     is_date_v2_or_datetime_v2(left_element_type))) {
-            if (nested_column->is_date_type()) {
+            if (left_which_type.is_date()) {
                 return_column = _execute_number_expanded<ColumnDate>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (nested_column->is_datetime_type()) {
+            } else if (left_which_type.is_date_time()) {
                 return_column = _execute_number_expanded<ColumnDateTime>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (check_column<ColumnDateV2>(*nested_column)) {
+            } else if (left_which_type.is_date_v2()) {
                 return_column = _execute_number_expanded<ColumnDateV2>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (check_column<ColumnDateTimeV2>(*nested_column)) {
+            } else if (left_which_type.is_date_time_v2()) {
                 return_column = _execute_number_expanded<ColumnDateTimeV2>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);

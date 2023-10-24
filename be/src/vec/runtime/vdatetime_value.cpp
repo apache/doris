@@ -41,7 +41,7 @@
 #include "util/timezone_utils.h"
 #include "vec/common/int_exp.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 static constexpr int s_days_in_month[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
@@ -2667,10 +2667,10 @@ template <typename T>
 typename DateV2Value<T>::underlying_value DateV2Value<T>::to_date_int_val() const {
     return int_val_;
 }
-
+// [1900-01-01, 2039-12-31]
 static std::array<DateV2Value<DateV2ValueType>, date_day_offset_dict::DICT_DAYS>
         DATE_DAY_OFFSET_ITEMS;
-
+// [1900-01-01, 2039-12-31]
 static std::array<std::array<std::array<int, 31>, 12>, 140> DATE_DAY_OFFSET_DICT;
 
 static bool DATE_DAY_OFFSET_ITEMS_INIT = false;
@@ -2687,19 +2687,27 @@ bool date_day_offset_dict::get_dict_init() {
 
 date_day_offset_dict::date_day_offset_dict() {
     DateV2Value<DateV2ValueType> d;
+    // Init days before epoch.
     d.set_time(1969, 12, 31, 0, 0, 0, 0);
-    for (int i = 0; i < DAY_AFTER_EPOCH; ++i) {
-        DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH + i] = d;
-        DATE_DAY_OFFSET_DICT[d.year() - START_YEAR][d.month() - 1][d.day() - 1] =
-                calc_daynr(d.year(), d.month(), d.day());
-        d += 1;
-    }
-    d.set_time(1969, 12, 31, 0, 0, 0, 0);
-    for (int i = 0; i <= DAY_BEFORE_EPOCH; ++i) {
-        DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH - i] = d;
+    for (int i = 0; i < DAY_BEFORE_EPOCH; ++i) {
+        DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH - i - 1] = d;
         DATE_DAY_OFFSET_DICT[d.year() - START_YEAR][d.month() - 1][d.day() - 1] =
                 calc_daynr(d.year(), d.month(), d.day());
         d -= 1;
+    }
+    // Init epoch day.
+    d.set_time(1970, 1, 1, 0, 0, 0, 0);
+    DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH] = d;
+    DATE_DAY_OFFSET_DICT[d.year() - START_YEAR][d.month() - 1][d.day() - 1] =
+            calc_daynr(d.year(), d.month(), d.day());
+    d += 1;
+
+    // Init days after epoch.
+    for (int i = 0; i < DAY_AFTER_EPOCH; ++i) {
+        DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH + 1 + i] = d;
+        DATE_DAY_OFFSET_DICT[d.year() - START_YEAR][d.month() - 1][d.day() - 1] =
+                calc_daynr(d.year(), d.month(), d.day());
+        d += 1;
     }
 
     DATE_DAY_OFFSET_ITEMS_INIT = true;
@@ -2722,7 +2730,7 @@ int date_day_offset_dict::daynr(int year, int month, int day) const {
 template <typename T>
 uint32_t DateV2Value<T>::set_date_uint32(uint32_t int_val) {
     union DateV2UInt32Union {
-        doris::vectorized::DateV2Value<T> dt;
+        DateV2Value<T> dt;
         uint32_t ui32;
         ~DateV2UInt32Union() {}
     };
@@ -2738,7 +2746,7 @@ uint32_t DateV2Value<T>::set_date_uint32(uint32_t int_val) {
 template <typename T>
 uint64_t DateV2Value<T>::set_datetime_uint64(uint64_t int_val) {
     union DateTimeV2UInt64Union {
-        doris::vectorized::DateV2Value<T> dt;
+        DateV2Value<T> dt;
         uint64_t ui64;
         ~DateTimeV2UInt64Union() {}
     };
@@ -3736,39 +3744,32 @@ template int64_t VecDateTimeValue::second_diff<DateV2Value<DateV2ValueType>>(
 template int64_t VecDateTimeValue::second_diff<DateV2Value<DateTimeV2ValueType>>(
         const DateV2Value<DateTimeV2ValueType>& rhs) const;
 
-#define DELARE_DATE_ADD_INTERVAL(DateValueType1, DateValueType2)                                 \
-    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
-            TimeUnit::MICROSECOND, DateValueType2>(                                              \
-            doris::vectorized::TimeInterval const&,                                              \
-            doris::vectorized::DateV2Value<DateValueType2>&);                                    \
-    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
-            TimeUnit::MILLISECOND, DateValueType2>(                                              \
-            doris::vectorized::TimeInterval const&,                                              \
-            doris::vectorized::DateV2Value<DateValueType2>&);                                    \
-    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
-            TimeUnit::SECOND, DateValueType2>(doris::vectorized::TimeInterval const&,            \
-                                              doris::vectorized::DateV2Value<DateValueType2>&);  \
-    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
-            TimeUnit::MINUTE, DateValueType2>(doris::vectorized::TimeInterval const&,            \
-                                              doris::vectorized::DateV2Value<DateValueType2>&);  \
-    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
-            TimeUnit::HOUR, DateValueType2>(doris::vectorized::TimeInterval const&,              \
-                                            doris::vectorized::DateV2Value<DateValueType2>&);    \
-    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
-            TimeUnit::DAY, DateValueType2>(doris::vectorized::TimeInterval const&,               \
-                                           doris::vectorized::DateV2Value<DateValueType2>&);     \
-    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
-            TimeUnit::MONTH, DateValueType2>(doris::vectorized::TimeInterval const&,             \
-                                             doris::vectorized::DateV2Value<DateValueType2>&);   \
-    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
-            TimeUnit::YEAR, DateValueType2>(doris::vectorized::TimeInterval const&,              \
-                                            doris::vectorized::DateV2Value<DateValueType2>&);    \
-    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
-            TimeUnit::QUARTER, DateValueType2>(doris::vectorized::TimeInterval const&,           \
-                                               doris::vectorized::DateV2Value<DateValueType2>&); \
-    template bool doris::vectorized::DateV2Value<DateValueType1>::date_add_interval<             \
-            TimeUnit::WEEK, DateValueType2>(doris::vectorized::TimeInterval const&,              \
-                                            doris::vectorized::DateV2Value<DateValueType2>&);
+#define DELARE_DATE_ADD_INTERVAL(DateValueType1, DateValueType2)                                   \
+    template bool                                                                                  \
+    DateV2Value<DateValueType1>::date_add_interval<TimeUnit::MICROSECOND, DateValueType2>(         \
+            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
+    template bool                                                                                  \
+    DateV2Value<DateValueType1>::date_add_interval<TimeUnit::MILLISECOND, DateValueType2>(         \
+            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
+    template bool                                                                                  \
+    DateV2Value<DateValueType1>::date_add_interval<TimeUnit::SECOND, DateValueType2>(              \
+            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
+    template bool                                                                                  \
+    DateV2Value<DateValueType1>::date_add_interval<TimeUnit::MINUTE, DateValueType2>(              \
+            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
+    template bool DateV2Value<DateValueType1>::date_add_interval<TimeUnit::HOUR, DateValueType2>(  \
+            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
+    template bool DateV2Value<DateValueType1>::date_add_interval<TimeUnit::DAY, DateValueType2>(   \
+            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
+    template bool DateV2Value<DateValueType1>::date_add_interval<TimeUnit::MONTH, DateValueType2>( \
+            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
+    template bool DateV2Value<DateValueType1>::date_add_interval<TimeUnit::YEAR, DateValueType2>(  \
+            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
+    template bool                                                                                  \
+    DateV2Value<DateValueType1>::date_add_interval<TimeUnit::QUARTER, DateValueType2>(             \
+            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
+    template bool DateV2Value<DateValueType1>::date_add_interval<TimeUnit::WEEK, DateValueType2>(  \
+            TimeInterval const&, DateV2Value<DateValueType2>&);
 
 DELARE_DATE_ADD_INTERVAL(DateV2ValueType, DateV2ValueType)
 DELARE_DATE_ADD_INTERVAL(DateV2ValueType, DateTimeV2ValueType)
@@ -3942,4 +3943,4 @@ template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::YEAR>()
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
 
-} // namespace doris::vectorized
+} // namespace doris

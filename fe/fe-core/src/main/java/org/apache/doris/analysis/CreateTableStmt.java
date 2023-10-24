@@ -20,13 +20,11 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -41,7 +39,6 @@ import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -51,7 +48,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -559,7 +555,8 @@ public class CreateTableStmt extends DdlStmt {
 
         if (engineName.equals("olap")) {
             // before analyzing partition, handle the replication allocation info
-            properties = rewriteReplicaAllocationProperties(properties);
+            properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(
+                    tableName.getCtl(), tableName.getDb(), properties);
             // analyze partition
             if (partitionDesc != null) {
                 if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc
@@ -648,74 +645,6 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException("same index columns have multiple same type index is not allowed.");
             }
         }
-    }
-
-    private Map<String, String> rewriteReplicaAllocationProperties(Map<String, String> properties)
-            throws AnalysisException {
-        if (Config.force_olap_table_replication_num <= 0) {
-            return rewriteReplicaAllocationPropertiesByDatabase(properties);
-        }
-        // if force_olap_table_replication_num is set, use this value to rewrite the replication_num or
-        // replication_allocation properties
-        Map<String, String> newProperties = properties;
-        if (newProperties == null) {
-            newProperties = Maps.newHashMap();
-        }
-        boolean rewrite = false;
-        if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                    String.valueOf(Config.force_olap_table_replication_num));
-            rewrite = true;
-        }
-        if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
-            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                    new ReplicaAllocation((short) Config.force_olap_table_replication_num).toCreateStmt());
-            rewrite = true;
-        }
-        if (!rewrite) {
-            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                    String.valueOf(Config.force_olap_table_replication_num));
-        }
-        return newProperties;
-    }
-
-    private Map<String, String> rewriteReplicaAllocationPropertiesByDatabase(Map<String, String> properties)
-            throws AnalysisException {
-        // if table contain `replication_allocation` or `replication_allocation`,not need rewrite by db
-        if (properties != null && (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
-            return properties;
-        }
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogNullable(tableName.getCtl());
-        if (catalog == null) {
-            return properties;
-        }
-        DatabaseIf db = catalog.getDbNullable(tableName.getDb());
-        if (db == null) {
-            return properties;
-        }
-        // if db not have properties,not need rewrite
-        if (db.getDbProperties() == null) {
-            return properties;
-        }
-        Map<String, String> dbProperties = db.getDbProperties().getProperties();
-        if (dbProperties == null) {
-            return properties;
-        }
-        if (properties == null) {
-            properties = Maps.newHashMap();
-        }
-        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION) && StringUtils
-                .isNotEmpty(dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION))) {
-            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                    dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION));
-        }
-        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM) && StringUtils
-                .isNotEmpty(dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
-            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                    dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
-        }
-        return properties;
     }
 
     private void analyzeEngineName() throws AnalysisException {
