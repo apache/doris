@@ -16,9 +16,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
-NOTEBOOK_SERVER_PORT=8888
-SPARK_DRIVER_UI_PORT=8080
-SPARK_HISTORY_UI_PORT=10000
-REST_CATALOG_PORT=18181
-MINIO_UI_PORT=9000
-MINIO_API_PORT=9001
+# save sqlite
+docker exec iceberg-rest bash -c 'cp /tmp/iceberg_rest_mode\=memory /mnt/data/input/'
+
+# save iceberg from s3
+docker exec mc bash -c 'mc cp -r minio/warehouse /mnt/data/input/minio'
