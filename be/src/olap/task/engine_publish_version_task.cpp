@@ -185,11 +185,12 @@ Status EnginePublishVersionTask::finish() {
                             LOG_EVERY_SECOND(INFO) << msg;
                         }
                     };
-                    // tablet is under schema change
+                    // The versions during the schema change period need to be also continuous
                     if (tablet_state == TabletState::TABLET_NOTREADY) {
                         Version max_continuous_version = {-1, 0};
                         tablet->max_continuous_version_from_beginning(&max_continuous_version);
-                        if (max_version > 1 && max_continuous_version.second != max_version) {
+                        if (max_version > 1 && version.first > max_version &&
+                            max_continuous_version.second != max_version) {
                             handle_version_not_continuous();
                             continue;
                         }
