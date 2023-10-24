@@ -58,7 +58,7 @@ public:
         }
 
         std::transform(ipv6.begin(), ipv6.end(), ipv6.begin(),
-                       [] (unsigned char ch) { return std::tolower(ch); });
+                       [](unsigned char ch) { return std::tolower(ch); });
         std::istringstream iss(ipv6);
         std::string field;
         uint16_t fields[8] = {0};
@@ -255,4 +255,3 @@ private:
 };
 
 } // namespace doris
-
