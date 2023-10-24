@@ -176,7 +176,7 @@ public:
     // If skip_missing_version is true, return ok even there are missing versions.
     Status capture_consistent_versions(const Version& spec_version,
                                        std::vector<Version>* version_path,
-                                       bool skip_missing_version = false, bool quiet = false) const;
+                                       bool skip_missing_version, bool quiet) const;
     // if quiet is true, no error log will be printed if there are missing versions
     Status check_version_integrity(const Version& version, bool quiet = false);
     bool check_version_exist(const Version& version) const;
@@ -187,7 +187,7 @@ public:
                                       std::vector<RowsetSharedPtr>* rowsets) const;
     // If skip_missing_version is true, skip versions if they are missing.
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                              bool skip_missing_version = false) const override;
+                              bool skip_missing_version) const override;
 
     Status capture_rs_readers(const std::vector<Version>& version_path,
                               std::vector<RowSetSplits>* rs_splits) const;

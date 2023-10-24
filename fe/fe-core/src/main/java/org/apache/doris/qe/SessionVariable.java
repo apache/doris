@@ -978,10 +978,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
     public boolean skipDeleteBitmap = false;
 
+    // This variable replace the original FE config `recover_with_skip_missing_version`.
     // In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover.
-    // This config can control the behavior of query. When it is set to `true`, if the replica on be has missing
-    // versions, the query will directly skip this missing version, and only return the data of the existing versions.
-    // In addition, the query will always try to select the one with the highest lastSuccessVersion among all surviving
+    // This config can control the behavior of query. When it is set to `true`, the query will ignore the
+    // visible version recorded in FE partition, use the replica version. If the replica on BE has missing versions,
+    // the query will directly skip this missing version, and only return the data of the existing versions.
+    // Besides, the query will always try to select the one with the highest lastSuccessVersion among all surviving
     // BE replicas, so as to recover as much data as possible.
     // You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries.
     @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION)

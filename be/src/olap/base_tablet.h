@@ -77,7 +77,7 @@ public:
 
     virtual Status capture_rs_readers(const Version& spec_version,
                                       std::vector<RowSetSplits>* rs_splits,
-                                      bool skip_missing_version = false) const = 0;
+                                      bool skip_missing_version) const = 0;
 
     virtual size_t tablet_footprint() = 0;
 

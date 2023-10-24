@@ -721,7 +721,7 @@ public class OlapScanNode extends ScanNode {
         }
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
-            if (!Config.recover_with_skip_missing_version.equalsIgnoreCase("disable") || skipMissingVersion) {
+            if (skipMissingVersion) {
                 long tabletVersion = -1L;
                 for (Replica replica : tablet.getReplicas()) {
                     if (replica.getVersion() > tabletVersion) {
@@ -840,17 +840,13 @@ public class OlapScanNode extends ScanNode {
                 scanBackendIds.add(backend.getId());
                 // For skipping missing version of tablet, we only select the backend with the highest last
                 // success version replica to save as much data as possible.
-                if (!tabletIsNull && skipMissingVersion) {
+                if (skipMissingVersion) {
                     break;
                 }
             }
             if (tabletIsNull) {
-                if (Config.recover_with_skip_missing_version.equalsIgnoreCase("ignore_all")) {
-                    continue;
-                } else {
-                    throw new UserException(tabletId + " have no queryable replicas. err: "
-                            + Joiner.on(", ").join(errs));
-                }
+                throw new UserException(tabletId + " have no queryable replicas. err: "
+                        + Joiner.on(", ").join(errs));
             }
             TScanRange scanRange = new TScanRange();
             scanRange.setPaloScanRange(paloRange);
