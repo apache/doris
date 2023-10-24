@@ -1727,7 +1727,7 @@ public class Env {
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(this.imageDir);
                 MetaHelper.getRemoteFile(url, Config.sync_image_timeout_second * 1000,
-                    MetaHelper.getFile(filename, dir));
+                        MetaHelper.getFile(filename, dir));
                 MetaHelper.complete(filename, dir);
             } else {
                 LOG.warn("get an image with a lower version, localImageVersion: {}, got version: {}",
