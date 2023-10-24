@@ -140,10 +140,10 @@ public:
 
 private:
     bool _has_data(RuntimeState* state) {
-        if (_child_size == 0) {
-            return false;
-        }
         auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
+        if (_child_size == 0) {
+            return local_state._need_read_for_const_expr;
+        }
         return local_state._shared_state->data_queue.remaining_has_data();
     }
     bool has_more_const(RuntimeState* state) const {

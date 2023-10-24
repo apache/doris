@@ -46,6 +46,7 @@ illustrate:
 - Unlike DELETE, using this method to clear data will not affect query performance.
 - The data deleted by this operation cannot be recovered.
 - When using this command, the table status needs to be NORMAL, that is, operations such as SCHEMA CHANGE are not allowed.
+- This command may cause the ongoing load to fail
 
 ### Example
 

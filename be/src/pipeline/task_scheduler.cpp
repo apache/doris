@@ -274,13 +274,13 @@ void TaskScheduler::_do_work(size_t index) {
                     PrintInstanceStandardInfo(task->query_context()->query_id(),
                                               task->fragment_context()->get_fragment_id(),
                                               task->fragment_context()->get_fragment_instance_id()),
-                    status.to_string());
+                    status.msg());
             // Print detail informations below when you debugging here.
             //
             // LOG(WARNING)<< "task:\n"<<task->debug_string();
 
             // exec failed，cancel all fragment instance
-            fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.to_string());
+            fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.msg());
             _try_close_task(task, PipelineTaskState::CANCELED, status);
             continue;
         }
@@ -294,7 +294,7 @@ void TaskScheduler::_do_work(size_t index) {
             if (!status.ok()) {
                 // execute failed，cancel all fragment
                 fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                     "finalize fail:" + status.to_string());
+                                     "finalize fail:" + status.msg());
             } else {
                 _try_close_task(task,
                                 fragment_ctx->is_canceled() ? PipelineTaskState::CANCELED
