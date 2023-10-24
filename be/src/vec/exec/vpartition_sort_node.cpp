@@ -81,6 +81,7 @@ Status VPartitionSortNode::prepare(RuntimeState* state) {
     _emplace_key_timer = ADD_TIMER(runtime_profile(), "EmplaceKeyTime");
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor));
     RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, child(0)->row_desc()));
     _init_hash_method();
@@ -144,6 +145,7 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
 }
 
 Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     auto current_rows = input_block->rows();
     if (current_rows > 0) {
         child_input_rows = child_input_rows + current_rows;
@@ -229,6 +231,7 @@ Status VPartitionSortNode::open(RuntimeState* state) {
 }
 
 Status VPartitionSortNode::alloc_resource(RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
@@ -245,6 +248,7 @@ bool VPartitionSortNode::can_read() {
 
 Status VPartitionSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_block,
                                 bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_CANCELLED(state);
     output_block->clear_column_data();
     {
