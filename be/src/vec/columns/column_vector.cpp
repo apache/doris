@@ -379,7 +379,7 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src,
         // nullmap : indices_begin[i] == 0 means is null at the here, set true here
         for (int i = 0; i < new_size; ++i) {
             data[origin_size + i] =
-                    (indices_begin[i] == 0) + (indices_begin[i] == 0) * src_data[indices_begin[i]];
+                    (indices_begin[i] == 0) + (indices_begin[i] != 0) * src_data[indices_begin[i]];
         }
     } else {
         // real data : indices_begin[i] == 0 what at is meaningless
