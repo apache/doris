@@ -1708,7 +1708,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Literal visitStringLiteral(StringLiteralContext ctx) {
         // TODO: add unescapeSQLString.
-        String txt = ctx.STRING_LITERAL().getText().replaceAll("''", "'");
+        String txt = ctx.STRING_LITERAL().getText();
         String s = LogicalPlanBuilderAssistant.escapeBackSlash(txt.substring(1, txt.length() - 1));
         return new VarcharLiteral(s);
     }
