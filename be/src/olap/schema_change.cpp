@@ -973,6 +973,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
             }
 
+            // step 4
             res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
             if (!res) {
                 break;
