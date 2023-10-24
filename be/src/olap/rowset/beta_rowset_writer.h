@@ -96,6 +96,8 @@ public:
 
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override;
 
+    PUniqueId load_id() override { return _context.load_id; }
+
     Version version() override { return _context.version; }
 
     int64_t num_rows() const override { return _segment_creator.num_rows_written(); }
