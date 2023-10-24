@@ -256,7 +256,7 @@ public:
 
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
-    // @return: unfinished running channels.
+    // @return: 1 if running, 0 if finished.
     // @caller: VOlapTabletSink::_send_batch_process. it's a continual asynchronous process.
     int try_send_and_fetch_status(RuntimeState* state,
                                   std::unique_ptr<ThreadPoolToken>& thread_pool_token);
@@ -671,8 +671,11 @@ private:
     int32_t _send_batch_parallelism = 1;
     // Save the status of try_close() and close() method
     Status _close_status;
+    // if we called try_close(), for auto partition the periodic send thread should stop if it's still waiting for node channels first-time open.
     bool _try_close = false;
-    bool _prepare = false;
+    // for non-pipeline, if close() did something, close_wait() should wait it.
+    bool _close_wait = false;
+    bool _inited = false;
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
