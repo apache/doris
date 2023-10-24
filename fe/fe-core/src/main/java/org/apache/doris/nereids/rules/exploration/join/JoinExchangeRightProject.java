@@ -101,9 +101,7 @@ public class JoinExchangeRightProject extends OneExplorationRuleFactory {
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts, JoinHint.NONE,
                             left, right);
-                    JoinExchange.setNewLeftJoinReorder(newLeftJoin, leftJoin);
-                    JoinExchange.setNewRightJoinReorder(newRightJoin, rightJoin);
-                    JoinExchange.setNewTopJoinReorder(newTopJoin, topJoin);
+                    newTopJoin.getJoinReorderContext().setHasExchange(true);
 
                     return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE_RIGHT_PROJECT);

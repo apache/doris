@@ -75,9 +75,6 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
 
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(newBottomHashConjuncts,
                             newBottomOtherConjuncts, a, c);
-                    newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
-                    newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
-                    newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(newTopHashConjuncts,
                             newTopOtherConjuncts, newBottomJoin, b);

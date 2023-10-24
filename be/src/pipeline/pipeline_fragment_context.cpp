@@ -158,7 +158,11 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             .tag("instance_id", print_id(_runtime_state->fragment_instance_id()))
             .tag("reason", PPlanFragmentCancelReason_Name(reason))
             .tag("message", msg);
-
+    // TODO(zhiqiang): may be not need to check if query is already cancelled.
+    // Dont cancel in this situation may lead to bug. For example, result sink node
+    // can not be cancelled if other fragments set the query_ctx cancelled, this will
+    // make result receiver on fe be stocked on rpc forever until timeout...
+    // We need a more detail discussion.
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             LOG(WARNING) << "PipelineFragmentContext "
@@ -762,7 +766,7 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
     case TDataSinkType::OLAP_TABLE_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
-            !_has_inverted_index(thrift_sink.olap_table_sink)) {
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
             sink_ = std::make_shared<OlapTableSinkV2OperatorBuilder>(next_operator_builder_id(),
                                                                      _sink.get());
         } else {
@@ -897,10 +901,13 @@ Status PipelineFragmentContext::send_report(bool done) {
             shared_from_this());
 }
 
-bool PipelineFragmentContext::_has_inverted_index(TOlapTableSink sink) {
+bool PipelineFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
     OlapTableSchemaParam schema;
     if (!schema.init(sink.schema).ok()) {
         return false;
+    }
+    if (schema.is_partial_update()) {
+        return true;
     }
     for (const auto& index_schema : schema.indexes()) {
         for (const auto& index : index_schema->indexes) {
