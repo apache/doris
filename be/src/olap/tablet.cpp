@@ -963,7 +963,8 @@ Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& 
 Status Tablet::capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                                   bool skip_missing_version) const {
     std::vector<Version> version_path;
-    RETURN_IF_ERROR(capture_consistent_versions(spec_version, &version_path, skip_missing_version, false));
+    RETURN_IF_ERROR(
+            capture_consistent_versions(spec_version, &version_path, skip_missing_version, false));
     RETURN_IF_ERROR(capture_rs_readers(version_path, rs_splits));
     return Status::OK();
 }
