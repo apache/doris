@@ -169,9 +169,13 @@ extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
 
+enableObjStorageTest=false
 enableMaxComputeTest=false
 aliYunAk="***********"
+dlfUid="***********"
 aliYunSk="***********"
+hwYunAk="***********"
+hwYunSk="***********"
 
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
