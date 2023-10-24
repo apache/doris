@@ -2266,6 +2266,6 @@ public class Config extends ConfigBase {
             + "adjust by the size of image file in the ${meta_dir}/image and the network environment between nodes. "
             + "The default values is 300s."
     })
-    public static int sync_new_image_timeout_s = 300;
+    public static int sync_image_timeout_second = 300;
 
 }
