@@ -429,22 +429,21 @@ void RuntimeState::resize_op_id_to_local_state(int size) {
 }
 
 void RuntimeState::emplace_local_state(
-        int id, std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> state) {
-    _op_id_to_local_state[id] = state;
+        int id, std::unique_ptr<doris::pipeline::PipelineXLocalStateBase> state) {
+    _op_id_to_local_state[id] = std::move(state);
 }
 
-std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> RuntimeState::get_local_state(int id) {
-    return _op_id_to_local_state[id];
+doris::pipeline::PipelineXLocalStateBase* RuntimeState::get_local_state(int id) {
+    return _op_id_to_local_state[id].get();
 }
 
 void RuntimeState::emplace_sink_local_state(
-        int id, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
-    _op_id_to_sink_local_state[id] = state;
+        int id, std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
+    _op_id_to_sink_local_state[id] = std::move(state);
 }
 
-std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> RuntimeState::get_sink_local_state(
-        int id) {
-    return _op_id_to_sink_local_state[id];
+doris::pipeline::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state(int id) {
+    return _op_id_to_sink_local_state[id].get();
 }
 
 bool RuntimeState::enable_page_cache() const {

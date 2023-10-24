@@ -96,13 +96,13 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
 
 Status PipelineXTask::get_dependency_from_task() {
     for (auto op : _operators) {
-        auto* local_state = _state->get_local_state(op->operator_id()).get();
+        auto* local_state = _state->get_local_state(op->operator_id());
         auto* dep = local_state->dependency();
         DCHECK(dep != nullptr);
         _operatorsDependency.push_back(dep);
     }
     {
-        auto* local_state = _state->get_sink_local_state(_sink->operator_id()).get();
+        auto* local_state = _state->get_sink_local_state(_sink->operator_id());
         auto* dep = local_state->dependency();
         DCHECK(dep != nullptr);
         _sinkDependency = dep;

@@ -269,9 +269,9 @@ Status DataSinkOperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) 
 template <typename LocalStateType>
 Status DataSinkOperatorX<LocalStateType>::setup_local_state(RuntimeState* state,
                                                             LocalSinkStateInfo& info) {
-    auto local_state = LocalStateType::create_shared(this, state);
-    state->emplace_sink_local_state(operator_id(), local_state);
+    auto local_state = LocalStateType::create_unique(this, state);
     RETURN_IF_ERROR(local_state->init(state, info));
+    state->emplace_sink_local_state(operator_id(), std::move(local_state));
     return Status::OK();
 }
 
@@ -290,9 +290,10 @@ void DataSinkOperatorX<LocalStateType>::get_dependency(vector<DependencySPtr>& d
 
 template <typename LocalStateType>
 Status OperatorX<LocalStateType>::setup_local_state(RuntimeState* state, LocalStateInfo& info) {
-    auto local_state = LocalStateType::create_shared(state, this);
-    state->emplace_local_state(operator_id(), local_state);
-    return local_state->init(state, info);
+    auto local_state = LocalStateType::create_unique(state, this);
+    RETURN_IF_ERROR(local_state->init(state, info));
+    state->emplace_local_state(operator_id(), std::move(local_state));
+    return Status::OK();
 }
 
 PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* parent,

@@ -23,24 +23,12 @@
 
 namespace doris::pipeline {
 
-#define CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state)                                          \
-    auto _sptr = state->get_local_state(operator_id());                                          \
-    if (!_sptr) return Status::InternalError("could not find local state id {}", operator_id()); \
+#define CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state) \
+    auto _sptr = state->get_local_state(operator_id()); \
     auto& local_state = _sptr->template cast<LocalState>();
 
-#define CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state)                                     \
-    auto _sptr = state->get_sink_local_state(operator_id());                                     \
-    if (!_sptr) return Status::InternalError("could not find local state id {}", operator_id()); \
-    auto& local_state = _sptr->template cast<LocalState>();
-
-#define CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state) \
-    auto _sptr = state->get_local_state(operator_id());      \
-    if (!_sptr) return nullptr;                              \
-    auto& local_state = _sptr->template cast<LocalState>();
-
-#define CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state) \
-    auto _sptr = state->get_sink_local_state(operator_id());      \
-    if (!_sptr) return nullptr;                                   \
+#define CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state) \
+    auto _sptr = state->get_sink_local_state(operator_id()); \
     auto& local_state = _sptr->template cast<LocalState>();
 
 // This struct is used only for initializing local state.
