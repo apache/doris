@@ -257,7 +257,7 @@ public:
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
-    std::vector<TUniqueId> fragment_ids;
+    std::vector<TUniqueId> fragment_instance_ids;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
