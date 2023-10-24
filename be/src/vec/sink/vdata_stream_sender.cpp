@@ -321,7 +321,6 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
           _local_send_timer(nullptr),
           _split_block_hash_compute_timer(nullptr),
           _split_block_distribute_by_channel_timer(nullptr),
-          _blocks_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _dest_node_id(sink.dest_node_id),
           _transfer_large_data_by_brpc(config::transfer_large_data_by_brpc),
@@ -388,7 +387,6 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
           _local_send_timer(nullptr),
           _split_block_hash_compute_timer(nullptr),
           _split_block_distribute_by_channel_timer(nullptr),
-          _blocks_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _dest_node_id(dest_node_id),
           _serializer(this) {
@@ -469,8 +467,6 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _split_block_distribute_by_channel_timer =
             ADD_TIMER(profile(), "SplitBlockDistributeByChannelTime");
     _merge_block_timer = ADD_TIMER(profile(), "MergeBlockTime");
-    _exec_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "ExecTime", 1);
-    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(profile(), "BlocksSent", TUnit::UNIT, 1);
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,

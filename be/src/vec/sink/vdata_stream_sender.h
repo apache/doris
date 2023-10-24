@@ -196,7 +196,6 @@ protected:
     RuntimeProfile::Counter* _local_send_timer;
     RuntimeProfile::Counter* _split_block_hash_compute_timer;
     RuntimeProfile::Counter* _split_block_distribute_by_channel_timer;
-    RuntimeProfile::Counter* _blocks_sent_counter;
     RuntimeProfile::Counter* _merge_block_timer;
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::Counter* _peak_memory_usage_counter;
