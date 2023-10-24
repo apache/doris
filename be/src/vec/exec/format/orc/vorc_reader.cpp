@@ -198,20 +198,25 @@ int64_t OrcReader::size() const {
 void OrcReader::_init_profile() {
     if (_profile != nullptr) {
         static const char* orc_profile = "OrcReader";
-        ADD_TIMER(_profile, orc_profile);
-        _orc_profile.read_time = ADD_TIMER(_profile, "FileReadTime");
-        _orc_profile.read_calls = ADD_COUNTER(_profile, "FileReadCalls", TUnit::UNIT);
-        _orc_profile.read_bytes = ADD_COUNTER(_profile, "FileReadBytes", TUnit::BYTES);
-        _orc_profile.column_read_time = ADD_CHILD_TIMER(_profile, "ColumnReadTime", orc_profile);
-        _orc_profile.get_batch_time = ADD_CHILD_TIMER(_profile, "GetBatchTime", orc_profile);
+        ADD_TIMER_WITH_LEVEL(_profile, orc_profile, 1);
+        _orc_profile.read_time = ADD_TIMER_WITH_LEVEL(_profile, "FileReadTime", 1);
+        _orc_profile.read_calls = ADD_COUNTER_WITH_LEVEL(_profile, "FileReadCalls", TUnit::UNIT, 1);
+        _orc_profile.read_bytes =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileReadBytes", TUnit::BYTES, 1);
+        _orc_profile.column_read_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ColumnReadTime", orc_profile, 1);
+        _orc_profile.get_batch_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "GetBatchTime", orc_profile, 1);
         _orc_profile.create_reader_time =
-                ADD_CHILD_TIMER(_profile, "CreateReaderTime", orc_profile);
-        _orc_profile.init_column_time = ADD_CHILD_TIMER(_profile, "InitColumnTime", orc_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "CreateReaderTime", orc_profile, 1);
+        _orc_profile.init_column_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "InitColumnTime", orc_profile, 1);
         _orc_profile.set_fill_column_time =
-                ADD_CHILD_TIMER(_profile, "SetFillColumnTime", orc_profile);
-        _orc_profile.decode_value_time = ADD_CHILD_TIMER(_profile, "DecodeValueTime", orc_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "SetFillColumnTime", orc_profile, 1);
+        _orc_profile.decode_value_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeValueTime", orc_profile, 1);
         _orc_profile.decode_null_map_time =
-                ADD_CHILD_TIMER(_profile, "DecodeNullMapTime", orc_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", orc_profile, 1);
     }
 }
 
