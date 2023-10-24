@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse,mariadb"
+    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse,mariadb,iceberg"
 else
     while true; do
         case "$1" in
@@ -332,13 +332,12 @@ if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/entrypoint.sh
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/spark-defaults.conf
     sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env down
+    sudo rm -rf "${ROOT}"/docker-compose/iceberg/data
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm -rf "${ROOT}"/docker-compose/iceberg/notebooks
-        sudo mkdir "${ROOT}"/docker-compose/iceberg/notebooks
-        sudo rm -rf "${ROOT}"/docker-compose/iceberg/spark
-        sudo mkdir "${ROOT}"/docker-compose/iceberg/spark
-        sudo rm -rf "${ROOT}"/docker-compose/iceberg/warehouse
-        sudo mkdir "${ROOT}"/docker-compose/iceberg/warehouse
+        wget -P ${ROOT}/docker-compose/iceberg https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/iceberg/iceberg_data.zip
+        sudo unzip -d "${ROOT}"/docker-compose/iceberg -q ${ROOT}/docker-compose/iceberg/iceberg_data.zip
+        sudo mv "${ROOT}"/docker-compose/iceberg/iceberg_data "${ROOT}"/docker-compose/iceberg/data
+        sudo rm -rf ${ROOT}/docker-compose/iceberg/iceberg_data.zip
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
     fi
 fi
