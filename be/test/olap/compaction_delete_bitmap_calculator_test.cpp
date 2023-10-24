@@ -245,7 +245,8 @@ TEST_F(CompactionDeleteBitmapCalculatorTest, test) {
     RowsetIdUnorderedSet set;
     set.insert(_tablet_meta->all_rs_metas()[0]->rowset_id());
     _txn_mgr->set_txn_related_delete_bitmap(partition_id, 1, _tablet->tablet_id(), schema_hash,
-                                            _tablet->tablet_uid(), true, delete_bitmap, set);
+                                            _tablet->tablet_uid(), true, delete_bitmap, set,
+                                            nullptr);
 
     // commit rowset 2
     load_id.set_hi(2);
@@ -258,7 +259,7 @@ TEST_F(CompactionDeleteBitmapCalculatorTest, test) {
     EXPECT_TRUE(status == Status::OK());
     set.insert(_tablet_meta->all_rs_metas()[1]->rowset_id());
     _txn_mgr->set_txn_related_delete_bitmap(partition_id, 2, tablet_id, schema_hash, _tablet_uid,
-                                            true, delete_bitmap, set);
+                                            true, delete_bitmap, set, nullptr);
 
     // prepare rowset 3
     load_id.set_hi(3);
