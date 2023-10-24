@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -55,13 +56,23 @@ public class PushdownTopNThroughJoin implements RewriteRuleFactory {
                         .toRule(RuleType.PUSH_TOP_N_THROUGH_JOIN),
 
                 // topN -> project -> join
-                logicalTopN(logicalProject(logicalJoin()).when(LogicalProject::isAllSlots))
-                        // TODO: complex project
+                logicalTopN(logicalProject(logicalJoin()))
                         .when(topN -> topN.getOrderKeys().stream().map(OrderKey::getExpr)
                                 .allMatch(Slot.class::isInstance))
                         .then(topN -> {
                             LogicalProject<LogicalJoin<Plan, Plan>> project = topN.child();
                             LogicalJoin<Plan, Plan> join = project.child();
+
+                            // If orderby exprs aren't all in the output of the project, we can't push down.
+                            // topN(order by: slot(a+1))
+                            // - project(a+1, b)
+                            // TODO: in the future, we also can push down it.
+                            Set<Slot> outputSet = project.child().getOutputSet();
+                            if (!topN.getOrderKeys().stream().map(OrderKey::getExpr)
+                                    .flatMap(e -> e.getInputSlots().stream())
+                                    .allMatch(outputSet::contains)) {
+                                return null;
+                            }
 
                             Plan newJoin = pushLimitThroughJoin(topN, join);
                             if (newJoin == null || join.children().equals(newJoin.children())) {
