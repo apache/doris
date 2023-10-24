@@ -172,7 +172,7 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
 
     if (!empty) {
         _block_queue.emplace_back(std::move(block), block_byte_size);
-        if (_dependency && _dependency->is_not_fake()) {
+        if (_dependency) {
             _dependency->set_ready_for_read();
         }
     }
@@ -228,7 +228,7 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
 
     if (!empty) {
         _block_queue.emplace_back(std::move(nblock), block_mem_size);
-        if (_dependency && _dependency->is_not_fake()) {
+        if (_dependency) {
             _dependency->set_ready_for_read();
         }
         _data_arrival_cv.notify_one();
@@ -266,7 +266,7 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
     VLOG_FILE << "decremented senders: fragment_instance_id=" << _recvr->fragment_instance_id()
               << " node_id=" << _recvr->dest_node_id() << " #senders=" << _num_remaining_senders;
     if (_num_remaining_senders == 0) {
-        if (_dependency && _dependency->is_not_fake()) {
+        if (_dependency) {
             _dependency->set_always_done();
         }
         _data_arrival_cv.notify_one();
@@ -281,7 +281,7 @@ void VDataStreamRecvr::SenderQueue::cancel(Status cancel_status) {
         }
         _is_cancelled = true;
         _cancel_status = cancel_status;
-        if (_dependency && _dependency->is_not_fake()) {
+        if (_dependency) {
             _dependency->set_always_done();
         }
         VLOG_QUERY << "cancelled stream: _fragment_instance_id="
@@ -311,7 +311,7 @@ void VDataStreamRecvr::SenderQueue::close() {
         // is clear will be memory leak
         std::lock_guard<std::mutex> l(_lock);
         _is_cancelled = true;
-        if (_dependency && _dependency->is_not_fake()) {
+        if (_dependency) {
             _dependency->set_always_done();
         }
 
@@ -484,7 +484,7 @@ void VDataStreamRecvr::close() {
         return;
     }
     _is_closed = true;
-    if (_dependency && _dependency->is_not_fake()) {
+    if (_dependency) {
         _dependency->set_ready_for_write();
     }
     for (int i = 0; i < _sender_queues.size(); ++i) {
@@ -532,7 +532,7 @@ void VDataStreamRecvr::PipSenderQueue::add_block(Block* block, bool use_move) {
             return;
         }
         _block_queue.emplace_back(std::move(nblock), block_mem_size);
-        if (_dependency && _dependency->is_not_fake()) {
+        if (_dependency) {
             _dependency->set_ready_for_read();
         }
         COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);

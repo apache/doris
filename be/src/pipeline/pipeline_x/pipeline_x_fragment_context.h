@@ -113,7 +113,7 @@ public:
 
     [[nodiscard]] int next_operator_id() { return _operator_id++; }
 
-    [[nodiscard]] int max_operator_id() const { return _operator_id << 1; }
+    [[nodiscard]] int max_operator_id() const { return _operator_id; }
 
 private:
     void _close_action() override;

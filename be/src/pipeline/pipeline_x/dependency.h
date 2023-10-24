@@ -95,8 +95,6 @@ public:
 
     void remove_first_child() { _children.erase(_children.begin()); }
 
-    virtual bool is_not_fake() const { return true; }
-
 protected:
     int _id;
     std::string _name;
@@ -289,7 +287,6 @@ public:
     [[nodiscard]] WriteDependency* write_blocked_by() override { return nullptr; }
     [[nodiscard]] int64_t read_watcher_elapse_time() override { return 0; }
     [[nodiscard]] int64_t write_watcher_elapse_time() override { return 0; }
-    bool is_not_fake() const override { return false; }
 };
 
 class AsyncWriterSinkDependency : public WriteDependency {
