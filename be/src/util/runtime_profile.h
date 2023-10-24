@@ -60,7 +60,11 @@ class TRuntimeProfileTree;
 #define ADD_TIMER_WITH_LEVEL(profile, name, level) \
     (profile)->add_counter_with_level(name, TUnit::TIME_NS, level)
 #define ADD_CHILD_COUNTER(profile, name, type, parent) (profile)->add_counter(name, type, parent)
+#define ADD_CHILD_COUNTER_WITH_LEVEL(profile, name, type, parent, level) \
+    (profile)->add_counter(name, type, parent, level)
 #define ADD_CHILD_TIMER(profile, name, parent) (profile)->add_counter(name, TUnit::TIME_NS, parent)
+#define ADD_CHILD_TIMER_WITH_LEVEL(profile, name, parent, level) \
+    (profile)->add_counter(name, TUnit::TIME_NS, parent, level)
 #define SCOPED_TIMER(c) ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
 #define SCOPED_TIMER_ATOMIC(c) \
     ScopedTimer<MonotonicStopWatch, std::atomic_bool> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
