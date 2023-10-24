@@ -249,6 +249,27 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
         }
     }
 
+    if (!cond.__isset.column_unique_id) {
+        LOG(WARNING) << "column=" << cond.column_name
+                     << " in predicate does not have uid, table id=" << schema.table_id();
+        // TODO(tsy): make it fail here after FE forbidding hard-link-schema-change
+        return Status::OK();
+    }
+    if (schema.field_index(cond.column_unique_id) == -1) {
+        const auto& err_msg =
+                fmt::format("column id does not exists in table={}, schema version={},",
+                            schema.table_id(), schema.schema_version());
+        return Status::Error<DELETE_INVALID_CONDITION>(err_msg);
+    }
+    if (!iequal(schema.column_by_uid(cond.column_unique_id).name(), cond.column_name)) {
+        const auto& err_msg = fmt::format(
+                "colum name={} does not belongs to column uid={}, which column name={}, "
+                "delete_cond.column_name ={}",
+                cond.column_name, cond.column_unique_id,
+                schema.column_by_uid(cond.column_unique_id).name(), cond.column_name);
+        return Status::Error<DELETE_INVALID_CONDITION>(err_msg);
+    }
+
     return Status::OK();
 }
 
@@ -372,7 +393,8 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         for (const auto& in_predicate : delete_condition.in_predicates()) {
             TCondition condition;
             condition.__set_column_name(in_predicate.column_name());
-            condition.__set_column_unique_id(in_predicate.column_unique_id());
+            auto col_unique_id = in_predicate.column_unique_id();
+            condition.__set_column_unique_id(col_unique_id);
 
             if (in_predicate.is_not_in()) {
                 condition.__set_condition_op("!*=");
@@ -382,7 +404,6 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             for (const auto& value : in_predicate.values()) {
                 condition.condition_values.push_back(value);
             }
-            int32_t col_unique_id = in_predicate.column_unique_id();
             const auto& column = tablet_schema->column_by_uid(col_unique_id);
             uint32_t index = tablet_schema->field_index(col_unique_id);
             temp.column_predicate_vec.push_back(
