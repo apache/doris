@@ -1190,7 +1190,7 @@ public class ScalarType extends Type {
 
     /**
      * Decimal default precision is 9 and scale is 0, this method return whether this is
-     * default decimal v3
+     * default decimal v3 or v2
      */
     public boolean isDefaultDecimal() {
         return (isDecimalV3() || isDecimalV2())
