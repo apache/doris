@@ -84,7 +84,7 @@ public class ProfileManager {
             if (profileContent == null) {
                 // Simple profile will change the structure of the profile.
                 try {
-                    profileContent = profile.getProfileByLevel(1);
+                    profileContent = profile.getProfileByLevel(3);
                 } catch (Exception e) {
                     LOG.warn("profile get error : " + e.toString());
                 }
