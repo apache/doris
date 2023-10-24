@@ -365,23 +365,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             Preconditions.checkState(rollupIndex.getState() == IndexState.SHADOW, rollupIndex.getState());
             partition.createRollupIndex(rollupIndex);
         }
-        StringBuilder debugString = new StringBuilder();
-        if (this.partitionIdToRollupIndex.isEmpty() == false) {
-            for (MaterializedIndex rollupIdx : partitionIdToRollupIndex.values()) {
-                debugString.append(rollupIdx.toString() + "\n");
-            }
-        }
-        Set<String> indexNames = Sets.newTreeSet(tbl.getIndexNameToId().keySet());
-        for (String indexName : indexNames) {
-            long indexId = tbl.getIndexNameToId().get(indexName);
-            MaterializedIndexMeta indexMeta = tbl.getIndexIdToMeta().get(indexId);
-            debugString.append(indexName);
-            debugString.append(Util.getSchemaSignatureString(indexMeta.getSchema()));
-            debugString.append(indexMeta.getShortKeyColumnCount());
-            debugString.append(indexMeta.getStorageType());
-        }
-        //now add some log for P0 test case, this debugString info could remove after.
-        LOG.info("addRollupIndexToCatalog partition end: {}, table:{} ", debugString.toString(), tbl.toString());
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
                 rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN,
