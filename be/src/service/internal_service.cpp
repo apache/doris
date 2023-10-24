@@ -559,15 +559,17 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         tid.__set_lo(request->finst_id().lo());
         signal::set_signal_task_id(tid);
         Status st = Status::OK();
-        if (request->has_cancel_reason()) {
-            LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
-                      << ", reason: " << PPlanFragmentCancelReason_Name(request->cancel_reason());
-            _exec_env->fragment_mgr()->cancel_instance(tid, request->cancel_reason());
-        } else {
-            LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
-            _exec_env->fragment_mgr()->cancel_instance(tid,
-                                                       PPlanFragmentCancelReason::INTERNAL_ERROR);
-        }
+
+        const bool has_cancel_reason = request->has_cancel_reason();
+        LOG(INFO) << fmt::format("Cancel instance {}, reason: {}", print_id(tid),
+                                 has_cancel_reason
+                                         ? PPlanFragmentCancelReason_Name(request->cancel_reason())
+                                         : "INTERNAL_ERROR");
+
+        _exec_env->fragment_mgr()->cancel_instance(
+                tid, has_cancel_reason ? request->cancel_reason()
+                                       : PPlanFragmentCancelReason::INTERNAL_ERROR);
+
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
     });
@@ -1732,7 +1734,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
                                          const PMultiGetRequest* request,
                                          PMultiGetResponse* response,
                                          google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, response, done, this]() {
+    bool ret = _light_work_pool.try_offer([request, response, done, this]() {
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();
