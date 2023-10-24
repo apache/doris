@@ -60,7 +60,7 @@ public:
         ++_counter;
     }
 
-    int64_t get_consumer_rows() { return _rows; }
+    int64_t get_consumer_rows() const { return _rows; }
 
     void set_consumer_rows(int64_t rows) { _rows = rows; }
 
