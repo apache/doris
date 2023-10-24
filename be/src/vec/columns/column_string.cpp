@@ -137,7 +137,7 @@ void ColumnString::insert_indices_from(const IColumn& src, const uint32_t* __res
     auto* dst_offsets_data = offsets.data();
 
     for (auto* __restrict x = indices_begin; x != indices_end; ++x) {
-        const auto offset = *x;
+        int64_t offset = *x;
         total_chars_size += src_offset_data[offset] - src_offset_data[offset - 1];
         dst_offsets_data[dst_offsets_pos++] = total_chars_size;
     }
@@ -150,7 +150,7 @@ void ColumnString::insert_indices_from(const IColumn& src, const uint32_t* __res
 
     size_t dst_chars_pos = old_char_size;
     for (auto* __restrict x = indices_begin; x != indices_end; ++x) {
-        const auto offset = *x;
+        const int64_t offset = *x;
         const auto start = src_offset_data[offset - 1];
         const auto end = src_offset_data[offset];
 
