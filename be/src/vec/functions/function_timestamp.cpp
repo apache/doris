@@ -441,42 +441,22 @@ private:
             }
         };
 
-        auto execute_impl = [&](const TimeUnit& UNIT) {
-            if (TimeUnit::YEAR == UNIT) {
-                _execute_inner_loop.template operator()<TimeUnit::YEAR>();
-            } else if (TimeUnit::QUARTER == UNIT) {
-                _execute_inner_loop.template operator()<TimeUnit::QUARTER>();
-            } else if (TimeUnit::MONTH == UNIT) {
-                _execute_inner_loop.template operator()<TimeUnit::MONTH>();
-            } else if (TimeUnit::WEEK == UNIT) {
-                _execute_inner_loop.template operator()<TimeUnit::WEEK>();
-            } else if (TimeUnit::DAY == UNIT) {
-                _execute_inner_loop.template operator()<TimeUnit::DAY>();
-            } else if (TimeUnit::HOUR == UNIT) {
-                _execute_inner_loop.template operator()<TimeUnit::HOUR>();
-            } else if (TimeUnit::MINUTE == UNIT) {
-                _execute_inner_loop.template operator()<TimeUnit::MINUTE>();
-            } else if (TimeUnit::SECOND == UNIT) {
-                _execute_inner_loop.template operator()<TimeUnit::SECOND>();
-            }
-        };
-
         if (std::strncmp("year", lower_str.data(), 4) == 0) {
-            execute_impl(TimeUnit::YEAR);
+            _execute_inner_loop.template operator()<TimeUnit::YEAR>();
         } else if (std::strncmp("quarter", lower_str.data(), 7) == 0) {
-            execute_impl(TimeUnit::QUARTER);
+            _execute_inner_loop.template operator()<TimeUnit::QUARTER>();
         } else if (std::strncmp("month", lower_str.data(), 5) == 0) {
-            execute_impl(TimeUnit::MONTH);
+            _execute_inner_loop.template operator()<TimeUnit::MONTH>();
         } else if (std::strncmp("week", lower_str.data(), 4) == 0) {
-            execute_impl(TimeUnit::WEEK);
+            _execute_inner_loop.template operator()<TimeUnit::WEEK>();
         } else if (std::strncmp("day", lower_str.data(), 3) == 0) {
-            execute_impl(TimeUnit::DAY);
+            _execute_inner_loop.template operator()<TimeUnit::DAY>();
         } else if (std::strncmp("hour", lower_str.data(), 4) == 0) {
-            execute_impl(TimeUnit::HOUR);
+            _execute_inner_loop.template operator()<TimeUnit::HOUR>();
         } else if (std::strncmp("minute", lower_str.data(), 6) == 0) {
-            execute_impl(TimeUnit::MINUTE);
+            _execute_inner_loop.template operator()<TimeUnit::MINUTE>();
         } else if (std::strncmp("second", lower_str.data(), 6) == 0) {
-            execute_impl(TimeUnit::SECOND);
+            _execute_inner_loop.template operator()<TimeUnit::SECOND>();
         } else { //here maybe unreachable
             for (size_t i = 0; i < input_rows_count; ++i) {
                 null_map[i] = 1;
