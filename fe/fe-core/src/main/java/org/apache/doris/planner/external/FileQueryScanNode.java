@@ -286,6 +286,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
                 ExternalFileTableValuedFunction tableValuedFunction = (ExternalFileTableValuedFunction) table.getTvf();
                 params.setCompressType(tableValuedFunction.getTFileCompressType());
+                params.setMaxFilterRatio(tableValuedFunction.getMaxFilterRatio());
 
                 TScanRangeLocations curLocations = newLocations();
                 TFileRangeDesc rangeDesc = new TFileRangeDesc();

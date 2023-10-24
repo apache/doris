@@ -111,6 +111,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             .add(FileFormatConstants.PROP_CSV_SCHEMA)
             .add(FileFormatConstants.PROP_COMPRESS_TYPE)
             .add(FileFormatConstants.PROP_PATH_PARTITION_KEYS)
+            .add(FileFormatConstants.PROP_MAX_FILTER_RATIO)
             .build();
 
     // Columns got from file and path(if has)
@@ -141,6 +142,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private boolean trimDoubleQuotes;
     private int skipLines;
     private long tableId;
+    private double maxFilterRatio;
 
     public abstract TFileType getTFileType();
 
@@ -162,6 +164,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public List<String> getPathPartitionKeys() {
         return pathPartitionKeys;
+    }
+
+    public double getMaxFilterRatio() {
+        return maxFilterRatio;
     }
 
     protected void parseFile() throws AnalysisException {
@@ -247,6 +253,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_TRIM_DOUBLE_QUOTES, "")).booleanValue();
         skipLines = Integer.valueOf(
                 getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_SKIP_LINES, "0")).intValue();
+        maxFilterRatio = Double.valueOf(
+                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_MAX_FILTER_RATIO, "0.0")).doubleValue();
 
         String compressTypeStr = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_COMPRESS_TYPE, "UNKNOWN");
         try {

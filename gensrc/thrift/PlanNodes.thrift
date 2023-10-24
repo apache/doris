@@ -392,6 +392,7 @@ struct TFileScanRangeParams {
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
     21: optional Types.TUniqueId load_id
     22: optional TTextSerdeType  text_serde_type 
+    23: optional double max_filter_ratio
 }
 
 struct TFileRangeDesc {

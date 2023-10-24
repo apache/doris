@@ -322,6 +322,8 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
     ctx->table = ctx->put_result.params.table_name;
     ctx->txn_id = ctx->put_result.params.txn_conf.txn_id;
     ctx->label = ctx->put_result.params.import_label;
+    ctx->max_filter_ratio =
+            ctx->put_result.params.file_scan_params.begin()->second.max_filter_ratio;
     ctx->put_result.params.__set_wal_id(ctx->wal_id);
 
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
