@@ -128,7 +128,7 @@ public class TabletRepairAndBalanceTest {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
             tDisk1.setRootPath("/home/doris.HDD");
-            tDisk1.setDiskTotalCapacity(2000000000);
+            tDisk1.setDiskTotalCapacity(10L << 30);
             tDisk1.setDataUsedCapacity(1);
             tDisk1.setUsed(true);
             tDisk1.setDiskAvailableCapacity(tDisk1.disk_total_capacity - tDisk1.data_used_capacity);
@@ -138,7 +138,7 @@ public class TabletRepairAndBalanceTest {
 
             TDisk tDisk2 = new TDisk();
             tDisk2.setRootPath("/home/doris.SSD");
-            tDisk2.setDiskTotalCapacity(2000000000);
+            tDisk2.setDiskTotalCapacity(10L << 30);
             tDisk2.setDataUsedCapacity(1);
             tDisk2.setUsed(true);
             tDisk2.setDiskAvailableCapacity(tDisk2.disk_total_capacity - tDisk2.data_used_capacity);
