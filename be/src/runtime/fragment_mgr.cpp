@@ -1287,7 +1287,7 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
                                  butil::IOBufAsZeroCopyInputStream* attach_data) {
     bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
 
-    UniqueId fragment_instance_id = request->fragment_id();
+    UniqueId fragment_instance_id = request->fragment_instance_id();
     TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
 
     std::shared_ptr<PlanFragmentExecutor> fragment_executor;

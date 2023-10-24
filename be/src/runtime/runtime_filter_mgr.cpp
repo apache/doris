@@ -323,7 +323,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         RuntimeFilterWrapperHolder holder;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_state, &params, pool, holder.getHandle()));
         RETURN_IF_ERROR(cntVal->filter->merge_from(holder.getHandle()->get()));
-        cntVal->arrive_id.insert(UniqueId(request->fragment_id()));
+        cntVal->arrive_id.insert(UniqueId(request->fragment_instance_id()));
         merged_size = cntVal->arrive_id.size();
         // TODO: avoid log when we had acquired a lock
         VLOG_ROW << "merge size:" << merged_size << ":" << cntVal->producer_size;
@@ -442,10 +442,11 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 }
                 rpc_contexts[cur]->cid = rpc_contexts[cur]->cntl.call_id();
 
-                // set fragment-id
-                auto request_fragment_id = rpc_contexts[cur]->request.mutable_fragment_id();
-                request_fragment_id->set_hi(targets[cur].target_fragment_instance_id.hi);
-                request_fragment_id->set_lo(targets[cur].target_fragment_instance_id.lo);
+                // set fragment_instance_id
+                auto request_fragment_instance_id =
+                        rpc_contexts[cur]->request.mutable_fragment_instance_id();
+                request_fragment_instance_id->set_hi(targets[cur].target_fragment_instance_id.hi);
+                request_fragment_instance_id->set_lo(targets[cur].target_fragment_instance_id.lo);
 
                 std::shared_ptr<PBackendService_Stub> stub(
                         ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
