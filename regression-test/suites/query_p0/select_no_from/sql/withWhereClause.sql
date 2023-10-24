@@ -1,4 +1,3 @@
-/*
 -- database: presto; groups: no_from
-SELECT 1 WHERE TRUE AND 2=2
-*/
+SET enable_nereids_planner = TRUE;
+SELECT 1 WHERE TRUE AND 2=2;
