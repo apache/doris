@@ -178,7 +178,7 @@ s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
 
 // iceberg rest catalog config
-iceberg_rest_uri_port=8181
+iceberg_rest_uri_port=18181
 
 // If the failure suite num exceeds this config
 // all following suite will be skipped to fast quit the run.

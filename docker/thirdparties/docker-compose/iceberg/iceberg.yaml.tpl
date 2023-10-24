@@ -34,10 +34,6 @@ services:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
-    ports:
-      - ${NOTEBOOK_SERVER_PORT}:8888
-      - ${SPARK_DRIVER_UI_PORT}:8080
-      - ${SPARK_HISTORY_UI_PORT}:10000
     networks:
       - doris--iceberg
 
@@ -66,9 +62,6 @@ services:
       - MINIO_ROOT_USER=admin
       - MINIO_ROOT_PASSWORD=password
       - MINIO_DOMAIN=minio
-    ports:
-      - ${MINIO_UI_PORT}:9001
-      - ${MINIO_API_PORT}:9000
     networks:
       doris--iceberg:
         aliases:
