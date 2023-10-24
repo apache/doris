@@ -19,7 +19,6 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
-import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -41,7 +40,7 @@ import javax.servlet.http.HttpServletResponse;
 public class DebugPointAction extends RestBaseController {
 
     @RequestMapping(path = "/api/debug_point/add/{debugPoint}", method = RequestMethod.POST)
-    protected Object addDebugPoint(@PathVariable("debugPoint") String name,
+    protected Object addDebugPoint(@PathVariable("debugPoint") String debugPoint,
             @RequestParam(name = "execute", required = false, defaultValue = "") String execute,
             @RequestParam(name = "timeout", required = false, defaultValue = "") String timeout,
             HttpServletRequest request, HttpServletResponse response) {
@@ -51,38 +50,28 @@ public class DebugPointAction extends RestBaseController {
         }
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
-        if (Strings.isNullOrEmpty(name)) {
+        if (Strings.isNullOrEmpty(debugPoint)) {
             return ResponseEntityBuilder.badRequest("Empty debug point name.");
         }
-
-        DebugPoint debugPoint = new DebugPoint();
+        int executeLimit = -1;
         if (!Strings.isNullOrEmpty(execute)) {
             try {
-                debugPoint.executeLimit = Integer.valueOf(execute);
+                executeLimit = Integer.valueOf(execute);
             } catch (Exception e) {
                 return ResponseEntityBuilder.badRequest(
                         "Invalid execute format: " + execute + ", err " + e.getMessage());
             }
         }
+        long timeoutSeconds = -1;
         if (!Strings.isNullOrEmpty(timeout)) {
             try {
-                long timeoutSeconds = Long.valueOf(timeout);
-                if (timeoutSeconds > 0) {
-                    debugPoint.expireTime = System.currentTimeMillis() + timeoutSeconds * 1000;
-                }
+                timeoutSeconds = Long.valueOf(timeout);
             } catch (Exception e) {
                 return ResponseEntityBuilder.badRequest(
                         "Invalid timeout format: " + timeout + ", err " + e.getMessage());
             }
         }
-        request.getParameterMap().forEach((key, values) -> {
-            if (values != null && values.length > 0) {
-                debugPoint.params.put(key, values[0]);
-            }
-        });
-
-        DebugPointUtil.addDebugPoint(name, debugPoint);
-
+        DebugPointUtil.addDebugPoint(debugPoint, executeLimit, timeoutSeconds);
         return ResponseEntityBuilder.ok();
     }
 
