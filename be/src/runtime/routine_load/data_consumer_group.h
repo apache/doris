@@ -60,6 +60,10 @@ public:
         ++_counter;
     }
 
+    int64_t get_consumer_rows() { return _rows; }
+
+    void set_consumer_rows(int64_t rows) { _rows = rows; }
+
     // start all consumers
     virtual Status start_all(std::shared_ptr<StreamLoadContext> ctx,
                              std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe) {
@@ -77,6 +81,8 @@ protected:
     // when the counter becomes zero, shutdown the queue to finish
     std::mutex _mutex;
     int _counter;
+    // received total rows
+    int64_t _rows;
 };
 
 // for kafka
