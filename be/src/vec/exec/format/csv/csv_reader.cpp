@@ -36,7 +36,6 @@
 #include "common/status.h"
 #include "exec/decompressor.h"
 #include "exec/line_reader.h"
-#include "exec/text_converter.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/buffered_reader.h"

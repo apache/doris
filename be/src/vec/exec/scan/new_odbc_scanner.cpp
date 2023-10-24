@@ -89,12 +89,14 @@ Status NewOdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& con
         return Status::InternalError("new a odbc scanner failed.");
     }
 
-    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
+    _text_serdes = create_data_type_serdes(_tuple_desc->slots());
 
-    if (_text_converter == nullptr) {
-        return Status::InternalError("new a text convertor failed.");
+    for (int i = 0; i < _tuple_desc->slots().size(); ++i) {
+        auto& slot_desc = _tuple_desc->slots()[i];
+        if (slot_desc->is_materialized() && _text_serdes[i].get() == nullptr) {
+            return Status::InternalError("new a {} serde failed.", slot_desc->type().type);
+        }
     }
-
     _is_init = true;
 
     return Status::OK();
@@ -199,8 +201,10 @@ Status NewOdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
                             "table={}, column={}, buffer_length",
                             _table_name, slot_desc->col_name(), column_data.buffer_length);
                 } else {
-                    if (!_text_converter->write_column(slot_desc, &columns[column_index],
-                                                       value_data, value_len, true, false)) {
+                    Slice slice(value_data, value_len);
+                    if (_text_serdes[column_index]->deserialize_one_cell_from_json(
+                                *columns[column_index].get(), slice, _text_formatOptions) !=
+                        Status::OK()) {
                         std::stringstream ss;
                         ss << "Fail to convert odbc value:'" << value_data << "' to "
                            << slot_desc->type() << " on column:`" << slot_desc->col_name() + "`";

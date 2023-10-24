@@ -446,14 +446,29 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
 }
 
 Status VFileScanner::_fill_columns_from_path(size_t rows) {
+    DataTypeSerDe::FormatOptions _text_formatOptions;
     for (auto& kv : *_partition_columns) {
         auto doris_column = _src_block_ptr->get_by_name(kv.first).column;
         IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
         auto& [value, slot_desc] = kv.second;
-        if (!_text_converter->write_vec_column(slot_desc, col_ptr, const_cast<char*>(value.c_str()),
-                                               value.size(), true, false, rows)) {
+        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
+        Slice slice(value.data(), value.size());
+        vector<Slice> slices(rows);
+        for (int i = 0; i < rows; i++) {
+            slices[i] = {value.data(), value.size()};
+        }
+        int num_deserialized = 0;
+        if (_text_serde->deserialize_column_from_json_vector(*col_ptr, slices, &num_deserialized,
+                                                             _text_formatOptions) != Status::OK()) {
             return Status::InternalError("Failed to fill partition column: {}={}",
                                          slot_desc->col_name(), value);
+        }
+        if (num_deserialized != rows) {
+            return Status::InternalError(
+                    "Failed to fill partition column: {}={} ."
+                    "Number of rows expected to be written : {}, number of rows actually written : "
+                    "{}",
+                    slot_desc->col_name(), value, num_deserialized, rows);
         }
     }
     return Status::OK();
@@ -920,7 +935,7 @@ Status VFileScanner::_generate_fill_columns() {
                 const char* data = column_from_path.c_str();
                 size_t size = column_from_path.size();
                 if (size == 4 && memcmp(data, "null", 4) == 0) {
-                    data = TextConverter::NULL_STR;
+                    data = const_cast<char*>("\\N");
                 }
                 _partition_columns->emplace(slot_desc->col_name(),
                                             std::make_tuple(data, slot_desc));
