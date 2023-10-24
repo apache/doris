@@ -475,6 +475,7 @@ public class MaterializedViewHandler extends AlterHandler {
         // 2. all slot's isKey same with mv column
         // c. Duplicate table:
         // 1. Columns resolved by semantics are legal
+        // 2. Key column not allow float/double type.
 
         // update mv columns
         List<MVColumnItem> mvColumnItemList = addMVClause.getMVColumnItemList();
@@ -552,6 +553,13 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
 
                 newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
+            }
+        }
+
+        for (Column column : newMVColumns) {
+            // check c.2
+            if (column.isKey() && column.getType().isFloatingPointType()) {
+                throw new DdlException("Do not support float/double type on key column, you can change it to decimal");
             }
         }
 
@@ -648,7 +656,7 @@ public class MaterializedViewHandler extends AlterHandler {
         for (Column column : olapTable.getSchemaByIndexId(baseIndexId, true)) {
             baseColumnNameToColumn.put(column.getName(), column);
         }
-        LOG.debug("baseSchema:{}", olapTable.getSchemaByIndexId(baseIndexId, true));
+
         if (keysType.isAggregationFamily()) {
             int keysNumOfRollup = 0;
             for (String columnName : rollupColumnNames) {
@@ -660,6 +668,10 @@ public class MaterializedViewHandler extends AlterHandler {
                     throw new DdlException("Invalid column order. value should be after key");
                 }
                 if (baseColumn.isKey()) {
+                    if (baseColumn.getType().isFloatingPointType()) {
+                        throw new DdlException(
+                                "Do not support float/double type on group by, you can change it to decimal");
+                    }
                     keysNumOfRollup += 1;
                     hasKey = true;
                 } else {
@@ -739,21 +751,20 @@ public class MaterializedViewHandler extends AlterHandler {
                     keySizeByte += column.getType().getIndexSize();
                     if (theBeginIndexOfValue + 1 > FeConstants.shortkey_max_column_count
                             || keySizeByte > FeConstants.shortkey_maxsize_bytes) {
-                        if (theBeginIndexOfValue == 0 && column.getType().getPrimitiveType().isCharFamily()) {
-                            column.setIsKey(true);
-                            theBeginIndexOfValue++;
+                        if (theBeginIndexOfValue != 0 || !column.getType().getPrimitiveType().isCharFamily()) {
+                            break;
                         }
-                        break;
                     }
                     if (column.getType().isFloatingPointType()) {
                         break;
                     }
+
+                    column.setIsKey(true);
+
                     if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
-                        column.setIsKey(true);
                         theBeginIndexOfValue++;
                         break;
                     }
-                    column.setIsKey(true);
                 }
                 if (theBeginIndexOfValue == 0) {
                     throw new DdlException("The first column could not be float or double");
