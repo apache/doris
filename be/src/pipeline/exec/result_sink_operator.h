@@ -109,6 +109,7 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+
 private:
     friend class ResultSinkLocalState;
 

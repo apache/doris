@@ -238,10 +238,7 @@ public:
     [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
     [[nodiscard]] RowDescriptor& row_descriptor() { return _row_descriptor; }
 
-    [[nodiscard]] int id() const override {
-        LOG_FATAL("pipelineX should use operator_id or node_id");
-        return -1;
-    }
+    [[nodiscard]] int id() const override { return node_id(); }
     [[nodiscard]] int operator_id() const { return _operator_id; }
     [[nodiscard]] int node_id() const { return _node_id; }
 
@@ -491,10 +488,7 @@ public:
         return nullptr;
     }
 
-    [[nodiscard]] int id() const override {
-        LOG_FATAL("error");
-        return -1;
-    }
+    [[nodiscard]] int id() const override { return node_id(); }
 
     [[nodiscard]] int operator_id() const { return _operator_id; }
 
@@ -513,9 +507,9 @@ public:
 protected:
     template <typename Writer, typename Parent>
     friend class AsyncWriterSink;
-    // _id : the current Operator's ID, which is not visible to the user.
+    // _operator_id : the current Operator's ID, which is not visible to the user.
     // _node_id : the plan node ID corresponding to the Operator, which is visible on the profile.
-    // _dests_id : the target ID of the sink, for example, in the case of a multi-sink, there are multiple targets.
+    // _dests_id : the target _operator_id of the sink, for example, in the case of a multi-sink, there are multiple targets.
     const int _operator_id;
     const int _node_id;
     std::vector<int> _dests_id;

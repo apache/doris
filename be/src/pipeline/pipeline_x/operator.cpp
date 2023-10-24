@@ -16,6 +16,7 @@
 // under the License.
 
 #include "operator.h"
+
 #include <glog/logging.h>
 
 #include <memory>
