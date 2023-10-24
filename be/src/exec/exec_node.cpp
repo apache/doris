@@ -129,8 +129,13 @@ Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
     _span = state->get_tracer()->StartSpan(get_name());
     OpentelemetryScope scope {_span};
+
+    _exec_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "ExecTime", 1);
     _rows_returned_counter =
             ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsReturned", TUnit::UNIT, 1);
+    _output_bytes_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "OutputBytes", TUnit::BYTES, 1);
+    _block_count_counter = ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlockCount", TUnit::UNIT, 1);
     _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
             ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
@@ -526,6 +531,7 @@ std::string ExecNode::get_name() {
 }
 
 Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_projection_timer);
     using namespace vectorized;
     MutableBlock mutable_block =
@@ -559,6 +565,12 @@ Status ExecNode::get_next_after_projects(
         RuntimeState* state, vectorized::Block* block, bool* eos,
         const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& func,
         bool clear_data) {
+    Defer defer([block, this]() {
+        if (block && !block->empty()) {
+            COUNTER_UPDATE(_output_bytes_counter, block->allocated_bytes());
+            COUNTER_UPDATE(_block_count_counter, 1);
+        }
+    });
     if (_output_row_descriptor) {
         if (clear_data) {
             clear_origin_block();

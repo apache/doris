@@ -40,9 +40,13 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 
-namespace doris {
+namespace doris::vectorized {
+class DataTypeDateTime;
+class DataTypeDateV2;
+class DataTypeDateTimeV2;
+} // namespace doris::vectorized
 
-namespace vectorized {
+namespace doris {
 
 enum TimeUnit {
     MICROSECOND,
@@ -254,7 +258,7 @@ public:
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use different creator to get data from value.
     // We should use create_from_olap_xxx only at binary data scanned from storage engine and convert to typed data.
-    // At other case, we just use binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>.
+    // At other case, we just use binary_cast<Int64, VecDateTimeValue>.
 
     // olap storage layer date data format:
     // 64 bits binary data [year(remaining bits), month(4 bits), day(5 bits)]
@@ -447,7 +451,7 @@ public:
     void to_datetime() { _type = TIME_DATETIME; }
 
     // Weekday, from 0(Mon) to 6(Sun)
-    uint8_t weekday() const { return doris::calc_weekday(daynr(), false); }
+    uint8_t weekday() const { return calc_weekday(daynr(), false); }
     auto day_of_week() const { return (weekday() + 1) % 7 + 1; }
 
     // The bits in week_format has the following meaning:
@@ -603,7 +607,7 @@ public:
                           ((uint64_t)minute() << 26) | ((uint64_t)second() << 20));
     }
 
-    uint32_t hash(int seed) const { return ::doris::HashUtil::hash(this, sizeof(*this), seed); }
+    uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
 
     int day_of_year() const { return daynr() - calc_daynr(_year, 1, 1) + 1; }
 
@@ -904,7 +908,7 @@ public:
     uint8_t day() const { return date_v2_value_.day_; }
 
     // Weekday, from 0(Mon) to 6(Sun)
-    uint8_t weekday() const { return doris::calc_weekday(daynr(), false); }
+    uint8_t weekday() const { return calc_weekday(daynr(), false); }
     auto day_of_week() const { return (weekday() + 1) % 7 + 1; }
 
     // The bits in week_format has the following meaning:
@@ -1070,7 +1074,7 @@ public:
 
     DateV2Value<T>& operator--() { return *this += -1; }
 
-    uint32_t hash(int seed) const { return ::doris::HashUtil::hash(this, sizeof(*this), seed); }
+    uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
 
     int day_of_year() const { return daynr() - calc_daynr(this->year(), 1, 1) + 1; }
 
@@ -1512,10 +1516,9 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const DateV2Value<T>& t
     return 0;
 }
 
-class DataTypeDateTime;
-class DataTypeDateV2;
-class DataTypeDateTimeV2;
-
+/**
+ * Date dict table. date range is [1900-01-01, 2039-12-31].
+ */
 class date_day_offset_dict {
 private:
     static date_day_offset_dict instance;
@@ -1526,15 +1529,16 @@ private:
     date_day_offset_dict& operator=(const date_day_offset_dict&) = default;
 
 public:
-    static constexpr int DAY_BEFORE_EPOCH = 25566; // 1900-01-01
-    static constexpr int DAY_AFTER_EPOCH = 25500;  // 2039-10-24
-    static constexpr int DICT_DAYS = DAY_BEFORE_EPOCH + DAY_AFTER_EPOCH;
+    static constexpr int DAY_BEFORE_EPOCH = 25567;                           // 1900-01-01
+    static constexpr int DAY_AFTER_EPOCH = 25566;                            // 2039-12-31
+    static constexpr int DICT_DAYS = DAY_BEFORE_EPOCH + 1 + DAY_AFTER_EPOCH; // 1 means 1970-01-01
 
-    static constexpr int START_YEAR = 1900;                         // 1900-01-01
-    static constexpr int END_YEAR = 2039;                           // 2039-10-24
-    static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR = 719527; // 1969-12-31
+    static constexpr int START_YEAR = 1900; // 1900-01-01
+    static constexpr int END_YEAR = 2039;   // 2039-10-24
+    static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR =
+            719528; // 1970-01-01 (start from 0000-01-01, 0000-01-01 is day 1, returns 1)
 
-    static bool can_speed_up_calc_daynr(int year) { return year >= START_YEAR && year < END_YEAR; }
+    static bool can_speed_up_calc_daynr(int year) { return year >= START_YEAR && year <= END_YEAR; }
 
     static int get_offset_by_daynr(int daynr) { return daynr - DAY_OFFSET_CAL_START_POINT_DAYNR; }
 
@@ -1558,44 +1562,38 @@ struct DateTraits {};
 template <>
 struct DateTraits<int64_t> {
     using T = VecDateTimeValue;
-    using DateType = DataTypeDateTime;
+    using DateType = vectorized::DataTypeDateTime;
 };
 
 template <>
 struct DateTraits<uint32_t> {
     using T = DateV2Value<DateV2ValueType>;
-    using DateType = DataTypeDateV2;
+    using DateType = vectorized::DataTypeDateV2;
 };
 
 template <>
 struct DateTraits<uint64_t> {
     using T = DateV2Value<DateTimeV2ValueType>;
-    using DateType = DataTypeDateTimeV2;
+    using DateType = vectorized::DataTypeDateTimeV2;
 };
 
-} // namespace vectorized
 } // namespace doris
 
 template <>
-struct std::hash<::doris::vectorized::VecDateTimeValue> {
-    size_t operator()(const ::doris::vectorized::VecDateTimeValue& v) const {
-        return ::doris::vectorized::hash_value(v);
+struct std::hash<doris::VecDateTimeValue> {
+    size_t operator()(const doris::VecDateTimeValue& v) const { return doris::hash_value(v); }
+};
+
+template <>
+struct std::hash<doris::DateV2Value<doris::DateV2ValueType>> {
+    size_t operator()(const doris::DateV2Value<doris::DateV2ValueType>& v) const {
+        return doris::hash_value(v);
     }
 };
 
 template <>
-struct std::hash<::doris::vectorized::DateV2Value<::doris::vectorized::DateV2ValueType>> {
-    size_t operator()(
-            const ::doris::vectorized::DateV2Value<::doris::vectorized::DateV2ValueType>& v) const {
-        return ::doris::vectorized::hash_value(v);
-    }
-};
-
-template <>
-struct std::hash<::doris::vectorized::DateV2Value<::doris::vectorized::DateTimeV2ValueType>> {
-    size_t operator()(
-            const ::doris::vectorized::DateV2Value<::doris::vectorized::DateTimeV2ValueType>& v)
-            const {
-        return ::doris::vectorized::hash_value(v);
+struct std::hash<doris::DateV2Value<doris::DateTimeV2ValueType>> {
+    size_t operator()(const doris::DateV2Value<doris::DateTimeV2ValueType>& v) const {
+        return doris::hash_value(v);
     }
 };

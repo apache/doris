@@ -15,36 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.planner;
 
-namespace doris {
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.thrift.TDataSinkType;
 
-enum TimeUnit {
-    MICROSECOND,
-    SECOND,
-    MINUTE,
-    HOUR,
-    DAY,
-    WEEK,
-    MONTH,
-    QUARTER,
-    YEAR,
-    SECOND_MICROSECOND,
-    MINUTE_MICROSECOND,
-    MINUTE_SECOND,
-    HOUR_MICROSECOND,
-    HOUR_SECOND,
-    HOUR_MINUTE,
-    DAY_MICROSECOND,
-    DAY_SECOND,
-    DAY_MINUTE,
-    DAY_HOUR,
-    YEAR_MONTH
-};
+import java.util.List;
 
-enum TimeType { TIME_TIME = 1, TIME_DATE = 2, TIME_DATETIME = 3 };
+public class GroupCommitBlockSink extends OlapTableSink {
 
-// 9999-99-99 99:99:99.999999; 26 + 1('\0')
-const int MAX_DTVALUE_STR_LEN = 27;
+    public GroupCommitBlockSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds,
+            boolean singleReplicaLoad) {
+        super(dstTable, tupleDescriptor, partitionIds, singleReplicaLoad);
+    }
 
-} // namespace doris
+    protected TDataSinkType getDataSinkType() {
+        return TDataSinkType.GROUP_COMMIT_BLOCK_SINK;
+    }
+}

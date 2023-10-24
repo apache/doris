@@ -53,8 +53,7 @@ Status DataTypeDate64SerDe::serialize_one_cell_to_json(const IColumn& column, in
         std::string s = std::string(buf);
         bw.write(s.c_str(), s.length());
     } else {
-        doris::vectorized::VecDateTimeValue value =
-                binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
+        doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
         char buf[64];
         char* pos = value.to_string(buf);
@@ -122,8 +121,7 @@ Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, 
         std::string s = std::string(buf);
         bw.write(s.c_str(), s.length());
     } else {
-        doris::vectorized::VecDateTimeValue value =
-                binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
+        doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
         char buf[64];
         char* pos = value.to_string(buf);
@@ -173,8 +171,7 @@ void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const Nul
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
-        const vectorized::VecDateTimeValue* time_val =
-                (const vectorized::VecDateTimeValue*)(&col_data[i]);
+        const VecDateTimeValue* time_val = (const VecDateTimeValue*)(&col_data[i]);
         int len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),

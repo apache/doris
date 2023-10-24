@@ -38,9 +38,8 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
-namespace doris {
 
-namespace vectorized {
+namespace doris::vectorized {
 
 class JavaUdfPreparedFunction : public PreparedFunctionImpl {
 public:
@@ -114,26 +113,18 @@ private:
     const DataTypes _argument_types;
     const DataTypePtr _return_type;
 
-    struct JniEnv {
-        /// Global class reference to the UdfExecutor Java class and related method IDs. Set in
-        /// Init(). These have the lifetime of the process (i.e. 'executor_cl_' is never freed).
-        jclass executor_cl;
-        jmethodID executor_ctor_id;
-        jmethodID executor_evaluate_id;
-        jmethodID executor_close_id;
-    };
-
     struct JniContext {
         // Do not save parent directly, because parent is in VExpr, but jni context is in FunctionContext
         // The deconstruct sequence is not determined, it will core.
         // JniContext's lifecycle should same with function context, not related with expr
-        jclass executor_cl_;
-        jmethodID executor_close_id_;
+        jclass executor_cl;
+        jmethodID executor_ctor_id;
+        jmethodID executor_evaluate_id;
+        jmethodID executor_close_id;
         jobject executor = nullptr;
         bool is_closed = false;
 
-        JniContext(int64_t num_args, jclass executor_cl, jmethodID executor_close_id)
-                : executor_cl_(executor_cl), executor_close_id_(executor_close_id) {}
+        JniContext() = default;
 
         void close() {
             if (is_closed) {
@@ -146,14 +137,16 @@ private:
                 LOG(WARNING) << "errors while get jni env " << status;
                 return;
             }
-            env->CallNonvirtualVoidMethodA(executor, executor_cl_, executor_close_id_, NULL);
-            Status s = JniUtil::GetJniExceptionMsg(env);
-            if (!s.ok()) LOG(WARNING) << s;
+            env->CallNonvirtualVoidMethodA(executor, executor_cl, executor_close_id, nullptr);
             env->DeleteGlobalRef(executor);
+            env->DeleteGlobalRef(executor_cl);
+            Status s = JniUtil::GetJniExceptionMsg(env);
+            if (!s.ok()) {
+                LOG(WARNING) << s;
+            }
             is_closed = true;
         }
     };
 };
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
