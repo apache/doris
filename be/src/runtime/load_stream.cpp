@@ -369,7 +369,7 @@ Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data)
         std::unique_lock<bthread::Mutex> lock(mutex);
         bthread::ConditionVariable cond;
         bool ret = _load_stream_mgr->heavy_work_pool()->try_offer(
-                [&index_stream, &header, &data, &mutex, &cond, &st] {
+                [this, &index_stream, &header, &data, &mutex, &cond, &st] {
                     signal::set_signal_task_id(_load_id);
                     st = index_stream->append_data(header, data);
                     std::unique_lock<bthread::Mutex> lock(mutex);
