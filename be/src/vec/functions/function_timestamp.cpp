@@ -412,36 +412,19 @@ struct DateTrunc {
 
         auto datetime_column = static_cast<const ColumnType*>(argument_columns[0].get());
         auto str_column = static_cast<const ColumnString*>(argument_columns[1].get());
-        auto& rdata = str_column->get_chars();
-        auto& roffsets = str_column->get_offsets();
 
         ColumnPtr res = ColumnType::create();
-        if (col_const[1]) {
-            execute_impl_right_const(
-                    datetime_column->get_data(), str_column->get_data_at(0),
-                    static_cast<ColumnType*>(res->assume_mutable().get())->get_data(),
-                    null_map->get_data(), input_rows_count);
-        } else {
-            execute_impl(datetime_column->get_data(), rdata, roffsets,
-                         static_cast<ColumnType*>(res->assume_mutable().get())->get_data(),
-                         null_map->get_data(), input_rows_count);
-        }
+        DCHECK(col_const[1])
+                << "the argument[1] must be const string literal, have check function in FE.";
+        execute_impl_right_const(datetime_column->get_data(), str_column->get_data_at(0),
+                                 static_cast<ColumnType*>(res->assume_mutable().get())->get_data(),
+                                 null_map->get_data(), input_rows_count);
 
         block.get_by_position(result).column = ColumnNullable::create(res, std::move(null_map));
         return Status::OK();
     }
 
 private:
-    static void execute_impl(const PaddedPODArray<ArgType>& ldata, const ColumnString::Chars& rdata,
-                             const ColumnString::Offsets& roffsets, PaddedPODArray<ArgType>& res,
-                             NullMap& null_map, size_t input_rows_count) {
-        res.resize(input_rows_count);
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            auto dt = binary_cast<ArgType, DateValueType>(ldata[i]);
-            const char* str_data = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-            _execute_inner_loop(dt, str_data, res, null_map, i);
-        }
-    }
     static void execute_impl_right_const(const PaddedPODArray<ArgType>& ldata,
                                          const StringRef& rdata, PaddedPODArray<ArgType>& res,
                                          NullMap& null_map, size_t input_rows_count) {
@@ -449,34 +432,58 @@ private:
         std::string lower_str(rdata.data, rdata.size);
         std::transform(lower_str.begin(), lower_str.end(), lower_str.begin(),
                        [](unsigned char c) { return std::tolower(c); });
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            auto dt = binary_cast<ArgType, DateValueType>(ldata[i]);
-            _execute_inner_loop(dt, lower_str.data(), res, null_map, i);
+
+        auto _execute_inner_loop = [&]<TimeUnit Unit>() {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto dt = binary_cast<ArgType, DateValueType>(ldata[i]);
+                null_map[i] = !dt.template datetime_trunc<Unit>();
+                res[i] = binary_cast<DateValueType, ArgType>(dt);
+            }
+        };
+
+        auto execute_impl = [&](const TimeUnit& UNIT) {
+            if (TimeUnit::YEAR == UNIT) {
+                _execute_inner_loop.template operator()<TimeUnit::YEAR>();
+            } else if (TimeUnit::QUARTER == UNIT) {
+                _execute_inner_loop.template operator()<TimeUnit::QUARTER>();
+            } else if (TimeUnit::MONTH == UNIT) {
+                _execute_inner_loop.template operator()<TimeUnit::MONTH>();
+            } else if (TimeUnit::WEEK == UNIT) {
+                _execute_inner_loop.template operator()<TimeUnit::WEEK>();
+            } else if (TimeUnit::DAY == UNIT) {
+                _execute_inner_loop.template operator()<TimeUnit::DAY>();
+            } else if (TimeUnit::HOUR == UNIT) {
+                _execute_inner_loop.template operator()<TimeUnit::HOUR>();
+            } else if (TimeUnit::MINUTE == UNIT) {
+                _execute_inner_loop.template operator()<TimeUnit::MINUTE>();
+            } else if (TimeUnit::SECOND == UNIT) {
+                _execute_inner_loop.template operator()<TimeUnit::SECOND>();
+            }
+        };
+
+        if (std::strncmp("year", lower_str.data(), 4) == 0) {
+            execute_impl(TimeUnit::YEAR);
+        } else if (std::strncmp("quarter", lower_str.data(), 7) == 0) {
+            execute_impl(TimeUnit::QUARTER);
+        } else if (std::strncmp("month", lower_str.data(), 5) == 0) {
+            execute_impl(TimeUnit::MONTH);
+        } else if (std::strncmp("week", lower_str.data(), 4) == 0) {
+            execute_impl(TimeUnit::WEEK);
+        } else if (std::strncmp("day", lower_str.data(), 3) == 0) {
+            execute_impl(TimeUnit::DAY);
+        } else if (std::strncmp("hour", lower_str.data(), 4) == 0) {
+            execute_impl(TimeUnit::HOUR);
+        } else if (std::strncmp("minute", lower_str.data(), 6) == 0) {
+            execute_impl(TimeUnit::MINUTE);
+        } else if (std::strncmp("second", lower_str.data(), 6) == 0) {
+            execute_impl(TimeUnit::SECOND);
+        } else { //here maybe unreachable
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                null_map[i] = 1;
+                auto dt = binary_cast<ArgType, DateValueType>(ldata[i]);
+                res[i] = binary_cast<DateValueType, ArgType>(dt);
+            }
         }
-    }
-    template <typename T>
-    static void _execute_inner_loop(T& dt, const char* str_data, PaddedPODArray<ArgType>& res,
-                                    NullMap& null_map, size_t index) {
-        if (std::strncmp("year", str_data, 4) == 0) {
-            null_map[index] = !dt.template datetime_trunc<YEAR>();
-        } else if (std::strncmp("quarter", str_data, 7) == 0) {
-            null_map[index] = !dt.template datetime_trunc<QUARTER>();
-        } else if (std::strncmp("month", str_data, 5) == 0) {
-            null_map[index] = !dt.template datetime_trunc<MONTH>();
-        } else if (std::strncmp("week", str_data, 4) == 0) {
-            null_map[index] = !dt.template datetime_trunc<WEEK>();
-        } else if (std::strncmp("day", str_data, 3) == 0) {
-            null_map[index] = !dt.template datetime_trunc<DAY>();
-        } else if (std::strncmp("hour", str_data, 4) == 0) {
-            null_map[index] = !dt.template datetime_trunc<HOUR>();
-        } else if (std::strncmp("minute", str_data, 6) == 0) {
-            null_map[index] = !dt.template datetime_trunc<MINUTE>();
-        } else if (std::strncmp("second", str_data, 6) == 0) {
-            null_map[index] = !dt.template datetime_trunc<SECOND>();
-        } else {
-            null_map[index] = 1;
-        }
-        res[index] = binary_cast<DateValueType, ArgType>(dt);
     }
 };
 
