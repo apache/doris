@@ -133,7 +133,7 @@ public:
 
 private:
     bool _has_data(RuntimeState* state) {
-        auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
+        auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
         if (_child_size == 0) {
             return local_state._need_read_for_const_expr;
         }
