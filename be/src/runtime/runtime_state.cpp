@@ -313,6 +313,7 @@ Status RuntimeState::query_status() {
 }
 
 bool RuntimeState::is_cancelled() const {
+    // Maybe we should just return _is_cancelled.load()
     return _is_cancelled.load() || (_query_ctx && _query_ctx->is_cancelled());
 }
 

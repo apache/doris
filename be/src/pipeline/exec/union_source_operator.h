@@ -133,10 +133,10 @@ public:
 
 private:
     bool _has_data(RuntimeState* state) {
+        auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
         if (_child_size == 0) {
-            return false;
+            return local_state._need_read_for_const_expr;
         }
-        auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
         return local_state._shared_state->data_queue.remaining_has_data();
     }
     bool has_more_const(RuntimeState* state) const {
