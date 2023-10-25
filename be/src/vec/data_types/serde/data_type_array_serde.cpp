@@ -290,7 +290,7 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
             }
         }
         if (data.is_null_at(j)) {
-            if (0 != result.push_string("NULL", strlen("NULL"))) {
+            if (0 != result.push_string("null", strlen("null"))) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {

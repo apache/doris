@@ -126,8 +126,20 @@ Status DataTypeDateV2SerDe::_write_column_to_mysql(const IColumn& column,
     auto col_index = index_check_const(row_idx, col_const);
     DateV2Value<DateV2ValueType> date_val =
             binary_cast<UInt32, DateV2Value<DateV2ValueType>>(data[col_index]);
+    // _nesting_level >= 2 means this datetimev2 is in complex type
+    // and we should add double quotes
+    if (_nesting_level >= 2) {
+        if (UNLIKELY(0 != result.push_string("\"", 1))) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+    }
     if (UNLIKELY(0 != result.push_vec_datetime(date_val))) {
         return Status::InternalError("pack mysql buffer failed.");
+    }
+    if (_nesting_level >= 2) {
+        if (UNLIKELY(0 != result.push_string("\"", 1))) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
     }
     return Status::OK();
 }

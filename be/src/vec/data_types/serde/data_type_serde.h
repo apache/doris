@@ -254,8 +254,6 @@ public:
                                          int row_idx, bool col_const) const = 0;
     // Thrift serializer and deserializer
 
-    // CSV serializer and deserializer
-
     // JSON serializer and deserializer
 
     // Arrow serializer and deserializer

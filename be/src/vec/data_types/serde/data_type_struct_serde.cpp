@@ -330,8 +330,13 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
             }
         }
 
+        std::string col_name = "\"" + elemNames[j] + "\": ";
+        if (0 != result.push_string(col_name.c_str(), col_name.length())) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+
         if (col.get_column_ptr(j)->is_null_at(col_index)) {
-            if (0 != result.push_string("NULL", strlen("NULL"))) {
+            if (0 != result.push_string("null", strlen("null"))) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
