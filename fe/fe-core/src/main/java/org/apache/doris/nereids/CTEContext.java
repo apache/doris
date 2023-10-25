@@ -60,19 +60,13 @@ public class CTEContext {
                 : ImmutableMap.<String, CTEContext>builder()
                         .putAll(previousCteContext.cteContextMap)
                         .put(name, this)
-                        .build();
+                        // if inner name same with outer name, use inner name in this scope.
+                        .buildKeepingLast();
         this.cteId = cteId;
     }
 
     public void setAnalyzedPlan(LogicalPlan analyzedPlan) {
         this.analyzedPlan = analyzedPlan;
-    }
-
-    /**
-     * check if cteName can be found in current order
-     */
-    public boolean containsCTE(String cteName) {
-        return findCTEContext(cteName).isPresent();
     }
 
     /**
