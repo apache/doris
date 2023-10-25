@@ -21,6 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.scheduler.constants.TaskType;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -32,7 +33,7 @@ import java.io.IOException;
 import java.util.List;
 
 @Data
-public class JobTask implements Writable {
+public class JobTask<T> implements Writable {
 
     @SerializedName("jobId")
     private Long jobId;
@@ -54,6 +55,18 @@ public class JobTask implements Writable {
     @SerializedName("errorMsg")
     private String errorMsg;
 
+    @SerializedName("taskType")
+    private TaskType taskType = TaskType.SCHEDULER_JOB_TASK;
+
+    /**
+     * Some parameters specific to the current task that need to be used to execute the task
+     * eg: sql task, sql it's: select * from table where id = 1 order by id desc limit ${limit} offset ${offset}
+     * contextData is a map, key1 is limit, value is 10,key2 is offset, value is 1
+     * when execute the task, we will replace the ${limit} to 10, ${offset} to 1
+     * so to execute sql is: select * from table where id = 1 order by id desc limit 10 offset 1.
+     */
+    private T contextData;
+
     public JobTask(Long jobId, Long taskId, Long createTimeMs) {
         //it's enough to use nanoTime to identify a task
         this.taskId = taskId;
@@ -61,10 +74,16 @@ public class JobTask implements Writable {
         this.createTimeMs = createTimeMs;
     }
 
-    public List<String> getShowInfo() {
+    public JobTask(Long jobId, Long taskId, Long createTimeMs, T contextData) {
+        this(jobId, taskId, createTimeMs);
+        this.contextData = contextData;
+    }
+
+    public List<String> getShowInfo(String jobName) {
         List<String> row = Lists.newArrayList();
-        row.add(String.valueOf(jobId));
         row.add(String.valueOf(taskId));
+        row.add(String.valueOf(jobId));
+        row.add(jobName);
         if (null != createTimeMs) {
             row.add(TimeUtils.longToTimeString(createTimeMs));
         }
@@ -90,6 +109,7 @@ public class JobTask implements Writable {
         } else {
             row.add(errorMsg);
         }
+        row.add(taskType.name());
         return row;
     }
 

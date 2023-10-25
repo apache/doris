@@ -80,6 +80,9 @@ public class Job implements Writable {
     @SerializedName("jobStatus")
     private JobStatus jobStatus;
 
+    @SerializedName("jobType")
+    private JobType jobType = JobType.RECURRING;
+
     /**
      * The executor of the job.
      *
@@ -92,12 +95,6 @@ public class Job implements Writable {
 
     @SerializedName("user")
     private String user;
-
-    @SerializedName("isCycleJob")
-    private boolean isCycleJob = false;
-
-    @SerializedName("isStreamingJob")
-    private boolean isStreamingJob = false;
 
     @SerializedName("intervalMs")
     private Long intervalMs = 0L;
@@ -128,6 +125,8 @@ public class Job implements Writable {
 
     @SerializedName("createTimeMs")
     private Long createTimeMs = System.currentTimeMillis();
+
+    private Boolean lastExecuteTaskStatus;
 
     @SerializedName("comment")
     private String comment;
@@ -206,6 +205,18 @@ public class Job implements Writable {
     }
 
     public void checkJobParam() throws DdlException {
+        if (null == jobCategory) {
+            throw new DdlException("jobCategory must be set");
+        }
+        if (null == executor) {
+            throw new DdlException("Job executor must be set");
+        }
+        if (null == jobType) {
+            throw new DdlException("Job type must be set");
+        }
+        if (jobType.equals(JobType.MANUAL)) {
+            return;
+        }
         if (startTimeMs != 0L && startTimeMs < System.currentTimeMillis()) {
             throw new DdlException("startTimeMs must be greater than current time");
         }
@@ -221,15 +232,10 @@ public class Job implements Writable {
         if (null != intervalUnit && null != originInterval) {
             this.intervalMs = intervalUnit.getParameterValue(originInterval);
         }
-        if (isCycleJob && (intervalMs == null || intervalMs <= 0L)) {
+        if (jobType.equals(JobType.RECURRING) && (intervalMs == null || intervalMs <= 0L)) {
             throw new DdlException("cycle job must set intervalMs");
         }
-        if (null == jobCategory) {
-            throw new DdlException("jobCategory must be set");
-        }
-        if (null == executor) {
-            throw new DdlException("Job executor must be set");
-        }
+
     }
 
 
@@ -246,33 +252,41 @@ public class Job implements Writable {
     public List<String> getShowInfo() {
         List<String> row = Lists.newArrayList();
         row.add(String.valueOf(jobId));
-        row.add(dbName);
-        if (jobCategory.equals(JobCategory.MTMV)) {
-            row.add(baseName);
-        }
         row.add(jobName);
         row.add(user);
-        row.add(timezone);
-        if (isCycleJob) {
-            row.add(JobType.RECURRING.name());
-        } else {
-            if (isStreamingJob) {
-                row.add(JobType.STREAMING.name());
-            } else {
-                row.add(JobType.ONE_TIME.name());
-            }
-        }
-        row.add(isCycleJob ? "null" : TimeUtils.longToTimeString(startTimeMs));
-        row.add(isCycleJob ? originInterval.toString() : "null");
-        row.add(isCycleJob ? intervalUnit.name() : "null");
-        row.add(isCycleJob && startTimeMs > 0 ? TimeUtils.longToTimeString(startTimeMs) : "null");
-        row.add(isCycleJob && endTimeMs > 0 ? TimeUtils.longToTimeString(endTimeMs) : "null");
+        row.add(jobType.name());
+
+        row.add(convertRecurringStrategyToString());
         row.add(jobStatus.name());
-        row.add(latestCompleteExecuteTimeMs <= 0L ? "null" : TimeUtils.longToTimeString(latestCompleteExecuteTimeMs));
-        row.add(errMsg == null ? "null" : errMsg);
+        row.add(null == lastExecuteTaskStatus ? "null" : lastExecuteTaskStatus.toString());
         row.add(createTimeMs <= 0L ? "null" : TimeUtils.longToTimeString(createTimeMs));
         row.add(comment == null ? "null" : comment);
         return row;
+    }
+
+    private String convertRecurringStrategyToString() {
+        if (jobType.equals(JobType.MANUAL)) {
+            return "MANUAL TRIGGER";
+        }
+        switch (jobType) {
+            case ONE_TIME:
+                return "AT " + TimeUtils.longToTimeString(startTimeMs);
+            case RECURRING:
+                String result = "EVERY " + originInterval + " " + intervalUnit.name();
+                if (startTimeMs > 0) {
+                    result += " STARTS " + TimeUtils.longToTimeString(startTimeMs);
+                }
+                if (endTimeMs > 0) {
+                    result += " ENDS " + TimeUtils.longToTimeString(endTimeMs);
+                }
+                return result;
+            case STREAMING:
+                return "STREAMING" + (startTimeMs > 0 ? " AT " + TimeUtils.longToTimeString(startTimeMs) : "");
+            case MANUAL:
+                return "MANUAL TRIGGER";
+            default:
+                return "UNKNOWN";
+        }
     }
 
 }

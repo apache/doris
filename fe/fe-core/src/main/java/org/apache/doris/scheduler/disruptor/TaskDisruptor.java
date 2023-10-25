@@ -50,7 +50,7 @@ public class TaskDisruptor implements Closeable {
     private final Disruptor<TaskEvent> disruptor;
     private static final int DEFAULT_RING_BUFFER_SIZE = Config.async_task_queen_size;
 
-    private static int consumerThreadCount = Config.async_task_consumer_thread_num;
+    private static final int consumerThreadCount = Config.async_task_consumer_thread_num;
 
     /**
      * The default timeout for {@link #close()} in seconds.
@@ -88,16 +88,29 @@ public class TaskDisruptor implements Closeable {
 
     /**
      * Publishes a job to the disruptor.
+     * Default task type is {@link TaskType#SCHEDULER_JOB_TASK}
      *
      * @param jobId job id
      */
     public void tryPublish(Long jobId, Long taskId) {
+        this.tryPublish(jobId, taskId, TaskType.SCHEDULER_JOB_TASK);
+    }
+
+
+    /**
+     * Publishes a job task to the disruptor.
+     *
+     * @param jobId    job id, describe which job this task belongs to
+     * @param taskId   task id, it's linked to job id, we can get job detail by task id
+     * @param taskType {@link TaskType}
+     */
+    public void tryPublish(Long jobId, Long taskId, TaskType taskType) {
         if (isClosed) {
             log.info("tryPublish failed, disruptor is closed, jobId: {}", jobId);
             return;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, jobId, taskId, TaskType.TimerJobTask);
+            disruptor.publishEvent(TRANSLATOR, jobId, taskId, taskType);
         } catch (Exception e) {
             log.error("tryPublish failed, jobId: {}", jobId, e);
         }
@@ -105,6 +118,7 @@ public class TaskDisruptor implements Closeable {
 
     /**
      * Publishes a task to the disruptor.
+     * Default task type is {@link TaskType#TRANSIENT_TASK}
      *
      * @param taskId task id
      */
@@ -114,7 +128,7 @@ public class TaskDisruptor implements Closeable {
             return;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, taskId, 0L, TaskType.TransientTask);
+            disruptor.publishEvent(TRANSLATOR, taskId, 0L, TaskType.TRANSIENT_TASK);
         } catch (Exception e) {
             log.error("tryPublish failed, taskId: {}", taskId, e);
         }
