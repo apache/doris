@@ -485,7 +485,9 @@ public class AnalysisManager extends Daemon implements Writable {
         }
 
         if (analysisType == AnalysisType.FUNDAMENTALS) {
-            return table.findReAnalyzeNeededPartitions();
+            Map<String, Set<String>> result = table.findReAnalyzeNeededPartitions();
+            result.keySet().retainAll(columnNames);
+            return result;
         }
 
         return columnToPartitions;
