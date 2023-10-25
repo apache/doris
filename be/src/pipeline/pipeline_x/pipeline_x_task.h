@@ -73,8 +73,8 @@ public:
         if (_dry_run) {
             return true;
         }
-        for (auto& op : _operators) {
-            auto dep = op->wait_for_dependency(_state);
+        for (auto* op_dep : _read_dependencies) {
+            auto* dep = op_dep->read_blocked_by();
             if (dep != nullptr) {
                 dep->start_read_watcher();
                 return false;
@@ -88,7 +88,7 @@ public:
     }
 
     bool sink_can_write() override {
-        auto dep = _sink->wait_for_dependency(_state);
+        auto* dep = _write_dependencies->write_blocked_by();
         if (dep != nullptr) {
             dep->start_write_watcher();
             return false;
@@ -141,6 +141,8 @@ public:
         return _upstream_dependency[id];
     }
 
+    Status extract_dependencies();
+
 private:
     void set_close_pipeline_time() override {}
     void _init_profile() override;
@@ -152,6 +154,9 @@ private:
     OperatorXPtr _source;
     OperatorXPtr _root;
     DataSinkOperatorXPtr _sink;
+
+    std::vector<Dependency*> _read_dependencies;
+    WriteDependency* _write_dependencies;
 
     DependencyMap _upstream_dependency;
 

@@ -52,9 +52,11 @@ const std::vector<TRuntimeFilterDesc>& NestedLoopJoinBuildSinkLocalState::runtim
 }
 
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
+                                                                   int operator_id,
                                                                    const TPlanNode& tnode,
                                                                    const DescriptorTbl& descs)
-        : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, tnode, descs),
+        : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, tnode,
+                                                                    descs),
           _runtime_filter_descs(tnode.runtime_filters),
           _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
                                     tnode.nested_loop_join_node.is_output_left_side_only),

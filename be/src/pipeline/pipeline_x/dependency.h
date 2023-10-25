@@ -19,6 +19,7 @@
 
 #include <sqltypes.h>
 
+#include <functional>
 #include <memory>
 #include <mutex>
 
@@ -88,15 +89,11 @@ public:
     void set_parent(std::weak_ptr<Dependency> parent) { _parent = parent; }
 
     void add_child(std::shared_ptr<Dependency> child) {
-        std::unique_lock<std::mutex> l(_lock);
         _children.push_back(child);
         child->set_parent(weak_from_this());
     }
 
-    void remove_first_child() {
-        std::unique_lock<std::mutex> l(_lock);
-        _children.erase(_children.begin());
-    }
+    void remove_first_child() { _children.erase(_children.begin()); }
 
 protected:
     int _id;
@@ -107,7 +104,6 @@ protected:
     std::weak_ptr<Dependency> _parent;
 
     std::list<std::shared_ptr<Dependency>> _children;
-    std::mutex _lock;
 };
 
 class WriteDependency : public Dependency {
@@ -153,7 +149,7 @@ protected:
     MonotonicStopWatch _write_dependency_watcher;
 };
 
-class FinishDependency : public Dependency {
+class FinishDependency final : public Dependency {
 public:
     FinishDependency(int id, std::string name) : Dependency(id, name), _ready_to_finish(true) {}
     ~FinishDependency() override = default;
@@ -195,7 +191,7 @@ protected:
     MonotonicStopWatch _finish_dependency_watcher;
 };
 
-class AndDependency : public WriteDependency {
+class AndDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(AndDependency);
     AndDependency(int id) : WriteDependency(id, "AndDependency") {}
@@ -215,7 +211,6 @@ public:
     std::string debug_string(int indentation_level = 0) override;
 
     [[nodiscard]] Dependency* read_blocked_by() override {
-        std::unique_lock<std::mutex> l(_lock);
         for (auto& child : _children) {
             if (auto* dep = child->read_blocked_by()) {
                 return dep;
@@ -225,7 +220,6 @@ public:
     }
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {
-        std::unique_lock<std::mutex> l(_lock);
         for (auto& child : _children) {
             CHECK(child->is_write_dependency());
             if (auto* dep = ((WriteDependency*)child.get())->write_blocked_by()) {
@@ -236,7 +230,7 @@ public:
     }
 };
 
-class OrDependency : public WriteDependency {
+class OrDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(OrDependency);
     OrDependency(int id) : WriteDependency(id, "OrDependency") {}
@@ -257,7 +251,6 @@ public:
 
     [[nodiscard]] Dependency* read_blocked_by() override {
         Dependency* res = nullptr;
-        std::unique_lock<std::mutex> l(_lock);
         for (auto& child : _children) {
             auto* cur_res = child->read_blocked_by();
             if (cur_res == nullptr) {
@@ -271,7 +264,6 @@ public:
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {
         WriteDependency* res = nullptr;
-        std::unique_lock<std::mutex> l(_lock);
         for (auto& child : _children) {
             CHECK(child->is_write_dependency());
             auto* cur_res = ((WriteDependency*)child.get())->write_blocked_by();
@@ -286,14 +278,28 @@ public:
 };
 
 struct FakeSharedState {};
-struct FakeDependency : public WriteDependency {
+struct FakeDependency final : public WriteDependency {
 public:
-    FakeDependency(int id) : WriteDependency(0, "FakeDependency") {}
+    FakeDependency(int id) : WriteDependency(id, "FakeDependency") {}
     using SharedState = FakeSharedState;
     void* shared_state() override { return nullptr; }
-
+    [[nodiscard]] Dependency* read_blocked_by() override { return nullptr; }
+    [[nodiscard]] WriteDependency* write_blocked_by() override { return nullptr; }
     [[nodiscard]] int64_t read_watcher_elapse_time() override { return 0; }
     [[nodiscard]] int64_t write_watcher_elapse_time() override { return 0; }
+};
+
+class AsyncWriterSinkDependency : public WriteDependency {
+public:
+    AsyncWriterSinkDependency(int id) : WriteDependency(id, "AsyncWriterSinkDependency") {}
+    using SharedState = FakeSharedState;
+    void* shared_state() override { return nullptr; }
+    [[nodiscard]] Dependency* read_blocked_by() override { return nullptr; }
+    [[nodiscard]] WriteDependency* write_blocked_by() override { return _call_func(); }
+    void set_write_blocked_by(std::function<WriteDependency*()> call_func) {
+        _call_func = call_func;
+    }
+    std::function<WriteDependency*()> _call_func;
 };
 
 struct AggSharedState {
@@ -321,7 +327,7 @@ public:
     std::unique_ptr<DataQueue> data_queue = nullptr;
 };
 
-class AggDependency : public WriteDependency {
+class AggDependency final : public WriteDependency {
 public:
     using SharedState = AggSharedState;
     AggDependency(int id) : WriteDependency(id, "AggDependency") {
@@ -441,8 +447,10 @@ private:
 struct UnionSharedState {
 public:
     UnionSharedState(int child_count = 1, WriteDependency* dependency = nullptr)
-            : data_queue(child_count, dependency) {};
+            : data_queue(child_count, dependency), _child_count(child_count) {};
+    int child_count() const { return _child_count; }
     DataQueue data_queue;
+    const int _child_count;
 };
 
 class UnionDependency final : public WriteDependency {
@@ -465,7 +473,12 @@ public:
         _read_dependency_watcher.stop();
         _ready_for_read = true;
     }
-
+    [[nodiscard]] Dependency* read_blocked_by() override {
+        if (_union_state->child_count() == 0) {
+            return nullptr;
+        }
+        return WriteDependency::read_blocked_by();
+    }
     void block_reading() override {}
     void block_writing() override {}
 
@@ -489,13 +502,14 @@ public:
     void set_shared_state(std::shared_ptr<MultiCastSharedState> multi_cast_state) {
         _multi_cast_state = multi_cast_state;
     }
-    MultiCastDependency* can_read(const int consumer_id) {
-        if (_multi_cast_state->multi_cast_data_streamer.can_read(consumer_id)) {
+    WriteDependency* read_blocked_by() override {
+        if (_multi_cast_state->multi_cast_data_streamer.can_read(_consumer_id)) {
             return nullptr;
-        } else {
-            return this;
         }
+        return this;
     }
+    int _consumer_id {};
+    void set_consumer_id(int consumer_id) { _consumer_id = consumer_id; }
 
 private:
     std::shared_ptr<MultiCastSharedState> _multi_cast_state;
@@ -770,6 +784,14 @@ public:
         return _set_state->ready_for_read ? nullptr : this;
     }
 
+    [[nodiscard]] WriteDependency* write_blocked_by() override {
+        if (is_set_probe) {
+            DCHECK((_cur_child_id - 1) < _set_state->probe_finished_children_index.size());
+            return _set_state->probe_finished_children_index[_cur_child_id - 1] ? nullptr : this;
+        }
+        return nullptr;
+    }
+
     // Notify downstream pipeline tasks this dependency is ready.
     void set_ready_for_read() override {
         if (_set_state->ready_for_read) {
@@ -778,9 +800,15 @@ public:
         _read_dependency_watcher.stop();
         _set_state->ready_for_read = true;
     }
+    void set_cur_child_id(int id) {
+        _cur_child_id = id;
+        is_set_probe = true;
+    }
 
 private:
     std::shared_ptr<SetSharedState> _set_state;
+    int _cur_child_id;
+    bool is_set_probe {false};
 };
 
 } // namespace pipeline
