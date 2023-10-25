@@ -399,6 +399,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             for (Column col : olapTableSink.getCols()) {
                 partialUpdateCols.add(col.getName());
             }
+            for (Column col : olapTable.getFullSchema()) {
+                if (col.hasOnUpdateDefaultValue()) {
+                    partialUpdateCols.add(col.getName());
+                }
+            }
             if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
                         && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
                 partialUpdateCols.add(Column.SEQUENCE_COL);
