@@ -102,8 +102,9 @@ Status FileScanLocalState::_process_conjuncts() {
 Status FileScanOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ScanOperatorX<FileScanLocalState>::prepare(state));
     if (state->get_query_ctx() != nullptr &&
-        state->get_query_ctx()->file_scan_range_params_map.count(_id) > 0) {
-        TFileScanRangeParams& params = state->get_query_ctx()->file_scan_range_params_map[_id];
+        state->get_query_ctx()->file_scan_range_params_map.contains(node_id())) {
+        TFileScanRangeParams& params =
+                state->get_query_ctx()->file_scan_range_params_map[node_id()];
         _output_tuple_id = params.dest_tuple_id;
     }
     return Status::OK();

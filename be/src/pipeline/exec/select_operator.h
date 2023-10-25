@@ -55,8 +55,9 @@ private:
 
 class SelectOperatorX final : public StreamingOperatorX<SelectLocalState> {
 public:
-    SelectOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-            : StreamingOperatorX<SelectLocalState>(pool, tnode, descs) {}
+    SelectOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                    const DescriptorTbl& descs)
+            : StreamingOperatorX<SelectLocalState>(pool, tnode, operator_id, descs) {}
 
     Status pull(RuntimeState* state, vectorized::Block* block, SourceState& source_state) override {
         CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);

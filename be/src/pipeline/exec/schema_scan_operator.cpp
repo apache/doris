@@ -72,9 +72,9 @@ Status SchemaScanLocalState::open(RuntimeState* state) {
     return _schema_scanner->start(state);
 }
 
-SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                          const DescriptorTbl& descs)
-        : Base(pool, tnode, descs),
+        : Base(pool, tnode, operator_id, descs),
           _table_name(tnode.schema_scan_node.table_name),
           _common_scanner_param(new SchemaScannerCommonParam()),
           _tuple_id(tnode.schema_scan_node.tuple_id),

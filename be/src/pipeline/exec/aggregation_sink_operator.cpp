@@ -657,9 +657,10 @@ Status AggSinkLocalState<DependencyType, Derived>::try_spill_disk(bool eos) {
 }
 
 template <typename LocalStateType>
-AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, int operator_id,
+                                                   const TPlanNode& tnode,
                                                    const DescriptorTbl& descs)
-        : DataSinkOperatorX<LocalStateType>(tnode.node_id),
+        : DataSinkOperatorX<LocalStateType>(operator_id, tnode.node_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
