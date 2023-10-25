@@ -75,7 +75,7 @@ This feature collects statistics only for tables and columns that either have no
 
 For tables with a large amount of data (default is 5GiB), Doris will automatically use sampling to collect statistics, reducing the impact on the system and completing the collection job as quickly as possible. Users can adjust this behavior by setting the `huge_table_lower_bound_size_in_bytes` FE parameter. If you want to collect statistics for all tables in full, you can set the `enable_auto_sample` FE parameter to false. For tables with data size greater than `huge_table_lower_bound_size_in_bytes`, Doris ensures that the collection interval is not less than 12 hours (this time can be controlled using the `huge_table_auto_analyze_interval_in_millis` FE parameter).
 
-The default sample size for automatic sampling is 200,000 rows, but the actual sample size may be larger due to implementation reasons. If you want to sample more rows to obtain more accurate data distribution information, you can configure the `auto_analyze_job_record_count` FE parameter.
+The default sample size for automatic sampling is 4194304(2^22) rows, but the actual sample size may be larger due to implementation reasons. If you want to sample more rows to obtain more accurate data distribution information, you can configure the `huge_table_default_sample_rows` FE parameter.
 
 ### Task Management
 
@@ -234,8 +234,6 @@ Automatic collection tasks do not support viewing the completion status and fail
 | statistics_simultaneously_running_task_num              | After submitting asynchronous jobs using `ANALYZE TABLE[DATABASE]`, this parameter limits the number of columns that can be analyzed simultaneously. All asynchronous tasks are collectively constrained by this parameter.                                                                                                                                                                                                                                  | 5                              |
 | analyze_task_timeout_in_minutes                         | Timeout for AnalyzeTask execution.                                                                                                                                                                                                                                                                                   | 12 hours                       |
 | stats_cache_size| The actual memory usage of statistics cache depends heavily on the characteristics of the data because the average size of maximum/minimum values and the number of buckets in histograms can vary greatly in different datasets and scenarios. Additionally, factors like JVM versions can also affect it. Below is the memory size occupied by statistics cache with 100,000 items. The average length of maximum/minimum values per item is 32, the average length of column names is 16, and the statistics cache occupies a total of 61.2777404785MiB of memory. It is strongly discouraged to analyze columns with very large string values as this may lead to FE memory overflow. | 100000                        |
-|full_auto_analyze_start_time|Start time for automatic statistics collection|00:00:00|
-|full_auto_analyze_end_time|End time for automatic statistics collection|02:00:00|
 |enable_auto_sample|Enable automatic sampling for large tables. When enabled, statistics will be automatically collected through sampling for tables larger than the `huge_table_lower_bound_size_in_bytes` threshold.| false|
 |auto_analyze_job_record_count|Controls the persistence of records for automatically triggered statistics collection jobs.|20000|
 |huge_table_default_sample_rows|Defines the number of sample rows for large tables when automatic sampling is enabled.|4194304|
@@ -249,7 +247,7 @@ Automatic collection tasks do not support viewing the completion status and fail
 |full_auto_analyze_end_time|End time for automatic statistics collection|02:00:00|
 |enable_full_auto_analyze|Enable automatic collection functionality|true|
 
-Please note that when both FE configuration and global session variables are configured for the same parameter, the value of the global session variable takes precedence.
+ATTENTION: The session variables listed above must be set globally using SET GLOBAL.
 
 ## Usage Recommendations
 
@@ -272,6 +270,8 @@ The SQL execution time is controlled by the `query_timeout` session variable, wh
 ### ANALYZE Submission Error: Stats table not available...
 
 When ANALYZE is executed, statistics data is written to the internal table `__internal_schema.column_statistics`. FE checks the tablet status of this table before executing ANALYZE. If there are unavailable tablets, the task is rejected. Please check the BE cluster status if this error occurs.
+
+Users can use `SHOW BACKENDS\G` to verify the BE (Backend) status. If the BE status is normal, you can use the command `ADMIN SHOW REPLICA STATUS FROM __internal_schema.[tbl_in_this_db]` to check the tablet status within this database, ensuring that the tablet status is also normal.
 
 ### Failure of ANALYZE on Large Tables
 
