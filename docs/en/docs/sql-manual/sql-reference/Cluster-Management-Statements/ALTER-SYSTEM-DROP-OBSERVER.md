@@ -36,9 +36,17 @@ This statement is to delete the node of the OBSERVER role of FRONTEND, (only for
 
 grammar:
 
+- delete observer by host and port
+
 ```sql
 ALTER SYSTEM DROP OBSERVER "follower_host:edit_log_port[,"follower_host:edit_log_port"...]";
 ````
+
+- delete observer by name
+
+```sql
+ALTER SYSTEM DROP OBSERVER "name[,"name"...]";
+```
 
 illustrate:
 

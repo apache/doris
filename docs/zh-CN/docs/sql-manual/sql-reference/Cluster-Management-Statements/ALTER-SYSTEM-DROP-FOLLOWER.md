@@ -36,8 +36,16 @@ ALTER SYSTEM DROP FOLLOWER
 
 语法：
 
+- 通过 host 和 port 删除 follower
+
 ```sql
 ALTER SYSTEM DROP FOLLOWER "follower_host:edit_log_port[,"follower_host:edit_log_port"...]";
+```
+
+- 通过 name 删除 follower
+
+```sql
+ALTER SYSTEM DROP FOLLOWER "name[,"name"...]";
 ```
 
 说明：

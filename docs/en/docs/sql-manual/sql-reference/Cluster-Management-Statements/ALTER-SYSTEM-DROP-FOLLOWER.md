@@ -36,9 +36,17 @@ This statement is to delete the node of the FOLLOWER role of FRONTEND, (only for
 
 grammar:
 
+- delete follower by host and port
+
 ```sql
 ALTER SYSTEM DROP FOLLOWER "follower_host:edit_log_port[,"follower_host:edit_log_port"...]";
 ````
+
+- delete follower by name
+
+```sql
+ALTER SYSTEM DROP FOLLOWER "name[,"name"...]";
+```
 
 illustrate:
 

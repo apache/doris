@@ -36,8 +36,16 @@ ALTER SYSTEM DROP OBSERVER
 
 语法：
 
+- 通过 host 和 port 删除 observer
+
 ```sql
 ALTER SYSTEM DROP OBSERVER "follower_host:edit_log_port[,"follower_host:edit_log_port"...]";
+```
+
+- 通过 name 删除 observer
+
+```sql
+ALTER SYSTEM DROP OBSERVER "name[,"name"...]";
 ```
 
 说明：
@@ -52,6 +60,7 @@ ALTER SYSTEM DROP OBSERVER "follower_host:edit_log_port[,"follower_host:edit_log
    ```sql
    ALTER SYSTEM DROP OBSERVER "host_ip:9010"
    ```
+   
 
 ### Keywords
 
