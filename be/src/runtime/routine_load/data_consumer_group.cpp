@@ -125,9 +125,10 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
     bool eos = false;
     while (true) {
         if (eos || left_time <= 0 || left_rows <= 0 || left_bytes <= 0) {
+            _rows = ctx->max_batch_rows - left_rows;
             LOG(INFO) << "consumer group done: " << _grp_id
                       << ". consume time(ms)=" << ctx->max_interval_s * 1000 - left_time
-                      << ", received rows=" << ctx->max_batch_rows - left_rows
+                      << ", received rows=" << _rows
                       << ", received bytes=" << ctx->max_batch_size - left_bytes << ", eos: " << eos
                       << ", left_time: " << left_time << ", left_rows: " << left_rows
                       << ", left_bytes: " << left_bytes
