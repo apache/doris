@@ -1329,7 +1329,7 @@ Status ScanOperatorX<LocalStateType>::open(RuntimeState* state) {
 
 template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::try_close(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     if (local_state._scanner_ctx.get()) {
         // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
         // TODO: there is a lock in `set_should_stop` may cause some slight impact
@@ -1379,7 +1379,7 @@ bool ScanOperatorX<LocalStateType>::runtime_filters_are_ready_or_timeout(
 template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                 SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state._get_next_timer);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     // in inverted index apply logic, in order to optimize query performance,

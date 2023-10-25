@@ -151,7 +151,7 @@ std::shared_ptr<UnionSharedState> UnionSourceLocalState::create_shared_state() {
 
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                        SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (local_state._need_read_for_const_expr) {
         if (has_more_const(state)) {

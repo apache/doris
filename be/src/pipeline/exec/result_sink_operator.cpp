@@ -138,7 +138,7 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
 
 Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                  SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));

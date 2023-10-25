@@ -288,7 +288,7 @@ void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrT
 
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                    SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     local_state._peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
@@ -475,7 +475,7 @@ Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& ch
 }
 
 Status ExchangeSinkOperatorX::try_close(RuntimeState* state, Status exec_status) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     local_state._serializer.reset_block();
     Status final_st = Status::OK();
     Status final_status = exec_status;

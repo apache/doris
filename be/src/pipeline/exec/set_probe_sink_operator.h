@@ -100,6 +100,7 @@ class SetProbeSinkOperatorX final : public DataSinkOperatorX<SetProbeSinkLocalSt
 public:
     using Base = DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>;
     using DataSinkOperatorXBase::operator_id;
+    using Base::get_local_state;
     using typename Base::LocalState;
 
     friend class SetProbeSinkLocalState<is_intersect>;

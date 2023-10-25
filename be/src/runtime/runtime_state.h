@@ -454,15 +454,19 @@ public:
                _query_options.enable_delete_sub_predicate_v2;
     }
 
-    void emplace_local_state(int id,
-                             std::unique_ptr<doris::pipeline::PipelineXLocalStateBase> state);
+    using LocalState = doris::pipeline::PipelineXLocalStateBase;
+    using SinkLocalState = doris::pipeline::PipelineXSinkLocalStateBase;
+    // get result can return an error message, and we will only call it during the prepare.
+    void emplace_local_state(int id, std::unique_ptr<LocalState> state);
 
-    doris::pipeline::PipelineXLocalStateBase* get_local_state(int id);
+    LocalState* get_local_state(int id);
+    Result<LocalState*> get_local_state_result(int id);
 
-    void emplace_sink_local_state(
-            int id, std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state);
+    void emplace_sink_local_state(int id, std::unique_ptr<SinkLocalState> state);
 
-    doris::pipeline::PipelineXSinkLocalStateBase* get_sink_local_state(int id);
+    SinkLocalState* get_sink_local_state(int id);
+
+    Result<SinkLocalState*> get_sink_local_state_result(int id);
 
     void resize_op_id_to_local_state(int size);
 

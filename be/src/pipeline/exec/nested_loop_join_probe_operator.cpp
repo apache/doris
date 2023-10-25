@@ -487,7 +487,7 @@ bool NestedLoopJoinProbeOperatorX::need_more_input_data(RuntimeState* state) con
 
 Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized::Block* block,
                                           SourceState source_state) const {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state._probe_rows_counter, block->rows());
     local_state._cur_probe_row_visited_flags.resize(block->rows());
     std::fill(local_state._cur_probe_row_visited_flags.begin(),
@@ -513,7 +513,7 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized
 
 Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) const {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     if (_is_output_left_side_only) {
         RETURN_IF_ERROR(local_state._build_output_block(local_state._child_block.get(), block));
         source_state =

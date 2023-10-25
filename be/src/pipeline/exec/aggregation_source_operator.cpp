@@ -508,7 +508,7 @@ AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
 
 Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                      SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     RETURN_IF_ERROR(local_state._executor.get_result(state, block, source_state));
     local_state.make_nullable_output_key(block);

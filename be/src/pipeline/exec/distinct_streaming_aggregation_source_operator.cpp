@@ -106,7 +106,7 @@ DistinctStreamingAggSourceOperatorX::DistinctStreamingAggSourceOperatorX(ObjectP
 
 Status DistinctStreamingAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                       SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     std::unique_ptr<vectorized::Block> agg_block;
     RETURN_IF_ERROR(local_state._shared_state->data_queue->get_block_from_queue(&agg_block));

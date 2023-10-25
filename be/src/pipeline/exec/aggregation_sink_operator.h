@@ -330,6 +330,7 @@ public:
 
     using DataSinkOperatorX<LocalStateType>::id;
     using DataSinkOperatorX<LocalStateType>::operator_id;
+    using DataSinkOperatorX<LocalStateType>::get_local_state;
 
 protected:
     using LocalState = LocalStateType;

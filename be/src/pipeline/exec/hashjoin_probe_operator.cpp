@@ -226,7 +226,7 @@ HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode
 
 Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
                                     SourceState& source_state) const {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     local_state.init_for_probe(state);
     SCOPED_TIMER(local_state._probe_timer);
     if (local_state._shared_state->short_circuit_for_probe) {
@@ -456,7 +456,7 @@ Status HashJoinProbeOperatorX::_do_evaluate(vectorized::Block& block,
 
 Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* input_block,
                                     SourceState source_state) const {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     local_state.prepare_for_next();
     local_state._probe_eos = source_state == SourceState::FINISHED;
     if (input_block->rows() > 0) {

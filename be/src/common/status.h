@@ -596,6 +596,8 @@ inline std::string Status::to_string() const {
 template <typename T>
 using Result = expected<T, Status>;
 
+using ResultError = unexpected<Status>;
+
 #define RETURN_IF_ERROR_RESULT(stmt)                \
     do {                                            \
         Status _status_ = (stmt);                   \
