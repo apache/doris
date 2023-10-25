@@ -438,12 +438,35 @@ doris::pipeline::PipelineXLocalStateBase* RuntimeState::get_local_state(int id) 
     return _op_id_to_local_state[id].get();
 }
 
+Result<RuntimeState::LocalState*> RuntimeState::get_local_state_result(int id) {
+    if (id >= _op_id_to_local_state.size()) {
+        return ResultError(Status::InternalError("get_local_state out of range size:{} , id:{}",
+                                                 _op_id_to_local_state.size(), id));
+    }
+    if (!_op_id_to_local_state[id]) {
+        return ResultError(Status::InternalError("get_local_state id:{} is null", id));
+    }
+    return _op_id_to_local_state[id].get();
+};
+
 void RuntimeState::emplace_sink_local_state(
         int id, std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
     _op_id_to_sink_local_state[id] = std::move(state);
 }
 
 doris::pipeline::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state(int id) {
+    return _op_id_to_sink_local_state[id].get();
+}
+
+Result<RuntimeState::SinkLocalState*> RuntimeState::get_sink_local_state_result(int id) {
+    if (id >= _op_id_to_sink_local_state.size()) {
+        return ResultError(
+                Status::InternalError("_op_id_to_sink_local_state out of range size:{} , id:{}",
+                                      _op_id_to_sink_local_state.size(), id));
+    }
+    if (!_op_id_to_sink_local_state[id]) {
+        return ResultError(Status::InternalError("_op_id_to_sink_local_state id:{} is null", id));
+    }
     return _op_id_to_sink_local_state[id].get();
 }
 
