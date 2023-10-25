@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.ListQuery;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -103,6 +104,20 @@ public class ExpressionDeepCopier extends DefaultExpressionRewriter<DeepCopierCo
                 newOriginExpression, newFunction);
         exprIdReplaceMap.put(virtualSlotReference.getExprId(), newOne.getExprId());
         return newOne;
+    }
+
+    @Override
+    public Expression visitMarkJoinReference(MarkJoinSlotReference slotReference, DeepCopierContext context) {
+        Map<ExprId, ExprId> exprIdReplaceMap = context.exprIdReplaceMap;
+        if (exprIdReplaceMap.containsKey(slotReference.getExprId())) {
+            ExprId newExprId = exprIdReplaceMap.get(slotReference.getExprId());
+            return slotReference.withExprId(newExprId);
+        } else {
+            MarkJoinSlotReference newOne = new MarkJoinSlotReference(slotReference.getName(),
+                    slotReference.isExistsHasAgg());
+            exprIdReplaceMap.put(slotReference.getExprId(), newOne.getExprId());
+            return newOne;
+        }
     }
 
     @Override
