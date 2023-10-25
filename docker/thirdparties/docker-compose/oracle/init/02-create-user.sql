@@ -17,3 +17,9 @@
 
 create user doris_test identified by 123456;
 grant connect, resource to doris_test;
+grant create view to doris_test;
+Grant create synonym to doris_test;
+create user doris_test_02 identified by 123456;
+grant connect, resource to doris_test_02;
+grant create view to doris_test_02;
+Grant create synonym to doris_test_02;
