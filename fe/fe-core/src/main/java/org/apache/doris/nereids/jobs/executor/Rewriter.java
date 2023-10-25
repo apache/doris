@@ -85,6 +85,8 @@ import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
+import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
+import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
@@ -288,6 +290,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new PushdownLimitDistinctThroughJoin(),
                             new PushdownTopNThroughWindow(),
                             new CreatePartitionTopNFromWindow()
+                    ),
+                    topDown(
+                            new PullUpProjectUnderTopN(),
+                            new PullUpProjectUnderLimit()
                     )
             ),
             // TODO: these rules should be implementation rules, and generate alternative physical plans.
@@ -341,7 +347,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
 
             topic("eliminate empty relation",
-                bottomUp(new EliminateEmptyRelation())
+                    bottomUp(new EliminateEmptyRelation())
             )
     );
 
