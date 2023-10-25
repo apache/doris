@@ -210,12 +210,14 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     }
     if (p._part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = channels.size();
-        _partitioner.reset(new vectorized::HashPartitioner(channels.size()));
+        _partitioner.reset(
+                new vectorized::XXHashPartitioner<vectorized::ShuffleChannelIds>(channels.size()));
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
     } else if (p._part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = channel_shared_ptrs.size();
-        _partitioner.reset(new vectorized::BucketHashPartitioner(channel_shared_ptrs.size()));
+        _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
+                channel_shared_ptrs.size()));
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
     }
@@ -388,12 +390,12 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(state, local_state.channels,
                                              local_state._partition_count,
-                                             (uint64_t*)local_state._partitioner->get_hash_values(),
+                                             (uint64_t*)local_state._partitioner->get_channel_ids(),
                                              rows, block, source_state == SourceState::FINISHED));
         } else {
             RETURN_IF_ERROR(channel_add_rows(state, local_state.channel_shared_ptrs,
                                              local_state._partition_count,
-                                             (uint32_t*)local_state._partitioner->get_hash_values(),
+                                             (uint32_t*)local_state._partitioner->get_channel_ids(),
                                              rows, block, source_state == SourceState::FINISHED));
         }
     } else {

@@ -36,6 +36,8 @@ struct LocalStateInfo {
     RuntimeProfile* parent_profile;
     const std::vector<TScanRangeParams> scan_ranges;
     std::vector<DependencySPtr>& dependencys;
+    std::shared_ptr<LocalExchangeSharedState> local_exchange_state;
+    int task_idx;
 };
 
 // This struct is used only for initializing local sink state.
@@ -236,7 +238,7 @@ public:
     [[nodiscard]] OperatorXPtr get_child() { return _child_x; }
 
     [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
-    [[nodiscard]] RowDescriptor& row_descriptor() { return _row_descriptor; }
+    [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
 
     [[nodiscard]] int id() const override { return node_id(); }
     [[nodiscard]] int operator_id() const { return _operator_id; }
@@ -244,7 +246,7 @@ public:
 
     [[nodiscard]] int64_t limit() const { return _limit; }
 
-    [[nodiscard]] const RowDescriptor& row_desc() override {
+    [[nodiscard]] virtual const RowDescriptor& row_desc() override {
         return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
     }
 
@@ -418,6 +420,9 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     Status init(const TDataSink& tsink) override;
+    virtual Status init() {
+        return Status::InternalError("init() is only implemented in local exchange!");
+    }
 
     Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
