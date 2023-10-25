@@ -44,7 +44,7 @@ suite("load_two_step") {
     tables.each { tableName, rows ->
         // create table
         sql """ DROP TABLE IF EXISTS $tableName """
-        sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_create.sql""").text
+        sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_sequence_create.sql""").text
 
         // load data from cos
         def loadLabel = tableName + '_' + uniqueID
