@@ -260,12 +260,12 @@ Status VFileResultWriter::_create_new_file_if_exceed_size() {
 
 Status VFileResultWriter::_close_file_writer(bool done) {
     if (_vfile_writer) {
-        RETURN_IF_ERROR(_vfile_writer->close());
         // we can not use _current_written_bytes to COUNTER_UPDATE(_written_data_bytes, _current_written_bytes)
         // because it will call `write()` function of orc/parquet function in `_vfile_writer->close()`
         // and the real written_len will increase
         // and _current_written_bytes will less than _vfile_writer->written_len()
         COUNTER_UPDATE(_written_data_bytes, _vfile_writer->written_len());
+        RETURN_IF_ERROR(_vfile_writer->close());
         _vfile_writer.reset(nullptr);
     } else if (_file_writer_impl) {
         RETURN_IF_ERROR(_file_writer_impl->close());
