@@ -164,8 +164,7 @@ Status DeltaWriter::init() {
         std::lock_guard<std::shared_mutex> lck(_tablet->get_header_lock());
         _cur_max_version = _tablet->max_version_unlocked().second;
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
-        if (_tablet->tablet_state() == TABLET_NOTREADY &&
-            SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+        if (_tablet->tablet_state() == TABLET_NOTREADY) {
             // Disable 'partial_update' when the tablet is undergoing a 'schema changing process'
             if (_req.table_schema_param->is_partial_update()) {
                 return Status::InternalError(
@@ -174,7 +173,7 @@ Status DeltaWriter::init() {
             }
             _rowset_ids.clear();
         } else {
-            _rowset_ids = _tablet->all_rs_id(_cur_max_version);
+            RETURN_IF_ERROR(_tablet->all_rs_id(_cur_max_version, &_rowset_ids));
         }
     }
 
@@ -459,8 +458,7 @@ Status DeltaWriter::submit_calc_delete_bitmap_task() {
 
     std::lock_guard<std::mutex> l(_lock);
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY &&
-        SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+    if (_tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
                      "tablet_id: "
                   << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
@@ -469,11 +467,6 @@ Status DeltaWriter::submit_calc_delete_bitmap_task() {
     auto beta_rowset = reinterpret_cast<BetaRowset*>(_cur_rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
-    // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY &&
-        SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
-        return Status::OK();
-    }
     if (segments.size() > 1) {
         // calculate delete bitmap between segments
         RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_cur_rowset, segments,
@@ -510,8 +503,7 @@ Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes,
                                const bool write_single_replica) {
     if (_tablet->enable_unique_key_merge_on_write() &&
         config::enable_merge_on_write_correctness_check && _cur_rowset->num_rows() != 0 &&
-        !(_tablet->tablet_state() == TABLET_NOTREADY &&
-          SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id()))) {
+        _tablet->tablet_state() != TABLET_NOTREADY) {
         auto st = _tablet->check_delete_bitmap_correctness(
                 _delete_bitmap, _cur_rowset->end_version() - 1, _req.txn_id, _rowset_ids);
         if (!st.ok()) {
