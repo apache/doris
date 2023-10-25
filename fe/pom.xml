@@ -193,7 +193,7 @@ under the License.
         <doris.thirdparty>${fe.dir}/../thirdparty</doris.thirdparty>
         <!--suppress UnresolvedMavenProperty -->
         <doris.home>${fe.dir}/../</doris.home>
-        <revision>1.2-SNAPSHOT</revision>
+        <revision>2.0-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <doris.hive.catalog.shade.version>1.0.2</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
