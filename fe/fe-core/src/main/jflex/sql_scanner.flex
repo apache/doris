@@ -146,7 +146,6 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("clusters", new Integer(SqlParserSymbols.KW_CLUSTERS));
         keywordMap.put("collate", new Integer(SqlParserSymbols.KW_COLLATE));
         keywordMap.put("collation", new Integer(SqlParserSymbols.KW_COLLATION));
-        keywordMap.put("colocate", new Integer(SqlParserSymbols.KW_COLOCATE));
         keywordMap.put("column", new Integer(SqlParserSymbols.KW_COLUMN));
         keywordMap.put("columns", new Integer(SqlParserSymbols.KW_COLUMNS));
         keywordMap.put("comment", new Integer(SqlParserSymbols.KW_COMMENT));

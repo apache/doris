@@ -150,7 +150,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     VecDateTimeValue t;
     t.from_unixtime(0, ctz);
-    _offset_days = t.day() == 31 ? 0 : 1;
+    _offset_days = t.day() == 31 ? -1 : 0; // If 1969-12-31, then returns -1.
     _init_profile();
     _init_system_properties();
     _init_file_description();

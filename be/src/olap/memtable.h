@@ -31,6 +31,7 @@
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "runtime/memory/mem_tracker.h"
@@ -176,6 +177,7 @@ public:
     MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              RowsetWriter* rowset_writer, std::shared_ptr<MowContext> mow_context,
+             PartialUpdateInfo* partial_update_info,
              const std::shared_ptr<MemTracker>& insert_mem_tracker,
              const std::shared_ptr<MemTracker>& flush_mem_tracker);
     ~MemTable();
@@ -232,6 +234,7 @@ private:
 private:
     TabletSharedPtr _tablet;
     const KeysType _keys_type;
+    bool _is_partial_update = false;
     Schema* _schema;
     const TabletSchema* _tablet_schema;
 

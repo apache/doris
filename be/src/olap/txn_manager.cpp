@@ -179,12 +179,11 @@ Status TxnManager::delete_txn(TPartitionId partition_id, const TabletSharedPtr& 
                       tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
 }
 
-void TxnManager::set_txn_related_delete_bitmap(TPartitionId partition_id,
-                                               TTransactionId transaction_id, TTabletId tablet_id,
-                                               SchemaHash schema_hash, TabletUid tablet_uid,
-                                               bool unique_key_merge_on_write,
-                                               DeleteBitmapPtr delete_bitmap,
-                                               const RowsetIdUnorderedSet& rowset_ids) {
+void TxnManager::set_txn_related_delete_bitmap(
+        TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
+        SchemaHash schema_hash, TabletUid tablet_uid, bool unique_key_merge_on_write,
+        DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& rowset_ids,
+        std::shared_ptr<PartialUpdateInfo> partial_update_info) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
 
@@ -210,6 +209,7 @@ void TxnManager::set_txn_related_delete_bitmap(TPartitionId partition_id,
         load_info.unique_key_merge_on_write = unique_key_merge_on_write;
         load_info.delete_bitmap = delete_bitmap;
         load_info.rowset_ids = rowset_ids;
+        load_info.partial_update_info = partial_update_info;
     }
 }
 
@@ -363,7 +363,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info.unique_key_merge_on_write) {
         std::unique_ptr<RowsetWriter> rowset_writer;
-        tablet->create_transient_rowset_writer(rowset, &rowset_writer);
+        tablet->create_transient_rowset_writer(rowset, &rowset_writer,
+                                               tablet_txn_info.partial_update_info);
 
         int64_t t2 = MonotonicMicros();
         RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset, tablet_txn_info.rowset_ids,
@@ -371,7 +372,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                                      rowset_writer.get()));
         int64_t t3 = MonotonicMicros();
         stats->calc_delete_bitmap_time_us = t3 - t2;
-        if (rowset->tablet_schema()->is_partial_update()) {
+        if (tablet_txn_info.partial_update_info &&
+            tablet_txn_info.partial_update_info->is_partial_update) {
             // build rowset writer and merge transient rowset
             RETURN_IF_ERROR(rowset_writer->flush());
             RowsetSharedPtr transient_rowset;
