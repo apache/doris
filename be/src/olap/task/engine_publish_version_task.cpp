@@ -152,26 +152,24 @@ Status EnginePublishVersionTask::finish() {
                     StorageEngine::instance()->txn_manager()->update_tablet_version_txn(
                             tablet_info.tablet_id, version.second, transaction_id);
                 }
-                Version max_version;
+                int64_t max_version;
                 TabletState tablet_state;
                 {
                     std::shared_lock rdlock(tablet->get_header_lock());
-                    max_version = tablet->max_version_unlocked();
+                    max_version = tablet->max_version_unlocked().second;
                     tablet_state = tablet->tablet_state();
                 }
-                if (tablet_state == TabletState::TABLET_RUNNING &&
-                    version.first != max_version.second + 1) {
-                    // If a tablet migrates out and back, the previously failed
-                    // publish task may retry on the new tablet, so check
-                    // whether the version exists. if not exist, then set
-                    // publish failed
-                    if (!tablet->check_version_exist(version)) {
+                if (version.first != max_version + 1) {
+                    if (tablet->check_version_exist(version)) {
+                        continue;
+                    }
+                    auto handle_version_not_continuous = [&]() {
                         add_error_tablet_id(tablet_info.tablet_id);
                         _discontinuous_version_tablets->emplace_back(
                                 partition_id, tablet_info.tablet_id, version.first);
                         res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
                                 "check_version_exist failed");
-                        int64_t missed_version = max_version.second + 1;
+                        int64_t missed_version = max_version + 1;
                         int64_t missed_txn_id =
                                 StorageEngine::instance()->txn_manager()->get_txn_by_tablet_version(
                                         tablet->tablet_id(), missed_version);
@@ -186,8 +184,20 @@ Status EnginePublishVersionTask::finish() {
                         } else {
                             LOG_EVERY_SECOND(INFO) << msg;
                         }
+                    };
+                    // The versions during the schema change period need to be also continuous
+                    if (tablet_state == TabletState::TABLET_NOTREADY) {
+                        Version max_continuous_version = {-1, 0};
+                        tablet->max_continuous_version_from_beginning(&max_continuous_version);
+                        if (max_version > 1 && version.first > max_version &&
+                            max_continuous_version.second != max_version) {
+                            handle_version_not_continuous();
+                            continue;
+                        }
+                    } else {
+                        handle_version_not_continuous();
+                        continue;
                     }
-                    continue;
                 }
             }
 
