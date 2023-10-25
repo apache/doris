@@ -80,6 +80,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
+import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
@@ -300,6 +301,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Table/Physical optimization",
                     topDown(
                             new PruneOlapScanPartition(),
+                            new PruneEmptyPartition(),
                             new PruneFileScanPartition(),
                             new PushConjunctsIntoJdbcScan(),
                             new PushConjunctsIntoEsScan()
