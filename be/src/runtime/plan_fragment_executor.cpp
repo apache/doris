@@ -168,6 +168,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     if (request.is_simplified_param) {
         _desc_tbl = _query_ctx->desc_tbl;
     } else {
+        DCHECK(request.__isset.desc_tbl);
         RETURN_IF_ERROR(
                 DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl, &_desc_tbl));
     }
