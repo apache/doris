@@ -26,7 +26,7 @@ under the License.
 
 # FQDN
 
-<version since="dev"></version>
+<version since="2.0"></version>
 
 This article introduces how to enable the use of Apache Doris based on FQDN (Fully Qualified Domain Name). FQDN is the complete domain name of a specific computer or host on the Internet.
 

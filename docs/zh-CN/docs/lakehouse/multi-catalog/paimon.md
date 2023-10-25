@@ -27,9 +27,6 @@ under the License.
 
 # Paimon
 
-<version since="dev">
-</version>
-
 ## 使用须知
 
 1. 数据放在hdfs时，需要将 core-site.xml，hdfs-site.xml 和 hive-site.xml  放到 FE 和 BE 的 conf 目录下。优先读取 conf 目录下的 hadoop 配置文件，再读取环境变量 `HADOOP_CONF_DIR` 的相关配置文件。

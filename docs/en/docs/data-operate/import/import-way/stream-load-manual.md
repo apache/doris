@@ -249,14 +249,6 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
   <version since="1.2.7">When `enable_profile` is true, the Stream Load profile will be printed to logs (be.INFO).</version>
 
-+ memtable_on_sink_node
-
-  <version since="2.1.0">
-  Whether to enable MemTable on DataSink node when loading data, default is false.
-  </version>
-
-  Build MemTable on DataSink node, and send segments to other backends through brpc streaming.
-  It reduces duplicate work among replicas, and saves time in data serialization & deserialization.
 - partial_columns
    <version since="2.0">
    Whether to enable partial column updates，Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used.

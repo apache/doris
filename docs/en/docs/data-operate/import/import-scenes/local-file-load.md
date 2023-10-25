@@ -225,7 +225,7 @@ public class DorisStreamLoader {
 > ```
 
 ## MySql LOAD
-<version since="dev">
+<version since="2.0">
     Example of mysql load
 </version>
 

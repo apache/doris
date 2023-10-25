@@ -26,7 +26,7 @@ under the License.
 
 ## field
 
-<version since="dev">
+<version since="1.2">
 
 field
 

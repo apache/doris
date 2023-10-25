@@ -46,7 +46,7 @@ WHERE
 column_name op { value | value_list } [ AND column_name op { value | value_list } ...];
 ```
 
-<version since="dev">
+<version since="2.0">
 
 语法二：该语法只能在UNIQUE KEY模型表上使用
 
@@ -66,7 +66,7 @@ DELETE FROM table_name [table_alias]
 + op: 逻辑比较操作符，可选类型包括：=, >, <, >=, <=, !=, in, not in
 + value | value_list: 做逻辑比较的值或值列表
 
-<version since="dev">
+<version since="2.0">
 
 + WHERE condition: 指定一个用于选择删除行的条件
 
@@ -77,7 +77,7 @@ DELETE FROM table_name [table_alias]
 
 + PARTITION partition_name | PARTITIONS (partition_name [, partition_name]): 指定执行删除数据的分区名，如果表不存在此分区，则报错
 
-<version since="dev">
+<version since="2.0">
 
 + table_alias: 表的别名
 + USING additional_tables: 如果需要在WHERE语句中使用其他的表来帮助识别需要删除的行，则可以在USING中指定这些表或者查询。

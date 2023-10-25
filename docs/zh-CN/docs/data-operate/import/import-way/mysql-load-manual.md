@@ -25,7 +25,7 @@ under the License.
 -->
 
 # MySql load
-<version since="dev">
+<version since="2.0">
 
 该语句兼容MySQL标准的[LOAD DATA](https://dev.mysql.com/doc/refman/8.0/en/load-data.html)语法，方便用户导入本地数据，并降低学习成本。
 

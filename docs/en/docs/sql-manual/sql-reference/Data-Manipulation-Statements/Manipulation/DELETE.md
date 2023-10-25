@@ -46,7 +46,7 @@ WHERE
 column_name op { value | value_list } [ AND column_name op { value | value_list } ...];
 ```
 
-<version since="dev">
+<version since="2.0">
 
 Syntax 2：This syntax can only used on UNIQUE KEY model
 
@@ -66,7 +66,7 @@ DELETE FROM table_name
 + op: Logical comparison operator, The optional types of op include: =, >, <, >=, <=, !=, in, not in
 + value | value_list: value or value list used for logial comparison
 
-<version since="dev">
+<version since="2.0">
 
 + WHERE condition: Specifies a condition to use to select rows for removal
 
@@ -77,7 +77,7 @@ DELETE FROM table_name
 
 + PARTITION partition_name | PARTITIONS (partition_name [, partition_name]): Specifies the partition or partitions to select rows for removal
 
-<version since="dev">
+<version since="2.0">
 
 + table_alias: alias of table
 + USING additional_tables: If you need to refer to additional tables in the WHERE clause to help identify the rows to be removed, then specify those table names in the USING clause. You can also use the USING clause to specify subqueries that identify the rows to be removed.
@@ -115,7 +115,7 @@ DELETE FROM table_name
    WHERE k1 >= 3 AND k2 = "abc";
    ````
 
-<version since="dev">
+<version since="2.0">
 
 4. use the result of `t2` join `t3` to romve rows from `t1`,delete table only support unique key model
 

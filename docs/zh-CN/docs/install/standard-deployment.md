@@ -224,11 +224,6 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
   <version since="1.2.0"></version>  
   由于从 1.2 版本开始支持 Java UDF 函数，BE 依赖于 Java 环境。所以要预先配置 `JAVA_HOME` 环境变量，也可以在 `start_be.sh` 启动脚本第一行添加 `export JAVA_HOME=your_java_home_path` 来添加环境变量。
 
-* 安装 Java UDF 函数
-
-   <version since="1.2.0">安装Java UDF 函数</version>  
-   因为从 1.2 版本开始支持 Java UDF 函数，需要从官网下载 Java UDF 函数的 JAR 包放到 BE 的 lib 目录下，否则可能会启动失败。
-
 * 在 FE 中添加所有 BE 节点
 
   BE 节点需要先在 FE 中添加，才可加入集群。可以使用 mysql-client([下载MySQL 5.7](https://dev.mysql.com/downloads/mysql/5.7.html)) 连接到 FE：

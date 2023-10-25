@@ -26,12 +26,6 @@ under the License.
 
 ## array_map
 
-<version since="dev">
-
-array_map(lambda,array1,array2....)
-
-</version>
-
 ### description
 
 #### Syntax

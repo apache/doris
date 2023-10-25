@@ -191,9 +191,6 @@ TransactionStatus: VISIBLE
   导入任务的超时时间(以秒为单位)，导入任务在设定的 timeout 时间内未完成则会被系统取消，变成 CANCELLED。
 
   目前 Insert Into 并不支持自定义导入的 timeout 时间，所有 Insert Into 导入的超时时间是统一的，默认的 timeout 时间为4小时。如果导入的源文件无法在规定时间内完成导入，则需要调整 FE 的参数```insert_load_default_timeout_second```。
-  
-  <version since="dev"></version>
-  同时 Insert Into 语句受到 Session 变量 `insert_timeout`的限制。可以通过 `SET insert_timeout = xxx;` 来增加超时时间，单位是秒。
 
 ### Session 变量
 

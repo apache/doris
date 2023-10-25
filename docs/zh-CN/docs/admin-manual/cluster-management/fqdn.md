@@ -26,7 +26,7 @@ under the License.
 
 # FQDN
 
-<version since="dev"></version>
+<version since="2.0"></version>
 
 本文介绍如何启用基于 FQDN（Fully Qualified Domain Name，完全限定域名 ）使用 Apache Doris。FQDN 是 Internet 上特定计算机或主机的完整域名。
 

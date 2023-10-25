@@ -25,7 +25,7 @@ under the License.
 -->
 
 # Mysql Load
-<version since="dev">
+<version since="2.0">
 
 This is an stand syntax of MySql [LOAD DATA](https://dev.mysql.com/doc/refman/8.0/en/load-data.html) for user to load local file.
 

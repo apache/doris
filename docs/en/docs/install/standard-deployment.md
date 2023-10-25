@@ -229,11 +229,6 @@ See the `lower_case_table_names` section in [Variables](../advanced/variables.md
   <version since="1.2.0"></version>
   Since Java UDF functions are supported from version 1.2, BE depends on the Java environment. So to pre-configure the `JAVA_HOME` environment variable, you can also add `export JAVA_HOME=your_java_home_path` to the first line of the `start_be.sh` startup script to add the environment variable.
 
-* Install Java UDF functions
-
-  <version since="1.2.0">Install Java UDF functions</version>
-  Because Java UDF functions are supported from version 1.2, you need to download the JAR package of Java UDF functions from the official website and put them in the lib directory of BE, otherwise it may fail to start.
-
 * Add all BE nodes in FE
 
   BE nodes need to be added in FE before they can join the cluster. You can use mysql-client ([Download MySQL 5.7](https://dev.mysql.com/downloads/mysql/5.7.html)) to connect to FE:
