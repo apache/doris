@@ -84,6 +84,8 @@
 #include "pipeline/exec/table_function_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
+#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
+#include "pipeline/pipeline_x/local_exchange/local_exchange_source_operator.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -411,9 +413,15 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         _runtime_states[i]->resize_op_id_to_local_state(max_operator_id());
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
-            auto task = std::make_unique<PipelineXTask>(_pipelines[pip_idx], _total_tasks++,
-                                                        _runtime_states[i].get(), this,
-                                                        _runtime_states[i]->runtime_profile());
+            auto task = std::make_unique<PipelineXTask>(
+                    _pipelines[pip_idx], _total_tasks++, _runtime_states[i].get(), this,
+                    _runtime_states[i]->runtime_profile(),
+                    _op_id_to_le_state.count(
+                            _pipelines[pip_idx]->operator_xs().front()->operator_id()) > 0
+                            ? _op_id_to_le_state
+                                      [_pipelines[pip_idx]->operator_xs().front()->operator_id()]
+                            : nullptr,
+                    i);
             pipeline_id_to_task.insert({_pipelines[pip_idx]->id(), task.get()});
             _tasks[i].emplace_back(std::move(task));
         }
@@ -463,6 +471,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
     _union_child_pipelines.clear();
     _set_child_pipelines.clear();
     _dag.clear();
+    _op_id_to_le_state.clear();
 
     return Status::OK();
 }
@@ -535,6 +544,37 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
 
     RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
 
+    return Status::OK();
+}
+
+Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorXPtr& op,
+                                                     PipelinePtr& cur_pipe,
+                                                     const std::vector<TExpr>& texprs) {
+    if (!_runtime_state->enable_local_shuffle() ||
+        _runtime_state->query_parallel_instance_num() == 1) {
+        return Status::OK();
+    }
+    auto local_exchange_id = next_operator_id();
+    op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id));
+    RETURN_IF_ERROR(cur_pipe->add_operator(op));
+
+    const auto downstream_pipeline_id = cur_pipe->id();
+    if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+        _dag.insert({downstream_pipeline_id, {}});
+    }
+    cur_pipe = add_pipeline();
+    _dag[downstream_pipeline_id].push_back(cur_pipe->id());
+
+    DataSinkOperatorXPtr sink;
+    sink.reset(new LocalExchangeSinkOperatorX(
+            local_exchange_id, _runtime_state->query_parallel_instance_num(), texprs));
+    RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+    RETURN_IF_ERROR(cur_pipe->sink_x()->init());
+
+    auto shared_state = LocalExchangeSharedState::create_shared();
+    shared_state->data_queue.resize(_runtime_state->query_parallel_instance_num());
+    shared_state->num_partitions = _runtime_state->query_parallel_instance_num();
+    _op_id_to_le_state.insert({local_exchange_id, shared_state});
     return Status::OK();
 }
 
@@ -633,6 +673,12 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(cur_pipe->set_sink(sink));
             RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+
+            if (!tnode.agg_node.need_finalize) {
+                RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
+                RETURN_IF_ERROR(
+                        _add_local_exchange(pool, op, cur_pipe, tnode.agg_node.grouping_exprs));
+            }
         }
         break;
     }

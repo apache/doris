@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 
+#include "concurrentqueue.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "vec/common/hash_table/hash_map_context_creator.h"
@@ -809,6 +810,49 @@ private:
     std::shared_ptr<SetSharedState> _set_state;
     int _cur_child_id;
     bool is_set_probe {false};
+};
+
+struct LocalExchangeSharedState {
+public:
+    ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
+    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> data_queue;
+    int num_partitions = 0;
+    std::atomic<int> running_sink_operators = 0;
+};
+
+struct LocalExchangeDependency final : public WriteDependency {
+public:
+    using SharedState = LocalExchangeSharedState;
+    LocalExchangeDependency(int id)
+            : WriteDependency(id, "LocalExchangeDependency"),
+              _local_exchange_shared_state(nullptr) {}
+    ~LocalExchangeDependency() override = default;
+    void* shared_state() override { return _local_exchange_shared_state.get(); }
+    void set_shared_state(std::shared_ptr<LocalExchangeSharedState> state) {
+        DCHECK(_local_exchange_shared_state == nullptr);
+        _local_exchange_shared_state = state;
+    }
+
+    void set_channel_id(int channel_id) { _channel_id = channel_id; }
+
+    Dependency* read_blocked_by() override {
+        if (config::enable_fuzzy_mode && !_should_run() &&
+            _read_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                         << id();
+        }
+        return _should_run() ? nullptr : this;
+    }
+
+private:
+    bool _should_run() const {
+        DCHECK(_local_exchange_shared_state != nullptr);
+        return _local_exchange_shared_state->data_queue[_channel_id].size_approx() > 0 ||
+               _local_exchange_shared_state->running_sink_operators == 0;
+    }
+
+    std::shared_ptr<LocalExchangeSharedState> _local_exchange_shared_state;
+    int _channel_id;
 };
 
 } // namespace pipeline

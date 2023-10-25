@@ -50,8 +50,9 @@ class PriorityTaskQueue;
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineXTask : public PipelineTask {
 public:
-    PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
-                  PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
+    PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
+                  PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
+                  std::shared_ptr<LocalExchangeSharedState> local_exchange_state, int task_idx);
 
     Status prepare(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
@@ -132,6 +133,8 @@ public:
     void release_dependency() override {
         std::vector<DependencySPtr> {}.swap(_downstream_dependency);
         DependencyMap {}.swap(_upstream_dependency);
+
+        _local_exchange_state = nullptr;
     }
 
     std::vector<DependencySPtr>& get_upstream_dependency(int id) {
@@ -161,7 +164,8 @@ private:
     DependencyMap _upstream_dependency;
 
     std::vector<DependencySPtr> _downstream_dependency;
-
+    std::shared_ptr<LocalExchangeSharedState> _local_exchange_state;
+    int _task_idx;
     bool _dry_run = false;
 };
 
