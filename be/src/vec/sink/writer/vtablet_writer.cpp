@@ -17,7 +17,6 @@
 
 #include "vtablet_writer.h"
 
-#include <bits/ranges_algo.h>
 #include <brpc/http_method.h>
 #include <bthread/bthread.h>
 #include <fmt/format.h>
@@ -35,10 +34,12 @@
 #include <google/protobuf/stubs/common.h>
 #include <sys/param.h>
 
+#include <algorithm>
 #include <exception>
 #include <initializer_list>
 #include <memory>
 #include <mutex>
+#include <ranges>
 #include <sstream>
 #include <string>
 #include <unordered_map>
