@@ -28,6 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
+import com.google.common.collect.Lists;
 import lombok.Getter;
 import org.apache.commons.lang3.NotImplementedException;
 
@@ -46,6 +47,8 @@ public class FrontendClause extends AlterClause {
         super(AlterOpType.ALTER_OTHER);
         this.params = params;
         this.role = role;
+        this.hostInfos = Lists.newArrayList();
+        this.names = Lists.newArrayList();
     }
 
     @Override
