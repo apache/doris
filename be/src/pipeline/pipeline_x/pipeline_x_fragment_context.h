@@ -166,7 +166,7 @@ private:
     // build probe operator and build operator in separate pipelines. To do this, we should build
     // ProbeSide first, and use `_pipelines_to_build` to store which pipeline the build operator
     // is in, so we can build BuildSide once we complete probe side.
-    struct Pipelines_Stack {
+    struct pipeline_parent_map {
         std::map<int, std::vector<PipelinePtr>> _build_side_pipelines;
         void push(int parent_node_id, PipelinePtr pipeline) {
             if (!_build_side_pipelines.contains(parent_node_id)) {
@@ -185,7 +185,7 @@ private:
             cur_pipe = child_pipeline[child_idx];
         }
         void clear() { _build_side_pipelines.clear(); }
-    } _pipeline_stack;
+    } _pipeline_parent_map;
 
     std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
     std::mutex _state_map_lock;
