@@ -37,8 +37,9 @@ suite("test_avg") {
     for (i in range(1, 100)) {
         sql """ INSERT INTO ${tableName} values (10000000000000${i}) """
     }
-    qt_sum """ SELECT SUM(c_bigint) FROM ${tableName} """
+    sql "sync"
     qt_count """ SELECT COUNT(c_bigint) FROM ${tableName} """
+    qt_sum """ SELECT SUM(c_bigint) FROM ${tableName} """
     qt_avg """ SELECT AVG(c_bigint) FROM ${tableName} """
     sql""" DROP TABLE IF EXISTS ${tableName} """
 
