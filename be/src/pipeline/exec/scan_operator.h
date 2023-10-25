@@ -418,8 +418,6 @@ public:
 
     Status try_close(RuntimeState* state) override;
 
-    FinishDependency* finish_blocked_by(RuntimeState* state) const override;
-
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override { return OperatorXBase::prepare(state); }
     Status open(RuntimeState* state) override;

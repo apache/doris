@@ -101,17 +101,12 @@ public:
     std::string debug_string() override;
 
     bool is_pending_finish() override {
-        for (auto& op : _operators) {
-            auto dep = op->finish_blocked_by(_state);
+        for (auto* fin_dep : _finish_dependencies) {
+            auto* dep = fin_dep->finish_blocked_by();
             if (dep != nullptr) {
                 dep->start_finish_watcher();
                 return true;
             }
-        }
-        auto dep = _sink->finish_blocked_by(_state);
-        if (dep != nullptr) {
-            dep->start_finish_watcher();
-            return true;
         }
         return false;
     }
@@ -157,6 +152,7 @@ private:
 
     std::vector<Dependency*> _read_dependencies;
     WriteDependency* _write_dependencies;
+    std::vector<FinishDependency*> _finish_dependencies;
 
     DependencyMap _upstream_dependency;
 

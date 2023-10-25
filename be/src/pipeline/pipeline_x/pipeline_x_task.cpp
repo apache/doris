@@ -100,12 +100,16 @@ Status PipelineXTask::extract_dependencies() {
         auto* dep = local_state->dependency();
         DCHECK(dep != nullptr);
         _read_dependencies.push_back(dep);
+        auto* fin_dep = local_state->finishdependency();
+        _finish_dependencies.push_back(fin_dep);
     }
     {
         auto* local_state = _state->get_sink_local_state(_sink->operator_id());
         auto* dep = local_state->dependency();
         DCHECK(dep != nullptr);
         _write_dependencies = dep;
+        auto* fin_dep = local_state->finishdependency();
+        _finish_dependencies.push_back(fin_dep);
     }
     return Status::OK();
 }

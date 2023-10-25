@@ -1282,12 +1282,6 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
 }
 
 template <typename LocalStateType>
-FinishDependency* ScanOperatorX<LocalStateType>::finish_blocked_by(RuntimeState* state) const {
-    auto& local_state = state->get_local_state(operator_id())->template cast<LocalStateType>();
-    return local_state._finish_dependency->finish_blocked_by();
-}
-
-template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<LocalStateType>::init(tnode, state));
 

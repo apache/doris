@@ -301,7 +301,7 @@ PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* 
                                                          RuntimeState* state)
         : _parent(parent),
           _state(state),
-          _finish_dependency(new FinishDependency(parent->operator_id(),
+          _finish_dependency(new FinishDependency(parent->operator_id(), parent->node_id(),
                                                   parent->get_name() + "_FINISH_DEPENDENCY")) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
@@ -310,7 +310,7 @@ PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXB
           _peak_memory_usage_counter(nullptr),
           _parent(parent),
           _state(state),
-          _finish_dependency(new FinishDependency(parent->operator_id(),
+          _finish_dependency(new FinishDependency(parent->operator_id(), parent->node_id(),
                                                   parent->get_name() + "_FINISH_DEPENDENCY")) {}
 
 template <typename DependencyType>

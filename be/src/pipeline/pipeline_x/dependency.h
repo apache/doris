@@ -151,7 +151,8 @@ protected:
 
 class FinishDependency final : public Dependency {
 public:
-    FinishDependency(int id, std::string name) : Dependency(id, name), _ready_to_finish(true) {}
+    FinishDependency(int id, int node_id, std::string name)
+            : Dependency(id, name), _ready_to_finish(true), _node_id(node_id) {}
     ~FinishDependency() override = default;
 
     void start_finish_watcher() {
@@ -161,15 +162,15 @@ public:
         _finish_dependency_watcher.start();
     }
 
-    [[nodiscard]] virtual int64_t finish_watcher_elapse_time() {
+    [[nodiscard]] int64_t finish_watcher_elapse_time() {
         return _finish_dependency_watcher.elapsed_time();
     }
 
-    [[nodiscard]] virtual FinishDependency* finish_blocked_by() {
+    [[nodiscard]] FinishDependency* finish_blocked_by() {
         if (config::enable_fuzzy_mode && !_ready_to_finish &&
             _finish_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
+                         << _node_id;
         }
         return _ready_to_finish ? nullptr : this;
     }
@@ -189,6 +190,7 @@ public:
 protected:
     std::atomic<bool> _ready_to_finish;
     MonotonicStopWatch _finish_dependency_watcher;
+    const int _node_id;
 };
 
 class AndDependency final : public WriteDependency {
