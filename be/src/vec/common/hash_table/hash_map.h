@@ -270,12 +270,12 @@ public:
         const auto batch_size = max_batch_size;
         const auto elem_num = visited.size();
         int count = 0;
-        build_idxs.reserve(batch_size);
+        build_idxs.resize(batch_size);
 
         while (count < batch_size && iter_idx < elem_num) {
             const auto matched = visited[iter_idx];
             build_idxs[count] = iter_idx;
-            if constexpr (JoinOpType != doris::TJoinOp::RIGHT_ANTI_JOIN) {
+            if constexpr (JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN) {
                 count += !matched;
             } else {
                 count += matched;
@@ -284,7 +284,7 @@ public:
         }
 
         build_idxs.resize(count);
-        return iter_idx == elem_num;
+        return iter_idx >= elem_num;
     }
 
 private:
@@ -300,8 +300,9 @@ private:
                 }
                 build_idx = next[build_idx];
             }
+            probe_idx++;
         }
-        return std::pair {probe_rows, 0};
+        return std::pair {probe_idx, 0};
     }
 
     template <int JoinOpType>

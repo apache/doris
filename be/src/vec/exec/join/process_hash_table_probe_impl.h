@@ -661,38 +661,43 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
     //            }
     //        }
     //        _build_blocks_locs.resize(block_size);
-
     auto& mcol = mutable_block.mutable_columns();
-    *eos = hash_table_ctx.hash_table->template iterate_map<JoinOpType>(_build_block_rows);
+    auto is_eof = hash_table_ctx.hash_table->template iterate_map<JoinOpType>(_build_block_rows);
+    *eos = is_eof;
     auto block_size = _build_block_rows.size();
-    int right_col_idx = _parent->left_table_data_types().size();
+    int right_col_idx =
+            JoinOpType == TJoinOp::RIGHT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN
+                    ? _parent->left_table_data_types().size()
+                    : 0;
     int right_col_len = _parent->right_table_data_types().size();
 
-    for (size_t j = 0; j < right_col_len; ++j) {
-        const auto& column = *_build_block->get_by_position(j).column;
-        mcol[j + right_col_idx]->insert_indices_from(
-                column, _build_block_rows.data(),
-                _build_block_rows.data() + _build_block_rows.size());
-    }
-
-    // just resize the left table column in case with other conjunct to make block size is not zero
-    if (_is_right_semi_anti && _have_other_join_conjunct) {
-        auto target_size = mcol[right_col_idx]->size();
-        for (int i = 0; i < right_col_idx; ++i) {
-            mcol[i]->resize(target_size);
+    if (block_size) {
+        for (size_t j = 0; j < right_col_len; ++j) {
+            const auto& column = *_build_block->get_by_position(j).column;
+            LOG(INFO) << "happne lee build block size:" << column.size();
+            mcol[j + right_col_idx]->insert_indices_from(column, _build_block_rows.data(),
+                                                         _build_block_rows.data() + block_size);
         }
-    }
 
-    // right outer join / full join need insert data of left table
-    if constexpr (JoinOpType == TJoinOp::RIGHT_OUTER_JOIN ||
-                  JoinOpType == TJoinOp::FULL_OUTER_JOIN) {
-        for (int i = 0; i < right_col_idx; ++i) {
-            assert_cast<ColumnNullable*>(mcol[i].get())->insert_many_defaults(block_size);
+        // just resize the left table column in case with other conjunct to make block size is not zero
+        if (_is_right_semi_anti && _have_other_join_conjunct) {
+            auto target_size = mcol[right_col_idx]->size();
+            for (int i = 0; i < right_col_idx; ++i) {
+                mcol[i]->resize(target_size);
+            }
         }
-        _tuple_is_null_left_flags->resize_fill(block_size, 1);
+
+        // right outer join / full join need insert data of left table
+        if constexpr (JoinOpType == TJoinOp::RIGHT_OUTER_JOIN ||
+                      JoinOpType == TJoinOp::FULL_OUTER_JOIN) {
+            for (int i = 0; i < right_col_idx; ++i) {
+                assert_cast<ColumnNullable*>(mcol[i].get())->insert_many_defaults(block_size);
+            }
+            _tuple_is_null_left_flags->resize_fill(block_size, 1);
+        }
+        output_block->swap(mutable_block.to_block(0));
+        DCHECK(block_size <= _batch_size);
     }
-    output_block->swap(mutable_block.to_block(0));
-    DCHECK(block_size <= _batch_size);
     return Status::OK();
     //    else {
     //        LOG(FATAL) << "Invalid RowRefList";
