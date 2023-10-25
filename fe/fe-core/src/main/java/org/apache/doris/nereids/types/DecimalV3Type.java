@@ -107,7 +107,11 @@ public class DecimalV3Type extends FractionalType {
         Preconditions.checkArgument(scale >= 0, "scale should not smaller than 0, but real scale is " + scale);
         Preconditions.checkArgument(precision >= scale, "precision should not smaller than scale,"
                 + " but precision is " + precision, ", scale is " + scale);
-        boolean enableDecimal256 = ConnectContext.get().getSessionVariable().enableDecimal256();
+        boolean enableDecimal256 = false;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+        }
         if (precision > MAX_DECIMAL128_PRECISION && !enableDecimal256) {
             throw new NotSupportedException("Datatype DecimalV3 with precision " + precision
                     + ", which is greater than 38 is disabled by default. set enable_decimal256 = true to enable it.");
@@ -126,7 +130,11 @@ public class DecimalV3Type extends FractionalType {
      * create DecimalV3Type, not throwing NotSupportedException.
      */
     public static DecimalV3Type createDecimalV3TypeLooseCheck(int precision, int scale) {
-        boolean enableDecimal256 = ConnectContext.get().getSessionVariable().enableDecimal256();
+        boolean enableDecimal256 = false;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+        }
         if (enableDecimal256) {
             Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL256_PRECISION,
                     "precision should in (0, " + MAX_DECIMAL256_PRECISION + "], but real precision is " + precision);
@@ -158,7 +166,11 @@ public class DecimalV3Type extends FractionalType {
             boolean overflowToDouble) {
         int scale = Math.max(leftScale, rightScale);
         int range = Math.max(leftPrecision - leftScale, rightPrecision - rightScale);
-        boolean enableDecimal256 = ConnectContext.get().getSessionVariable().enableDecimal256();
+        boolean enableDecimal256 = false;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+        }
         if (range + scale > (enableDecimal256 ? MAX_DECIMAL256_PRECISION : MAX_DECIMAL128_PRECISION)
                 && overflowToDouble) {
             return DoubleType.INSTANCE;
@@ -232,7 +244,11 @@ public class DecimalV3Type extends FractionalType {
         } else if (precision <= MAX_DECIMAL128_PRECISION) {
             return 16;
         } else {
-            boolean enableDecimal256 = ConnectContext.get().getSessionVariable().enableDecimal256();
+            boolean enableDecimal256 = false;
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null) {
+                enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+            }
             if (enableDecimal256) {
                 return 32;
             } else {

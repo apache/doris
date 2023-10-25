@@ -304,9 +304,14 @@ public class TypeDef implements ParseNode {
                 break;
             }
             case DECIMAL256: {
-                SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-                boolean enableDecimal256 = sessionVariable.enableDecimal256();
-                boolean enableNereidsPlanner = sessionVariable.isEnableNereidsPlanner();
+                boolean enableNereidsPlanner = false;
+                boolean enableDecimal256 = false;
+                ConnectContext connectContext = ConnectContext.get();
+                if (connectContext != null) {
+                    SessionVariable sessionVariable = connectContext.getSessionVariable();
+                    enableDecimal256 = sessionVariable.enableDecimal256();
+                    enableNereidsPlanner = sessionVariable.isEnableNereidsPlanner();
+                }
                 if (enableNereidsPlanner && enableDecimal256) {
                     int precision = scalarType.decimalPrecision();
                     int scale = scalarType.decimalScale();

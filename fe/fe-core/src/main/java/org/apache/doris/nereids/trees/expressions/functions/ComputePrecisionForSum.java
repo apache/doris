@@ -29,7 +29,11 @@ public interface ComputePrecisionForSum extends ComputePrecision {
         DataType argumentType = getArgumentType(0);
         if (signature.getArgType(0) instanceof DecimalV3Type) {
             DecimalV3Type decimalV3Type = DecimalV3Type.forType(argumentType);
-            boolean enableDecimal256 = ConnectContext.get().getSessionVariable().enableDecimal256();
+            boolean enableDecimal256 = false;
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null) {
+                enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+            }
             return signature.withArgumentType(0, decimalV3Type)
                     .withReturnType(DecimalV3Type.createDecimalV3Type(
                             enableDecimal256 ? DecimalV3Type.MAX_DECIMAL256_PRECISION
