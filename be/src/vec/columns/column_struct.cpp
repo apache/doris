@@ -294,6 +294,21 @@ void ColumnStruct::replicate(const uint32_t* indexs, size_t target_size, IColumn
     }
 }
 
+MutableColumnPtr ColumnStruct::get_shrinked_column() {
+    const size_t tuple_size = columns.size();
+    MutableColumns new_columns(tuple_size);
+
+    for (size_t i = 0; i < tuple_size; ++i) {
+        if (columns[i]->is_column_string() || columns[i]->is_column_array() ||
+            columns[i]->is_column_map() || columns[i]->is_column_struct()) {
+            new_columns[i] = columns[i]->get_shrinked_column();
+        } else {
+            new_columns[i] = columns[i]->get_ptr();
+        }
+    }
+    return ColumnStruct::create(std::move(new_columns));
+}
+
 MutableColumns ColumnStruct::scatter(ColumnIndex num_columns, const Selector& selector) const {
     const size_t tuple_size = columns.size();
     std::vector<MutableColumns> scattered_tuple_elements(tuple_size);
