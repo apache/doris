@@ -96,7 +96,11 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
 
 Status PipelineXTask::extract_dependencies() {
     for (auto op : _operators) {
-        auto* local_state = _state->get_local_state(op->operator_id());
+        auto result = _state->get_local_state_result(op->operator_id());
+        if (!result) {
+            return result.error();
+        }
+        auto* local_state = result.value();
         auto* dep = local_state->dependency();
         DCHECK(dep != nullptr);
         _read_dependencies.push_back(dep);
@@ -104,7 +108,11 @@ Status PipelineXTask::extract_dependencies() {
         _finish_dependencies.push_back(fin_dep);
     }
     {
-        auto* local_state = _state->get_sink_local_state(_sink->operator_id());
+        auto result = _state->get_sink_local_state_result(_sink->operator_id());
+        if (!result) {
+            return result.error();
+        }
+        auto* local_state = result.value();
         auto* dep = local_state->dependency();
         DCHECK(dep != nullptr);
         _write_dependencies = dep;

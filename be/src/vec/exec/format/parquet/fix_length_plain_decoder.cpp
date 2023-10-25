@@ -173,6 +173,7 @@ Status FixLengthPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
                                                                         select_vector);
         }
         break;
+    // TODO: decimal256
     case TypeIndex::String:
         [[fallthrough]];
     case TypeIndex::FixedString:

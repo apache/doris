@@ -43,5 +43,57 @@ suite("test_predicate") {
 
     qt_select2 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ 1 FROM ${table1} WHERE CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(2,1));"
     qt_select3 "SELECT * FROM ${table1} WHERE k1 != 1.1 ORDER BY k1"
+
+    // decimal256
+    sql "set enable_nereids_planner = true;"
+    sql "set enable_decimal256 = true;"
+    qt_select4 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(76,1))"
+    qt_select5 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ 1 FROM ${table1} WHERE CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(76,1));"
+    qt_select6 "SELECT * FROM ${table1} WHERE k1 != cast(1.1 as decimalv3(76, 1)) ORDER BY k1"
     sql "drop table if exists ${table1}"
+
+    qt_select256_1 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ cast(999999999999999999999999999999999999999999999999999999999999999999.9999999999 as decimalv3(76,10)) > cast(999999999999999999999999999999999999999999999999999999999999999999.9999999998 as decimalv3(76,10))"
+    qt_select256_2 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ cast(999999999999999999999999999999999999999999999999999999999999999999.9999999998 as decimalv3(76,10)) > cast(999999999999999999999999999999999999999999999999999999999999999999.9999999998 as decimalv3(76,10))"
+    qt_select256_3 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ cast(999999999999999999999999999999999999999999999999999999999999999999.9999999999 as decimalv3(76,10)) >= cast(999999999999999999999999999999999999999999999999999999999999999999.9999999998 as decimalv3(76,10))"
+    qt_select256_4 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ cast(999999999999999999999999999999999999999999999999999999999999999999.9999999997 as decimalv3(76,10)) >= cast(999999999999999999999999999999999999999999999999999999999999999999.9999999998 as decimalv3(76,10))"
+
+    qt_select256_5 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ cast(999999999999999999999999999999999999999999999999999999999999999999.9999999998 as decimalv3(76,10)) < cast(999999999999999999999999999999999999999999999999999999999999999999.9999999999 as decimalv3(76,10))"
+    qt_select256_6 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ cast(999999999999999999999999999999999999999999999999999999999999999999.9999999999 as decimalv3(76,10)) < cast(999999999999999999999999999999999999999999999999999999999999999999.9999999998 as decimalv3(76,10))"
+    qt_select256_7 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ cast(999999999999999999999999999999999999999999999999999999999999999999.9999999998 as decimalv3(76,10)) <= cast(999999999999999999999999999999999999999999999999999999999999999999.9999999998 as decimalv3(76,10))"
+    qt_select256_8 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ cast(999999999999999999999999999999999999999999999999999999999999999999.9999999999 as decimalv3(76,10)) <= cast(999999999999999999999999999999999999999999999999999999999999999999.9999999998 as decimalv3(76,10))"
+
+    qt_select256_9 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ cast(999999999999999999999999999999999999999999999999999999999999999999.9999999999 as decimalv3(76,10)) = cast(999999999999999999999999999999999999999999999999999999999999999999.9999999999 as decimalv3(76,10))"
+    qt_select256_10 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ cast(999999999999999999999999999999999999999999999999999999999999999999.9999999999 as decimalv3(76,10)) = cast(999999999999999999999999999999999999999999999999999999999999999999.9999999998 as decimalv3(76,10))"
+
+    qt_select256_11 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ cast(999999999999999999999999999999999999999999999999999999999999999999.9999999999 as decimalv3(76,10)) != cast(999999999999999999999999999999999999999999999999999999999999999999.9999999998 as decimalv3(76,10))"
+    qt_select256_12 "SELECT /*+ SET_VAR(enable_fold_constant_by_be = false) */ cast(999999999999999999999999999999999999999999999999999999999999999999.9999999999 as decimalv3(76,10)) != cast(999999999999999999999999999999999999999999999999999999999999999999.9999999999 as decimalv3(76,10))"
+
+
+    sql "DROP TABLE IF EXISTS `test_predicate_128_1`";
+    sql """
+    CREATE TABLE IF NOT EXISTS `test_predicate_128_1` (
+      `k1` decimalv3(38, 6) NULL COMMENT "",
+      `k2` decimalv3(38, 6) NULL COMMENT "",
+      `k3` decimalv3(38, 6) NULL COMMENT ""
+    ) ENGINE=OLAP
+    COMMENT "OLAP"
+    DISTRIBUTED BY HASH(`k1`, `k2`, `k3`) BUCKETS 8
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    sql """insert into test_predicate_128_1 values(1, 99999999999999999999999999999999.999999, 99999999999999999999999999999999.999999),
+            (2, 49999999999999999999999999999999.999999, 49999999999999999999999999999999.999999),
+            (3, 33333333333333333333333333333333.333333, 33333333333333333333333333333333.333333),
+            (4.444444, 2.222222, 3.333333);"""
+    qt_decimal256_select_all "select * from test_predicate_128_1 order by k1, k2;"
+    qt_decimal256_predicate_0 "select * from test_predicate_128_1 where cast(k2 as decimalv3(76, 6)) > (cast(33333333333333333333333333333333.333333 as decimalv3(76,7))) order by k1, k2;"
+    qt_decimal256_predicate_1 "select * from test_predicate_128_1 where cast(k2 as decimalv3(76, 6)) >= (cast(999999999999999999999999999999990.999999 as decimalv3(76,6)) / 10)order by k1, k2;"
+
+    qt_decimal256_predicate_2 "select * from test_predicate_128_1 where cast(k2 as decimalv3(76, 6)) < (cast(49999999999999999999999999999999.999999 as decimalv3(76,7))) order by k1, k2;"
+    qt_decimal256_predicate_3 "select * from test_predicate_128_1 where cast(k2 as decimalv3(76, 6)) <= (cast(33333333333333333333333333333333.333333 as decimalv3(76,7))) order by k1, k2;"
+
+    qt_decimal256_predicate_4 "select * from test_predicate_128_1 where cast(k2 as decimalv3(76, 6)) = (cast(99999999999999999999999999999999.999999 as decimalv3(76,7))) order by k1, k2;"
+    qt_decimal256_predicate_5 "select * from test_predicate_128_1 where cast(k2 as decimalv3(76, 6)) != (cast(99999999999999999999999999999999.999999 as decimalv3(76,7))) order by k1, k2;"
+
 }

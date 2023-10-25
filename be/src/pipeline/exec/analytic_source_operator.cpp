@@ -378,7 +378,7 @@ Status AnalyticSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
 
 Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (local_state._shared_state->input_eos &&
         (local_state._output_block_index == local_state._shared_state->input_blocks.size() ||

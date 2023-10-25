@@ -37,9 +37,17 @@ ALTER SYSTEM MKDIFY BACKEND
 
 语法：
 
+- 通过 host 和 port 查找 backend
+
 ```sql
 ALTER SYSTEM MODIFY BACKEND "host:heartbeat_port" SET ("key" = "value"[, ...]);
 ```
+
+- 通过 backend_id 查找 backend
+
+```sql
+ALTER SYSTEM MODIFY BACKEND "id1" SET ("key" = "value"[, ...]);
+````
 
  说明：
 
@@ -63,16 +71,31 @@ ALTER SYSTEM MODIFY BACKEND "host:heartbeat_port" SET ("key" = "value"[, ...]);
    ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("tag.location" = "group_a", "tag.compute" = "c1");
    ```
 
+   ```sql
+   ALTER SYSTEM MODIFY BACKEND "id1" SET ("tag.location" = "group_a");
+   ALTER SYSTEM MODIFY BACKEND "id1" SET ("tag.location" = "group_a", "tag.compute" = "c1");
+   ````
+
 2. 修改 BE 的查询禁用属性
    
    ```sql
    ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("disable_query" = "true");
    ```
+
+    ```sql
+   ALTER SYSTEM MODIFY BACKEND "id1" SET ("disable_query" = "true");
+    ````   
+
 3. 修改 BE 的导入禁用属性
    
    ```sql
    ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("disable_load" = "true");
    ```
+
+    ```sql
+   ALTER SYSTEM MODIFY BACKEND "id1" SET ("disable_load" = "true");
+    ````   
+
 ### Keywords
 
     ALTER, SYSTEM, ADD, BACKEND, ALTER SYSTEM

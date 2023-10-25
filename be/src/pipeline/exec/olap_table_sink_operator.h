@@ -94,7 +94,7 @@ public:
     }
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+        auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.profile()->total_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
         return local_state.sink(state, in_block, source_state);

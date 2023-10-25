@@ -199,6 +199,9 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
         ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL128I>::create();
         break;
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+        ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL256>::create();
+        break;
     default:
         LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << int(field.type());
     }

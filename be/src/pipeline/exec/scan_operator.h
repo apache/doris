@@ -434,6 +434,7 @@ public:
     int64_t get_push_down_count() const { return _push_down_count; }
     using OperatorX<LocalStateType>::id;
     using OperatorX<LocalStateType>::operator_id;
+    using OperatorX<LocalStateType>::get_local_state;
 
 protected:
     using LocalState = LocalStateType;
