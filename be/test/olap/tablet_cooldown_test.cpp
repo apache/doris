@@ -136,7 +136,7 @@ public:
 
 protected:
     Status create_file_impl(const Path& path, io::FileWriterPtr* writer,
-                            const FileWriterOptions* opts) override {
+                            const io::FileWriterOptions* opts) override {
         Path fs_path = path;
         *writer = std::make_unique<FileWriterMock>(fs_path);
         return Status::OK();
