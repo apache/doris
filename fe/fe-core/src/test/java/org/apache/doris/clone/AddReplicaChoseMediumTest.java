@@ -20,6 +20,7 @@ package org.apache.doris.clone;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.TestWithFeService;
@@ -37,8 +38,8 @@ public class AddReplicaChoseMediumTest extends TestWithFeService {
     protected void beforeCreatingConnectContext() throws Exception {
         Config.enable_round_robin_create_tablet = true;
         Config.allow_replica_on_same_host = true;
-        Config.tablet_checker_interval_ms = 100;
-        Config.tablet_schedule_interval_ms = 100;
+        FeConstants.tablet_checker_interval_ms = 100;
+        FeConstants.tablet_schedule_interval_ms = 100;
         Config.schedule_slot_num_per_hdd_path = 1;
     }
 
