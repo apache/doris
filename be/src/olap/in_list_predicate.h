@@ -97,7 +97,7 @@ public:
             if constexpr (Type == TYPE_STRING || Type == TYPE_CHAR) {
                 tmp = convert(*col, condition, arena);
             } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
-                                 Type == TYPE_DECIMAL128I) {
+                                 Type == TYPE_DECIMAL128I || Type == TYPE_DECIMAL256) {
                 tmp = convert(*col, condition);
             } else {
                 tmp = convert(condition);

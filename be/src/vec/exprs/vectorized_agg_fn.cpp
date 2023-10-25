@@ -203,7 +203,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(
                 _fn.name.function_name, argument_types, _data_type->is_nullable(),
-                state->be_exec_version());
+                state->be_exec_version(), state->enable_decima256());
     }
     if (_function == nullptr) {
         return Status::InternalError("Agg Function {} is not implemented", _fn.signature);

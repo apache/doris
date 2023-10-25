@@ -245,7 +245,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     }
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I: {
+    case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256: {
         auto decimal_type = remove_nullable(type_ptr);
         auto val = decimal_type->to_string(*column, row);
         fmt::format_to(_insert_stmt_buffer, "{}", val);

@@ -52,9 +52,10 @@ class Arena;
 } // namespace doris
 
 //TODO: use marcos below to decouple array function calls
-#define ALL_COLUMNS_NUMBER                                                                       \
-    ColumnUInt8, ColumnInt8, ColumnInt16, ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32, \
-            ColumnFloat64, ColumnDecimal32, ColumnDecimal64, ColumnDecimal128I, ColumnDecimal128
+#define ALL_COLUMNS_NUMBER                                                                        \
+    ColumnUInt8, ColumnInt8, ColumnInt16, ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32,  \
+            ColumnFloat64, ColumnDecimal32, ColumnDecimal64, ColumnDecimal128I, ColumnDecimal128, \
+            ColumnDecimal256
 #define ALL_COLUMNS_TIME ColumnDate, ColumnDateTime, ColumnDateV2, ColumnDateTimeV2
 #define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME
 #define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString

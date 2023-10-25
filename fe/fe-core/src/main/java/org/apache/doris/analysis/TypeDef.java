@@ -29,6 +29,8 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TPrimitiveType;
 
@@ -300,6 +302,34 @@ public class TypeDef implements ParseNode {
                             + " Scale is " + decimal128Scale + " and precision is " + decimal128Precision);
                 }
                 break;
+            }
+            case DECIMAL256: {
+                SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+                boolean enableDecimal256 = sessionVariable.enableDecimal256();
+                boolean enableNereidsPlanner = sessionVariable.isEnableNereidsPlanner();
+                if (enableNereidsPlanner && enableDecimal256) {
+                    int precision = scalarType.decimalPrecision();
+                    int scale = scalarType.decimalScale();
+                    if (precision < 1 || precision > ScalarType.MAX_DECIMAL256_PRECISION) {
+                        throw new AnalysisException("Precision of decimal256 must between 1 and 76."
+                                + " Precision was set to: " + precision + ".");
+                    }
+                    // scale >= 0
+                    if (scale < 0) {
+                        throw new AnalysisException("Scale of decimal must not be less than 0." + " Scale was set to: "
+                                + scale + ".");
+                    }
+                    // scale < precision
+                    if (scale > precision) {
+                        throw new AnalysisException("Scale of decimal must be smaller than precision."
+                                + " Scale is " + scale + " and precision is " + precision);
+                    }
+                    break;
+                } else {
+                    int precision = scalarType.decimalPrecision();
+                    throw new AnalysisException(
+                            "Column of type Decimal256 with precision " + precision + " in not supported.");
+                }
             }
             case TIMEV2:
             case DATETIMEV2: {

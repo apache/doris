@@ -59,6 +59,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256:
     case TYPE_BOOLEAN:
     case TYPE_ARRAY:
     case TYPE_STRUCT:
@@ -203,6 +204,11 @@ template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
     using CppType = vectorized::Decimal128I;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128I>;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DECIMAL256> {
+    using CppType = vectorized::Decimal256;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal256>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_LARGEINT> {

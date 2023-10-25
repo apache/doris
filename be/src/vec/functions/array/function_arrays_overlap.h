@@ -225,6 +225,10 @@ public:
             ret = _execute_internal<ColumnDecimal128>(left_exec_data, right_exec_data,
                                                       dst_null_map_data,
                                                       dst_nested_col->get_data().data());
+        } else if (left_which_type.is_decimal256()) {
+            ret = _execute_internal<ColumnDecimal256>(left_exec_data, right_exec_data,
+                                                      dst_null_map_data,
+                                                      dst_nested_col->get_data().data());
         }
 
         if (ret.ok()) {

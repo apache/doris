@@ -80,6 +80,7 @@ private:
         add_mapping<FieldType::OLAP_FIELD_TYPE_DECIMAL32>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_DECIMAL64>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>();
+        add_mapping<FieldType::OLAP_FIELD_TYPE_DECIMAL256>();
     }
 
     template <FieldType field_type>

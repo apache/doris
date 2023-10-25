@@ -53,6 +53,7 @@ using ColumnDecimal32 = ColumnDecimal<Decimal32>;
 using ColumnDecimal64 = ColumnDecimal<Decimal64>;
 using ColumnDecimal128 = ColumnDecimal<Decimal128>;
 using ColumnDecimal128I = ColumnDecimal<Decimal128I>;
+using ColumnDecimal256 = ColumnDecimal<Decimal256>;
 
 template <typename T>
 struct IsFixLenColumnType {

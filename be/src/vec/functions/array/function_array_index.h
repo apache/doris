@@ -357,6 +357,10 @@ private:
                 return_column = _execute_number_expanded<ColumnDecimal128>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
+            } else if (left_which_type.is_decimal256()) {
+                return_column = _execute_number_expanded<ColumnDecimal256>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
             }
         } else if ((is_date_or_datetime(right_type) || is_date_v2_or_datetime_v2(right_type)) &&
                    (is_date_or_datetime(left_element_type) ||

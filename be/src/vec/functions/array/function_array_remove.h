@@ -329,6 +329,9 @@ private:
             } else if (left_which_type.is_decimal128()) {
                 res = _execute_number_expanded<ColumnDecimal128>(offsets, *nested_column,
                                                                  *right_column, nested_null_map);
+            } else if (left_which_type.is_decimal256()) {
+                res = _execute_number_expanded<ColumnDecimal256>(offsets, *nested_column,
+                                                                 *right_column, nested_null_map);
             }
         } else if (is_date_or_datetime(right_type) && is_date_or_datetime(left_element_type)) {
             if (left_which_type.is_date()) {

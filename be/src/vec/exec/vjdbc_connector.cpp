@@ -335,7 +335,8 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_DECIMALV2:
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I: {
+    case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256: {
         if (type_str != "java.math.BigDecimal") {
             return Status::InternalError(error_msg);
         }

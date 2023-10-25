@@ -315,6 +315,7 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL32)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL64)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL128I)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL256)
 #undef M
     default:
         return Status::NotSupported("unsupported type for bitmap index: {}",

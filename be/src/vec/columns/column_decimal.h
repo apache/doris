@@ -201,7 +201,7 @@ public:
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
     bool get_bool(size_t n) const override { return bool(data[n]); }
-    Int64 get_int(size_t n) const override { return Int64(data[n] * scale); }
+    Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
     UInt64 get64(size_t n) const override;
     bool is_default_at(size_t n) const override { return data[n].value == 0; }
 

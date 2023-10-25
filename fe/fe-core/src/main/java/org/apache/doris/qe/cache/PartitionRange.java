@@ -189,6 +189,7 @@ public class PartitionRange {
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
+                case DECIMAL256:
                 case CHAR:
                 case VARCHAR:
                 case STRING:

@@ -46,7 +46,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"

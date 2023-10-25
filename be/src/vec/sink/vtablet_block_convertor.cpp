@@ -137,14 +137,16 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
         pmap = IsMin ? &_min_decimal32_val : &_max_decimal32_val;
     } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal64>) {
         pmap = IsMin ? &_min_decimal64_val : &_max_decimal64_val;
-    } else {
+    } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal128I>) {
         pmap = IsMin ? &_min_decimal128_val : &_max_decimal128_val;
+    } else {
+        pmap = IsMin ? &_min_decimal256_val : &_max_decimal256_val;
     }
 
     // found
     auto iter = pmap->find(type.precision);
     if (iter != pmap->end()) {
-        return iter->second;
+        return DecimalType(iter->second);
     }
 
     typename DecimalType::NativeType value;
@@ -154,7 +156,7 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
         value = vectorized::max_decimal_value<DecimalType>(type.precision);
     }
     pmap->emplace(type.precision, value);
-    return value;
+    return DecimalType(value);
 }
 
 Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const TypeDescriptor& type,
@@ -334,6 +336,10 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
     }
     case TYPE_DECIMAL128I: {
         CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal128I);
+        break;
+    }
+    case TYPE_DECIMAL256: {
+        CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal256);
         break;
     }
 #undef CHECK_VALIDATION_FOR_DECIMALV3

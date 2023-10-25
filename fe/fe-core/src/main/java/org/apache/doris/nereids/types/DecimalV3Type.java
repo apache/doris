@@ -20,7 +20,9 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.types.coercion.FractionalType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -37,6 +39,7 @@ public class DecimalV3Type extends FractionalType {
     public static final int MAX_DECIMAL32_PRECISION = 9;
     public static final int MAX_DECIMAL64_PRECISION = 18;
     public static final int MAX_DECIMAL128_PRECISION = 38;
+    public static final int MAX_DECIMAL256_PRECISION = 76;
 
     public static final DecimalV3Type WILDCARD = new DecimalV3Type(-1, -1);
     public static final DecimalV3Type SYSTEM_DEFAULT = new DecimalV3Type(MAX_DECIMAL128_PRECISION, DEFAULT_SCALE);
@@ -99,18 +102,49 @@ public class DecimalV3Type extends FractionalType {
 
     /** createDecimalV3Type. */
     public static DecimalV3Type createDecimalV3Type(int precision, int scale) {
-        Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL128_PRECISION,
-                "precision should in (0, " + MAX_DECIMAL128_PRECISION + "], but real precision is " + precision);
+        Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL256_PRECISION,
+                "precision should in (0, " + MAX_DECIMAL256_PRECISION + "], but real precision is " + precision);
+        Preconditions.checkArgument(scale >= 0, "scale should not smaller than 0, but real scale is " + scale);
+        Preconditions.checkArgument(precision >= scale, "precision should not smaller than scale,"
+                + " but precision is " + precision, ", scale is " + scale);
+        boolean enableDecimal256 = ConnectContext.get().getSessionVariable().enableDecimal256();
+        if (precision > MAX_DECIMAL128_PRECISION && !enableDecimal256) {
+            throw new NotSupportedException("Datatype DecimalV3 with precision " + precision
+                    + ", which is greater than 38 is disabled by default. set enable_decimal256 = true to enable it.");
+        } else {
+            return new DecimalV3Type(precision, scale);
+        }
+    }
+
+    public static DecimalV3Type createDecimalV3Type(BigDecimal bigDecimal) {
+        int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(bigDecimal);
+        int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(bigDecimal);
+        return createDecimalV3TypeLooseCheck(precision, scale);
+    }
+
+    /**
+     * create DecimalV3Type, not throwing NotSupportedException.
+     */
+    public static DecimalV3Type createDecimalV3TypeLooseCheck(int precision, int scale) {
+        boolean enableDecimal256 = ConnectContext.get().getSessionVariable().enableDecimal256();
+        if (enableDecimal256) {
+            Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL256_PRECISION,
+                    "precision should in (0, " + MAX_DECIMAL256_PRECISION + "], but real precision is " + precision);
+        } else {
+            Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL128_PRECISION,
+                    "precision should in (0, " + MAX_DECIMAL128_PRECISION + "], but real precision is " + precision);
+        }
         Preconditions.checkArgument(scale >= 0, "scale should not smaller than 0, but real scale is " + scale);
         Preconditions.checkArgument(precision >= scale, "precision should not smaller than scale,"
                 + " but precision is " + precision, ", scale is " + scale);
         return new DecimalV3Type(precision, scale);
     }
 
-    public static DecimalV3Type createDecimalV3Type(BigDecimal bigDecimal) {
-        int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(bigDecimal);
-        int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(bigDecimal);
-        return createDecimalV3Type(precision, scale);
+    /**
+     * create DecimalV3Type, without checking precision and scale, e.g. for DataType.fromCatalogType
+     */
+    public static DecimalV3Type createDecimalV3TypeNoCheck(int precision, int scale) {
+        return new DecimalV3Type(precision, scale);
     }
 
     public static DataType widerDecimalV3Type(DecimalV3Type left, DecimalV3Type right, boolean overflowToDouble) {
@@ -124,7 +158,9 @@ public class DecimalV3Type extends FractionalType {
             boolean overflowToDouble) {
         int scale = Math.max(leftScale, rightScale);
         int range = Math.max(leftPrecision - leftScale, rightPrecision - rightScale);
-        if (range + scale > MAX_DECIMAL128_PRECISION && overflowToDouble) {
+        boolean enableDecimal256 = ConnectContext.get().getSessionVariable().enableDecimal256();
+        if (range + scale > (enableDecimal256 ? MAX_DECIMAL256_PRECISION : MAX_DECIMAL128_PRECISION)
+                && overflowToDouble) {
             return DoubleType.INSTANCE;
         }
         return DecimalV3Type.createDecimalV3Type(range + scale, scale);
@@ -193,8 +229,15 @@ public class DecimalV3Type extends FractionalType {
             return 4;
         } else if (precision <= MAX_DECIMAL64_PRECISION) {
             return 8;
-        } else {
+        } else if (precision <= MAX_DECIMAL128_PRECISION) {
             return 16;
+        } else {
+            boolean enableDecimal256 = ConnectContext.get().getSessionVariable().enableDecimal256();
+            if (enableDecimal256) {
+                return 32;
+            } else {
+                return 16;
+            }
         }
     }
 }

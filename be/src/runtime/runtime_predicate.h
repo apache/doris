@@ -173,6 +173,12 @@ private:
         auto v = field.get<DecimalField<Decimal128I>>();
         return cast_to_string<TYPE_DECIMAL128I, ValueType>(v.get_value(), v.get_scale());
     }
+
+    static std::string get_decimal256_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType;
+        auto v = field.get<DecimalField<Decimal256>>();
+        return cast_to_string<TYPE_DECIMAL256, ValueType>(v.get_value(), v.get_scale());
+    }
 };
 
 } // namespace vectorized

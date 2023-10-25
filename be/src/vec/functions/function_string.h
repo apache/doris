@@ -2423,12 +2423,33 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
+                StringRef str = MoneyFormat::do_money_format<__int128, 53>(
                         context, decimal128_column->get_whole_part(i), frac_part);
 
                 result_column->insert_data(str.data, str.size);
             }
         }
+        // TODO: decimal256
+        /* else if (auto* decimal256_column =
+                           check_and_get_column<ColumnDecimal<Decimal256>>(*col_ptr)) {
+            const UInt32 scale = decimal256_column->get_scale();
+            const auto multiplier =
+                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            for (size_t i = 0; i < input_rows_count; i++) {
+                Decimal256 frac_part = decimal256_column->get_fractional_part(i);
+                if (scale > 2) {
+                    int delta = ((frac_part % multiplier) << 1) > multiplier;
+                    frac_part = Decimal256(frac_part / multiplier + delta);
+                } else if (scale < 2) {
+                    frac_part = Decimal256(frac_part * multiplier);
+                }
+
+                StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
+                        context, decimal256_column->get_whole_part(i), frac_part);
+
+                result_column->insert_data(str.data, str.size);
+            }
+        }*/
     }
 };
 

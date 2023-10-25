@@ -41,7 +41,7 @@ public class DecimalV3Literal extends Literal {
      * Constructor for DecimalV3Literal
      */
     public DecimalV3Literal(DecimalV3Type dataType, BigDecimal value) {
-        super(DecimalV3Type.createDecimalV3Type(dataType.getPrecision(), dataType.getScale()));
+        super(DecimalV3Type.createDecimalV3TypeLooseCheck(dataType.getPrecision(), dataType.getScale()));
         Objects.requireNonNull(value, "value not be null");
         DecimalLiteral.checkPrecisionAndScale(dataType.getPrecision(), dataType.getScale(), value);
         BigDecimal adjustedValue = value.scale() < 0 ? value

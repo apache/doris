@@ -245,6 +245,7 @@ public class StringLiteral extends LiteralExpr {
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
+                case DECIMAL256:
                     try {
                         DecimalLiteral res = new DecimalLiteral(new BigDecimal(value).stripTrailingZeros());
                         res.setType(targetType);

@@ -624,6 +624,12 @@ Status InvertedIndexColumnWriter::create(const Field* field,
                 field_name, segment_file_name, dir, fs, index_meta);
         break;
     }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
+        *res = std::make_unique<
+                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL256>>(
+                field_name, segment_file_name, dir, fs, index_meta);
+        break;
+    }
     case FieldType::OLAP_FIELD_TYPE_BOOL: {
         *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_BOOL>>(
                 field_name, segment_file_name, dir, fs, index_meta);

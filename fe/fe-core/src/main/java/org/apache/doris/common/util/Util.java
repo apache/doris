@@ -87,6 +87,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL32, "decimal(%d, %d)");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL64, "decimal(%d, %d)");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL128, "decimal(%d, %d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL256, "decimal(%d, %d)");
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
         TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");

@@ -35,6 +35,7 @@
 #include "gutil/int128.h"
 #include "gutil/integral_types.h"
 #include "gutil/port.h"
+#include "vec/core/wide_integer.h"
 
 inline uint64 gbswap_64(uint64 host_int) {
 #if defined(__GNUC__) && defined(__x86_64__) && !defined(__APPLE__)
@@ -57,6 +58,11 @@ inline uint64 gbswap_64(uint64 host_int) {
 inline unsigned __int128 gbswap_128(unsigned __int128 host_int) {
     return static_cast<unsigned __int128>(bswap_64(static_cast<uint64>(host_int >> 64))) |
            (static_cast<unsigned __int128>(bswap_64(static_cast<uint64>(host_int))) << 64);
+}
+
+inline wide::UInt256 gbswap_256(wide::UInt256 host_int) {
+    wide::UInt256 result{gbswap_64(host_int.items[0]), gbswap_64(host_int.items[1]), gbswap_64(host_int.items[2]), gbswap_64(host_int.items[3])};
+    return result;
 }
 
 // Swap bytes of a 24-bit value.
@@ -252,6 +258,9 @@ public:
     static unsigned __int128 FromHost128(unsigned __int128 x) { return gbswap_128(x); }
     static unsigned __int128 ToHost128(unsigned __int128 x) { return gbswap_128(x); }
 
+    static wide::UInt256 FromHost256(wide::UInt256 x) { return gbswap_256(x); }
+    static wide::UInt256 ToHost256(wide::UInt256 x) { return gbswap_256(x); }
+
     static bool IsLittleEndian() { return true; }
 
 #elif defined IS_BIG_ENDIAN
@@ -270,6 +279,9 @@ public:
 
     static uint128 FromHost128(uint128 x) { return x; }
     static uint128 ToHost128(uint128 x) { return x; }
+
+    static wide::UInt256 FromHost256(wide::UInt256 x) { return x; }
+    static wide::UInt256 ToHost256(wide::UInt256 x) { return x; }
 
     static bool IsLittleEndian() { return false; }
 

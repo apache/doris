@@ -118,6 +118,7 @@ Status ByteArrayPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
         return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type, select_vector);
     case TypeIndex::Decimal128I:
         return _decode_binary_decimal<Int128, has_filter>(doris_column, data_type, select_vector);
+    // TODO: decimal256
     default:
         break;
     }

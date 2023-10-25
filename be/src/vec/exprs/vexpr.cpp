@@ -125,6 +125,11 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
                 create_texpr_literal_node<TYPE_DECIMAL128I>(data, &node, precision, scale));
         break;
     }
+    case TYPE_DECIMAL256: {
+        static_cast<void>(
+                create_texpr_literal_node<TYPE_DECIMAL256>(data, &node, precision, scale));
+        break;
+    }
     case TYPE_CHAR: {
         static_cast<void>(create_texpr_literal_node<TYPE_CHAR>(data, &node));
         break;

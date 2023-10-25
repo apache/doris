@@ -404,7 +404,8 @@ public class FoldConstantsRule implements ExprRewriteRule {
                                 type = ScalarType.createDatetimeV2Type(scalarType.getScale());
                             } else if (ttype == TPrimitiveType.DECIMAL32
                                     || ttype == TPrimitiveType.DECIMAL64
-                                    || ttype == TPrimitiveType.DECIMAL128I) {
+                                    || ttype == TPrimitiveType.DECIMAL128I
+                                    || ttype == TPrimitiveType.DECIMAL256) {
                                 type = ScalarType.createDecimalV3Type(scalarType.getPrecision(),
                                         scalarType.getScale());
                             } else {

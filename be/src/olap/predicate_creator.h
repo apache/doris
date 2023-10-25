@@ -96,8 +96,8 @@ private:
     static CppType convert(const TabletColumn& column, const std::string& condition) {
         StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;
         // return CppType value cast from int128_t
-        return StringParser::string_to_decimal<Type>(condition.data(), condition.size(),
-                                                     column.precision(), column.frac(), &result);
+        return CppType(StringParser::string_to_decimal<Type>(
+                condition.data(), condition.size(), column.precision(), column.frac(), &result));
     }
 };
 
@@ -194,6 +194,9 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& ty
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
         return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL128I, PT, ConditionType>>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
+        return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL256, PT, ConditionType>>();
     }
     case FieldType::OLAP_FIELD_TYPE_CHAR: {
         return std::make_unique<StringPredicateCreator<TYPE_CHAR, PT, ConditionType>>();

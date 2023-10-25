@@ -94,7 +94,8 @@ enum TPrimitiveType {
   UNSUPPORTED,
   VARIANT,
   LAMBDA_FUNCTION,
-  AGG_STATE
+  AGG_STATE,
+  DECIMAL256
 }
 
 enum TTypeNodeType {

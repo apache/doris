@@ -398,6 +398,9 @@ private:
         } else if (which_type.is_decimal128()) {
             res = _execute_number<ColumnDecimal128>(offsets, *nested_column, src_null_map, *idx_col,
                                                     nested_null_map, dst_null_map);
+        } else if (which_type.is_decimal256()) {
+            res = _execute_number<ColumnDecimal256>(offsets, *nested_column, src_null_map, *idx_col,
+                                                    nested_null_map, dst_null_map);
         } else if (which_type.is_string_or_fixed_string()) {
             res = _execute_string(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
                                   dst_null_map);

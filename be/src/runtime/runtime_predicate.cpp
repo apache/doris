@@ -112,6 +112,10 @@ Status RuntimePredicate::init(const PrimitiveType type, const bool nulls_first) 
         _get_value_fn = get_decimal128_value;
         break;
     }
+    case PrimitiveType::TYPE_DECIMAL256: {
+        _get_value_fn = get_decimal256_value;
+        break;
+    }
     default:
         return Status::InvalidArgument("unsupported runtime predicate type {}", type);
     }

@@ -28,6 +28,7 @@
 #include <string_view>
 
 #include "util/hash_util.hpp"
+#include "vec/core/wide_integer.h"
 
 namespace doris {
 
@@ -139,6 +140,12 @@ public:
     // Discard the scale part
     // ATTN: invoker must make sure no OVERFLOW
     operator int128_t() const { return static_cast<int128_t>(_value / ONE_BILLION); }
+
+    operator wide::Int256() const {
+        wide::Int256 result;
+        wide::Int256::_impl::wide_integer_from_builtin(result, _value);
+        return result;
+    }
 
     operator bool() const { return _value != 0; }
 

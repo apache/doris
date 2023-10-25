@@ -199,6 +199,8 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
         return valid_decimal(value_str, column.precision(), column.frac());
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
         return valid_decimal(value_str, column.precision(), column.frac());
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+        return valid_decimal(value_str, column.precision(), column.frac());
     case FieldType::OLAP_FIELD_TYPE_CHAR:
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
         return value_str.size() <= column.length();
