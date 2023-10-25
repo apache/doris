@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "gen_cpp/descriptors.pb.h"
 #include "gutil/endian.h"
+#include "gutil/strings/numbers.h"
 #include "io/file_factory.h"
 #include "olap/olap_common.h"
 #include "util/coding.h"
@@ -43,6 +44,7 @@
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/parquet/decoder.h"
 #include "vec/exec/format/parquet/parquet_common.h"
+
 namespace doris::vectorized {
 
 namespace ParquetConvert {
@@ -251,10 +253,28 @@ struct NumberToStringConvert : public ColumnConvert {
         size_t rows = src_col->size();
         auto& src_data = static_cast<const ColumnType*>(src_col.get())->get_data();
 
+        char buf[100];
         auto str_col = static_cast<ColumnString*>(dst_col.get());
         for (int i = 0; i < rows; i++) {
-            std::string value = std::to_string(src_data[i]);
-            str_col->insert_data(value.data(), value.size());
+            if constexpr (parquet_physical_type == tparquet::Type::FLOAT) {
+                int len = FastFloatToBuffer(src_data[i], buf, true);
+                str_col->insert_data(buf, len);
+
+            } else if constexpr (parquet_physical_type == tparquet::Type::DOUBLE) {
+                int len = FastDoubleToBuffer(src_data[i], buf, true);
+                str_col->insert_data(buf, len);
+            } else if constexpr (parquet_physical_type == tparquet::Type::INT32) {
+                char* end = FastInt32ToBufferLeft(src_data[i], buf);
+                str_col->insert_data(buf, end - buf);
+
+            } else if constexpr (parquet_physical_type == tparquet::Type::INT64) {
+                char* end = FastInt64ToBufferLeft(src_data[i], buf);
+                str_col->insert_data(buf, end - buf);
+
+            } else {
+                string value = std::to_string(src_data[i]);
+                str_col->insert_data(value.data(), value.size());
+            }
         }
         return Status::OK();
     }
