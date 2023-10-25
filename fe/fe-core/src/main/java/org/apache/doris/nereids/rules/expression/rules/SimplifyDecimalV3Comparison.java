@@ -71,7 +71,7 @@ public class SimplifyDecimalV3Comparison extends AbstractExpressionRewriteRule {
         if (scale <= leftType.getScale() && precision - scale <= leftType.getPrecision() - leftType.getScale()) {
             // precision and scale of literal all smaller than left, we don't need the cast
             DecimalV3Literal newRight = new DecimalV3Literal(
-                    DecimalV3Type.createDecimalV3Type(leftType.getPrecision(), leftType.getScale()),
+                    DecimalV3Type.createDecimalV3TypeLooseCheck(leftType.getPrecision(), leftType.getScale()),
                     trailingZerosValue);
             return cp.withChildren(castChild, newRight);
         } else {

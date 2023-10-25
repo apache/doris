@@ -682,11 +682,12 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(Float32, ColumnFloat32)          \
     M(Float64, ColumnFloat64)
 
-#define DECIMAL_TYPE_TO_COLUMN_TYPE(M)       \
-    M(Decimal32, ColumnDecimal<Decimal32>)   \
-    M(Decimal64, ColumnDecimal<Decimal64>)   \
-    M(Decimal128, ColumnDecimal<Decimal128>) \
-    M(Decimal128I, ColumnDecimal<Decimal128I>)
+#define DECIMAL_TYPE_TO_COLUMN_TYPE(M)         \
+    M(Decimal32, ColumnDecimal<Decimal32>)     \
+    M(Decimal64, ColumnDecimal<Decimal64>)     \
+    M(Decimal128, ColumnDecimal<Decimal128>)   \
+    M(Decimal128I, ColumnDecimal<Decimal128I>) \
+    M(Decimal256, ColumnDecimal<Decimal256>)
 
 #define STRING_TYPE_TO_COLUMN_TYPE(M) \
     M(String, ColumnString)           \

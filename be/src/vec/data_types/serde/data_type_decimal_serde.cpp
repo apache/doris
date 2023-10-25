@@ -111,6 +111,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }
+        // TODO: decimal256
     } else if constexpr (std::is_same_v<T, Decimal128I>) {
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(38, col.get_scale());
@@ -277,5 +278,6 @@ template class DataTypeDecimalSerDe<Decimal32>;
 template class DataTypeDecimalSerDe<Decimal64>;
 template class DataTypeDecimalSerDe<Decimal128>;
 template class DataTypeDecimalSerDe<Decimal128I>;
+template class DataTypeDecimalSerDe<Decimal256>;
 } // namespace vectorized
 } // namespace doris
