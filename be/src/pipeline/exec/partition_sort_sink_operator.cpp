@@ -51,9 +51,10 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     return Status::OK();
 }
 
-PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, int operator_id,
+                                                       const TPlanNode& tnode,
                                                        const DescriptorTbl& descs)
-        : DataSinkOperatorX(tnode.node_id),
+        : DataSinkOperatorX(operator_id, tnode.node_id),
           _pool(pool),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _limit(tnode.limit),

@@ -113,9 +113,9 @@ void EsScanLocalState::set_scan_ranges(const std::vector<TScanRangeParams>& scan
     }
 }
 
-EsScanOperatorX::EsScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+EsScanOperatorX::EsScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                  const DescriptorTbl& descs)
-        : ScanOperatorX<EsScanLocalState>(pool, tnode, descs),
+        : ScanOperatorX<EsScanLocalState>(pool, tnode, operator_id, descs),
           _tuple_id(tnode.es_scan_node.tuple_id),
           _tuple_desc(nullptr) {
     ScanOperatorX<EsScanLocalState>::_output_tuple_id = tnode.es_scan_node.tuple_id;

@@ -331,8 +331,8 @@ Status AnalyticLocalState::output_current_block(vectorized::Block* block) {
 }
 
 AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                                 const DescriptorTbl& descs)
-        : OperatorX<AnalyticLocalState>(pool, tnode, descs),
+                                                 int operator_id, const DescriptorTbl& descs)
+        : OperatorX<AnalyticLocalState>(pool, tnode, operator_id, descs),
           _window(tnode.analytic_node.window),
           _intermediate_tuple_id(tnode.analytic_node.intermediate_tuple_id),
           _output_tuple_id(tnode.analytic_node.output_tuple_id),
@@ -412,11 +412,6 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
                                                            block->columns()));
     local_state.reached_limit(block, source_state);
     return Status::OK();
-}
-
-Dependency* AnalyticSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->read_blocked_by();
 }
 
 Status AnalyticLocalState::close(RuntimeState* state) {

@@ -500,9 +500,9 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
     return Status::OK();
 }
 
-AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                        const DescriptorTbl& descs)
-        : Base(pool, tnode, descs),
+        : Base(pool, tnode, operator_id, descs),
           _needs_finalize(tnode.agg_node.need_finalize),
           _without_key(tnode.agg_node.grouping_exprs.empty()) {}
 
@@ -550,11 +550,6 @@ Status AggLocalState::close(RuntimeState* state) {
     }
 
     return Base::close(state);
-}
-
-Dependency* AggSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->read_blocked_by();
 }
 
 } // namespace pipeline

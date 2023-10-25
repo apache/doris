@@ -68,7 +68,8 @@ private:
 
 class DataGenSourceOperatorX final : public OperatorX<DataGenLocalState> {
 public:
-    DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                           const DescriptorTbl& descs);
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;

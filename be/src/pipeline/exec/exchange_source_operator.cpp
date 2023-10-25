@@ -49,14 +49,14 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
-            state, p.input_row_desc(), state->fragment_instance_id(), p.id(), p.num_senders(),
+            state, p.input_row_desc(), state->fragment_instance_id(), p.node_id(), p.num_senders(),
             profile(), p.is_merging(), p.sub_plan_query_statistics_recvr());
-    source_dependency = AndDependency::create_shared(_parent->id());
+    source_dependency = AndDependency::create_shared(_parent->operator_id());
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
     metrics.resize(queues.size());
     for (size_t i = 0; i < queues.size(); i++) {
-        deps[i] = ExchangeDataDependency::create_shared(_parent->id(), queues[i]);
+        deps[i] = ExchangeDataDependency::create_shared(_parent->operator_id(), queues[i]);
         queues[i]->set_dependency(deps[i]);
         source_dependency->add_child(deps[i]);
     }
@@ -79,8 +79,9 @@ Status ExchangeLocalState::open(RuntimeState* state) {
 }
 
 ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                                 const DescriptorTbl& descs, int num_senders)
-        : OperatorX<ExchangeLocalState>(pool, tnode, descs),
+                                                 int operator_id, const DescriptorTbl& descs,
+                                                 int num_senders)
+        : OperatorX<ExchangeLocalState>(pool, tnode, operator_id, descs),
           _num_senders(num_senders),
           _is_merging(tnode.exchange_node.__isset.sort_info),
           _input_row_desc(descs, tnode.exchange_node.input_row_tuples,
@@ -164,11 +165,6 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
         source_state = SourceState::FINISHED;
     }
     return status;
-}
-
-Dependency* ExchangeSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state.source_dependency->read_blocked_by();
 }
 
 Status ExchangeLocalState::close(RuntimeState* state) {

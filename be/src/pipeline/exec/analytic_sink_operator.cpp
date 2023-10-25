@@ -66,9 +66,9 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     return Status::OK();
 }
 
-AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                             const DescriptorTbl& descs)
-        : DataSinkOperatorX(tnode.node_id),
+AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id,
+                                             const TPlanNode& tnode, const DescriptorTbl& descs)
+        : DataSinkOperatorX(operator_id, tnode.node_id),
           _buffered_tuple_id(tnode.analytic_node.__isset.buffered_tuple_id
                                      ? tnode.analytic_node.buffered_tuple_id
                                      : 0) {}
@@ -120,11 +120,6 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
         }
     }
     return Status::OK();
-}
-
-WriteDependency* AnalyticSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->write_blocked_by();
 }
 
 Status AnalyticSinkOperatorX::open(RuntimeState* state) {

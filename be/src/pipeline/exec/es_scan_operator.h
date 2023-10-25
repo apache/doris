@@ -62,7 +62,8 @@ private:
 
 class EsScanOperatorX final : public ScanOperatorX<EsScanLocalState> {
 public:
-    EsScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    EsScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                    const DescriptorTbl& descs);
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;

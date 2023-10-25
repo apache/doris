@@ -73,7 +73,8 @@ private:
 class RepeatOperatorX final : public StatefulOperatorX<RepeatLocalState> {
 public:
     using Base = StatefulOperatorX<RepeatLocalState>;
-    RepeatOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    RepeatOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                    const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;

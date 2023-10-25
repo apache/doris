@@ -243,8 +243,8 @@ Status TableFunctionLocalState::process_next_child_row() {
 }
 
 TableFunctionOperatorX::TableFunctionOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                               const DescriptorTbl& descs)
-        : Base(pool, tnode, descs) {}
+                                               int operator_id, const DescriptorTbl& descs)
+        : Base(pool, tnode, operator_id, descs) {}
 
 Status TableFunctionOperatorX::_prepare_output_slot_ids(const TPlanNode& tnode) {
     // Prepare output slot ids

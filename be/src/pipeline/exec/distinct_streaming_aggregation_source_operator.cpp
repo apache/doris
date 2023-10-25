@@ -90,8 +90,9 @@ OperatorPtr DistinctStreamingAggSourceOperatorBuilder::build_operator() {
 
 DistinctStreamingAggSourceOperatorX::DistinctStreamingAggSourceOperatorX(ObjectPool* pool,
                                                                          const TPlanNode& tnode,
+                                                                         int operator_id,
                                                                          const DescriptorTbl& descs)
-        : Base(pool, tnode, descs) {
+        : Base(pool, tnode, operator_id, descs) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {

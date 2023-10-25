@@ -180,9 +180,10 @@ void DistinctStreamingAggSinkLocalState::_emplace_into_hash_table_to_distinct(
 }
 
 DistinctStreamingAggSinkOperatorX::DistinctStreamingAggSinkOperatorX(ObjectPool* pool,
+                                                                     int operator_id,
                                                                      const TPlanNode& tnode,
                                                                      const DescriptorTbl& descs)
-        : AggSinkOperatorX<DistinctStreamingAggSinkLocalState>(pool, tnode, descs) {}
+        : AggSinkOperatorX<DistinctStreamingAggSinkLocalState>(pool, operator_id, tnode, descs) {}
 
 Status DistinctStreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(AggSinkOperatorX<DistinctStreamingAggSinkLocalState>::init(tnode, state));

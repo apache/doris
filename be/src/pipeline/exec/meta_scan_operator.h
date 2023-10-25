@@ -57,7 +57,8 @@ private:
 
 class MetaScanOperatorX final : public ScanOperatorX<MetaScanLocalState> {
 public:
-    MetaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    MetaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                      const DescriptorTbl& descs);
 
 private:
     friend class MetaScanLocalState;
