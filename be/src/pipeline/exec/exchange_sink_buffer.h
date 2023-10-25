@@ -33,6 +33,7 @@
 
 #include "common/global_types.h"
 #include "common/status.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 
@@ -188,6 +189,7 @@ public:
         _queue_dependency = queue_dependency;
         _finish_dependency = finish_dependency;
     }
+    void set_query_statistics(QueryStatistics* statistics) { _statistics = statistics; }
 
 private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
@@ -237,6 +239,7 @@ private:
     int _queue_capacity = 0;
     std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
     std::shared_ptr<FinishDependency> _finish_dependency = nullptr;
+    QueryStatistics* _statistics = nullptr;
 };
 
 } // namespace pipeline

@@ -140,7 +140,13 @@ Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
 
         _local_recvr->add_block(&block, _parent->sender_id(), true);
         if (eos) {
-            _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
+            /// TODO: Supported on pipelineX, we can hold QueryStatistics on the fragment instead of on instances.
+            if constexpr (std::is_same_v<VDataStreamSender, Parent>) {
+                _local_recvr->remove_sender(_parent->sender_id(), _be_number,
+                                            _parent->query_statisticsPtr(), exec_status);
+            } else {
+                _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
+            }
         }
         return Status::OK();
     } else {
@@ -273,7 +279,12 @@ Status Channel<Parent>::close_internal(Status exec_status) {
         SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         if (is_local()) {
             if (_recvr_is_valid()) {
-                _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
+                if constexpr (std::is_same_v<VDataStreamSender, Parent>) {
+                    _local_recvr->remove_sender(_parent->sender_id(), _be_number,
+                                                _parent->query_statisticsPtr(), exec_status);
+                } else {
+                    _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
+                }
             }
         } else {
             status = send_remote_block((PBlock*)nullptr, true, exec_status);

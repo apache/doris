@@ -82,10 +82,15 @@ NewOlapScanNode::NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode,
 Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
     RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
     if (!_is_pipeline_scan || _should_create_scanner) {
-        statistics->add_scan_bytes(_read_compressed_counter->value());
-        statistics->add_scan_rows(_raw_rows_counter->value());
+        statistics->add_scan_bytes(_byte_read_counter->value());
+        statistics->add_scan_rows(_rows_read_counter->value());
         statistics->add_cpu_ms(_scan_cpu_timer->value() / NANOS_PER_MILLIS);
     }
+    return Status::OK();
+}
+
+Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics, int) {
+    RETURN_IF_ERROR(collect_query_statistics(statistics));
     return Status::OK();
 }
 
