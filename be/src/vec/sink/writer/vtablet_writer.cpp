@@ -1233,7 +1233,8 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     // prepare for auto partition functions
     if (_vpartition->is_auto_partition()) {
         auto [part_ctx, part_func] = _get_partition_function();
-        RETURN_IF_ERROR(part_func->prepare(_state, *_output_row_desc, part_ctx.get()));
+        RETURN_IF_ERROR(part_ctx->prepare(_state, *_output_row_desc));
+        RETURN_IF_ERROR(part_ctx->open(_state));
     }
     if (_group_commit) {
         RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_path(_db_id, _tb_id, _wal_id,
