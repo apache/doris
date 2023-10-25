@@ -166,14 +166,29 @@ private:
     // build probe operator and build operator in separate pipelines. To do this, we should build
     // ProbeSide first, and use `_pipelines_to_build` to store which pipeline the build operator
     // is in, so we can build BuildSide once we complete probe side.
-    std::map<int, PipelinePtr> _build_side_pipelines;
+    struct Pipelines_Stack {
+        std::map<int, std::vector<PipelinePtr>> _build_side_pipelines;
+        void push(int parent_node_id, PipelinePtr pipeline) {
+            if (!_build_side_pipelines.contains(parent_node_id)) {
+                _build_side_pipelines.insert({parent_node_id, {pipeline}});
+            } else {
+                _build_side_pipelines[parent_node_id].push_back(pipeline);
+            }
+        }
+        void pop(PipelinePtr& cur_pipe, int parent_node_id, int child_idx) {
+            if (!_build_side_pipelines.contains(parent_node_id)) {
+                return;
+            }
+            DCHECK(_build_side_pipelines.contains(parent_node_id));
+            auto& child_pipeline = _build_side_pipelines[parent_node_id];
+            DCHECK(child_idx < child_pipeline.size());
+            cur_pipe = child_pipeline[child_idx];
+        }
+        void clear() { _build_side_pipelines.clear(); }
+    } _pipeline_stack;
 
     std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
     std::mutex _state_map_lock;
-
-    // TODO: Unify `_union_child_pipelines`, `_set_child_pipelines`, `_build_side_pipelines`.
-    std::map<int, std::vector<PipelinePtr>> _union_child_pipelines;
-    std::map<int, std::vector<PipelinePtr>> _set_child_pipelines;
     // We can guarantee that a plan node ID can correspond to an operator ID,
     // but some operators do not have a corresponding plan node ID.
     // We set these IDs as negative numbers, which are not visible to the user.
