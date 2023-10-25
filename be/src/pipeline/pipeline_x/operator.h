@@ -294,6 +294,9 @@ public:
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
     using LocalState = LocalStateType;
+    [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {
+        return state->get_local_state(operator_id())->template cast<LocalState>();
+    }
 };
 
 template <typename DependencyType = FakeDependency>
@@ -536,6 +539,9 @@ public:
     void get_dependency(std::vector<DependencySPtr>& dependency) override;
 
     using LocalState = LocalStateType;
+    [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {
+        return state->get_sink_local_state(operator_id())->template cast<LocalState>();
+    }
 };
 
 template <typename DependencyType = FakeDependency>

@@ -80,6 +80,7 @@ public:
     using Base = OperatorX<SetSourceLocalState<is_intersect>>;
     // for non-delay tempalte instantiation
     using OperatorXBase::operator_id;
+    using Base::get_local_state;
     using typename Base::LocalState;
 
     SetSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
