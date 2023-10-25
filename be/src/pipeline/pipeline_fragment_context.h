@@ -216,6 +216,8 @@ protected:
     // profile reporting-related
     report_status_callback _report_status_cb;
 
+    DescriptorTbl* _desc_tbl;
+
 private:
     static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
