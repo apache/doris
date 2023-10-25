@@ -458,6 +458,17 @@ void VDataStreamRecvr::remove_sender(int sender_id, int be_number, Status exec_s
     _sender_queues[use_sender_id]->decrement_senders(be_number);
 }
 
+void VDataStreamRecvr::remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics,
+                                     Status exec_status) {
+    if (!exec_status.ok()) {
+        cancel_stream(exec_status);
+        return;
+    }
+    int use_sender_id = _is_merging ? sender_id : 0;
+    _sender_queues[use_sender_id]->decrement_senders(be_number);
+    _sub_plan_query_statistics_recvr->insert(statistics, sender_id);
+}
+
 void VDataStreamRecvr::cancel_stream(Status exec_status) {
     VLOG_QUERY << "cancel_stream: fragment_instance_id=" << print_id(_fragment_instance_id)
                << exec_status;

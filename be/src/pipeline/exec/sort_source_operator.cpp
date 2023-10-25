@@ -26,25 +26,16 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(SortSourceOperator, SourceOperator)
 
 SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState<SortDependency>(state, parent), _get_next_timer(nullptr) {}
+        : PipelineXLocalState<SortDependency>(state, parent) {}
 
-Status SortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<SortDependency>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
-    SCOPED_TIMER(_open_timer);
-    _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
-    return Status::OK();
-}
-
-SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                          const DescriptorTbl& descs)
-        : OperatorX<SortLocalState>(pool, tnode, descs) {}
+        : OperatorX<SortLocalState>(pool, tnode, operator_id, descs) {}
 
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {
     CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
-    SCOPED_TIMER(local_state._get_next_timer);
     bool eos = false;
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             local_state._shared_state->sorter->get_next(state, block, &eos));
@@ -53,11 +44,6 @@ Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
     }
     local_state.reached_limit(block, source_state);
     return Status::OK();
-}
-
-Dependency* SortSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->read_blocked_by();
 }
 
 } // namespace doris::pipeline

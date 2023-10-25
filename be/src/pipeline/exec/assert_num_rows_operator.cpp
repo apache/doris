@@ -24,8 +24,8 @@ OperatorPtr AssertNumRowsOperatorBuilder::build_operator() {
 }
 
 AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                               const DescriptorTbl& descs)
-        : StreamingOperatorX<AssertNumRowsLocalState>(pool, tnode, descs),
+                                               int operator_id, const DescriptorTbl& descs)
+        : StreamingOperatorX<AssertNumRowsLocalState>(pool, tnode, operator_id, descs),
           _desired_num_rows(tnode.assert_num_rows_node.desired_num_rows),
           _subquery_string(tnode.assert_num_rows_node.subquery_string) {
     if (tnode.assert_num_rows_node.__isset.assertion) {

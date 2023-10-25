@@ -313,6 +313,7 @@ Status RuntimeState::query_status() {
 }
 
 bool RuntimeState::is_cancelled() const {
+    // Maybe we should just return _is_cancelled.load()
     return _is_cancelled.load() || (_query_ctx && _query_ctx->is_cancelled());
 }
 
@@ -423,33 +424,27 @@ int64_t RuntimeState::get_load_mem_limit() {
     }
 }
 
-void RuntimeState::emplace_local_state(
-        int id, std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> state) {
-    std::unique_lock<std::mutex> l(_local_state_lock);
-    _op_id_to_local_state.emplace(id, state);
+void RuntimeState::resize_op_id_to_local_state(int size) {
+    _op_id_to_local_state.resize(size);
+    _op_id_to_sink_local_state.resize(size);
 }
 
-std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> RuntimeState::get_local_state(int id) {
-    std::unique_lock<std::mutex> l(_local_state_lock);
-    if (_op_id_to_local_state.find(id) == _op_id_to_local_state.end()) {
-        return nullptr;
-    }
-    return _op_id_to_local_state[id];
+void RuntimeState::emplace_local_state(
+        int id, std::unique_ptr<doris::pipeline::PipelineXLocalStateBase> state) {
+    _op_id_to_local_state[id] = std::move(state);
+}
+
+doris::pipeline::PipelineXLocalStateBase* RuntimeState::get_local_state(int id) {
+    return _op_id_to_local_state[id].get();
 }
 
 void RuntimeState::emplace_sink_local_state(
-        int id, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
-    std::unique_lock<std::mutex> l(_local_sink_state_lock);
-    _op_id_to_sink_local_state.emplace(id, state);
+        int id, std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
+    _op_id_to_sink_local_state[id] = std::move(state);
 }
 
-std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> RuntimeState::get_sink_local_state(
-        int id) {
-    std::unique_lock<std::mutex> l(_local_sink_state_lock);
-    if (_op_id_to_sink_local_state.find(id) == _op_id_to_sink_local_state.end()) {
-        return nullptr;
-    }
-    return _op_id_to_sink_local_state[id];
+doris::pipeline::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state(int id) {
+    return _op_id_to_sink_local_state[id].get();
 }
 
 bool RuntimeState::enable_page_cache() const {

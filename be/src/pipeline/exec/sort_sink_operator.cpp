@@ -65,18 +65,12 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     _profile->add_info_string("TOP-N", p._limit == -1 ? "false" : "true");
 
     _memory_usage_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
-    _sort_blocks_memory_usage =
-            ADD_CHILD_COUNTER(_profile, "SortBlocks", TUnit::BYTES, "MemoryUsage");
-
-    _child_get_next_timer = ADD_TIMER(_profile, "ChildGetResultTime");
-    _sink_timer = ADD_TIMER(_profile, "PartialSortTotalTime");
-
     return Status::OK();
 }
 
-SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                      const DescriptorTbl& descs)
-        : DataSinkOperatorX(tnode.node_id),
+        : DataSinkOperatorX(operator_id, tnode.node_id),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
           _pool(pool),
           _reuse_mem(true),
