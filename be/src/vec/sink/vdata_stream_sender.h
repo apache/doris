@@ -106,6 +106,9 @@ public:
 
     const RowDescriptor& row_desc() { return _row_desc; }
 
+    QueryStatistics* query_statistics() { return _query_statistics.get(); }
+    QueryStatisticsPtr query_statisticsPtr() { return _query_statistics; }
+
 protected:
     friend class Channel;
     friend class PipChannel;
