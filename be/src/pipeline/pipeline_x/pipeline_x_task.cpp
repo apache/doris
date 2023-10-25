@@ -44,14 +44,18 @@ class RuntimeState;
 
 namespace doris::pipeline {
 
-PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
+PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                              PipelineFragmentContext* fragment_context,
-                             RuntimeProfile* parent_profile)
-        : PipelineTask(pipeline, index, state, fragment_context, parent_profile),
+                             RuntimeProfile* parent_profile,
+                             std::shared_ptr<LocalExchangeSharedState> local_exchange_state,
+                             int task_idx)
+        : PipelineTask(pipeline, task_id, state, fragment_context, parent_profile),
           _operators(pipeline->operator_xs()),
           _source(_operators.front()),
           _root(_operators.back()),
-          _sink(pipeline->sink_shared_pointer()) {
+          _sink(pipeline->sink_shared_pointer()),
+          _local_exchange_state(local_exchange_state),
+          _task_idx(task_idx) {
     _pipeline_task_watcher.start();
     _sink->get_dependency(_downstream_dependency);
 }
@@ -82,7 +86,7 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
                 op_idx == _operators.size() - 1
                         ? _parent_profile
                         : state->get_local_state(_operators[op_idx + 1]->operator_id())->profile(),
-                scan_ranges, deps};
+                scan_ranges, deps, _local_exchange_state, _task_idx};
         RETURN_IF_ERROR(_operators[op_idx]->setup_local_state(state, info));
     }
 
