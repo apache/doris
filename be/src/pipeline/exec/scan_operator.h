@@ -414,8 +414,6 @@ protected:
 template <typename LocalStateType>
 class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
-    bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const override;
-
     Status try_close(RuntimeState* state) override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;

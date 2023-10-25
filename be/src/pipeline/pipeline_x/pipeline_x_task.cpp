@@ -119,6 +119,13 @@ Status PipelineXTask::extract_dependencies() {
         auto* fin_dep = local_state->finishdependency();
         _finish_dependencies.push_back(fin_dep);
     }
+    {
+        auto result = _state->get_local_state_result(_source->operator_id());
+        if (!result) {
+            return result.error();
+        }
+        _filter_dependency = result.value()->filterdependency();
+    }
     return Status::OK();
 }
 

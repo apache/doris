@@ -193,6 +193,32 @@ protected:
     const int _node_id;
 };
 
+class FilterDependency final : public Dependency {
+public:
+    FilterDependency(int id, int node_id, std::string name)
+            : Dependency(id, name),
+              _runtime_filters_are_ready_or_timeout(nullptr),
+              _node_id(node_id) {}
+
+    FilterDependency* filter_blocked_by() {
+        if (!_runtime_filters_are_ready_or_timeout) {
+            return nullptr;
+        }
+        if (!_runtime_filters_are_ready_or_timeout()) {
+            return this;
+        }
+        return nullptr;
+    }
+    void* shared_state() override { return nullptr; }
+    void set_filter_blocked_by_fn(std::function<bool()> call_fn) {
+        _runtime_filters_are_ready_or_timeout = call_fn;
+    }
+
+protected:
+    std::function<bool()> _runtime_filters_are_ready_or_timeout;
+    const int _node_id;
+};
+
 class AndDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(AndDependency);

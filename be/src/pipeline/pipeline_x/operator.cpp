@@ -311,7 +311,10 @@ PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXB
           _parent(parent),
           _state(state),
           _finish_dependency(new FinishDependency(parent->operator_id(), parent->node_id(),
-                                                  parent->get_name() + "_FINISH_DEPENDENCY")) {}
+                                                  parent->get_name() + "_FINISH_DEPENDENCY")) {
+    _filter_dependency = std::make_unique<FilterDependency>(
+            parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY");
+}
 
 template <typename DependencyType>
 Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalStateInfo& info) {

@@ -77,6 +77,7 @@ public:
             auto* dep = op_dep->read_blocked_by();
             if (dep != nullptr) {
                 dep->start_read_watcher();
+                push_blocked_task_to_dependency(dep);
                 return false;
             }
         }
@@ -84,13 +85,19 @@ public:
     }
 
     bool runtime_filters_are_ready_or_timeout() override {
-        return _source->runtime_filters_are_ready_or_timeout(_state);
+        auto* dep = _filter_dependency->filter_blocked_by();
+        if (dep != nullptr) {
+            push_blocked_task_to_dependency(dep);
+            return false;
+        }
+        return true;
     }
 
     bool sink_can_write() override {
         auto* dep = _write_dependencies->write_blocked_by();
         if (dep != nullptr) {
             dep->start_write_watcher();
+            push_blocked_task_to_dependency(dep);
             return false;
         }
         return true;
@@ -105,6 +112,7 @@ public:
             auto* dep = fin_dep->finish_blocked_by();
             if (dep != nullptr) {
                 dep->start_finish_watcher();
+                push_blocked_task_to_dependency(dep);
                 return true;
             }
         }
@@ -138,6 +146,8 @@ public:
 
     Status extract_dependencies();
 
+    void push_blocked_task_to_dependency(Dependency* dep) {}
+
 private:
     void set_close_pipeline_time() override {}
     void _init_profile() override;
@@ -153,6 +163,7 @@ private:
     std::vector<Dependency*> _read_dependencies;
     WriteDependency* _write_dependencies;
     std::vector<FinishDependency*> _finish_dependencies;
+    FilterDependency* _filter_dependency;
 
     DependencyMap _upstream_dependency;
 
