@@ -163,7 +163,7 @@ struct ConvertParams {
         if (ctz) {
             VecDateTimeValue t;
             t.from_unixtime(0, *ctz);
-            offset_days = t.day() == 31 ? 0 : 1;
+            offset_days = t.day() == 31 ? -1 : 0;
         }
         start_idx = start_idx_;
     }
