@@ -429,7 +429,6 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
     if (block_size) {
         for (size_t j = 0; j < right_col_len; ++j) {
             const auto& column = *_build_block->get_by_position(j).column;
-            LOG(INFO) << "happne lee build block size:" << column.size();
             mcol[j + right_col_idx]->insert_indices_from(column, _build_indexs.data(),
                                                          _build_indexs.data() + block_size);
         }
