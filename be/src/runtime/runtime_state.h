@@ -455,14 +455,16 @@ public:
     }
 
     void emplace_local_state(int id,
-                             std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> state);
+                             std::unique_ptr<doris::pipeline::PipelineXLocalStateBase> state);
 
-    std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> get_local_state(int id);
+    doris::pipeline::PipelineXLocalStateBase* get_local_state(int id);
 
     void emplace_sink_local_state(
-            int id, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state);
+            int id, std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state);
 
-    std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> get_sink_local_state(int id);
+    doris::pipeline::PipelineXSinkLocalStateBase* get_sink_local_state(int id);
+
+    void resize_op_id_to_local_state(int size);
 
 private:
     Status create_error_log_file();
@@ -561,12 +563,9 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
-    std::map<int, std::shared_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
-    std::map<int, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase>>
+    std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
+    std::vector<std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase>>
             _op_id_to_sink_local_state;
-
-    std::mutex _local_state_lock;
-    std::mutex _local_sink_state_lock;
 
     QueryContext* _query_ctx = nullptr;
 

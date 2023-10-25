@@ -182,7 +182,8 @@ private:
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
 public:
-    OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                      const DescriptorTbl& descs);
 
 private:
     friend class OlapScanLocalState;

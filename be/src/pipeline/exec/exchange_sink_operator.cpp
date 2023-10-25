@@ -66,6 +66,7 @@ Status ExchangeSinkOperator::prepare(RuntimeState* state) {
     _sink_buffer = std::make_unique<ExchangeSinkBuffer<vectorized::VDataStreamSender>>(
             id, _dest_node_id, _sink->_sender_id, _state->be_number(), state->get_query_ctx());
 
+    _sink_buffer->set_query_statistics(_sink->query_statistics());
     RETURN_IF_ERROR(DataSinkOperator::prepare(state));
     _sink->registe_channels(_sink_buffer.get());
     return Status::OK();
@@ -172,13 +173,13 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 
     register_channels(_sink_buffer.get());
 
-    _exchange_sink_dependency = AndDependency::create_shared(_parent->id());
-    _queue_dependency = ExchangeSinkQueueDependency::create_shared(_parent->id());
+    _exchange_sink_dependency = AndDependency::create_shared(_parent->operator_id());
+    _queue_dependency = ExchangeSinkQueueDependency::create_shared(_parent->operator_id());
     _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
     _exchange_sink_dependency->add_child(_queue_dependency);
     if ((p._part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
         !only_local_exchange) {
-        _broadcast_dependency = BroadcastDependency::create_shared(_parent->id());
+        _broadcast_dependency = BroadcastDependency::create_shared(_parent->operator_id());
         _broadcast_dependency->set_available_block(config::num_broadcast_buffer);
         _broadcast_pb_blocks.reserve(config::num_broadcast_buffer);
         for (size_t i = 0; i < config::num_broadcast_buffer; i++) {
@@ -193,10 +194,11 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         size_t dep_id = 0;
         _channels_dependency.resize(local_size);
         _wait_channel_timer.resize(local_size);
-        auto deps_for_channels = AndDependency::create_shared(_parent->id());
+        auto deps_for_channels = AndDependency::create_shared(_parent->operator_id());
         for (auto channel : channels) {
             if (channel->is_local()) {
-                _channels_dependency[dep_id] = ChannelDependency::create_shared(_parent->id());
+                _channels_dependency[dep_id] =
+                        ChannelDependency::create_shared(_parent->operator_id());
                 channel->set_dependency(_channels_dependency[dep_id]);
                 deps_for_channels->add_child(_channels_dependency[dep_id]);
                 _wait_channel_timer[dep_id] =
@@ -236,10 +238,10 @@ segment_v2::CompressionTypePB& ExchangeSinkLocalState::compression_type() {
 }
 
 ExchangeSinkOperatorX::ExchangeSinkOperatorX(
-        RuntimeState* state, const RowDescriptor& row_desc, const TDataStreamSink& sink,
-        const std::vector<TPlanFragmentDestination>& destinations,
+        RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
+        const TDataStreamSink& sink, const std::vector<TPlanFragmentDestination>& destinations,
         bool send_query_statistics_with_every_batch)
-        : DataSinkOperatorX(sink.dest_node_id),
+        : DataSinkOperatorX(operator_id, sink.dest_node_id),
           _texprs(sink.output_partition.partition_exprs),
           _row_desc(row_desc),
           _part_type(sink.output_partition.type),
@@ -506,13 +508,8 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     return PipelineXSinkLocalState<>::close(state, exec_status);
 }
 
-WriteDependency* ExchangeSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._exchange_sink_dependency->write_blocked_by();
-}
-
 FinishDependency* ExchangeSinkOperatorX::finish_blocked_by(RuntimeState* state) const {
-    auto& local_state = state->get_sink_local_state(id())->cast<ExchangeSinkLocalState>();
+    auto& local_state = state->get_sink_local_state(operator_id())->cast<ExchangeSinkLocalState>();
     return local_state._finish_dependency->finish_blocked_by();
 }
 
