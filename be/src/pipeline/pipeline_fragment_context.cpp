@@ -254,13 +254,19 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         fragment_context->set_is_report_success(request.query_options.is_report_success);
     }
 
-    auto* desc_tbl = _query_ctx->desc_tbl;
-    _runtime_state->set_desc_tbl(desc_tbl);
+    if (request.is_simplified_param) {
+        _desc_tbl = _query_ctx->desc_tbl;
+    } else {
+        DCHECK(request.__isset.desc_tbl);
+        RETURN_IF_ERROR(
+                DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl, &_desc_tbl));
+    }
+    _runtime_state->set_desc_tbl(_desc_tbl);
 
     // 2. Create ExecNode to build pipeline with PipelineFragmentContext
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
-                                  request.fragment.plan, *desc_tbl, &_root_plan));
+                                  request.fragment.plan, *_desc_tbl, &_root_plan));
 
     // Set senders of exchange nodes before pipeline build
     std::vector<ExecNode*> exch_nodes;
@@ -316,7 +322,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
                 _runtime_state->obj_pool(), request.fragment.output_sink,
                 request.fragment.output_exprs, request, idx, _root_plan->row_desc(),
-                _runtime_state.get(), &_sink, *desc_tbl));
+                _runtime_state.get(), &_sink, *_desc_tbl));
     }
 
     _root_pipeline = fragment_context->add_pipeline();

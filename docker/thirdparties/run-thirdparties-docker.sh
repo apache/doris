@@ -258,7 +258,7 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
         local ip_host="$2"
         local backup_dir=/home/work/pipline/backup_center
 
-        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "multi_table_csv")
+        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "multi_table_csv" "multi_table_csv1")
 
         for topic in "${topics[@]}"; do
             while IFS= read -r line; do
@@ -269,7 +269,7 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
             done < "${ROOT}/docker-compose/kafka/scripts/${topic}.csv"
         done
 
-        declare -a json_topics=("basic_data_json" "basic_array_data_json" "basic_array_data_json_by_line" "basic_data_json_by_line" "multi_table_json")
+        declare -a json_topics=("basic_data_json" "basic_array_data_json" "basic_array_data_json_by_line" "basic_data_json_by_line" "multi_table_json" "multi_table_json1")
         
         for json_topic in "${json_topics[@]}"; do
             echo ${json_topics}
