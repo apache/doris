@@ -1900,6 +1900,7 @@ void CloneTaskPool::_clone_worker_thread_callback() {
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_task_status(status.to_thrift());
+
         if (!status.ok()) {
             DorisMetrics::instance()->clone_requests_failed->increment(1);
             LOG_WARNING("failed to clone tablet")
