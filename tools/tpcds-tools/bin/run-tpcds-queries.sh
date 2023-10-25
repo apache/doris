@@ -32,9 +32,9 @@ CURDIR="${ROOT}"
 
 usage() {
     echo "
-This script is used to run TPC-DS 99 queries, 
+This script is used to run TPC-DS 99 queries,
 will use mysql client to connect Doris server which parameter is specified in doris-cluster.conf file.
-Usage: $0 
+Usage: $0
   "
     exit 1
 }
@@ -47,7 +47,7 @@ OPTS=$(getopt \
 
 eval set -- "${OPTS}"
 HELP=0
-SCALE_FACTOR=1
+SCALE_FACTOR=100
 
 if [[ $# == 0 ]]; then
     usage
