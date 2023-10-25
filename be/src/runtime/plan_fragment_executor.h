@@ -242,6 +242,8 @@ private:
 
     bool _group_commit = false;
 
+    DescriptorTbl* _desc_tbl;
+
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 
     // typedef for TPlanFragmentExecParams.per_node_scan_ranges
