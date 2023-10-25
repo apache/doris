@@ -1995,7 +1995,7 @@ public:
             case SET: {
                 uint64_t cardinality = 0;
                 for (auto v : _set) {
-                    if (_bitmap->contains(v)) {
+                    if (rhs._bitmap->contains(v)) {
                         ++cardinality;
                     }
                 }
@@ -2105,7 +2105,7 @@ public:
             case EMPTY:
                 return 0;
             case SINGLE:
-                return 1 - _sv == rhs._sv;
+                return 1 - (_sv == rhs._sv);
             case BITMAP:
                 return cardinality() - _bitmap->contains(rhs._sv);
             case SET:
