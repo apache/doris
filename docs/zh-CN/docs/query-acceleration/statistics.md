@@ -75,7 +75,7 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 
 对于数据量较大（默认为5GiB）的表，Doris会自动采取采样的方式去收集，以尽可能降低对系统造成的负担并尽快完成收集作业，用户可通过设置FE参数`huge_table_lower_bound_size_in_bytes`来调节此行为。如果希望对所有的表都采取全量收集，可配置FE参数`enable_auto_sample`为false。同时对于数据量大于`huge_table_lower_bound_size_in_bytes`的表，Doris保证其收集时间间隔不小于12小时（该时间可通过FE参数`huge_table_auto_analyze_interval_in_millis`控制）。
 
-自动采样默认采样200000行，但由于实现方式的原因实际采样数可能大于该值。如果希望采样更多的行以获得更准确的数据分布信息，可通过FE参数`auto_analyze_job_record_count`配置。
+自动采样默认采样4194304(2^22)行，但由于实现方式的原因实际采样数可能大于该值。如果希望采样更多的行以获得更准确的数据分布信息，可通过FE参数`huge_table_default_sample_rows`配置。
 
 ### 任务管理
 
@@ -246,8 +246,6 @@ SHOW AUTO ANALYZE [ptable_name]
 | statistics_simultaneously_running_task_num              | 通过`ANALYZE TABLE[DATABASE]`提交异步作业后，可同时analyze的列的数量，所有异步任务共同受到该参数约束                                                                                                                                                                                                                                  | 5                              |
 | analyze_task_timeout_in_minutes                         | AnalyzeTask执行超时时间                                                                                                                                                                                                                                                                                   | 12 hours                       |
 |stats_cache_size| 统计信息缓存的实际内存占用大小高度依赖于数据的特性，因为在不同的数据集和场景中，最大/最小值的平均大小和直方图的桶数量会有很大的差异。此外，JVM版本等因素也会对其产生影响。下面给出统计信息缓存在包含100000个项目时所占用的内存大小。每个项目的最大/最小值的平均长度为32，列名的平均长度为16，统计信息缓存总共占用了61.2777404785MiB的内存。强烈不建议分析具有非常大字符串值的列，因为这可能导致FE内存溢出。 | 100000                        |
-|full_auto_analyze_start_time|自动统计信息收集开始时间|00:00:00|
-|full_auto_analyze_end_time|自动统计信息收集结束时间|02:00:00|
 |enable_auto_sample|是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集| false|
 |auto_analyze_job_record_count|控制统计信息的自动触发作业执行记录的持久化行数|20000|
 |huge_table_default_sample_rows|定义开启开启大表自动sample后，对大表的采样行数|4194304|
@@ -261,7 +259,7 @@ SHOW AUTO ANALYZE [ptable_name]
 |full_auto_analyze_end_time|自动统计信息收集结束时间|02:00:00|
 |enable_full_auto_analyze|开启自动收集功能|true|
 
-注意，对于fe配置和全局会话变量中均可配置的参数都设置的情况下，优先使用全局会话变量参数值。
+注意：上面列出的会话变量必须通过`SET GLOBAL`全局设置。
 
 ## 使用建议
 
@@ -284,6 +282,8 @@ SQL执行时间受`query_timeout`会话变量控制，该变量默认值为300�
 ### ANALYZE提交报错：Stats table not available...
 
 执行ANALYZE时统计数据会被写入到内部表`__internal_schema.column_statistics`中，FE会在执行ANALYZE前检查该表tablet状态，如果存在不可用的tablet则拒绝执行任务。出现该报错请检查BE集群状态。
+
+用户可通过`SHOW BACKENDS\G`，确定BE状态是否正常。如果BE状态正常，可使用命令`ADMIN SHOW REPLICA STATUS FROM __internal_schema.[tbl_in_this_db]`，检查该库下tablet状态，确保tablet状态正常。
 
 ### 大表ANALYZE失败
 
