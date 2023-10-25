@@ -2767,7 +2767,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                          1;
     }
     size_t rowid_length = 0;
-    if (with_rowid && !_schema->cluster_key_idxes().empty()) {
+    if (with_rowid && !_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
         rowid_length = sizeof(uint32_t) + 1;
     }
     Slice key_without_seq =
@@ -2783,7 +2783,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
         for (int i = num_segments - 1; i >= 0; i--) {
             // If mow table has cluster keys, the key bounds is short keys, not primary keys
             // use PrimaryKeyIndexMetaPB in primary key index?
-            if (_schema->cluster_key_idxes().empty()) {
+            if (_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
                 if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
                     key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
                     continue;
@@ -2950,10 +2950,14 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             Slice key = Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
             RowLocation loc;
             // calculate row id
-            if (!_schema->cluster_key_idxes().empty()) {
+            if (!_tablet_meta->tablet_schema()->cluster_key_idxes().empty()) {
                 size_t seq_col_length = 0;
-                if (_schema->has_sequence_col()) {
-                    seq_col_length = _schema->column(_schema->sequence_col_idx()).length() + 1;
+                if (_tablet_meta->tablet_schema()->has_sequence_col()) {
+                    seq_col_length =
+                            _tablet_meta->tablet_schema()
+                                    ->column(_tablet_meta->tablet_schema()->sequence_col_idx())
+                                    .length() +
+                            1;
                 }
                 size_t rowid_length = sizeof(uint32_t) + 1;
                 Slice key_without_seq =
