@@ -1,0 +1,49 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+kind/docs:
+  - docs/**/*
+  - README.md
+  - ./**/README.md
+  - CONTRIBUTING.md
+  - CODE_OF_CONDUCT.md
+  - CODE_OF_CONDUCT_CN.md
+
+kind/test:
+  - regression-test/**/*.groovy
+  - regression-test/**/*.sql
+
+area/docker:
+  - docker/runtime/*
+
+area/nereids:
+  - fe/fe-core/src/main/java/org/apache/doris/nereids/**/*
+  - fe/fe-core/src/main/antlr4/org/apache/doris/nereids/**/*
+  - fe/fe-core/src/test/java/org/apache/doris/nereids/**/*
+
+area/planner:
+  - fe/fe-core/src/main/java/org/apache/doris/planner/**/*
+  - fe/fe-core/src/main/java/org/apache/doris/analysis/**/*
+
+area/load:
+  - fe/fe-core/src/main/java/org/apache/doris/load/*
+  - fe/fe-core/src/main/java/org/apache/doris/load/**/*
+
+area/pipeline:
+  - be/src/pipeline/**/*
+
