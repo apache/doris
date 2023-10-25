@@ -54,6 +54,7 @@ public enum PrimitiveType {
     DECIMAL32("DECIMAL32", 4, TPrimitiveType.DECIMAL32, true),
     DECIMAL64("DECIMAL64", 8, TPrimitiveType.DECIMAL64, true),
     DECIMAL128("DECIMAL128", 16, TPrimitiveType.DECIMAL128I, true),
+    DECIMAL256("DECIMAL256", 32, TPrimitiveType.DECIMAL256, false),
     TIME("TIME", 8, TPrimitiveType.TIME, false),
     // these following types are stored as object binary in BE.
     HLL("HLL", 16, TPrimitiveType.HLL, true),
@@ -94,6 +95,7 @@ public enum PrimitiveType {
         builder.add(DECIMAL32);
         builder.add(DECIMAL64);
         builder.add(DECIMAL128);
+        builder.add(DECIMAL256);
         builder.add(DATETIMEV2);
         typeWithPrecision = builder.build();
     }
@@ -123,6 +125,7 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, DECIMAL32);
         builder.put(NULL_TYPE, DECIMAL64);
         builder.put(NULL_TYPE, DECIMAL128);
+        builder.put(NULL_TYPE, DECIMAL256);
         builder.put(NULL_TYPE, CHAR);
         builder.put(NULL_TYPE, VARCHAR);
         builder.put(NULL_TYPE, STRING);
@@ -148,6 +151,7 @@ public enum PrimitiveType {
         builder.put(BOOLEAN, DECIMAL32);
         builder.put(BOOLEAN, DECIMAL64);
         builder.put(BOOLEAN, DECIMAL128);
+        builder.put(BOOLEAN, DECIMAL256);
         builder.put(BOOLEAN, VARCHAR);
         builder.put(BOOLEAN, STRING);
         // Tinyint
@@ -167,6 +171,7 @@ public enum PrimitiveType {
         builder.put(TINYINT, DECIMAL32);
         builder.put(TINYINT, DECIMAL64);
         builder.put(TINYINT, DECIMAL128);
+        builder.put(TINYINT, DECIMAL256);
         builder.put(TINYINT, VARCHAR);
         builder.put(TINYINT, STRING);
         builder.put(TINYINT, TIME);
@@ -188,6 +193,7 @@ public enum PrimitiveType {
         builder.put(SMALLINT, DECIMAL32);
         builder.put(SMALLINT, DECIMAL64);
         builder.put(SMALLINT, DECIMAL128);
+        builder.put(SMALLINT, DECIMAL256);
         builder.put(SMALLINT, VARCHAR);
         builder.put(SMALLINT, STRING);
         builder.put(SMALLINT, TIME);
@@ -209,6 +215,7 @@ public enum PrimitiveType {
         builder.put(INT, DECIMAL32);
         builder.put(INT, DECIMAL64);
         builder.put(INT, DECIMAL128);
+        builder.put(INT, DECIMAL256);
         builder.put(INT, VARCHAR);
         builder.put(INT, STRING);
         builder.put(INT, TIME);
@@ -230,6 +237,7 @@ public enum PrimitiveType {
         builder.put(BIGINT, DECIMAL32);
         builder.put(BIGINT, DECIMAL64);
         builder.put(BIGINT, DECIMAL128);
+        builder.put(BIGINT, DECIMAL256);
         builder.put(BIGINT, VARCHAR);
         builder.put(BIGINT, STRING);
         builder.put(BIGINT, TIME);
@@ -251,6 +259,7 @@ public enum PrimitiveType {
         builder.put(LARGEINT, DECIMAL32);
         builder.put(LARGEINT, DECIMAL64);
         builder.put(LARGEINT, DECIMAL128);
+        builder.put(LARGEINT, DECIMAL256);
         builder.put(LARGEINT, VARCHAR);
         builder.put(LARGEINT, STRING);
         builder.put(LARGEINT, TIME);
@@ -272,6 +281,7 @@ public enum PrimitiveType {
         builder.put(FLOAT, DECIMAL32);
         builder.put(FLOAT, DECIMAL64);
         builder.put(FLOAT, DECIMAL128);
+        builder.put(FLOAT, DECIMAL256);
         builder.put(FLOAT, VARCHAR);
         builder.put(FLOAT, STRING);
         builder.put(FLOAT, TIME);
@@ -293,6 +303,7 @@ public enum PrimitiveType {
         builder.put(DOUBLE, DECIMAL32);
         builder.put(DOUBLE, DECIMAL64);
         builder.put(DOUBLE, DECIMAL128);
+        builder.put(DOUBLE, DECIMAL256);
         builder.put(DOUBLE, VARCHAR);
         builder.put(DOUBLE, STRING);
         builder.put(DOUBLE, TIME);
@@ -314,6 +325,7 @@ public enum PrimitiveType {
         builder.put(DATE, DECIMAL32);
         builder.put(DATE, DECIMAL64);
         builder.put(DATE, DECIMAL128);
+        builder.put(DATE, DECIMAL256);
         builder.put(DATE, VARCHAR);
         builder.put(DATE, STRING);
         // Datetime
@@ -333,6 +345,7 @@ public enum PrimitiveType {
         builder.put(DATETIME, DECIMAL32);
         builder.put(DATETIME, DECIMAL64);
         builder.put(DATETIME, DECIMAL128);
+        builder.put(DATETIME, DECIMAL256);
         builder.put(DATETIME, VARCHAR);
         builder.put(DATETIME, STRING);
         // DateV2
@@ -352,6 +365,7 @@ public enum PrimitiveType {
         builder.put(DATEV2, DECIMAL32);
         builder.put(DATEV2, DECIMAL64);
         builder.put(DATEV2, DECIMAL128);
+        builder.put(DATEV2, DECIMAL256);
         builder.put(DATEV2, VARCHAR);
         builder.put(DATEV2, STRING);
         // DatetimeV2
@@ -371,6 +385,7 @@ public enum PrimitiveType {
         builder.put(DATETIMEV2, DECIMAL32);
         builder.put(DATETIMEV2, DECIMAL64);
         builder.put(DATETIMEV2, DECIMAL128);
+        builder.put(DATETIMEV2, DECIMAL256);
         builder.put(DATETIMEV2, VARCHAR);
         builder.put(DATETIMEV2, STRING);
         // Char
@@ -391,6 +406,7 @@ public enum PrimitiveType {
         builder.put(CHAR, DECIMAL32);
         builder.put(CHAR, DECIMAL64);
         builder.put(CHAR, DECIMAL128);
+        builder.put(CHAR, DECIMAL256);
         builder.put(CHAR, VARCHAR);
         builder.put(CHAR, STRING);
         builder.put(CHAR, TIME);
@@ -412,6 +428,7 @@ public enum PrimitiveType {
         builder.put(VARCHAR, DECIMAL32);
         builder.put(VARCHAR, DECIMAL64);
         builder.put(VARCHAR, DECIMAL128);
+        builder.put(VARCHAR, DECIMAL256);
         builder.put(VARCHAR, VARCHAR);
         builder.put(VARCHAR, JSONB);
         builder.put(VARCHAR, VARIANT);
@@ -436,6 +453,7 @@ public enum PrimitiveType {
         builder.put(STRING, DECIMAL32);
         builder.put(STRING, DECIMAL64);
         builder.put(STRING, DECIMAL128);
+        builder.put(STRING, DECIMAL256);
         builder.put(STRING, VARCHAR);
         builder.put(STRING, JSONB);
         builder.put(STRING, VARIANT);
@@ -456,6 +474,7 @@ public enum PrimitiveType {
         builder.put(DECIMALV2, DECIMAL32);
         builder.put(DECIMALV2, DECIMAL64);
         builder.put(DECIMALV2, DECIMAL128);
+        builder.put(DECIMALV2, DECIMAL256);
         builder.put(DECIMALV2, VARCHAR);
         builder.put(DECIMALV2, STRING);
 
@@ -471,6 +490,7 @@ public enum PrimitiveType {
         builder.put(DECIMAL32, DECIMAL32);
         builder.put(DECIMAL32, DECIMAL64);
         builder.put(DECIMAL32, DECIMAL128);
+        builder.put(DECIMAL32, DECIMAL256);
         builder.put(DECIMAL32, VARCHAR);
         builder.put(DECIMAL32, STRING);
 
@@ -486,6 +506,7 @@ public enum PrimitiveType {
         builder.put(DECIMAL64, DECIMAL32);
         builder.put(DECIMAL64, DECIMAL64);
         builder.put(DECIMAL64, DECIMAL128);
+        builder.put(DECIMAL64, DECIMAL256);
         builder.put(DECIMAL64, VARCHAR);
         builder.put(DECIMAL64, STRING);
 
@@ -501,8 +522,26 @@ public enum PrimitiveType {
         builder.put(DECIMAL128, DECIMAL32);
         builder.put(DECIMAL128, DECIMAL64);
         builder.put(DECIMAL128, DECIMAL128);
+        builder.put(DECIMAL128, DECIMAL256);
         builder.put(DECIMAL128, VARCHAR);
         builder.put(DECIMAL128, STRING);
+
+        // decimal256
+        builder.put(DECIMAL256, BOOLEAN);
+        builder.put(DECIMAL256, TINYINT);
+        builder.put(DECIMAL256, SMALLINT);
+        builder.put(DECIMAL256, INT);
+        builder.put(DECIMAL256, BIGINT);
+        builder.put(DECIMAL256, LARGEINT);
+        builder.put(DECIMAL256, FLOAT);
+        builder.put(DECIMAL256, DOUBLE);
+        builder.put(DECIMAL256, DECIMALV2);
+        builder.put(DECIMAL256, DECIMAL32);
+        builder.put(DECIMAL256, DECIMAL64);
+        builder.put(DECIMAL256, DECIMAL128);
+        builder.put(DECIMAL256, DECIMAL256);
+        builder.put(DECIMAL256, VARCHAR);
+        builder.put(DECIMAL256, STRING);
 
         // JSONB
         builder.put(JSONB, BOOLEAN);
@@ -517,6 +556,8 @@ public enum PrimitiveType {
         builder.put(JSONB, DECIMAL32);
         builder.put(JSONB, DECIMAL64);
         builder.put(JSONB, DECIMAL128);
+        // TODO: support and test decimal256?
+        // builder.put(JSONB, DECIMAL256);
         builder.put(JSONB, VARCHAR);
         builder.put(JSONB, STRING);
         builder.put(JSONB, VARIANT);
@@ -575,6 +616,7 @@ public enum PrimitiveType {
         numericTypes.add(DECIMAL32);
         numericTypes.add(DECIMAL64);
         numericTypes.add(DECIMAL128);
+        numericTypes.add(DECIMAL256);
 
         supportedTypes = Lists.newArrayList();
         supportedTypes.add(NULL_TYPE);
@@ -602,6 +644,7 @@ public enum PrimitiveType {
         supportedTypes.add(DECIMAL32);
         supportedTypes.add(DECIMAL64);
         supportedTypes.add(DECIMAL128);
+        supportedTypes.add(DECIMAL256);
         supportedTypes.add(BITMAP);
         supportedTypes.add(ARRAY);
         supportedTypes.add(MAP);
@@ -685,6 +728,8 @@ public enum PrimitiveType {
                 return DECIMAL64;
             case DECIMAL128I:
                 return DECIMAL128;
+            case DECIMAL256:
+                return DECIMAL256;
             case TIME:
                 return TIME;
             case TIMEV2:
@@ -767,7 +812,7 @@ public enum PrimitiveType {
     }
 
     public boolean isDecimalV3Type() {
-        return this == DECIMAL32 || this == DECIMAL64 || this == DECIMAL128;
+        return this == DECIMAL32 || this == DECIMAL64 || this == DECIMAL128 || this == DECIMAL256;
     }
 
     public boolean isNumericType() {
@@ -876,6 +921,7 @@ public enum PrimitiveType {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+            case DECIMAL256:
                 return MysqlColType.MYSQL_TYPE_NEWDECIMAL;
             case STRING:
                 return MysqlColType.MYSQL_TYPE_BLOB;
@@ -913,6 +959,8 @@ public enum PrimitiveType {
                 return 8;
             case DECIMAL128:
                 return 16;
+            case DECIMAL256:
+                return 32;
             default:
                 return this.getSlotSize();
         }

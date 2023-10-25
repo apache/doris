@@ -63,8 +63,9 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_VARIANT,         /* 32 */
     TYPE_LAMBDA_FUNCTION, /* 33 */
     TYPE_AGG_STATE,       /* 34 */
+    TYPE_DECIMAL256,      /* 35 */
 };
 
 constexpr PrimitiveNative BEGIN_OF_PRIMITIVE_TYPE = INVALID_TYPE;
-constexpr PrimitiveNative END_OF_PRIMITIVE_TYPE = TYPE_AGG_STATE;
+constexpr PrimitiveNative END_OF_PRIMITIVE_TYPE = TYPE_DECIMAL256;
 } // namespace doris

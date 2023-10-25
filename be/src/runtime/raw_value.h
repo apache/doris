@@ -103,6 +103,8 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
         return HashUtil::zlib_crc_hash(v, 8, seed);
     case TYPE_DECIMAL128I:
         return HashUtil::zlib_crc_hash(v, 16, seed);
+    case TYPE_DECIMAL256:
+        return HashUtil::zlib_crc_hash(v, 32, seed);
     default:
         DCHECK(false) << "invalid type: " << type;
         return 0;
