@@ -49,6 +49,9 @@ JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argumen
 
 Status JavaFunctionCall::prepare(FunctionContext* context,
                                  FunctionContext::FunctionStateScope scope) {
+    if (scope != FunctionContext::THREAD_LOCAL) {
+        return Status::OK();
+    }
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     if (env == nullptr) {
