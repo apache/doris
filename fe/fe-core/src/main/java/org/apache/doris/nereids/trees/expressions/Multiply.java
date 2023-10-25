@@ -53,7 +53,11 @@ public class Multiply extends BinaryArithmetic implements CheckOverflowNullable 
         int retPercision = t1.getPrecision() + t2.getPrecision();
         int retScale = t1.getScale() + t2.getScale();
         if (retPercision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
-            boolean enableDecimal256 = ConnectContext.get().getSessionVariable().enableDecimal256();
+            boolean enableDecimal256 = false;
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null) {
+                enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+            }
             if (enableDecimal256) {
                 if (retPercision > DecimalV3Type.MAX_DECIMAL256_PRECISION) {
                     retPercision = DecimalV3Type.MAX_DECIMAL256_PRECISION;

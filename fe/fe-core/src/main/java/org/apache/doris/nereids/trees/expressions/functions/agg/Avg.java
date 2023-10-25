@@ -89,7 +89,11 @@ public class Avg extends NullableAggregateFunction
     public FunctionSignature computePrecision(FunctionSignature signature) {
         DataType argumentType = getArgumentType(0);
         if (signature.getArgType(0) instanceof DecimalV3Type) {
-            boolean enableDecimal256 = ConnectContext.get().getSessionVariable().enableDecimal256();
+            boolean enableDecimal256 = false;
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null) {
+                enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+            }
             DecimalV3Type decimalV3Type = DecimalV3Type.forType(argumentType);
             // DecimalV3 scale lower than DEFAULT_MIN_AVG_DECIMAL128_SCALE should do cast
             int precision = decimalV3Type.getPrecision();
