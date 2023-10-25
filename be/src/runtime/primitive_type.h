@@ -59,6 +59,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256:
     case TYPE_BOOLEAN:
     case TYPE_ARRAY:
     case TYPE_STRUCT:
@@ -166,22 +167,22 @@ struct PrimitiveTypeTraits<TYPE_DOUBLE> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATE> {
-    using CppType = doris::vectorized::VecDateTimeValue;
+    using CppType = doris::VecDateTimeValue;
     using ColumnType = vectorized::ColumnVector<vectorized::Int64>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIME> {
-    using CppType = doris::vectorized::VecDateTimeValue;
+    using CppType = doris::VecDateTimeValue;
     using ColumnType = vectorized::ColumnVector<vectorized::Int64>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
-    using CppType = doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>;
+    using CppType = DateV2Value<DateTimeV2ValueType>;
     using ColumnType = vectorized::ColumnVector<vectorized::UInt64>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATEV2> {
-    using CppType = doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>;
+    using CppType = DateV2Value<DateV2ValueType>;
     using ColumnType = vectorized::ColumnVector<vectorized::UInt32>;
 };
 template <>
@@ -203,6 +204,11 @@ template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
     using CppType = vectorized::Decimal128I;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128I>;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DECIMAL256> {
+    using CppType = vectorized::Decimal256;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal256>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_LARGEINT> {

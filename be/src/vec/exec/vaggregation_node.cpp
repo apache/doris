@@ -40,7 +40,9 @@
 #include "util/telemetry/telemetry.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/hash_table/hash.h"
+#include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/hash_table/hash_table_utils.h"
+#include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/hash_table/string_hash_table.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/block.h"
@@ -107,7 +109,6 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
           _hash_table_input_counter(nullptr),
           _build_timer(nullptr),
           _expr_timer(nullptr),
-          _exec_timer(nullptr),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
@@ -238,47 +239,8 @@ void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
 
         _agg_data->init(get_hash_key_type_with_phase(t, !_is_first_phase), is_nullable);
     } else {
-        bool use_fixed_key = true;
-        bool has_null = false;
-        size_t key_byte_size = 0;
-        size_t bitmap_size = get_bitmap_size(_probe_expr_ctxs.size());
-
-        _probe_key_sz.resize(_probe_expr_ctxs.size());
-        for (int i = 0; i < _probe_expr_ctxs.size(); ++i) {
-            const auto& expr = _probe_expr_ctxs[i]->root();
-            const auto& data_type = expr->data_type();
-
-            if (!data_type->have_maximum_size_of_value()) {
-                use_fixed_key = false;
-                break;
-            }
-
-            auto is_null = data_type->is_nullable();
-            has_null |= is_null;
-            _probe_key_sz[i] = data_type->get_maximum_size_of_value_in_memory() - (is_null ? 1 : 0);
-            key_byte_size += _probe_key_sz[i];
-        }
-
-        if (!has_null) {
-            bitmap_size = 0;
-        }
-
-        if (bitmap_size + key_byte_size > sizeof(UInt256)) {
-            use_fixed_key = false;
-        }
-
-        if (use_fixed_key) {
-            if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
-                t = Type::int64_keys;
-            } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
-                t = Type::int128_keys;
-            } else if (bitmap_size + key_byte_size <= sizeof(UInt136)) {
-                t = Type::int136_keys;
-            } else {
-                t = Type::int256_keys;
-            }
-            _agg_data->init(get_hash_key_type_with_phase(t, !_is_first_phase), has_null);
-        } else {
+        if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32, AggregateDataPtr>(
+                    _agg_data->method_variant, probe_exprs)) {
             _agg_data->init(Type::serialized);
         }
     }
@@ -294,7 +256,6 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     _build_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "BuildTime", 1);
     _build_table_convert_timer = ADD_TIMER(runtime_profile(), "BuildConvertToPartitionedTime");
     _serialize_key_timer = ADD_TIMER(runtime_profile(), "SerializeKeyTime");
-    _exec_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "ExecTime", 1);
     _merge_timer = ADD_TIMER(runtime_profile(), "MergeTime");
     _expr_timer = ADD_TIMER(runtime_profile(), "ExprTime");
     _get_results_timer = ADD_TIMER(runtime_profile(), "GetResultsTime");
@@ -454,11 +415,13 @@ Status AggregationNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(prepare_profile(state));
     return Status::OK();
 }
 
 Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
 
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
@@ -509,6 +472,7 @@ Status AggregationNode::open(RuntimeState* state) {
 
 Status AggregationNode::do_pre_agg(vectorized::Block* input_block,
                                    vectorized::Block* output_block) {
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(_executor.pre_agg(input_block, output_block));
 
     // pre stream agg need use _num_row_return to decide whether to do pre stream agg
@@ -547,6 +511,7 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 }
 
 Status AggregationNode::pull(doris::RuntimeState* state, vectorized::Block* block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(_executor.get_result(state, block, eos));
     _make_nullable_output_key(block);
     // dispose the having clause, should not be execute in prestreaming agg
@@ -557,6 +522,7 @@ Status AggregationNode::pull(doris::RuntimeState* state, vectorized::Block* bloc
 }
 
 Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     if (in_block->rows() > 0) {
         RETURN_IF_ERROR(_executor.execute(in_block));
         RETURN_IF_ERROR(_try_spill_disk());
@@ -883,8 +849,8 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 SCOPED_TIMER(_hash_table_compute_timer);
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
-                AggState state(key_columns, _probe_key_sz);
-                agg_method.init_serialized_keys(key_columns, _probe_key_sz, num_rows);
+                AggState state(key_columns);
+                agg_method.init_serialized_keys(key_columns, num_rows);
 
                 auto creator = [this](const auto& ctor, auto& key, auto& origin) {
                     HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
@@ -920,8 +886,8 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
             [&](auto&& agg_method) -> void {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
-                AggState state(key_columns, _probe_key_sz);
-                agg_method.init_serialized_keys(key_columns, _probe_key_sz, num_rows);
+                AggState state(key_columns);
+                agg_method.init_serialized_keys(key_columns, num_rows);
 
                 /// For all rows.
                 for (size_t i = 0; i < num_rows; ++i) {
@@ -1091,7 +1057,7 @@ Status AggregationNode::_serialize_hash_table_to_block(HashTableCtxType& context
         }
     }
 
-    { context.insert_keys_into_columns(keys, key_columns, num_rows, _probe_key_sz); }
+    { context.insert_keys_into_columns(keys, key_columns, num_rows); }
 
     if (hash_table.has_null_key_data()) {
         // only one key of group by support wrap null key
@@ -1343,7 +1309,7 @@ Status AggregationNode::_get_result_with_serialized_key_non_spill(RuntimeState* 
 
                 {
                     SCOPED_TIMER(_insert_keys_to_column_timer);
-                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows, _probe_key_sz);
+                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
                 }
 
                 for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -1470,7 +1436,7 @@ Status AggregationNode::_serialize_with_serialized_key_result_non_spill(RuntimeS
 
                 {
                     SCOPED_TIMER(_insert_keys_to_column_timer);
-                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows, _probe_key_sz);
+                    agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
                 }
 
                 if (iter == _aggregate_data_container->end()) {

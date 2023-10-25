@@ -14,14 +14,15 @@ PhysicalResultSink
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = inventory.inv_date_sk))otherCondition=()
-------------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_item_sk = item.i_item_sk))otherCondition=()
---------------------------PhysicalProject
-----------------------------filter((inventory.inv_quantity_on_hand <= 500) and (inventory.inv_quantity_on_hand >= 100))
-------------------------------PhysicalOlapScan[inventory]
---------------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_item_sk = item.i_item_sk))otherCondition=()
 ----------------------------PhysicalProject
-------------------------------filter((item.i_current_price <= 47.00) and (item.i_current_price >= 17.00) and i_manufact_id IN (138, 169, 339, 639))
---------------------------------PhysicalOlapScan[item]
+------------------------------filter((inventory.inv_quantity_on_hand <= 500) and (inventory.inv_quantity_on_hand >= 100))
+--------------------------------PhysicalOlapScan[inventory]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((item.i_current_price <= 47.00) and (item.i_current_price >= 17.00) and i_manufact_id IN (138, 169, 339, 639))
+----------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
 ----------------------------filter((date_dim.d_date <= '1999-09-07') and (date_dim.d_date >= '1999-07-09'))

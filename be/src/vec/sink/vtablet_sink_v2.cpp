@@ -38,6 +38,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/object_pool.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/delta_writer_v2.h"
@@ -156,6 +157,7 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    signal::set_signal_task_id(_load_id);
 
     if (config::share_delta_writers) {
         _delta_writer_for_tablet =
@@ -284,9 +286,10 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     RowsForTablet rows_for_tablet;
     _tablet_finder->clear_for_new_batch();
     _row_distribution_watch.start();
-    auto num_rows = block->rows();
+    const auto num_rows = input_rows;
+    const auto* __restrict filter_map = _block_convertor->filter_map();
     for (int i = 0; i < num_rows; ++i) {
-        if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
+        if (UNLIKELY(has_filtered_rows) && filter_map[i]) {
             continue;
         }
         const VOlapTablePartition* partition = nullptr;
@@ -393,7 +396,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             SCOPED_TIMER(_close_load_timer);
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : *streams) {
-                    static_cast<void>(stream->close_wait());
+                    RETURN_IF_ERROR(stream->close_wait());
                 }
             }
         }

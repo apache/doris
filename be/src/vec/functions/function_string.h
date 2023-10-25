@@ -915,48 +915,6 @@ public:
     }
 };
 
-class FunctionStringEltOld : public IFunction {
-public:
-    static constexpr auto name = "elt";
-    static FunctionPtr create() { return std::make_shared<FunctionStringEltOld>(); }
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 0; }
-    bool is_variadic() const override { return true; }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
-    }
-    bool use_default_implementation_for_nulls() const override { return true; }
-    bool use_default_implementation_for_constants() const override { return true; }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
-        int arguent_size = arguments.size();
-        auto pos_col =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*pos_col)) {
-            pos_col = nullable->get_nested_column_ptr();
-        }
-        auto& pos_data = assert_cast<const ColumnInt32*>(pos_col.get())->get_data();
-        auto pos = pos_data[0];
-        int num_children = arguent_size - 1;
-        if (pos < 1 || num_children == 0 || pos > num_children) {
-            auto null_map = ColumnUInt8::create(input_rows_count, 1);
-            auto res = ColumnString::create();
-            auto& res_data = res->get_chars();
-            auto& res_offset = res->get_offsets();
-            res_offset.resize(input_rows_count);
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                res_offset[i] = res_data.size();
-            }
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(res), std::move(null_map));
-            return Status::OK();
-        }
-        block.get_by_position(result).column = block.get_by_position(arguments[pos]).column;
-        return Status::OK();
-    }
-};
 // concat_ws (string,string....) or (string, Array)
 // TODO: avoid use fmtlib
 class FunctionStringConcatWs : public IFunction {
@@ -1166,7 +1124,7 @@ private:
         }
     }
 };
-template <bool use_old_function>
+
 class FunctionStringRepeat : public IFunction {
 public:
     static constexpr auto name = "repeat";
@@ -1199,12 +1157,8 @@ public:
             } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
                 int repeat = 0;
-                if constexpr (use_old_function) {
-                    repeat = col2_const->get_int(0);
-                } else {
-                    repeat = std::min<int>(col2_const->get_int(0),
-                                           context->state()->repeat_max_num());
-                }
+                repeat = std::min<int>(col2_const->get_int(0), context->state()->repeat_max_num());
+
                 if (repeat <= 0) {
                     null_map->get_data().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
@@ -1236,11 +1190,8 @@ public:
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t size = offsets[i] - offsets[i - 1];
             int repeat = 0;
-            if constexpr (use_old_function) {
-                repeat = repeats[i];
-            } else {
-                repeat = std::min<int>(repeats[i], repeat_max_num);
-            }
+            repeat = std::min<int>(repeats[i], repeat_max_num);
+
             if (repeat <= 0) {
                 StringOP::push_empty_string(i, res_data, res_offsets);
             } else if (repeat * size > DEFAULT_MAX_STRING_SIZE) {
@@ -2472,12 +2423,33 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
+                StringRef str = MoneyFormat::do_money_format<__int128, 53>(
                         context, decimal128_column->get_whole_part(i), frac_part);
 
                 result_column->insert_data(str.data, str.size);
             }
         }
+        // TODO: decimal256
+        /* else if (auto* decimal256_column =
+                           check_and_get_column<ColumnDecimal<Decimal256>>(*col_ptr)) {
+            const UInt32 scale = decimal256_column->get_scale();
+            const auto multiplier =
+                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            for (size_t i = 0; i < input_rows_count; i++) {
+                Decimal256 frac_part = decimal256_column->get_fractional_part(i);
+                if (scale > 2) {
+                    int delta = ((frac_part % multiplier) << 1) > multiplier;
+                    frac_part = Decimal256(frac_part / multiplier + delta);
+                } else if (scale < 2) {
+                    frac_part = Decimal256(frac_part * multiplier);
+                }
+
+                StringRef str = MoneyFormat::do_money_format<int64_t, 26>(
+                        context, decimal256_column->get_whole_part(i), frac_part);
+
+                result_column->insert_data(str.data, str.size);
+            }
+        }*/
     }
 };
 

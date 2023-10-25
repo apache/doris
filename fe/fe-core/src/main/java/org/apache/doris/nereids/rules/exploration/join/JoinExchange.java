@@ -91,9 +91,7 @@ public class JoinExchange extends OneExplorationRuleFactory {
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts, JoinHint.NONE,
                             newLeftJoin, newRightJoin);
-                    setNewLeftJoinReorder(newLeftJoin, leftJoin);
-                    setNewRightJoinReorder(newRightJoin, leftJoin);
-                    setNewTopJoinReorder(newTopJoin, topJoin);
+                    newTopJoin.getJoinReorderContext().setHasExchange(true);
 
                     return newTopJoin;
                 }).toRule(RuleType.LOGICAL_JOIN_EXCHANGE);
@@ -111,27 +109,6 @@ public class JoinExchange extends OneExplorationRuleFactory {
         } else {
             return true;
         }
-    }
-
-    public static void setNewTopJoinReorder(LogicalJoin newTopJoin, LogicalJoin topJoin) {
-        newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
-        newTopJoin.getJoinReorderContext().setHasExchange(true);
-    }
-
-    public static void setNewLeftJoinReorder(LogicalJoin newLeftJoin, LogicalJoin leftJoin) {
-        newLeftJoin.getJoinReorderContext().copyFrom(leftJoin.getJoinReorderContext());
-        newLeftJoin.getJoinReorderContext().setHasCommute(false);
-        newLeftJoin.getJoinReorderContext().setHasLeftAssociate(false);
-        newLeftJoin.getJoinReorderContext().setHasRightAssociate(false);
-        newLeftJoin.getJoinReorderContext().setHasExchange(false);
-    }
-
-    public static void setNewRightJoinReorder(LogicalJoin newRightJoin, LogicalJoin rightJoin) {
-        newRightJoin.getJoinReorderContext().copyFrom(rightJoin.getJoinReorderContext());
-        newRightJoin.getJoinReorderContext().setHasCommute(false);
-        newRightJoin.getJoinReorderContext().setHasLeftAssociate(false);
-        newRightJoin.getJoinReorderContext().setHasRightAssociate(false);
-        newRightJoin.getJoinReorderContext().setHasExchange(false);
     }
 
     /**

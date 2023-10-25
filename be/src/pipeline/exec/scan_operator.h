@@ -56,7 +56,7 @@ public:
     Status try_close(RuntimeState* state) override;
 };
 
-struct OpenDependency : public Dependency {
+struct OpenDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(OpenDependency);
     OpenDependency(int id) : Dependency(id, "OpenDependency") {}
@@ -65,14 +65,14 @@ public:
     [[nodiscard]] int64_t read_watcher_elapse_time() override { return 0; }
 };
 
-class EosDependency : public Dependency {
+class EosDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(EosDependency);
     EosDependency(int id) : Dependency(id, "EosDependency") {}
     void* shared_state() override { return nullptr; }
 };
 
-class ScannerDoneDependency : public Dependency {
+class ScannerDoneDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ScannerDoneDependency);
     ScannerDoneDependency(int id, vectorized::ScannerContext* scanner_ctx)
@@ -90,7 +90,7 @@ private:
     vectorized::ScannerContext* _scanner_ctx;
 };
 
-class DataReadyDependency : public Dependency {
+class DataReadyDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(DataReadyDependency);
     DataReadyDependency(int id, vectorized::ScannerContext* scanner_ctx)
@@ -118,7 +118,7 @@ class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::Runt
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<>(state, parent),
-              vectorized::RuntimeFilterConsumer(parent->id(), parent->runtime_filter_descs(),
+              vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
                                                 parent->row_descriptor(), _conjuncts) {}
     virtual ~ScanLocalStateBase() = default;
 
@@ -224,6 +224,8 @@ class ScanLocalState : public ScanLocalStateBase {
     TPushAggOp::type get_push_down_agg_type() override;
 
     int64_t get_push_down_count() override;
+
+    Dependency* dependency() override { return _source_dependency.get(); }
 
 protected:
     template <typename LocalStateType>
@@ -416,7 +418,6 @@ public:
 
     Status try_close(RuntimeState* state) override;
 
-    Dependency* wait_for_dependency(RuntimeState* state) override;
     FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
@@ -434,10 +435,13 @@ public:
 
     int64_t get_push_down_count() const { return _push_down_count; }
     using OperatorX<LocalStateType>::id;
+    using OperatorX<LocalStateType>::operator_id;
+    using OperatorX<LocalStateType>::get_local_state;
 
 protected:
     using LocalState = LocalStateType;
-    ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                  const DescriptorTbl& descs);
     virtual ~ScanOperatorX() = default;
     template <typename Derived>
     friend class ScanLocalState;

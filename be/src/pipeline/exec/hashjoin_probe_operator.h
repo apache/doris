@@ -92,7 +92,6 @@ public:
     std::shared_ptr<std::vector<vectorized::Block>> build_blocks() const {
         return _shared_state->build_blocks;
     }
-    vectorized::Sizes probe_key_sz() const { return _shared_state->probe_key_sz; }
 
 private:
     void _prepare_probe_block();
@@ -139,11 +138,11 @@ private:
 
 class HashJoinProbeOperatorX final : public JoinProbeOperatorX<HashJoinProbeLocalState> {
 public:
-    HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                           const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Dependency* wait_for_dependency(RuntimeState* state) override;
 
     Status push(RuntimeState* state, vectorized::Block* input_block,
                 SourceState source_state) const override;

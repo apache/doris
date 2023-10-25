@@ -33,7 +33,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/olap_common.h"
-#include "exec/text_converter.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -62,14 +61,10 @@ struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;
-class VecDateTimeValue;
-struct DateTimeV2ValueType;
 template <typename T>
 class ColumnVector;
 template <typename T>
 class DataTypeDecimal;
-template <typename T>
-class DateV2Value;
 template <typename T>
 struct Decimal;
 } // namespace vectorized
@@ -504,7 +499,7 @@ private:
     int64_t _range_size;
     const std::string& _ctz;
     const std::vector<std::string>* _column_names;
-    size_t _offset_days = 0;
+    int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
 
     std::list<std::string> _read_cols;
@@ -543,7 +538,6 @@ private:
     bool _is_acid = false;
     std::unique_ptr<IColumn::Filter> _filter = nullptr;
     LazyReadContext _lazy_read_ctx;
-    std::unique_ptr<TextConverter> _text_converter = nullptr;
     const TransactionalHiveReader::AcidRowIDSet* _delete_rows = nullptr;
     std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr = nullptr;
 

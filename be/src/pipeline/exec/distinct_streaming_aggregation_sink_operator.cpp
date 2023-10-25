@@ -156,9 +156,8 @@ void DistinctStreamingAggSinkLocalState::_emplace_into_hash_table_to_distinct(
                 SCOPED_TIMER(_hash_table_compute_timer);
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
-                AggState state(key_columns, _shared_state->probe_key_sz);
-                agg_method.init_serialized_keys(key_columns, Base::_shared_state->probe_key_sz,
-                                                num_rows);
+                AggState state(key_columns);
+                agg_method.init_serialized_keys(key_columns, num_rows);
                 size_t row = 0;
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                     HashMethodType::try_presis_key(key, origin, _arena);
@@ -181,9 +180,10 @@ void DistinctStreamingAggSinkLocalState::_emplace_into_hash_table_to_distinct(
 }
 
 DistinctStreamingAggSinkOperatorX::DistinctStreamingAggSinkOperatorX(ObjectPool* pool,
+                                                                     int operator_id,
                                                                      const TPlanNode& tnode,
                                                                      const DescriptorTbl& descs)
-        : AggSinkOperatorX<DistinctStreamingAggSinkLocalState>(pool, tnode, descs) {}
+        : AggSinkOperatorX<DistinctStreamingAggSinkLocalState>(pool, operator_id, tnode, descs) {}
 
 Status DistinctStreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(AggSinkOperatorX<DistinctStreamingAggSinkLocalState>::init(tnode, state));
@@ -193,7 +193,7 @@ Status DistinctStreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeSt
 
 Status DistinctStreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                                SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();

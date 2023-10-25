@@ -54,7 +54,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
                                             SourceState source_state) {
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
     RETURN_IF_CANCELLED(state);
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
 
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -116,9 +116,9 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    vectorized::HashTableBuildX<HashTableCtxType, is_intersect>
-                            hash_table_build_process(rows, raw_ptrs, offset, state);
-                    static_cast<void>(hash_table_build_process(local_state, arg));
+                    vectorized::HashTableBuild<HashTableCtxType, is_intersect>
+                            hash_table_build_process(&local_state, rows, raw_ptrs, offset, state);
+                    static_cast<void>(hash_table_build_process(arg, local_state._arena));
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
                 }

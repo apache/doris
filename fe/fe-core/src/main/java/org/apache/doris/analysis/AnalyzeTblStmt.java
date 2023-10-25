@@ -26,7 +26,6 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -89,6 +88,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     private boolean isAllColumns;
 
     // after analyzed
+    private long catalogId;
     private long dbId;
     private TableIf table;
 
@@ -117,7 +117,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     @Override
     @SuppressWarnings({"rawtypes"})
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!Config.enable_stats) {
+        if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                     + "in your FE conf file");
         }
@@ -130,6 +130,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         String tblName = tableName.getTbl();
         CatalogIf catalog = analyzer.getEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(catalogName);
+        this.catalogId = catalog.getId();
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         dbId = db.getId();
         table = db.getTableOrAnalysisException(tblName);
@@ -328,5 +329,9 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
 
     public boolean isAllColumns() {
         return isAllColumns;
+    }
+
+    public long getCatalogId() {
+        return catalogId;
     }
 }

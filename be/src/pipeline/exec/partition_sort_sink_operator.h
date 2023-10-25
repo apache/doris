@@ -72,7 +72,6 @@ private:
     std::vector<const vectorized::IColumn*> _partition_columns;
     std::unique_ptr<vectorized::PartitionedHashMapVariants> _partitioned_data;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
-    std::vector<size_t> _partition_key_sz;
     int _partition_exprs_num = 0;
 
     RuntimeProfile::Counter* _build_timer;
@@ -87,7 +86,7 @@ private:
 
 class PartitionSortSinkOperatorX final : public DataSinkOperatorX<PartitionSortSinkLocalState> {
 public:
-    PartitionSortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    PartitionSortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",

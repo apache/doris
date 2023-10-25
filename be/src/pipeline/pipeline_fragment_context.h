@@ -217,6 +217,7 @@ protected:
     report_status_callback _report_status_cb;
 
 private:
+    static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
     bool _group_commit;
 };

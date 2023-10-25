@@ -123,6 +123,7 @@ public abstract class DataType {
                 dataType = SmallIntType.INSTANCE;
                 break;
             case "int":
+            case "integer":
                 dataType = IntegerType.INSTANCE;
                 break;
             case "bigint":
@@ -332,7 +333,7 @@ public abstract class DataType {
             ScalarType scalarType = (ScalarType) type;
             int precision = scalarType.getScalarPrecision();
             int scale = scalarType.getScalarScale();
-            return DecimalV3Type.createDecimalV3Type(precision, scale);
+            return DecimalV3Type.createDecimalV3TypeNoCheck(precision, scale);
         } else if (type.isDecimalV2()) {
             ScalarType scalarType = (ScalarType) type;
             int precision = scalarType.getScalarPrecision();

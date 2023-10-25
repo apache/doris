@@ -36,7 +36,6 @@
 #include "common/status.h"
 #include "exec/decompressor.h"
 #include "exec/line_reader.h"
-#include "exec/text_converter.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/buffered_reader.h"
@@ -303,7 +302,7 @@ Status CsvReader::init_reader(bool is_load) {
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options, &_file_system,
                 &_file_reader, io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
-                io::PrefetchRange(_range.start_offset, _range.size)));
+                io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
@@ -703,10 +702,12 @@ Status CsvReader::_validate_line(const Slice& line, bool* success) {
             return Status::InternalError("Only support csv data in utf8 codec");
         } else {
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                    []() -> std::string { return "Unable to display"; },
-                    []() -> std::string {
+                    [&]() -> std::string { return std::string(line.data, line.size); },
+                    [&]() -> std::string {
                         fmt::memory_buffer error_msg;
-                        fmt::format_to(error_msg, "{}", "Unable to display");
+                        fmt::format_to(error_msg, "{}{}",
+                                       "Unable to display, only support csv data in utf8 codec",
+                                       ", please check the data encoding");
                         return fmt::to_string(error_msg);
                     },
                     &_line_reader_eof));
@@ -736,11 +737,21 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
                         fmt::format_to(error_msg, "{} {} {}",
                                        "actual column number in csv file is ", cmp_str,
                                        " schema column number.");
-                        fmt::format_to(error_msg, "actual number: {}, column separator: [{}], ",
-                                       _split_values.size(), _value_separator);
-                        fmt::format_to(error_msg,
-                                       "line delimiter: [{}], schema column number: {}; ",
-                                       _line_delimiter, _file_slot_descs.size());
+                        fmt::format_to(error_msg, "actual number: {}, schema column number: {}; ",
+                                       _split_values.size(), _file_slot_descs.size());
+                        fmt::format_to(error_msg, "line delimiter: [{}], column separator: [{}], ",
+                                       _line_delimiter, _value_separator);
+                        if (_enclose != 0) {
+                            fmt::format_to(error_msg, "enclose:[{}] ", _enclose);
+                        }
+                        if (_escape != 0) {
+                            fmt::format_to(error_msg, "escape:[{}] ", _escape);
+                        }
+                        fmt::memory_buffer values;
+                        for (const auto& value : _split_values) {
+                            fmt::format_to(values, "{}, ", value.to_string());
+                        }
+                        fmt::format_to(error_msg, "result values:[{}]", fmt::to_string(values));
                         return fmt::to_string(error_msg);
                     },
                     &_line_reader_eof));

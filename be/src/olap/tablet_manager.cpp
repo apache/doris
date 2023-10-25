@@ -370,7 +370,6 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
 
     // should remove the tablet's pending_id no matter create-tablet success or not
     DataDir* data_dir = tablet->data_dir();
-    SCOPED_CLEANUP({ data_dir->remove_pending_ids(StrCat(TABLET_ID_PREFIX, new_tablet_id)); });
 
     // TODO(yiguolei)
     // the following code is very difficult to understand because it mixed alter tablet v2
@@ -382,7 +381,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "TabletInit", parent_timer_name),
                        static_cast<int64_t>(watch.reset()));
         if (!res.ok()) {
-            LOG(WARNING) << "tablet init failed. tablet:" << tablet->full_name();
+            LOG(WARNING) << "tablet init failed. tablet:" << tablet->tablet_id();
             break;
         }
 
@@ -460,15 +459,9 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
     string pending_id = StrCat(TABLET_ID_PREFIX, request.tablet_id);
     // Many attempts are made here in the hope that even if a disk fails, it can still continue.
     std::string parent_timer_name = "CreateMeta";
-    DataDir* last_dir = nullptr;
     MonotonicStopWatch watch;
     watch.start();
     for (auto& data_dir : data_dirs) {
-        if (last_dir != nullptr) {
-            // If last_dir != null, it means the last attempt to create a tablet failed
-            last_dir->remove_pending_ids(pending_id);
-        }
-        last_dir = data_dir;
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RemovePendingIds", parent_timer_name),
                        static_cast<int64_t>(watch.reset()));
 
@@ -500,7 +493,6 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
             LOG(WARNING) << "skip this dir because tablet path exist, path=" << schema_hash_dir;
             continue;
         } else {
-            data_dir->add_pending_ids(pending_id);
             Status st = io::global_local_filesystem()->create_directory(schema_hash_dir);
             if (!st.ok()) {
                 continue;
@@ -619,18 +611,6 @@ void TabletManager::for_each_tablet(std::function<void(const TabletSharedPtr&)>&
             handler(tablet);
         }
     }
-}
-
-std::pair<TabletSharedPtr, Status> TabletManager::get_tablet_and_status(TTabletId tablet_id,
-                                                                        bool include_deleted) {
-    std::string err;
-    auto tablet = get_tablet(tablet_id, include_deleted, &err);
-    if (tablet == nullptr) {
-        return {tablet,
-                Status::InternalError("failed to get tablet: {}, reason: {}", tablet_id, err)};
-    }
-
-    return {tablet, Status::OK()};
 }
 
 TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, bool include_deleted,
@@ -831,12 +811,12 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
         return Status::Error<HEADER_PB_PARSE_FAILED>(
                 "fail to load tablet because meet invalid tablet meta. trying to load "
                 "tablet(tablet_id={}, schema_hash={}), but meet tablet={}, path={}",
-                tablet_id, schema_hash, tablet_meta->full_name(), data_dir->path());
+                tablet_id, schema_hash, tablet_meta->tablet_id(), data_dir->path());
     }
     if (tablet_meta->tablet_uid().hi == 0 && tablet_meta->tablet_uid().lo == 0) {
         return Status::Error<HEADER_PB_PARSE_FAILED>(
                 "fail to load tablet because its uid == 0. tablet={}, path={}",
-                tablet_meta->full_name(), data_dir->path());
+                tablet_meta->tablet_id(), data_dir->path());
     }
 
     if (restore) {
@@ -883,18 +863,18 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
         // tablet state is invalid, drop tablet
         return Status::Error<TABLE_INDEX_VALIDATE_ERROR>(
                 "fail to load tablet. it is in running state but without delta. tablet={}, path={}",
-                tablet->full_name(), data_dir->path());
+                tablet->tablet_id(), data_dir->path());
     }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
             tablet->init(),
-            strings::Substitute("tablet init failed. tablet=$0", tablet->full_name()));
+            strings::Substitute("tablet init failed. tablet=$0", tablet->tablet_id()));
 
     RuntimeProfile profile("CreateTablet");
     std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
     RETURN_NOT_OK_STATUS_WITH_WARN(
             _add_tablet_unlocked(tablet_id, tablet, update_meta, force, &profile),
-            strings::Substitute("fail to add tablet. tablet=$0", tablet->full_name()));
+            strings::Substitute("fail to add tablet. tablet=$0", tablet->tablet_id()));
 
     return Status::OK();
 }

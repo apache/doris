@@ -88,7 +88,8 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         }
         auto agg_state_type = std::make_shared<vectorized::DataTypeAggState>(
                 dataTypes, column.get_result_is_nullable(), column.get_aggregation_name());
-        if (agg_state_type->get_serialized_type()->get_type_as_primitive_type() == TYPE_STRING) {
+        if (agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type ==
+            TYPE_STRING) {
             return std::make_unique<OlapColumnDataConvertorVarChar>(false);
         }
         return std::make_unique<OlapColumnDataConvertorAggState>();
@@ -130,6 +131,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
         return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal128I>>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
+        return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal256>>();
     }
     case FieldType::OLAP_FIELD_TYPE_JSONB: {
         return std::make_unique<OlapColumnDataConvertorVarChar>(true);

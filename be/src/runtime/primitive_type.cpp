@@ -125,6 +125,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::DECIMAL128I:
         return TYPE_DECIMAL128I;
 
+    case TPrimitiveType::DECIMAL256:
+        return TYPE_DECIMAL256;
+
     case TPrimitiveType::CHAR:
         return TYPE_CHAR;
 
@@ -154,6 +157,7 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
 
     case TPrimitiveType::VARIANT:
         return TYPE_VARIANT;
+
     default:
         CHECK(false) << ", meet unknown type " << ttype;
         return INVALID_TYPE;
@@ -237,6 +241,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_DECIMAL128I:
         return TPrimitiveType::DECIMAL128I;
 
+    case TYPE_DECIMAL256:
+        return TPrimitiveType::DECIMAL256;
+
     case TYPE_CHAR:
         return TPrimitiveType::CHAR;
 
@@ -259,6 +266,8 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
         return TPrimitiveType::STRUCT;
     case TYPE_LAMBDA_FUNCTION:
         return TPrimitiveType::LAMBDA_FUNCTION;
+    case TYPE_AGG_STATE:
+        return TPrimitiveType::AGG_STATE;
 
     default:
         return TPrimitiveType::INVALID_TYPE;
@@ -339,6 +348,9 @@ std::string type_to_string(PrimitiveType t) {
     case TYPE_DECIMAL128I:
         return "DECIMAL128I";
 
+    case TYPE_DECIMAL256:
+        return "DECIMAL256";
+
     case TYPE_CHAR:
         return "CHAR";
 
@@ -364,6 +376,9 @@ std::string type_to_string(PrimitiveType t) {
         return "STRUCT";
     case TYPE_LAMBDA_FUNCTION:
         return "LAMBDA_FUNCTION TYPE";
+
+    case TYPE_VARIANT:
+        return "VARIANT";
 
     default:
         return "";
@@ -444,6 +459,9 @@ std::string type_to_odbc_string(PrimitiveType t) {
 
     case TYPE_DECIMAL128I:
         return "decimal128";
+
+    case TYPE_DECIMAL256:
+        return "decimal256";
 
     case TYPE_CHAR:
         return "char";

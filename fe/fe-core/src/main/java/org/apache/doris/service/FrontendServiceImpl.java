@@ -24,9 +24,12 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.LabelName;
+import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TypeDef;
@@ -66,6 +69,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -83,6 +87,7 @@ import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.MasterCatalogExecutor;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -169,6 +174,7 @@ import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryStatsResult;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReplicaInfo;
@@ -218,6 +224,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
+import java.io.StringReader;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -518,7 +525,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
                     // index id -> index schema
                     Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
-                    //index id -> index col_unique_id supplier
+                    // index id -> index col_unique_id supplier
                     Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
                     for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
                         indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
@@ -537,13 +544,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                         colUniqueIdSupplierMap.put(entry.getKey(), colUniqueIdSupplier);
                     }
-                    //4. call schame change function, only for dynamic table feature.
+                    // 4. call schame change function, only for dynamic table feature.
                     SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
 
                     boolean lightSchemaChange = schemaChangeHandler.processAddColumns(
                             addColumnsClause, olapTable, indexSchemaMap, true, colUniqueIdSupplierMap);
                     if (lightSchemaChange) {
-                        //for schema change add column optimize, direct modify table meta.
+                        // for schema change add column optimize, direct modify table meta.
                         List<Index> newIndexes = olapTable.getCopiedIndexes();
                         long jobId = Env.getCurrentEnv().getNextId();
                         Env.getCurrentEnv().getSchemaChangeHandler().modifyTableLightSchemaChange(
@@ -555,7 +562,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
 
-                //5. build all columns
+                // 5. build all columns
                 for (Column column : olapTable.getBaseSchema()) {
                     allColumns.add(column.toThrift());
                 }
@@ -749,7 +756,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                    CaseSensibility.TABLE.getCaseSensibility());
+                        CaseSensibility.TABLE.getCaseSensibility());
             } catch (PatternMatcherException e) {
                 throw new TException("Pattern is in bad format " + params.getPattern());
             }
@@ -1088,13 +1095,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return tableNames;
     }
 
-    private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
-                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
+    private void checkSingleTablePasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
+            String clientIp, PrivPredicate predicate) throws AuthenticationException {
         checkPasswordAndPrivs(cluster, user, passwd, db, Lists.newArrayList(tbl), clientIp, predicate);
     }
 
+    private void checkDbPasswordAndPrivs(String cluster, String user, String passwd, String db, String clientIp,
+            PrivPredicate predicate) throws AuthenticationException {
+        checkPasswordAndPrivs(cluster, user, passwd, db, null, clientIp, predicate);
+    }
+
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, List<String> tables,
-                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
+            String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
         final String fullUserName = ClusterNamespace.getFullName(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
@@ -1102,10 +1114,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
 
         Preconditions.checkState(currentUser.size() == 1);
+        if (tables == null || tables.isEmpty()) {
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUser.get(0), fullDbName, predicate)) {
+                throw new AuthenticationException(
+                        "Access denied; you need (at least one of) the (" + predicate.toString()
+                                + ") privilege(s) for this operation");
+            }
+            return;
+        }
+
         for (String tbl : tables) {
             if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
                 throw new AuthenticationException(
-                        "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
+                        "Access denied; you need (at least one of) the (" + predicate.toString()
+                                + ") privilege(s) for this operation");
             }
         }
     }
@@ -1177,7 +1199,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
         } else if (Strings.isNullOrEmpty(request.getToken())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
+            checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
 
@@ -1356,7 +1379,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         List<String> tbNames;
-        //check has multi table
+        // check has multi table
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
             tbNames = request.getTbls();
         } else {
@@ -1367,7 +1390,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             OlapTable table = (OlapTable) db.getTableOrMetaException(tbl, TableType.OLAP);
             tables.add(table);
         }
-        //if it has multi table, use multi table and update multi table running transaction table ids
+        // if it has multi table, use multi table and update multi table running transaction table ids
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
             List<Long> multiTableIds = tables.stream().map(Table::getId).collect(Collectors.toList());
             Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
@@ -1391,11 +1414,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // refactoring it
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
                 for (String tbl : request.getTbls()) {
-                    checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), tbl,
+                    checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                            tbl,
                             request.getUserIp(), PrivPredicate.LOAD);
                 }
             } else {
-                checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
                         request.getTbl(),
                         request.getUserIp(), PrivPredicate.LOAD);
             }
@@ -1503,7 +1527,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         for (Table table : tableList) {
             // check auth
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), table.getName(),
+            checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    table.getName(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
 
@@ -1571,7 +1596,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
                         request.getTbls(), request.getUserIp(), PrivPredicate.LOAD);
             } else {
-                checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
                         request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
             }
         }
@@ -1756,14 +1781,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
-            //multi table load
+            // multi table load
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
                 for (String tbl : request.getTbls()) {
-                    checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), tbl,
+                    checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                            tbl,
                             request.getUserIp(), PrivPredicate.LOAD);
                 }
             } else {
-                checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
                         request.getTbl(),
                         request.getUserIp(), PrivPredicate.LOAD);
             }
@@ -2071,7 +2097,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
         } else if (Strings.isNullOrEmpty(request.getToken())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
+            checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
         ctx.setThreadLocalInfo();
@@ -2139,15 +2166,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
-                                                               String fullDbName, OlapTable table,
-                                                               long timeoutMs) throws UserException {
+            String fullDbName, OlapTable table,
+            long timeoutMs) throws UserException {
         return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 1, false);
     }
 
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
-                                                               String fullDbName, OlapTable table,
-                                                               long timeoutMs, int multiTableFragmentInstanceIdIndex,
-                                                               boolean isMultiTableRequest)
+            String fullDbName, OlapTable table,
+            long timeoutMs, int multiTableFragmentInstanceIdIndex,
+            boolean isMultiTableRequest)
             throws UserException {
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException(
@@ -2199,10 +2226,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TPipelineFragmentParams generatePipelineStreamLoadPut(TStreamLoadPutRequest request, Database db,
-                                                                  String fullDbName, OlapTable table,
-                                                                  long timeoutMs,
-                                                                  int multiTableFragmentInstanceIdIndex,
-                                                                  boolean isMultiTableRequest)
+            String fullDbName, OlapTable table,
+            long timeoutMs,
+            int multiTableFragmentInstanceIdIndex,
+            boolean isMultiTableRequest)
             throws UserException {
         if (db == null) {
             String dbName = fullDbName;
@@ -2223,13 +2250,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId(),
                     multiTableFragmentInstanceIdIndex);
-            // add table indexes to transaction state
-            TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionState(db.getId(), request.getTxnId());
-            if (txnState == null) {
-                throw new UserException("txn does not exist: " + request.getTxnId());
+            if (!request.isGroupCommit()) {
+                // add table indexes to transaction state
+                TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(db.getId(), request.getTxnId());
+                if (txnState == null) {
+                    throw new UserException("txn does not exist: " + request.getTxnId());
+                }
+                txnState.addTableIndexes(table);
             }
-            txnState.addTableIndexes(table);
             return plan;
         } finally {
             table.readUnlock();
@@ -2754,7 +2783,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
         if (Strings.isNullOrEmpty(request.getToken())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTable(),
+            checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTable(),
                     request.getUserIp(), PrivPredicate.SELECT);
         }
 
@@ -2875,8 +2905,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 request.getUser(), request.getDb(), request.getLabelName(), request.getSnapshotName(),
                 request.getSnapshotType());
         if (Strings.isNullOrEmpty(request.getToken())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTable(), clientIp, PrivPredicate.LOAD);
+            checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTable(), clientIp, PrivPredicate.SELECT);
         }
 
         // Step 3: get snapshot
@@ -2960,8 +2990,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         if (Strings.isNullOrEmpty(request.getToken())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTable(), clientIp, PrivPredicate.LOAD);
+            checkDbPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), clientIp,
+                    PrivPredicate.LOAD);
         }
 
         // Step 3: get snapshot
@@ -3093,7 +3123,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
         if (Strings.isNullOrEmpty(request.getToken())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTable(),
+            checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTable(),
                     request.getUserIp(), PrivPredicate.SELECT);
         }
 

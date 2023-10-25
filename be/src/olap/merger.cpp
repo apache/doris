@@ -105,12 +105,12 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     bool eof = false;
     while (!eof && !StorageEngine::instance()->stopped()) {
         // Read one block from block reader
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                reader.next_block_with_aggregation(&block, &eof),
-                "failed to read next block when merging rowsets of tablet " + tablet->full_name());
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                dst_rowset_writer->add_block(&block),
-                "failed to write block when merging rowsets of tablet " + tablet->full_name());
+        RETURN_NOT_OK_STATUS_WITH_WARN(reader.next_block_with_aggregation(&block, &eof),
+                                       "failed to read next block when merging rowsets of tablet " +
+                                               std::to_string(tablet->tablet_id()));
+        RETURN_NOT_OK_STATUS_WITH_WARN(dst_rowset_writer->add_block(&block),
+                                       "failed to write block when merging rowsets of tablet " +
+                                               std::to_string(tablet->tablet_id()));
 
         if (reader_params.record_rowids && block.rows() > 0) {
             std::vector<uint32_t> segment_num_rows;
@@ -124,7 +124,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     }
     if (StorageEngine::instance()->stopped()) {
         return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
-                                             tablet->full_name());
+                                             tablet->tablet_id());
     }
 
     if (stats_output != nullptr) {
@@ -133,9 +133,9 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         stats_output->filtered_rows = reader.filtered_rows();
     }
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            dst_rowset_writer->flush(),
-            "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
+    RETURN_NOT_OK_STATUS_WITH_WARN(dst_rowset_writer->flush(),
+                                   "failed to flush rowset when merging rowsets of tablet " +
+                                           std::to_string(tablet->tablet_id()));
 
     return Status::OK();
 }
@@ -239,12 +239,13 @@ Status Merger::vertical_compact_one_group(
     bool eof = false;
     while (!eof && !StorageEngine::instance()->stopped()) {
         // Read one block from block reader
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                reader.next_block_with_aggregation(&block, &eof),
-                "failed to read next block when merging rowsets of tablet " + tablet->full_name());
+        RETURN_NOT_OK_STATUS_WITH_WARN(reader.next_block_with_aggregation(&block, &eof),
+                                       "failed to read next block when merging rowsets of tablet " +
+                                               std::to_string(tablet->tablet_id()));
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 dst_rowset_writer->add_columns(&block, column_group, is_key, max_rows_per_segment),
-                "failed to write block when merging rowsets of tablet " + tablet->full_name());
+                "failed to write block when merging rowsets of tablet " +
+                        std::to_string(tablet->tablet_id()));
 
         if (is_key && reader_params.record_rowids && block.rows() > 0) {
             std::vector<uint32_t> segment_num_rows;
@@ -257,7 +258,7 @@ Status Merger::vertical_compact_one_group(
     }
     if (StorageEngine::instance()->stopped()) {
         return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
-                                             tablet->full_name());
+                                             tablet->tablet_id());
     }
 
     if (is_key && stats_output != nullptr) {
@@ -287,22 +288,22 @@ Status Merger::vertical_compact_one_group(TabletSharedPtr tablet, ReaderType rea
     bool eof = false;
     while (!eof && !StorageEngine::instance()->stopped()) {
         // Read one block from block reader
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                src_block_reader.next_block_with_aggregation(&block, &eof),
-                "failed to read next block when merging rowsets of tablet " + tablet->full_name());
+        RETURN_NOT_OK_STATUS_WITH_WARN(src_block_reader.next_block_with_aggregation(&block, &eof),
+                                       "failed to read next block when merging rowsets of tablet " +
+                                               std::to_string(tablet->tablet_id()));
         if (!block.rows()) {
             break;
         }
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                dst_segment_writer.append_block(&block, 0, block.rows()),
-                "failed to write block when merging rowsets of tablet " + tablet->full_name());
+        RETURN_NOT_OK_STATUS_WITH_WARN(dst_segment_writer.append_block(&block, 0, block.rows()),
+                                       "failed to write block when merging rowsets of tablet " +
+                                               std::to_string(tablet->tablet_id()));
 
         output_rows += block.rows();
         block.clear_column_data();
     }
     if (StorageEngine::instance()->stopped()) {
         return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
-                                             tablet->full_name());
+                                             tablet->tablet_id());
     }
 
     if (is_key && stats_output != nullptr) {
@@ -350,9 +351,9 @@ Status Merger::vertical_merge_rowsets(TabletSharedPtr tablet, ReaderType reader_
                 tablet, reader_type, tablet_schema, is_key, column_groups[i], &row_sources_buf,
                 src_rowset_readers, dst_rowset_writer, max_rows_per_segment, stats_output));
         if (is_key) {
-            static_cast<void>(row_sources_buf.flush());
+            RETURN_IF_ERROR(row_sources_buf.flush());
         }
-        static_cast<void>(row_sources_buf.seek_to_begin());
+        RETURN_IF_ERROR(row_sources_buf.seek_to_begin());
     }
 
     // finish compact, build output rowset

@@ -335,7 +335,8 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
     case TYPE_DECIMALV2:
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I: {
+    case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256: {
         if (type_str != "java.math.BigDecimal") {
             return Status::InternalError(error_msg);
         }
@@ -995,48 +996,17 @@ Status JdbcConnector::exec_stmt_write(Block* block, const VExprContextSPtrs& out
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
 
-    // prepare table schema
-    std::ostringstream required_fields;
-    std::ostringstream columns_types;
-    for (int i = 0; i < block->columns(); ++i) {
-        // column name maybe empty or has special characters
-        // std::string field = block->get_by_position(i).name;
-        std::string type = JniConnector::get_hive_type(output_vexpr_ctxs[i]->root()->type());
-        if (i == 0) {
-            required_fields << "_col" << i;
-            columns_types << type;
-        } else {
-            required_fields << ","
-                            << "_col" << i;
-            columns_types << "#" << type;
-        }
-    }
-
     // prepare table meta information
     std::unique_ptr<long[]> meta_data;
-    RETURN_IF_ERROR(JniConnector::generate_meta_info(block, meta_data));
+    RETURN_IF_ERROR(JniConnector::to_java_table(block, meta_data));
     long meta_address = (long)meta_data.get();
+    auto table_schema = JniConnector::parse_table_schema(block);
 
     // prepare constructor parameters
     std::map<String, String> write_params = {{"meta_address", std::to_string(meta_address)},
-                                             {"required_fields", required_fields.str()},
-                                             {"columns_types", columns_types.str()},
-                                             {"write_sql", "/* todo */"}};
-    jclass hashmap_class = env->FindClass("java/util/HashMap");
-    jmethodID hashmap_constructor = env->GetMethodID(hashmap_class, "<init>", "(I)V");
-    jobject hashmap_object =
-            env->NewObject(hashmap_class, hashmap_constructor, write_params.size());
-    jmethodID hashmap_put = env->GetMethodID(
-            hashmap_class, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
-    RETURN_ERROR_IF_EXC(env);
-    for (const auto& it : write_params) {
-        jstring key = env->NewStringUTF(it.first.c_str());
-        jstring value = env->NewStringUTF(it.second.c_str());
-        env->CallObjectMethod(hashmap_object, hashmap_put, key, value);
-        env->DeleteLocalRef(key);
-        env->DeleteLocalRef(value);
-    }
-    env->DeleteLocalRef(hashmap_class);
+                                             {"required_fields", table_schema.first},
+                                             {"columns_types", table_schema.second}};
+    jobject hashmap_object = JniUtil::convert_to_java_map(env, write_params);
     env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_stmt_write_id,
                                  hashmap_object);
     env->DeleteLocalRef(hashmap_object);

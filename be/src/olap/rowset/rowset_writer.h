@@ -118,12 +118,14 @@ public:
         return Status::NotSupported("RowsetWriter does not support add_segment");
     }
 
-    // finish building and return pointer to the built rowset (guaranteed to be inited).
-    // return nullptr when failed
-    virtual RowsetSharedPtr build() = 0;
+    // finish building and set rowset pointer to the built rowset (guaranteed to be inited).
+    // rowset is invalid if returned Status is not OK
+    virtual Status build(RowsetSharedPtr& rowset) = 0;
 
     // For ordered rowset compaction, manual build rowset
     virtual RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) = 0;
+
+    virtual PUniqueId load_id() = 0;
 
     virtual Version version() = 0;
 
@@ -150,6 +152,10 @@ public:
     virtual int64_t delete_bitmap_ns() { return 0; }
 
     virtual int64_t segment_writer_ns() { return 0; }
+
+    virtual std::shared_ptr<PartialUpdateInfo> get_partial_update_info() = 0;
+
+    virtual bool is_partial_update() = 0;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);

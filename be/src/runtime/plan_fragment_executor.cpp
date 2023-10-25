@@ -98,7 +98,7 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _collect_query_statistics_with_every_batch(false),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {
     _report_thread_future = _report_thread_promise.get_future();
-    _start_time = vectorized::VecDateTimeValue::local_time();
+    _start_time = VecDateTimeValue::local_time();
 }
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
@@ -431,7 +431,7 @@ Status PlanFragmentExecutor::execute() {
     return Status::OK();
 }
 
-bool PlanFragmentExecutor::is_timeout(const vectorized::VecDateTimeValue& now) const {
+bool PlanFragmentExecutor::is_timeout(const VecDateTimeValue& now) const {
     if (_timeout_second <= 0) {
         return false;
     }
@@ -591,11 +591,10 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
             .tag("instance_id", print_id(_runtime_state->fragment_instance_id()))
             .tag("reason", reason)
             .tag("error message", msg);
-    if (_runtime_state->is_cancelled()) {
-        LOG(INFO) << "instance << " << print_id(_runtime_state->fragment_instance_id())
-                  << "is already cancelled, skip cancel again";
-        return;
-    }
+    // NOTE: Not need to check if already cancelled.
+    // Bug scenario: test_array_map_function.groovy:
+    //      select /*+SET_VAR(experimental_enable_pipeline_engine=false)*/ array_map((x,y)->x+y, c_array1, c_array2) from test.array_test2 where id > 10 order by id
+
     DCHECK(_prepared);
     _cancel_reason = reason;
     if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {

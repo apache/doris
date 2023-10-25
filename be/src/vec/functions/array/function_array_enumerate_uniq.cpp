@@ -198,6 +198,8 @@ public:
                 _execute_number<ColumnDecimal64>(data_columns, *offsets, null_map, dst_values);
             } else if (which.is_decimal128i()) {
                 _execute_number<ColumnDecimal128I>(data_columns, *offsets, null_map, dst_values);
+            } else if (which.is_decimal256()) {
+                _execute_number<ColumnDecimal256>(data_columns, *offsets, null_map, dst_values);
             } else if (which.is_date_time_v2()) {
                 _execute_number<ColumnDateTimeV2>(data_columns, *offsets, null_map, dst_values);
             } else if (which.is_decimal128()) {
@@ -234,11 +236,11 @@ private:
                           [[maybe_unused]] const NullMap* null_map,
                           ColumnInt64::Container& dst_values) const {
         HashTableContext ctx;
-        ctx.init_serialized_keys(columns, {}, columns[0]->size(),
+        ctx.init_serialized_keys(columns, columns[0]->size(),
                                  null_map ? null_map->data() : nullptr);
 
         using KeyGetter = typename HashTableContext::State;
-        KeyGetter key_getter(columns, {});
+        KeyGetter key_getter(columns);
 
         auto creator = [&](const auto& ctor, auto& key, auto& origin) { ctor(key, 0); };
         auto creator_for_null_key = [&](auto& mapped) { mapped = 0; };
