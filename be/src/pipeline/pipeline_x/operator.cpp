@@ -64,6 +64,8 @@
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
+#include "pipeline/pipeline_x/local_exchange/local_exchange_source_operator.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 
@@ -533,6 +535,7 @@ DECLARE_OPERATOR_X(ResultFileSinkLocalState)
 DECLARE_OPERATOR_X(OlapTableSinkLocalState)
 DECLARE_OPERATOR_X(AnalyticSinkLocalState)
 DECLARE_OPERATOR_X(SortSinkLocalState)
+DECLARE_OPERATOR_X(LocalExchangeSinkLocalState)
 DECLARE_OPERATOR_X(BlockingAggSinkLocalState)
 DECLARE_OPERATOR_X(StreamingAggSinkLocalState)
 DECLARE_OPERATOR_X(DistinctStreamingAggSinkLocalState)
@@ -571,6 +574,7 @@ DECLARE_OPERATOR_X(SetSourceLocalState<false>)
 DECLARE_OPERATOR_X(DataGenLocalState)
 DECLARE_OPERATOR_X(SchemaScanLocalState)
 DECLARE_OPERATOR_X(MetaScanLocalState)
+DECLARE_OPERATOR_X(LocalExchangeSourceLocalState)
 
 #undef DECLARE_OPERATOR_X
 
@@ -592,6 +596,7 @@ template class PipelineXSinkLocalState<UnionDependency>;
 template class PipelineXSinkLocalState<PartitionSortDependency>;
 template class PipelineXSinkLocalState<MultiCastDependency>;
 template class PipelineXSinkLocalState<SetDependency>;
+template class PipelineXSinkLocalState<LocalExchangeDependency>;
 
 template class PipelineXLocalState<HashJoinDependency>;
 template class PipelineXLocalState<SortDependency>;
@@ -603,6 +608,7 @@ template class PipelineXLocalState<UnionDependency>;
 template class PipelineXLocalState<MultiCastDependency>;
 template class PipelineXLocalState<PartitionSortDependency>;
 template class PipelineXLocalState<SetDependency>;
+template class PipelineXLocalState<LocalExchangeDependency>;
 
 template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;

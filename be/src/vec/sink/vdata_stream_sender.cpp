@@ -429,11 +429,12 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
     const TDataStreamSink& t_stream_sink = tsink.stream_sink;
     if (_part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = _channels.size();
-        _partitioner.reset(new HashPartitioner(_channels.size()));
+        _partitioner.reset(new XXHashPartitioner<ShuffleChannelIds>(_channels.size()));
         RETURN_IF_ERROR(_partitioner->init(t_stream_sink.output_partition.partition_exprs));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = _channel_shared_ptrs.size();
-        _partitioner.reset(new BucketHashPartitioner(_channel_shared_ptrs.size()));
+        _partitioner.reset(
+                new Crc32HashPartitioner<ShuffleChannelIds>(_channel_shared_ptrs.size()));
         RETURN_IF_ERROR(_partitioner->init(t_stream_sink.output_partition.partition_exprs));
     } else if (_part_type == TPartitionType::RANGE_PARTITIONED) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
@@ -634,11 +635,11 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         RETURN_IF_ERROR(_partitioner->do_partitioning(state, block, _mem_tracker.get()));
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(state, _channels, _partition_count,
-                                             (uint64_t*)_partitioner->get_hash_values(), rows,
+                                             (uint64_t*)_partitioner->get_channel_ids(), rows,
                                              block, _enable_pipeline_exec ? eos : false));
         } else {
             RETURN_IF_ERROR(channel_add_rows(state, _channel_shared_ptrs, _partition_count,
-                                             (uint32_t*)_partitioner->get_hash_values(), rows,
+                                             (uint32_t*)_partitioner->get_channel_ids(), rows,
                                              block, _enable_pipeline_exec ? eos : false));
         }
     } else {
