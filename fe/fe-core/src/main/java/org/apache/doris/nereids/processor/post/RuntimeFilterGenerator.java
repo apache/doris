@@ -205,6 +205,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         if (!(expr instanceof ComparisonPredicate)) {
             return null;
         }
+        if (!(expr instanceof LessThan) && !(expr instanceof LessThanEqual)
+                && !(expr instanceof GreaterThanEqual) && !(expr instanceof GreaterThan)) {
+            return null;
+        }
         if (!(expr.child(0) instanceof SlotReference)) {
             return null;
         }
