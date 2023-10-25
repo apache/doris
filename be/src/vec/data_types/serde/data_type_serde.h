@@ -45,22 +45,22 @@ namespace orc {
 struct ColumnVectorBatch;
 } // namespace orc
 
-#define SERIALIZE_COLUMN_TO_JSON()                                                          \
-    for (size_t i = start_idx; i < end_idx; ++i) {                                          \
-        if (i != start_idx) {                                                               \
-            bw.write(options.field_delim.data(), options.field_delim.size());               \
-        }                                                                                   \
-        RETURN_IF_ERROR(serialize_one_cell_to_json(column, i, bw, options, nesting_level)); \
-    }                                                                                       \
+#define SERIALIZE_COLUMN_TO_JSON()                                            \
+    for (size_t i = start_idx; i < end_idx; ++i) {                            \
+        if (i != start_idx) {                                                 \
+            bw.write(options.field_delim.data(), options.field_delim.size()); \
+        }                                                                     \
+        RETURN_IF_ERROR(serialize_one_cell_to_json(column, i, bw, options));  \
+    }                                                                         \
     return Status::OK();
 
-#define DESERIALIZE_COLUMN_FROM_JSON_VECTOR()                                                      \
-    for (int i = 0; i < slices.size(); ++i) {                                                      \
-        if (Status st = deserialize_one_cell_from_json(column, slices[i], options, nesting_level); \
-            st != Status::OK()) {                                                                  \
-            return st;                                                                             \
-        }                                                                                          \
-        ++*num_deserialized;                                                                       \
+#define DESERIALIZE_COLUMN_FROM_JSON_VECTOR()                                       \
+    for (int i = 0; i < slices.size(); ++i) {                                       \
+        if (Status st = deserialize_one_cell_from_json(column, slices[i], options); \
+            st != Status::OK()) {                                                   \
+            return st;                                                              \
+        }                                                                           \
+        ++*num_deserialized;                                                        \
     }
 
 #define DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR()                                      \
@@ -194,35 +194,30 @@ public:
     virtual ~DataTypeSerDe();
     // Text serializer and deserializer with formatOptions to handle different text format
     virtual Status serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                              BufferWritable& bw, FormatOptions& options,
-                                              int nesting_level = 1) const = 0;
+                                              BufferWritable& bw, FormatOptions& options) const = 0;
 
     // this function serialize multi-column to one row text to avoid virtual function call in complex type nested loop
     virtual Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                            BufferWritable& bw, FormatOptions& options,
-                                            int nesting_level = 1) const = 0;
+                                            BufferWritable& bw, FormatOptions& options) const = 0;
 
     virtual Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                  const FormatOptions& options,
-                                                  int nesting_level = 1) const = 0;
+                                                  const FormatOptions& options) const = 0;
     // deserialize text vector is to avoid virtual function call in complex type nested loop
     virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                        int* num_deserialized,
-                                                       const FormatOptions& options,
-                                                       int nesting_level = 1) const = 0;
+                                                       const FormatOptions& options) const = 0;
 
     virtual Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
                                                        const FormatOptions& options,
                                                        int nesting_level = 1) const {
-        return deserialize_one_cell_from_json(column, slice, options, nesting_level);
+        return deserialize_one_cell_from_json(column, slice, options);
     };
     virtual Status deserialize_column_from_hive_text_vector(IColumn& column,
                                                             std::vector<Slice>& slices,
                                                             int* num_deserialized,
                                                             const FormatOptions& options,
                                                             int nesting_level = 1) const {
-        return deserialize_column_from_json_vector(column, slices, num_deserialized, options,
-                                                   nesting_level);
+        return deserialize_column_from_json_vector(column, slices, num_deserialized, options);
     };
     virtual void serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
                                                  BufferWritable& bw, FormatOptions& options,

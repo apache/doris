@@ -42,14 +42,13 @@ std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String
 
 Status DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                      int end_idx, BufferWritable& bw,
-                                                     FormatOptions& options,
-                                                     int nesting_level) const {
+                                                     FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                       BufferWritable& bw, FormatOptions& options,
-                                                       int nesting_level) const {
+                                                       BufferWritable& bw,
+                                                       FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -61,16 +60,15 @@ Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, in
             bw.write(',');
             bw.write(' ');
         }
-        RETURN_IF_ERROR(elemSerDeSPtrs[i]->serialize_one_cell_to_json(
-                struct_column.get_column(i), row_num, bw, options, nesting_level + 1));
+        RETURN_IF_ERROR(elemSerDeSPtrs[i]->serialize_one_cell_to_json(struct_column.get_column(i),
+                                                                      row_num, bw, options));
     }
     bw.write('}');
     return Status::OK();
 }
 
 Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                           const FormatOptions& options,
-                                                           int nesting_level) const {
+                                                           const FormatOptions& options) const {
     if (slice.empty()) {
         return Status::InvalidArgument("slice is empty!");
     }
@@ -198,11 +196,9 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     return Status::OK();
 }
 
-Status DataTypeStructSerDe::deserialize_column_from_json_vector(IColumn& column,
-                                                                std::vector<Slice>& slices,
-                                                                int* num_deserialized,
-                                                                const FormatOptions& options,
-                                                                int nesting_level) const {
+Status DataTypeStructSerDe::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }

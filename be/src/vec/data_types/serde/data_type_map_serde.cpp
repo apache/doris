@@ -32,14 +32,14 @@ namespace vectorized {
 class Arena;
 
 Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                  BufferWritable& bw, FormatOptions& options,
-                                                  int nesting_level) const {
+                                                  BufferWritable& bw,
+                                                  FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                    BufferWritable& bw, FormatOptions& options,
-                                                    int nesting_level) const {
+                                                    BufferWritable& bw,
+                                                    FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -58,11 +58,10 @@ Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int r
             bw.write(&options.collection_delim, 1);
             bw.write(" ", 1);
         }
-        RETURN_IF_ERROR(key_serde->serialize_one_cell_to_json(nested_keys_column, i, bw, options,
-                                                              nesting_level + 1));
+        RETURN_IF_ERROR(key_serde->serialize_one_cell_to_json(nested_keys_column, i, bw, options));
         bw.write(&options.map_key_delim, 1);
-        RETURN_IF_ERROR(value_serde->serialize_one_cell_to_json(nested_values_column, i, bw,
-                                                                options, nesting_level + 1));
+        RETURN_IF_ERROR(
+                value_serde->serialize_one_cell_to_json(nested_values_column, i, bw, options));
     }
     bw.write("}", 1);
     return Status::OK();
@@ -171,15 +170,13 @@ void DataTypeMapSerDe::serialize_one_cell_to_hive_text(const IColumn& column, in
 Status DataTypeMapSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                              std::vector<Slice>& slices,
                                                              int* num_deserialized,
-                                                             const FormatOptions& options,
-                                                             int nesting_level) const {
+                                                             const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 
 Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                        const FormatOptions& options,
-                                                        int nesting_level) const {
+                                                        const FormatOptions& options) const {
     if (slice.empty()) {
         return Status::InvalidArgument("slice is empty!");
     }
@@ -247,8 +244,8 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
             }
             Slice next(slice.data + start_pos, idx - start_pos);
             next.trim_prefix();
-            if (Status st = key_serde->deserialize_one_cell_from_json(nested_key_column, next,
-                                                                      options, nesting_level + 1);
+            if (Status st =
+                        key_serde->deserialize_one_cell_from_json(nested_key_column, next, options);
                 !st.ok()) {
                 nested_key_column.pop_back(elem_deserialized);
                 nested_val_column.pop_back(elem_deserialized);
@@ -266,7 +263,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
             next.trim_prefix();
 
             if (Status st = value_serde->deserialize_one_cell_from_json(nested_val_column, next,
-                                                                        options, nesting_level + 1);
+                                                                        options);
                 !st.ok()) {
                 nested_key_column.pop_back(elem_deserialized + 1);
                 nested_val_column.pop_back(elem_deserialized);
@@ -284,8 +281,8 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
         Slice next(slice.data + start_pos, idx - start_pos);
         next.trim_prefix();
 
-        if (Status st = value_serde->deserialize_one_cell_from_json(nested_val_column, next,
-                                                                    options, nesting_level + 1);
+        if (Status st =
+                    value_serde->deserialize_one_cell_from_json(nested_val_column, next, options);
             !st.ok()) {
             nested_key_column.pop_back(elem_deserialized + 1);
             nested_val_column.pop_back(elem_deserialized);

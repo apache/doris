@@ -33,14 +33,13 @@ class Arena;
 
 Status DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                     int end_idx, BufferWritable& bw,
-                                                    FormatOptions& options,
-                                                    int nesting_level) const {
+                                                    FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 Status DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                      BufferWritable& bw, FormatOptions& options,
-                                                      int nesting_level) const {
+                                                      BufferWritable& bw,
+                                                      FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -59,7 +58,7 @@ Status DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int
     options.field_delim = options.collection_delim;
     options.field_delim += " ";
     RETURN_IF_ERROR(nested_serde->serialize_column_to_json(nested_column, offset, next_offset, bw,
-                                                           options, nesting_level + 1));
+                                                           options));
     bw.write("]", 1);
     return Status::OK();
 }
@@ -67,15 +66,13 @@ Status DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int
 Status DataTypeArraySerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
                                                                int* num_deserialized,
-                                                               const FormatOptions& options,
-                                                               int nesting_level) const {
+                                                               const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
 Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                          const FormatOptions& options,
-                                                          int nesting_level) const {
+                                                          const FormatOptions& options) const {
     if (slice.empty()) {
         return Status::InvalidArgument("slice is empty!");
     }
@@ -144,8 +141,8 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     }
 
     int elem_deserialized = 0;
-    Status st = nested_serde->deserialize_column_from_json_vector(
-            nested_column, slices, &elem_deserialized, options, nesting_level + 1);
+    Status st = nested_serde->deserialize_column_from_json_vector(nested_column, slices,
+                                                                  &elem_deserialized, options);
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return st;
 }
