@@ -121,7 +121,7 @@ Status RowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context)
         }
         _rowset_ids.clear();
     } else {
-        RETURN_IF_ERROR(_tablet->all_rs_id(_cur_max_version, &_rowset_ids));
+        RETURN_IF_ERROR(tablet->all_rs_id(cur_max_version, &_rowset_ids));
     }
     _delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
     mow_context =
