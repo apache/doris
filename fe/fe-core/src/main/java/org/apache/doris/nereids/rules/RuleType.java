@@ -243,6 +243,7 @@ public enum RuleType {
     COUNT_DISTINCT_REWRITE(RuleTypeClass.REWRITE),
     INNER_TO_CROSS_JOIN(RuleTypeClass.REWRITE),
     CROSS_TO_INNER_JOIN(RuleTypeClass.REWRITE),
+    PRUNE_EMPTY_PARTITION(RuleTypeClass.REWRITE),
 
     // split limit
     SPLIT_LIMIT(RuleTypeClass.REWRITE),
