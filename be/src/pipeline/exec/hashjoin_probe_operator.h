@@ -115,8 +115,6 @@ private:
     bool _need_null_map_for_probe = false;
     bool _has_set_need_null_map_for_probe = false;
     vectorized::ColumnUInt8::MutablePtr _null_map_column;
-    // for cases when a probe row matches more than batch size build rows.
-    bool _is_any_probe_match_row_output = false;
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
             std::make_unique<HashTableCtxVariants>();
 

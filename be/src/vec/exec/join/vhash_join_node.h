@@ -397,8 +397,6 @@ private:
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
 
-    // for cases when a probe row matches more than batch size build rows.
-    bool _is_any_probe_match_row_output = false;
     uint8_t _build_block_idx = 0;
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
