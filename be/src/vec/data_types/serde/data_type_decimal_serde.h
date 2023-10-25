@@ -68,8 +68,9 @@ public:
         __builtin_unreachable();
     }
 
-    DataTypeDecimalSerDe(int scale_, int precision_)
-            : scale(scale_),
+    DataTypeDecimalSerDe(int scale_, int precision_, int nesting_level = 1)
+            : DataTypeSerDe(nesting_level),
+              scale(scale_),
               precision(precision_),
               scale_multiplier(decimal_scale_multiplier<typename T::NativeType>(scale)) {}
 

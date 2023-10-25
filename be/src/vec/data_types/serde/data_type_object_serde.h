@@ -36,6 +36,8 @@ class Arena;
 
 class DataTypeObjectSerDe : public DataTypeSerDe {
 public:
+    DataTypeObjectSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+
     Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
                                       FormatOptions& options,
                                       int nesting_level = 1) const override {

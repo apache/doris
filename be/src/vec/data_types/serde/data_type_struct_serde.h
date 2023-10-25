@@ -105,8 +105,9 @@ public:
         return true;
     }
 
-    DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elemSerDeSPtrs, const Strings names)
-            : elemSerDeSPtrs(_elemSerDeSPtrs), elemNames(names) {}
+    DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elemSerDeSPtrs, const Strings names,
+                        int nesting_level = 1)
+            : DataTypeSerDe(nesting_level), elemSerDeSPtrs(_elemSerDeSPtrs), elemNames(names) {}
 
     Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
                                       FormatOptions& options, int nesting_level = 1) const override;

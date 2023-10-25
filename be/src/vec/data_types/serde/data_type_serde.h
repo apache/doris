@@ -190,7 +190,7 @@ public:
     static constexpr size_t BUFFER_RESERVED_SIZE = 40;
 
 public:
-    DataTypeSerDe();
+    DataTypeSerDe(int nesting_level = 1) : _nesting_level(nesting_level) {};
     virtual ~DataTypeSerDe();
     // Text serializer and deserializer with formatOptions to handle different text format
     virtual Status serialize_one_cell_to_json(const IColumn& column, int row_num,
@@ -276,6 +276,12 @@ public:
 
 protected:
     bool _return_object_as_string = false;
+    // This parameter indicates what level the serde belongs to and is mainly used for complex types
+    // The default level is 1, and each time you nest, the level increases by 1,
+    // for example: struct<string>
+    // The _nesting_level of StructSerde is 1
+    // The _nesting_level of StringSerde is 2
+    int _nesting_level = 1;
 };
 
 /// Invert values since Arrow interprets 1 as a non-null value, while doris as a null

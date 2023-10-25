@@ -42,6 +42,9 @@ namespace vectorized {
 class Arena;
 
 class DataTypeDate64SerDe : public DataTypeNumberSerDe<Int64> {
+public:
+    DataTypeDate64SerDe(int nesting_level = 1) : DataTypeNumberSerDe<Int64>(nesting_level) {};
+
     Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
                                       FormatOptions& options, int nesting_level = 1) const override;
     Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
@@ -77,6 +80,9 @@ private:
 };
 
 class DataTypeDateTimeSerDe : public DataTypeDate64SerDe {
+public:
+    DataTypeDateTimeSerDe(int nesting_level = 1) : DataTypeDate64SerDe(nesting_level) {};
+
     Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                     BufferWritable& bw, FormatOptions& options,
                                     int nesting_level = 1) const override;

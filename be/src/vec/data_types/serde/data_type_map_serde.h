@@ -36,8 +36,9 @@ class Arena;
 
 class DataTypeMapSerDe : public DataTypeSerDe {
 public:
-    DataTypeMapSerDe(const DataTypeSerDeSPtr& _key_serde, const DataTypeSerDeSPtr& _value_serde)
-            : key_serde(_key_serde), value_serde(_value_serde) {}
+    DataTypeMapSerDe(const DataTypeSerDeSPtr& _key_serde, const DataTypeSerDeSPtr& _value_serde,
+                     int nesting_level = 1)
+            : DataTypeSerDe(nesting_level), key_serde(_key_serde), value_serde(_value_serde) {}
 
     Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
                                       FormatOptions& options, int nesting_level = 1) const override;

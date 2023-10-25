@@ -36,7 +36,8 @@ class Arena;
 
 class DataTypeArraySerDe : public DataTypeSerDe {
 public:
-    DataTypeArraySerDe(const DataTypeSerDeSPtr& _nested_serde) : nested_serde(_nested_serde) {}
+    DataTypeArraySerDe(const DataTypeSerDeSPtr& _nested_serde, int nesting_level = 1)
+            : DataTypeSerDe(nesting_level), nested_serde(_nested_serde) {}
 
     Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
                                       FormatOptions& options, int nesting_level = 1) const override;
