@@ -35,7 +35,7 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
 
 Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (!local_state._shared_state->data_queue[local_state._channel_id].try_dequeue(*block)) {
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
