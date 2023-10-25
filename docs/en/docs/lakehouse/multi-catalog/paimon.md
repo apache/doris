@@ -33,7 +33,7 @@ under the License.
 ## Instructions for use
 
 1. When data in hdfs,need to put core-site.xml, hdfs-site.xml and hive-site.xml in the conf directory of FE and BE. First read the hadoop configuration file in the conf directory, and then read the related to the environment variable `HADOOP_CONF_DIR` configuration file.
-2. The currently adapted version of the payment is 0.4.0
+2. The currently adapted version of the payment is 0.5.0
 
 ## Create Catalog
 
@@ -64,7 +64,7 @@ CREATE CATALOG `paimon_hdfs` PROPERTIES (
 
 > Note that.
 >
-> user need download [paimon-s3-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.4.0-incubating/paimon-s3-0.4.0-incubating.jar)
+> user need download [paimon-s3-0.5.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.5.0-incubating/paimon-s3-0.5.0-incubating.jar)
 >
 > Place it in directory ${DORIS_HOME}/be/lib/java_extensions/preload-extensions and restart be
 >
@@ -85,7 +85,7 @@ CREATE CATALOG `paimon_s3` PROPERTIES (
 
 >Note that.
 >
-> user need download [paimon-oss-0.4.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.4.0-incubating/paimon-oss-0.4.0-incubating.jar)
+> user need download [paimon-oss-0.5.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.5.0-incubating/paimon-oss-0.5.0-incubating.jar)
 > Place it in directory ${DORIS_HOME}/be/lib/java_extensions/preload-extensions and restart be
 
 
@@ -120,4 +120,19 @@ CREATE CATALOG `paimon_hms` PROPERTIES (
 
 ## Column Type Mapping
 
-Same as that in Hive Catalogs. See the relevant section in [Hive](./hive.md).
+| Paimon Type               | Doris Type                 | Comment                                                                        |
+|---------------------------|----------------------------|--------------------------------------------------------------------------------|
+| boolean                   | boolean                    |                                                                                |
+| byte                      | TINYINT                    |                                                                                |
+| short                     | smallint                   |                                                                                |
+| int                       | int                        |                                                                                |
+| float                     | float                      |                                                                                |
+| long                      | bigint                     |                                                                                |
+| double                    | double                     |                                                                                |
+| string                    | string                     |                                                                                |
+| decimal                   | decimal                    |                                                                                |
+| timestamp                 | datetime                   |                                                                                |
+| `array<type>`             | `array<type>`              | Array nesting is not supported yet                                             |
+| `map<KeyType, ValueType>` | `map<KeyType, ValueType>`  | Map nesting is not supported yet, KeyType and ValueType need to be basic types |
+| other                     | unsupported                |                                                                                |
+
