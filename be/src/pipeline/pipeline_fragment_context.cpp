@@ -249,11 +249,11 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         fragment_context->set_is_report_success(request.query_options.is_report_success);
     }
 
-    if (request.is_multi_table_load) {
+    if (request.is_simplified_param) {
+        _desc_tbl = _query_ctx->desc_tbl;
+    } else {
         RETURN_IF_ERROR(
                 DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl, &_desc_tbl));
-    } else {
-        _desc_tbl = _query_ctx->desc_tbl;
     }
     _runtime_state->set_desc_tbl(_desc_tbl);
 

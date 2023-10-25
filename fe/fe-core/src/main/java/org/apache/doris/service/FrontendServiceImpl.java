@@ -2013,15 +2013,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             for (OlapTable table : olapTables) {
                 int index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
                 if (enablePipelineLoad) {
-                    TPipelineFragmentParams planFragmentParams = generatePipelineStreamLoadPut(request, db, fullDbName,
-                            table, timeoutMs, index, true);
-                    planFragmentParams.setIsMultiTableLoad(true);
-                    planFragmentParamsList.add(planFragmentParams);
+                    planFragmentParamsList.add(generatePipelineStreamLoadPut(request, db, fullDbName,
+                            table, timeoutMs, index, true));
                 } else {
-                    TExecPlanFragmentParams planFragmentParams = generatePlanFragmentParams(request, db, fullDbName,
-                            table, timeoutMs, index, true);
-                    planFragmentParams.setIsMultiTableLoad(true);
-                    planFragmentParamsList.add(planFragmentParams);
+                    planFragmentParamsList.add(generatePlanFragmentParams(request, db, fullDbName,
+                            table, timeoutMs, index, true));
                 }
                 multiTableFragmentInstanceIdIndexMap.put(request.getTxnId(), ++index);
             }
