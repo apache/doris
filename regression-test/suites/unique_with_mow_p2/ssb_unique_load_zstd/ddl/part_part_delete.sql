@@ -1,1 +1,1 @@
-delete from  `part` where p_partkey  > 10000;
+delete from  `part` where p_partkey  > 700000;

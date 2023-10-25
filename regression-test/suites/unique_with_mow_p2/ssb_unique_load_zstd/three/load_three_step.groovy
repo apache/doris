@@ -45,7 +45,8 @@ suite("load_three_step") {
         sql """ DROP TABLE IF EXISTS $tableName """
         sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_sequence_create.sql""").text
 
-        // load multiple times
+        // step 1: load data
+        // step 2: load all data for 3 times
         for (j in 0..<2) {
             def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
             // load data from cos
@@ -69,7 +70,7 @@ suite("load_three_step") {
             assertEquals(rows[1], rowCount[0][0])
         }
 
-        // delete all data
+        // step 3: delete all data
         sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_delete.sql""").text
         for (int i = 1; i <= 5; i++) {
             def loadRowCount = sql "select count(1) from ${tableName}"

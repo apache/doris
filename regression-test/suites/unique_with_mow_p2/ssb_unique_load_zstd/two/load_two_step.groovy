@@ -46,7 +46,7 @@ suite("load_two_step") {
         sql """ DROP TABLE IF EXISTS $tableName """
         sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_sequence_create.sql""").text
 
-        // load data from cos
+        // step 1: load data from cos
         def loadLabel = tableName + '_' + uniqueID
         def loadSql = new File("""${context.file.parentFile.parent}/ddl/${tableName}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
         loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
@@ -66,7 +66,7 @@ suite("load_two_step") {
         rowCount = sql "select count(*) from ${tableName}"
         assertEquals(rows[1], rowCount[0][0])
 
-        // delete all data
+        // step 2: delete all data
         sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_delete.sql""").text
         for (int i = 1; i <= 5; i++) {
             def loadRowCount = sql "select count(1) from ${tableName}"
