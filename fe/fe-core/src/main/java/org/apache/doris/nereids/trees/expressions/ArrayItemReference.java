@@ -129,7 +129,10 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
         return ImmutableList.of(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX));
     }
 
-    static class ArrayItemSlot extends SlotReference implements SlotNotFromChildren {
+    /**
+     * it is slot representation of ArrayItemReference
+     */
+    public static class ArrayItemSlot extends SlotReference implements SlotNotFromChildren {
         /**
          * Constructor for SlotReference.
          *

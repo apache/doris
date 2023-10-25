@@ -221,7 +221,7 @@ public abstract class ExpressionVisitor<R, C>
         return visitSlot(slotReference, context);
     }
 
-    public R visitArrayItemSlot(SlotReference arrayItemSlot, C context) {
+    public R visitArrayItemSlot(ArrayItemReference.ArrayItemSlot arrayItemSlot, C context) {
         return visit(arrayItemSlot, context);
     }
 

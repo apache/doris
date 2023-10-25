@@ -276,7 +276,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
-    public Expr visitArrayItemSlot(SlotReference slotReference, PlanTranslatorContext context) {
+    public Expr visitArrayItemSlot(ArrayItemReference.ArrayItemSlot slotReference, PlanTranslatorContext context) {
         return context.findColumnRef(slotReference.getExprId());
     }
 
