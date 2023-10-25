@@ -55,8 +55,8 @@ INSERT INTO example_tbl (col1, col2, col3) VALUES (1000, "test", 3.25);
 
 ```sql
 INSERT INTO example_tbl VALUES
-(1000, "baidu1", 3.25)
-(2000, "baidu2", 4.25)
+(1000, "baidu1", 3.25),
+(2000, "baidu2", 4.25),
 (3000, "baidu3", 5.25);
 ```
 
