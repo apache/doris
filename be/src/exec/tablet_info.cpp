@@ -93,8 +93,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
             if (!_is_partial_update ||
                 _partial_update_input_columns.count(pcolumn_desc.name()) > 0) {
                 std::string col_type = has_invalid_type ? "INVALID_TYPE" : pcolumn_desc.type();
-                auto it = slots_map.find(
-                        std::make_pair(to_lower(pcolumn_desc.name()), col_type));
+                auto it = slots_map.find(std::make_pair(to_lower(pcolumn_desc.name()), col_type));
                 if (it == std::end(slots_map)) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  pcolumn_desc.name(), pcolumn_desc.type());
@@ -153,9 +152,10 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
         for (auto& tcolumn_desc : t_index.columns_desc) {
-            TPrimitiveType::type col_type = has_invalid_type ? TPrimitiveType::INVALID_TYPE : tcolumn_desc.column_type.type;
-            auto it = slots_map.find(std::make_pair(to_lower(tcolumn_desc.column_name),
-                                                    thrift_to_type(col_type)));
+            TPrimitiveType::type col_type =
+                    has_invalid_type ? TPrimitiveType::INVALID_TYPE : tcolumn_desc.column_type.type;
+            auto it = slots_map.find(
+                    std::make_pair(to_lower(tcolumn_desc.column_name), thrift_to_type(col_type)));
             if (!_is_partial_update ||
                 _partial_update_input_columns.count(tcolumn_desc.column_name) > 0) {
                 if (it == slots_map.end()) {

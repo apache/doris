@@ -17,36 +17,15 @@
 
 #pragma once
 
-#include <cstddef>
-
-#include "common/status.h"
-#include "io/fs/file_system.h"
-#include "io/fs/file_writer.h"
-#include "io/fs/path.h"
-#include "util/slice.h"
-
 namespace doris {
 namespace io {
 
-class LocalFileWriter final : public FileWriter {
-public:
-    LocalFileWriter(Path path, int fd, FileSystemSPtr fs, bool sync_data = true);
-    LocalFileWriter(Path path, int fd);
-    ~LocalFileWriter() override;
-
-    Status close() override;
-    Status abort() override;
-    Status appendv(const Slice* data, size_t data_cnt) override;
-    Status write_at(size_t offset, const Slice& data) override;
-    Status finalize() override;
-
-private:
-    Status _close(bool sync);
-
-private:
-    int _fd; // owned
-    bool _dirty = false;
-    const bool _sync_data;
+// Only affects remote file writers
+struct FileWriterOptions {
+    bool write_file_cache = false;
+    bool is_cold_data = false;
+    bool sync_file_data = true;        // Whether flush data into storage system
+    int64_t file_cache_expiration = 0; // Absolute time
 };
 
 } // namespace io

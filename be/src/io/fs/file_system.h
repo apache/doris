@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "io/fs/file_reader_options.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_writer_options.h"
 #include "io/fs/fs_utils.h"
 #include "io/fs/path.h"
 
@@ -74,7 +75,8 @@ class FileSystem : public std::enable_shared_from_this<FileSystem> {
 public:
     // The following are public interface.
     // And derived classes should implement all xxx_impl methods.
-    Status create_file(const Path& file, FileWriterPtr* writer);
+    Status create_file(const Path& file, FileWriterPtr* writer,
+                       const FileWriterOptions* opts = nullptr);
     Status open_file(const Path& file, FileReaderSPtr* reader) {
         FileDescription fd;
         fd.path = file.native();
@@ -115,7 +117,8 @@ public:
 
 protected:
     /// create file and return a FileWriter
-    virtual Status create_file_impl(const Path& file, FileWriterPtr* writer) = 0;
+    virtual Status create_file_impl(const Path& file, FileWriterPtr* writer,
+                                    const FileWriterOptions* opts) = 0;
 
     /// open file and return a FileReader
     virtual Status open_file_impl(const FileDescription& fd, const Path& abs_file,
