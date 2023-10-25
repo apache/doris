@@ -427,7 +427,7 @@ Status VScanNode::_normalize_conjuncts() {
         // This is a leaf expression.
         return expr->node_type() == TExprNodeType::SLOT_REF;
     };
-    
+
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
         auto& conjunct = *it;
         if (conjunct->root()) {
