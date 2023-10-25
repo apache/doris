@@ -411,23 +411,6 @@ Status VScanNode::_normalize_conjuncts() {
         }
     }
 
-    std::function<bool(const VExprSPtr&)> _conjunct_is_acting_on_a_slot =
-            [&_conjunct_is_acting_on_a_slot](const VExprSPtr& expr) -> bool {
-        const auto& children = expr->children();
-        const size_t children_size = children.size();
-
-        for (size_t i = 0; i < children_size; ++i) {
-            // If any child expr does not act on a column slot
-            // return false immediately.
-            if (!_conjunct_is_acting_on_a_slot(children[i])) {
-                return false;
-            }
-        }
-
-        // This is a leaf expression.
-        return expr->node_type() == TExprNodeType::SLOT_REF;
-    };
-
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
         auto& conjunct = *it;
         if (conjunct->root()) {
@@ -436,7 +419,7 @@ Status VScanNode::_normalize_conjuncts() {
             if (new_root) {
                 conjunct->set_root(new_root);
                 if (_should_push_down_common_expr() &&
-                    _conjunct_is_acting_on_a_slot(conjunct->root())) {
+                    VExpr::is_acting_on_a_slot(conjunct->root())) {
                     // We need to make sure conjunct is acting on a slot before push it down.
                     // Or it will not be executed by SegmentIterator::_vec_init_lazy_materialization
                     _common_expr_ctxs_push_down.emplace_back(conjunct);
