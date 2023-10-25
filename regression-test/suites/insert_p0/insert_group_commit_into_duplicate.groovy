@@ -73,10 +73,7 @@ suite("insert_group_commit_into_duplicate") {
         logger.info("insert result: " + result)
         def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
         logger.info("result server info: " + serverInfo)
-        if (result != expected_row_count) {
-            logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
-        }
-        // assertEquals(result, expected_row_count)
+        assertEquals(result, expected_row_count)
         assertTrue(serverInfo.contains("'status':'VISIBLE'"))
         assertTrue(!serverInfo.contains("'label':'group_commit_"))
     }

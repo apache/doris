@@ -1801,56 +1801,58 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
     load_id.__set_lo(request->load_id().lo());
     bool ret = _light_work_pool.try_offer([this, request, response, done, load_id]() {
         brpc::ClosureGuard closure_guard(done);
-        Status st = Status::OK();
+        std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
         auto pipe = std::make_shared<io::StreamLoadPipe>(
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
                 -1 /* total_length */, true /* use_proto */);
-        std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
         ctx->pipe = pipe;
-        RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(load_id, ctx));
-
-        doris::Mutex mutex;
-        doris::ConditionVariable cv;
-        bool handled = false;
-        try {
-            st = _exec_plan_fragment_impl(
-                    request->exec_plan_fragment_request().request(),
-                    request->exec_plan_fragment_request().version(),
-                    request->exec_plan_fragment_request().compact(),
-                    [&](RuntimeState* state, Status* status) {
-                        // notify
-                        std::unique_lock l(mutex);
-                        response->set_loaded_rows(state->num_rows_load_success());
-                        response->set_filtered_rows(state->num_rows_load_filtered());
-                        response->set_label(state->import_label());
-                        response->set_txn_id(state->wal_id());
-                        handled = true;
-                        cv.notify_one();
-                    });
-        } catch (const Exception& e) {
-            st = e.to_status();
-        } catch (...) {
-            st = Status::Error(ErrorCode::INTERNAL_ERROR,
-                               "_exec_plan_fragment_impl meet unknown error");
-        }
-        if (!st.ok()) {
-            LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
-            return st;
+        Status st = _exec_env->new_load_stream_mgr()->put(load_id, ctx);
+        if (st.ok()) {
+            doris::Mutex mutex;
+            doris::ConditionVariable cv;
+            bool handled = false;
+            try {
+                st = _exec_plan_fragment_impl(
+                        request->exec_plan_fragment_request().request(),
+                        request->exec_plan_fragment_request().version(),
+                        request->exec_plan_fragment_request().compact(),
+                        [&](RuntimeState* state, Status* status) {
+                            response->set_label(state->import_label());
+                            response->set_txn_id(state->wal_id());
+                            response->set_loaded_rows(state->num_rows_load_success());
+                            response->set_filtered_rows(state->num_rows_load_filtered());
+                            st = *status;
+                            std::unique_lock l(mutex);
+                            handled = true;
+                            cv.notify_one();
+                        });
+            } catch (const Exception& e) {
+                st = e.to_status();
+            } catch (...) {
+                st = Status::Error(ErrorCode::INTERNAL_ERROR,
+                                   "_exec_plan_fragment_impl meet unknown error");
+            }
+            if (!st.ok()) {
+                LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
+            } else {
+                for (int i = 0; i < request->data().size(); ++i) {
+                    std::unique_ptr<PDataRow> row(new PDataRow());
+                    row->CopyFrom(request->data(i));
+                    st = pipe->append(std::move(row));
+                    if (!st.ok()) {
+                        break;
+                    }
+                }
+                if (st.ok()) {
+                    static_cast<void>(pipe->finish());
+                    std::unique_lock l(mutex);
+                    if (!handled) {
+                        cv.wait(l);
+                    }
+                }
+            }
         }
         st.to_protobuf(response->mutable_status());
-
-        for (int i = 0; i < request->data().size(); ++i) {
-            std::unique_ptr<PDataRow> row(new PDataRow());
-            row->CopyFrom(request->data(i));
-            // TODO append may error when pipe is cancelled
-            RETURN_IF_ERROR(pipe->append(std::move(row)));
-        }
-        static_cast<void>(pipe->finish());
-        std::unique_lock l(mutex);
-        if (!handled) {
-            cv.wait(l);
-        }
-        return st;
     });
     _exec_env->new_load_stream_mgr()->remove(load_id);
     if (!ret) {

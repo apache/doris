@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include <gen_cpp/PaloInternalService_types.h>
 
 #include <gen_cpp/PaloInternalService_types.h>
 
