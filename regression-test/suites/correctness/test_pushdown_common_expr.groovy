@@ -65,6 +65,38 @@ suite("test_pushdown_common_expr") {
         SELECT * FROM t_pushdown_common_expr WHERE c1 < 300 OR UPPER(c2)="F" OR c3 LIKE "%f%";
     """
 
+    // One conjunct. No push down.
+    order_qt_5 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1 OR uuid_numeric() = 'A' OR c1 = 256
+    """
+
+    // Two conjuncts.
+    // random() > 1 is executed by scan node, c1 > 0 is pushed down and executed by segment iterator
+    order_qt_6 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1 AND c1 > 0
+    """
+
+    // One conjunct. No push down.
+    order_qt_7 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1 OR c1 > 1020
+    """
+    // t1: 512 & 1024
+    // t2: all
+    // join gets nothing
+    order_qt_8 """
+        SELECT *
+        FROM (
+            SELECT c1
+            FROM t_pushdown_common_expr
+            WHERE c1 >= 512 or random() > 1
+        ) AS t1
+        JOIN (
+            SELECT c1
+            FROM t_pushdown_common_expr
+            WHERE random() = 0
+        ) AS t2 ON t1.c1 = t2.c1
+    """
+
     sql """set enable_common_expr_pushdown=false"""
 
     order_qt_1 """
@@ -83,4 +115,29 @@ suite("test_pushdown_common_expr") {
         SELECT * FROM t_pushdown_common_expr WHERE c1 < 300 OR UPPER(c2)="K" OR c3 LIKE "%k%";
     """
 
+    order_qt_5 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1 OR uuid_numeric() = 'A' OR c1 = 256
+    """
+    
+    order_qt_6 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1
+    """
+
+    order_qt_7 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1 OR c1 > 1020
+    """
+
+    order_qt_8 """
+        SELECT *
+        FROM (
+            SELECT c1
+            FROM t_pushdown_common_expr
+            WHERE c1 >= 512 or random() > 1
+        ) AS t1
+        JOIN (
+            SELECT c1
+            FROM t_pushdown_common_expr
+            WHERE random() = 0
+        ) AS t2 ON t1.c1 = t2.c1
+    """
 }
