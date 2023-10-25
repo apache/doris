@@ -37,7 +37,7 @@ ALTER SYSTEM ADD FOLLOWER
 语法：
 
 ```sql
-ALTER SYSTEM ADD FOLLOWER "follower_host:edit_log_port"
+ALTER SYSTEM ADD FOLLOWER "follower_host:edit_log_port[,"follower_host:edit_log_port"...]";
 ```
 
 说明：

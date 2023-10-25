@@ -37,7 +37,7 @@ This statement is to increase the node of the OBSERVER role of FRONTEND, (only f
 grammar:
 
 ```sql
-ALTER SYSTEM ADD OBSERVER "follower_host:edit_log_port"
+ALTER SYSTEM ADD OBSERVER "follower_host:edit_log_port[,"follower_host:edit_log_port"...]";
 ````
 
 illustrate:

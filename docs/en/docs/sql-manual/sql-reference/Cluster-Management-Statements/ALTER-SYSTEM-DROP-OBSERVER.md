@@ -37,7 +37,7 @@ This statement is to delete the node of the OBSERVER role of FRONTEND, (only for
 grammar:
 
 ```sql
-ALTER SYSTEM DROP OBSERVER "follower_host:edit_log_port"
+ALTER SYSTEM DROP OBSERVER "follower_host:edit_log_port[,"follower_host:edit_log_port"...]";
 ````
 
 illustrate:
@@ -47,7 +47,7 @@ illustrate:
 
 ### Example
 
-1. Add a FOLLOWER node
+1. Drop a FOLLOWER node
 
     ```sql
     ALTER SYSTEM DROP OBSERVER "host_ip:9010"
