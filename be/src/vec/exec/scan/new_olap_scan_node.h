@@ -64,6 +64,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status collect_query_statistics(QueryStatistics* statistics) override;
+    Status collect_query_statistics(QueryStatistics* statistics, int sender_id) override;
 
     void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
