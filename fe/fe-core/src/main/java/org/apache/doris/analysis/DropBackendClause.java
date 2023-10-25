@@ -17,52 +17,31 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.system.SystemInfoService.HostInfo;
-
-import com.google.common.base.Preconditions;
+import lombok.Getter;
 
 import java.util.List;
 
+@Getter
 public class DropBackendClause extends BackendClause {
-    private boolean force;
+    private final boolean force;
 
-    public DropBackendClause(List<String> hostPorts) {
-        super(hostPorts);
+    public DropBackendClause(List<String> params) {
+        super(params);
         this.force = true;
     }
 
-    public DropBackendClause(List<String> hostPorts, boolean force) {
-        super(hostPorts);
+    public DropBackendClause(List<String> params, boolean force) {
+        super(params);
         this.force = force;
-    }
-
-    public boolean isForce() {
-        return force;
-    }
-
-    @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (Config.enable_fqdn_mode) {
-            for (String hostPort : hostPorts) {
-                HostInfo hostInfo = SystemInfoService.getHostAndPort(hostPort);
-                hostInfos.add(hostInfo);
-            }
-            Preconditions.checkState(!hostInfos.isEmpty());
-        } else {
-            super.analyze(analyzer);
-        }
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("DROP BACKEND ");
-        for (int i = 0; i < hostPorts.size(); i++) {
-            sb.append("\"").append(hostPorts.get(i)).append("\"");
-            if (i != hostPorts.size() - 1) {
+        for (int i = 0; i < params.size(); i++) {
+            sb.append("\"").append(params.get(i)).append("\"");
+            if (i != params.size() - 1) {
                 sb.append(", ");
             }
         }
