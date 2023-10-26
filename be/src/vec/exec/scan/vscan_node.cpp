@@ -17,6 +17,7 @@
 
 #include "vec/exec/scan/vscan_node.h"
 
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
@@ -419,12 +420,16 @@ Status VScanNode::_normalize_conjuncts() {
             RETURN_IF_ERROR(_normalize_predicate(conjunct->root(), conjunct.get(), new_root));
             if (new_root) {
                 conjunct->set_root(new_root);
-                if (_should_push_down_common_expr()) {
+                if (_should_push_down_common_expr() &&
+                    VExpr::is_acting_on_a_slot(conjunct->root())) {
+                    // We need to make sure conjunct is acting on a slot before push it down.
+                    // Or it will not be executed by SegmentIterator::_vec_init_lazy_materialization
                     _common_expr_ctxs_push_down.emplace_back(conjunct);
                     it = _conjuncts.erase(it);
                     continue;
                 }
-            } else { // All conjuncts are pushed down as predicate column
+            } else {
+                // Whole conjunct is pushed down as predicate column
                 _stale_expr_ctxs.emplace_back(conjunct);
                 it = _conjuncts.erase(it);
                 continue;
@@ -432,6 +437,7 @@ Status VScanNode::_normalize_conjuncts() {
         }
         ++it;
     }
+
     for (auto& it : _slot_id_to_value_range) {
         std::visit(
                 [&](auto&& range) {
