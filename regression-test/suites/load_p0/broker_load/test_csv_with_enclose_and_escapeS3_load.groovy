@@ -16,7 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_csv_with_enclose_and_escapeS3_load", "p0") {
+suite("test_csv_with_enclose_and_escapeS3_load", "load_p0") {
 
     def tableName = "test_csv_with_enclose_and_escape"
 
@@ -53,21 +53,21 @@ suite("test_csv_with_enclose_and_escapeS3_load", "p0") {
                 "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
     }
 
-        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_incomplete.csv",
-            "${tableName}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
-            "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")").addProperties("max_filter_ratio", "0.5"))
+    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_incomplete.csv",
+        "${tableName}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
+        "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")").addProperties("max_filter_ratio", "0.5"))
 
-        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_without_escape.csv",
-            "${tableName}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
-            "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
+    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_without_escape.csv",
+        "${tableName}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
+        "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
 
-        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_multi_char_delimiter.csv",
-            "${tableName}", "LINES TERMINATED BY \"\$\$\$\"", "COLUMNS TERMINATED BY \"@@\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
-            "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
+    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_multi_char_delimiter.csv",
+        "${tableName}", "LINES TERMINATED BY \"\$\$\$\"", "COLUMNS TERMINATED BY \"@@\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
+        "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
 
-        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_not_trim_quotes.csv",
-            "${tableName}", "", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
-            "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\")").addProperties("trim_double_quotes", "false"))
+    attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_not_trim_quotes.csv",
+        "${tableName}", "", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
+        "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\")").addProperties("trim_double_quotes", "false"))
 
     def ak = getS3AK()
     def sk = getS3SK()
