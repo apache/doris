@@ -78,10 +78,9 @@ Status DataTypeNullableSerDe::deserialize_column_from_json_vector(
     return Status::OK();
 }
 
-void DataTypeNullableSerDe::serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
-                                                            BufferWritable& bw,
-                                                            FormatOptions& options,
-                                                            int nesting_level) const {
+void DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
+        const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+        int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -91,21 +90,23 @@ void DataTypeNullableSerDe::serialize_one_cell_to_hive_text(const IColumn& colum
         bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(), 2);
     } else {
         nested_serde->serialize_one_cell_to_hive_text(col_null.get_nested_column(), row_num, bw,
-                                                      options, nesting_level);
+                                                      options,
+                                                      hive_text_complex_type_delimiter_level);
     }
 }
 
-Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
-                                                                  const FormatOptions& options,
-                                                                  int nesting_level) const {
+Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(
+        IColumn& column, Slice& slice, const FormatOptions& options,
+        int hive_text_complex_type_delimiter_level) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
     if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
         null_column.insert_data(nullptr, 0);
         return Status::OK();
     }
 
-    Status st = nested_serde->deserialize_one_cell_from_hive_text(null_column.get_nested_column(),
-                                                                  slice, options, nesting_level);
+    Status st = nested_serde->deserialize_one_cell_from_hive_text(
+            null_column.get_nested_column(), slice, options,
+            hive_text_complex_type_delimiter_level);
 
     if (!st.ok()) {
         // fill null if fail
@@ -118,11 +119,9 @@ Status DataTypeNullableSerDe::deserialize_one_cell_from_hive_text(IColumn& colum
     return Status::OK();
 }
 
-Status DataTypeNullableSerDe::deserialize_column_from_hive_text_vector(IColumn& column,
-                                                                       std::vector<Slice>& slices,
-                                                                       int* num_deserialized,
-                                                                       const FormatOptions& options,
-                                                                       int nesting_level) const {
+Status DataTypeNullableSerDe::deserialize_column_from_hive_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options, int hive_text_complex_type_delimiter_level) const {
     DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
 }

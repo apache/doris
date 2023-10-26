@@ -63,14 +63,14 @@ struct ColumnVectorBatch;
         ++*num_deserialized;                                                        \
     }
 
-#define DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR()                                      \
-    for (int i = 0; i < slices.size(); ++i) {                                           \
-        if (Status st = deserialize_one_cell_from_hive_text(column, slices[i], options, \
-                                                            nesting_level);             \
-            st != Status::OK()) {                                                       \
-            return st;                                                                  \
-        }                                                                               \
-        ++*num_deserialized;                                                            \
+#define DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR()                                       \
+    for (int i = 0; i < slices.size(); ++i) {                                            \
+        if (Status st = deserialize_one_cell_from_hive_text(                             \
+                    column, slices[i], options, hive_text_complex_type_delimiter_level); \
+            st != Status::OK()) {                                                        \
+            return st;                                                                   \
+        }                                                                                \
+        ++*num_deserialized;                                                             \
     }
 
 #define REALLOC_MEMORY_FOR_ORC_WRITER()                                                  \
@@ -141,8 +141,10 @@ public:
          */
         bool _output_object_data = true;
 
-        [[nodiscard]] char get_collection_delimiter(int nesting_level) const {
-            CHECK(0 <= nesting_level && nesting_level <= 153);
+        [[nodiscard]] char get_collection_delimiter(
+                int hive_text_complex_type_delimiter_level) const {
+            CHECK(0 <= hive_text_complex_type_delimiter_level &&
+                  hive_text_complex_type_delimiter_level <= 153);
 
             char ans = '\002';
             //https://github.com/apache/hive/blob/master/serde/src/java/org/apache/hadoop/hive/serde2/lazy/LazySerDeParameters.java#L250
@@ -154,25 +156,25 @@ public:
             // 13 (carriage return, CR, \r, ^M),
             // 27 (escape, ESC, \e [GCC only], ^[).
 
-            if (nesting_level == 1) {
+            if (hive_text_complex_type_delimiter_level == 1) {
                 ans = collection_delim;
-            } else if (nesting_level == 2) {
+            } else if (hive_text_complex_type_delimiter_level == 2) {
                 ans = map_key_delim;
-            } else if (nesting_level <= 7) {
+            } else if (hive_text_complex_type_delimiter_level <= 7) {
                 // [3, 7] -> [4, 8]
-                ans = nesting_level + 1;
-            } else if (nesting_level == 8) {
+                ans = hive_text_complex_type_delimiter_level + 1;
+            } else if (hive_text_complex_type_delimiter_level == 8) {
                 // [8] -> [11]
                 ans = 11;
-            } else if (nesting_level <= 21) {
+            } else if (hive_text_complex_type_delimiter_level <= 21) {
                 // [9, 21] -> [14, 26]
-                ans = nesting_level + 5;
-            } else if (nesting_level <= 25) {
+                ans = hive_text_complex_type_delimiter_level + 5;
+            } else if (hive_text_complex_type_delimiter_level <= 25) {
                 // [22, 25] -> [28, 31]
-                ans = nesting_level + 6;
-            } else if (nesting_level <= 153) {
+                ans = hive_text_complex_type_delimiter_level + 6;
+            } else if (hive_text_complex_type_delimiter_level <= 153) {
                 // [26, 153] -> [-128, -1]
-                ans = nesting_level + (-26 - 128);
+                ans = hive_text_complex_type_delimiter_level + (-26 - 128);
             }
 
             return ans;
@@ -207,21 +209,19 @@ public:
                                                        int* num_deserialized,
                                                        const FormatOptions& options) const = 0;
 
-    virtual Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
-                                                       const FormatOptions& options,
-                                                       int nesting_level = 1) const {
+    virtual Status deserialize_one_cell_from_hive_text(
+            IColumn& column, Slice& slice, const FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const {
         return deserialize_one_cell_from_json(column, slice, options);
     };
-    virtual Status deserialize_column_from_hive_text_vector(IColumn& column,
-                                                            std::vector<Slice>& slices,
-                                                            int* num_deserialized,
-                                                            const FormatOptions& options,
-                                                            int nesting_level = 1) const {
+    virtual Status deserialize_column_from_hive_text_vector(
+            IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+            const FormatOptions& options, int hive_text_complex_type_delimiter_level = 1) const {
         return deserialize_column_from_json_vector(column, slices, num_deserialized, options);
     };
-    virtual void serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
-                                                 BufferWritable& bw, FormatOptions& options,
-                                                 int nesting_level = 1) const {
+    virtual void serialize_one_cell_to_hive_text(
+            const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const {
         Status st = serialize_one_cell_to_json(column, row_num, bw, options);
         if (!st.ok()) {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,

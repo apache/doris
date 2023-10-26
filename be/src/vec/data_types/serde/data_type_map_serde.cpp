@@ -67,9 +67,9 @@ Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int r
     return Status::OK();
 }
 
-Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
-                                                             const FormatOptions& options,
-                                                             int nesting_level) const {
+Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(
+        IColumn& column, Slice& slice, const FormatOptions& options,
+        int hive_text_complex_type_delimiter_level) const {
     if (slice.empty()) {
         return Status::InvalidArgument("slice is empty!");
     }
@@ -80,8 +80,10 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Sl
     DCHECK(nested_key_column.is_nullable());
     DCHECK(nested_val_column.is_nullable());
 
-    char collection_delimiter = options.get_collection_delimiter(nesting_level);
-    char map_kv_delimiter = options.get_collection_delimiter(nesting_level + 1);
+    char collection_delimiter =
+            options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
+    char map_kv_delimiter =
+            options.get_collection_delimiter(hive_text_complex_type_delimiter_level + 1);
 
     std::vector<Slice> key_slices;
     std::vector<Slice> value_slices;
@@ -109,14 +111,16 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Sl
 
     int num_keys = 0, num_values = 0;
     Status st;
-    st = key_serde->deserialize_column_from_hive_text_vector(nested_key_column, key_slices,
-                                                             &num_keys, options, nesting_level + 2);
+    st = key_serde->deserialize_column_from_hive_text_vector(
+            nested_key_column, key_slices, &num_keys, options,
+            hive_text_complex_type_delimiter_level + 2);
     if (st != Status::OK()) {
         return st;
     }
 
     st = value_serde->deserialize_column_from_hive_text_vector(
-            nested_val_column, value_slices, &num_values, options, nesting_level + 2);
+            nested_val_column, value_slices, &num_values, options,
+            hive_text_complex_type_delimiter_level + 2);
     if (st != Status::OK()) {
         return st;
     }
@@ -127,18 +131,16 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Sl
     return Status::OK();
 }
 
-Status DataTypeMapSerDe::deserialize_column_from_hive_text_vector(IColumn& column,
-                                                                  std::vector<Slice>& slices,
-                                                                  int* num_deserialized,
-                                                                  const FormatOptions& options,
-                                                                  int nesting_level) const {
+Status DataTypeMapSerDe::deserialize_column_from_hive_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options, int hive_text_complex_type_delimiter_level) const {
     DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
 }
 
-void DataTypeMapSerDe::serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
-                                                       BufferWritable& bw, FormatOptions& options,
-                                                       int nesting_level) const {
+void DataTypeMapSerDe::serialize_one_cell_to_hive_text(
+        const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+        int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -152,18 +154,20 @@ void DataTypeMapSerDe::serialize_one_cell_to_hive_text(const IColumn& column, in
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
 
-    char collection_delimiter = options.get_collection_delimiter(nesting_level);
-    char map_kv_delimiter = options.get_collection_delimiter(nesting_level + 1);
+    char collection_delimiter =
+            options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
+    char map_kv_delimiter =
+            options.get_collection_delimiter(hive_text_complex_type_delimiter_level + 1);
 
     for (size_t i = start; i < end; ++i) {
         if (i != start) {
             bw.write(collection_delimiter);
         }
         key_serde->serialize_one_cell_to_hive_text(nested_keys_column, i, bw, options,
-                                                   nesting_level + 2);
+                                                   hive_text_complex_type_delimiter_level + 2);
         bw.write(map_kv_delimiter);
         value_serde->serialize_one_cell_to_hive_text(nested_values_column, i, bw, options,
-                                                     nesting_level + 2);
+                                                     hive_text_complex_type_delimiter_level + 2);
     }
 }
 
