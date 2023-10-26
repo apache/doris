@@ -31,9 +31,7 @@ namespace doris {
 
 class IPv6Value {
 public:
-    IPv6Value() {
-        _value = 0;
-    }
+    IPv6Value() { _value = 0; }
 
     explicit IPv6Value(vectorized::IPv6 ipv6) { _value = ipv6; }
 
@@ -96,11 +94,11 @@ public:
         }
 
         uint64_t high = (static_cast<uint64_t>(fields[0]) << 48) |
-                 (static_cast<uint64_t>(fields[1]) << 32) |
-                 (static_cast<uint64_t>(fields[2]) << 16) | static_cast<uint64_t>(fields[3]);
+                        (static_cast<uint64_t>(fields[1]) << 32) |
+                        (static_cast<uint64_t>(fields[2]) << 16) | static_cast<uint64_t>(fields[3]);
         uint64_t low = (static_cast<uint64_t>(fields[4]) << 48) |
-                (static_cast<uint64_t>(fields[5]) << 32) |
-                (static_cast<uint64_t>(fields[6]) << 16) | static_cast<uint64_t>(fields[7]);
+                       (static_cast<uint64_t>(fields[5]) << 32) |
+                       (static_cast<uint64_t>(fields[6]) << 16) | static_cast<uint64_t>(fields[7]);
 
         x = static_cast<vectorized::IPv6>(high) << 64 | low;
         return true;
