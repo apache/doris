@@ -438,6 +438,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.explain() != null) {
             return withExplain(sink, ctx.explain());
         }
+        if (ctx.selectHint() != null) {
+            LogicalPlan sinkWithHint = withSelectHint(sink, ctx.selectHint());
+            return new InsertIntoTableCommand(sinkWithHint, Optional.ofNullable(labelName), isOverwrite);
+        }
         return new InsertIntoTableCommand(sink, Optional.ofNullable(labelName), isOverwrite);
     }
 

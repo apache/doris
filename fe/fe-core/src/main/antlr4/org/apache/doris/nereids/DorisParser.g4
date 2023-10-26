@@ -50,7 +50,7 @@ statement
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
         propertyClause?
         (AS query)?                                                    #createTable
-    | explain? INSERT (INTO | OVERWRITE TABLE)
+    | explain? INSERT selectHint? (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         (PARTITION partition=identifierList)?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
