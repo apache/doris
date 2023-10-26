@@ -26,6 +26,7 @@ import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -39,9 +40,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -49,6 +55,38 @@ import java.util.Optional;
 import java.util.Set;
 
 public class NereidsParserTest extends ParserTestBase {
+
+    @BeforeAll
+    public static void init() {
+        ConnectContext ctx = new ConnectContext();
+        new MockUp<ConnectContext>() {
+            @Mock
+            public ConnectContext get() {
+                return ctx;
+            }
+        };
+    }
+
+    @Test
+    void testNoBackslashEscapes() {
+        parseExpression("'\\b'")
+                .assertEquals(new StringLiteral("\b"));
+        parseExpression("'\\n'")
+                .assertEquals(new StringLiteral("\n"));
+        parseExpression("'\\t'")
+                .assertEquals(new StringLiteral("\t"));
+        parseExpression("'\\0'")
+                .assertEquals(new StringLiteral("\0"));
+        ConnectContext.get().getSessionVariable().setSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+        parseExpression("'\\b'")
+                .assertEquals(new StringLiteral("\\b"));
+        parseExpression("'\\n'")
+                .assertEquals(new StringLiteral("\\n"));
+        parseExpression("'\\t'")
+                .assertEquals(new StringLiteral("\\t"));
+        parseExpression("'\\0'")
+                .assertEquals(new StringLiteral("\\0"));
+    }
 
     @Test
     public void testParseMultiple() {

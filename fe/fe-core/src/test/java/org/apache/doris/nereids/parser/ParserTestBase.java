@@ -26,6 +26,7 @@ import org.apache.doris.nereids.util.TrinoDialectPlanParseChecker;
  * Base class to check SQL parsing result.
  */
 public abstract class ParserTestBase implements MemoPatternMatchSupported {
+
     public PlanParseChecker parsePlan(String sql) {
         return new PlanParseChecker(sql);
     }
