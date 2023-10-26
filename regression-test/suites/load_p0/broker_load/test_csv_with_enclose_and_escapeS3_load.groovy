@@ -79,7 +79,7 @@ suite("test_csv_with_enclose_and_escapeS3_load", "load_p0") {
         attributes.label = label
         def prop = attributes.getPropertiesStr()
 
-        def sql_str = """
+        sql """
             LOAD LABEL $label (
                 DATA INFILE("$attributes.dataDesc.path")
                 INTO TABLE $attributes.dataDesc.tableName
@@ -97,9 +97,6 @@ suite("test_csv_with_enclose_and_escapeS3_load", "load_p0") {
             )
             ${prop}
             """
-        logger.info("submit sql: ${sql_str}");
-        sql """${sql_str}"""
-        logger.info("Submit load with lable: $label, table: $attributes.dataDesc.tableName, path: $attributes.dataDesc.path")
 
         def max_try_milli_secs = 600000
         while (max_try_milli_secs > 0) {
