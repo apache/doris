@@ -170,8 +170,6 @@ public:
 
     virtual std::string get_name() const { return _operator_builder->get_name(); }
 
-    virtual std::string get_dest_name() const { return ""; }
-
     virtual bool is_sink() const;
 
     virtual bool is_source() const;

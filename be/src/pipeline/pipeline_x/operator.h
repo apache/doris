@@ -99,6 +99,9 @@ public:
 
     virtual Dependency* dependency() { return nullptr; }
 
+    FinishDependency* finishdependency() { return _finish_dependency.get(); }
+    FilterDependency* filterdependency() { return _filter_dependency.get(); }
+
 protected:
     friend class OperatorXBase;
 
@@ -130,6 +133,7 @@ protected:
     bool _closed = false;
     vectorized::Block _origin_block;
     std::shared_ptr<FinishDependency> _finish_dependency;
+    std::unique_ptr<FilterDependency> _filter_dependency;
 };
 
 class OperatorXBase : public OperatorBase {
@@ -202,11 +206,7 @@ public:
         return true;
     }
 
-    virtual bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const { return true; }
-
     Status close(RuntimeState* state) override;
-
-    virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
 
     [[nodiscard]] virtual const RowDescriptor& intermediate_row_desc() const {
         return _row_descriptor;
@@ -368,6 +368,8 @@ public:
 
     virtual WriteDependency* dependency() { return nullptr; }
 
+    FinishDependency* finishdependency() { return _finish_dependency.get(); }
+
 protected:
     DataSinkOperatorXBase* _parent;
     RuntimeState* _state;
@@ -469,8 +471,6 @@ public:
         return false;
     }
 
-    virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
-
     [[nodiscard]] std::string debug_string() const override { return ""; }
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level) const;
@@ -507,14 +507,6 @@ public:
     [[nodiscard]] int node_id() const { return _node_id; }
 
     [[nodiscard]] std::string get_name() const override { return _name; }
-
-    [[nodiscard]] std::string get_dest_name() const override {
-        std::string name;
-        for (auto id : _dests_id) {
-            name += std::to_string(id) + " ";
-        }
-        return name;
-    }
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
 
@@ -575,10 +567,7 @@ public:
 
     [[nodiscard]] std::string debug_string(int indentation_level) const override;
 
-    virtual std::string id_name() {
-        return " (id=" + std::to_string(_parent->node_id()) + ", dst=" + _parent->get_dest_name() +
-               ")";
-    }
+    virtual std::string id_name() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
 
     WriteDependency* dependency() override { return _dependency; }
 
