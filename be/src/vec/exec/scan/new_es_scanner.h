@@ -74,7 +74,6 @@ private:
     Status _get_next(std::vector<vectorized::MutableColumnPtr>& columns);
 
 private:
-    bool _is_init;
     bool _es_eof;
 
     const std::map<std::string, std::string>& _properties;

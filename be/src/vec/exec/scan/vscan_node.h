@@ -306,8 +306,6 @@ protected:
     VExprContextSPtrs _stale_expr_ctxs;
     VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    RuntimeState* _state;
-
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 

@@ -61,8 +61,6 @@ protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
 private:
-    bool _is_init;
-
     // Indicates whether there are more rows to process. Set in _odbc_connector.next().
     bool _odbc_eof;
 

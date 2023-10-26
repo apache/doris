@@ -72,8 +72,6 @@ protected:
 private:
     void _update_profile();
 
-    bool _is_init;
-
     bool _jdbc_eos;
 
     // Tuple id resolved in prepare() to set _tuple_desc;

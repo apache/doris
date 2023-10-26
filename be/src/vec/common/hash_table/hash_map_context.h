@@ -134,6 +134,11 @@ struct MethodBase {
                                           size_t num_rows) = 0;
 };
 
+// FIXME: parameter 'keys' shadows member inherited from type `MethodBase`
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
 template <typename TData>
 struct MethodSerialized : public MethodBase<TData> {
     using Base = MethodBase<TData>;
@@ -464,7 +469,6 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
     using Base = SingleColumnMethod;
     using State = ColumnsHashing::HashMethodSingleLowNullableColumn<typename Base::State,
                                                                     typename Base::Mapped>;
-
     void insert_keys_into_columns(std::vector<typename Base::Key>& keys,
                                   MutableColumns& key_columns, const size_t num_rows) override {
         auto* col = key_columns[0].get();
@@ -476,6 +480,9 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
         }
     }
 };
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 template <typename RowRefListType>
 using SerializedHashTableContext = MethodSerialized<PartitionedHashMap<StringRef, RowRefListType>>;

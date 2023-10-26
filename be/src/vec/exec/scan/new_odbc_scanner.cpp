@@ -52,13 +52,14 @@ namespace doris::vectorized {
 NewOdbcScanner::NewOdbcScanner(RuntimeState* state, NewOdbcScanNode* parent, int64_t limit,
                                const TOdbcScanNode& odbc_scan_node, RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
-          _is_init(false),
           _odbc_eof(false),
           _table_name(odbc_scan_node.table_name),
           _connect_string(odbc_scan_node.connect_string),
           _query_string(odbc_scan_node.query_string),
           _tuple_id(odbc_scan_node.tuple_id),
-          _tuple_desc(nullptr) {}
+          _tuple_desc(nullptr) {
+    _is_init = false;
+}
 
 Status NewOdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     VLOG_CRITICAL << NEW_SCANNER_TYPE << "::prepare";

@@ -193,9 +193,6 @@ private:
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
-    // number of created olap scanners
-    RuntimeProfile::Counter* _num_scanners = nullptr;
-
     // number of segment filtered by column stat when creating seg iterator
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
