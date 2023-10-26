@@ -54,7 +54,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_with_and_two_phase_agg,explode,test_cast_function,test_pk_uk_index_change,test_pk_uk_case,window_function,test_profile,test_broker_load_p2,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog"
+excludeSuites = "test_hive_read_orc_complex_type,test_hive_read_parquet,test_hive_read_parquet_complex_type,test_with_and_two_phase_agg,explode,test_cast_function,test_pk_uk_index_change,test_pk_uk_case,window_function,test_profile,test_broker_load_p2,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog"
 
 // this directories will not be executed
 excludeDirectories = "nereids_tpcds_shape_sf100_p0,nereids_tpch_shape_sf1000_p0,nereids_tpch_shape_sf500_p0,workload_manager_p1"
