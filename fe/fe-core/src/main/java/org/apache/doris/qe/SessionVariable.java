@@ -1258,7 +1258,9 @@ public class SessionVariable implements Serializable, Writable {
                     int res = -1;
                     try {
                         res = Integer.valueOf(v);
-                    } catch (Exception e) { }
+                    } catch (Exception e) {
+                        //ignore it
+                    }
                     return res;
                 }).collect(ImmutableSet.toImmutableSet());
     }
