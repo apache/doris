@@ -171,12 +171,6 @@ public:
 
     int dest_id_from_sink() const { return _t_data_stream_sink.dest_node_id; }
 
-    bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const override {
-        return state->get_local_state(operator_id())
-                ->template cast<MultiCastDataStreamSourceLocalState>()
-                .runtime_filters_are_ready_or_timeout();
-    }
-
 private:
     friend class MultiCastDataStreamSourceLocalState;
     const int _consumer_id;
