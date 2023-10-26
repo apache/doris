@@ -317,10 +317,10 @@ class BE(Node):
         return super().expose_sub_dirs() + ["storage"]
 
     def init_disk(self, be_disks):
-        next_index = {}
         path = self.get_path()
         dirs = []
         dir_descs = []
+        index = 0
         for disks in be_disks:
             parts = disks.split(",")
             if len(parts) != 1 and len(parts) != 2:
@@ -337,14 +337,13 @@ class BE(Node):
             capactity = int(parts[1].strip()) if len(parts) >= 2 else -1
             capactity_desc = "_{}gb".format(capactity) if capactity > 0 else ""
 
-            index = next_index.get(tp, 1)
             for i in range(num):
-                dir_name = "{}{}.{}".format(index + i, capactity_desc, tp)
+                index += 1
+                dir_name = "{}{}.{}".format(index, capactity_desc, tp)
                 dirs.append("{}/storage/{}".format(path, dir_name))
                 dir_descs.append("${{DORIS_HOME}}/storage/{}{}".format(
                     dir_name,
                     ",capacity:" + str(capactity) if capactity > 0 else ""))
-            next_index[tp] = index + num
 
         for dir in dirs:
             os.makedirs(dir, exist_ok=True)
