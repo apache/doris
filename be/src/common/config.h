@@ -82,7 +82,7 @@ class Status;
 
 // If you want to modify the value of config, please go to common/config.cpp to modify.
 namespace config {
-// Dir of custom config file
+// Dir of custom config file.
 DECLARE_String(custom_config_dir);
 
 // Dir of jdbc drivers
