@@ -56,6 +56,7 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
+#include "util/debug_util.h"
 #include "util/defer_op.h"
 #include "util/pretty_printer.h"
 #include "util/telemetry/telemetry.h"
@@ -264,10 +265,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
 Status PlanFragmentExecutor::open() {
     int64_t mem_limit = _runtime_state->query_mem_tracker()->limit();
-    LOG_INFO("PlanFragmentExecutor::open")
-            .tag("query_id", _query_ctx->query_id())
-            .tag("instance_id", _runtime_state->fragment_instance_id())
-            .tag("mem_limit", PrettyPrinter::print(mem_limit, TUnit::BYTES));
+    LOG_INFO("PlanFragmentExecutor::open {}, mem_limit {}",
+             PrintInstanceStandardInfo(_query_ctx->query_id(), _fragment_instance_id),
+             PrettyPrinter::print(mem_limit, TUnit::BYTES));
 
     // we need to start the profile-reporting thread before calling Open(), since it
     // may block
@@ -592,11 +592,9 @@ void PlanFragmentExecutor::stop_report_thread() {
 
 void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
     std::lock_guard<std::mutex> l(_status_lock);
-    LOG_INFO("PlanFragmentExecutor::cancel")
-            .tag("query_id", print_id(_query_ctx->query_id()))
-            .tag("instance_id", print_id(_runtime_state->fragment_instance_id()))
-            .tag("reason", reason)
-            .tag("error message", msg);
+    LOG_INFO("PlanFragmentExecutor::cancel {} reason {} error msg {}",
+             PrintInstanceStandardInfo(query_id(), fragment_instance_id()), reason, msg);
+
     // NOTE: Not need to check if already cancelled.
     // Bug scenario: test_array_map_function.groovy:
     //      select /*+SET_VAR(experimental_enable_pipeline_engine=false)*/ array_map((x,y)->x+y, c_array1, c_array2) from test.array_test2 where id > 10 order by id
@@ -680,8 +678,6 @@ void PlanFragmentExecutor::close() {
             }
             LOG(INFO) << ss.str();
         }
-        LOG(INFO) << "Close() fragment_instance_id="
-                  << print_id(_runtime_state->fragment_instance_id());
     }
 
     profile()->add_to_span(_span);
