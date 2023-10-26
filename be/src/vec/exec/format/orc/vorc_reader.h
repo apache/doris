@@ -503,7 +503,7 @@ private:
     int64_t _range_size;
     const std::string& _ctz;
     const std::vector<std::string>* _column_names;
-    size_t _offset_days = 0;
+    int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
 
     std::list<std::string> _read_cols;

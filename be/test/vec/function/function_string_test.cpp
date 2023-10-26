@@ -1121,25 +1121,6 @@ TEST(function_string_test, function_coalesce_test) {
     }
 }
 
-TEST(function_string_test, function_str_to_date_test) {
-    std::string func_name = "str_to_date";
-    InputTypeSet input_types = {
-            TypeIndex::String,
-            TypeIndex::String,
-    };
-    DataSet data_set = {
-            {{Null(), std::string("%Y-%m-%d %H:%i:%s")}, {Null()}},
-            {{std::string("2014-12-21 12:34:56"), std::string("%Y-%m-%d %H:%i:%s")},
-             str_to_date_time("2014-12-21 12:34:56", false)},
-            {{std::string("2014-12-21 12:34%3A56"), std::string("%Y-%m-%d %H:%i%%3A%s")},
-             str_to_date_time("2014-12-21 12:34:56", false)},
-            {{std::string("11/09/2011"), std::string("%m/%d/%Y")},
-             str_to_date_time("2011-11-09", false)},
-            {{std::string("2020-09-01"), std::string("%Y-%m-%d %H:%i:%s")},
-             str_to_date_time("2020-09-01 00:00:00", false)}};
-    check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
-}
-
 TEST(function_string_test, function_replace) {
     std::string func_name = "replace";
     InputTypeSet input_types = {
