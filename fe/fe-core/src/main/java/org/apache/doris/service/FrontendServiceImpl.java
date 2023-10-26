@@ -3356,7 +3356,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
-            return result;
         }
         return result;
     }
@@ -3434,8 +3433,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // Step 3: get meta
         try {
-            result = Env.getMeta(db, tables);
-            return result;
+            return Env.getMeta(db, tables);
         } catch (Throwable e) {
             throw e;
         }
@@ -3458,7 +3456,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
-            return result;
         }
 
         return result;
