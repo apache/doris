@@ -222,7 +222,8 @@ struct FromUnixTimeImpl {
     static inline auto execute(FromType val, StringRef format, ColumnString::Chars& res_data,
                                size_t& offset, const cctz::time_zone& time_zone) {
         DateType dt;
-        if (format.size > 128 || val < 0 || val > TIMESTAMP_VALID_MAX || !dt.from_unixtime(val, time_zone)) {
+        if (format.size > 128 || val < 0 || val > TIMESTAMP_VALID_MAX ||
+            !dt.from_unixtime(val, time_zone)) {
             return std::pair {offset, true};
         }
 
