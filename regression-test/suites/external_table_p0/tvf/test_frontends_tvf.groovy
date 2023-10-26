@@ -19,7 +19,7 @@
 suite("test_frontends_tvf","p0,external,tvf,external_docker") {
     List<List<Object>> table =  sql """ select * from `frontends`(); """
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size == 18)
+    assertTrue(table[0].size == 19)
 
     // filter columns
     table = sql """ select Name from `frontends`();"""
