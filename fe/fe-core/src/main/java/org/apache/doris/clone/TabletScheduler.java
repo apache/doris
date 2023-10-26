@@ -46,6 +46,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.resource.Tag;
@@ -983,6 +984,7 @@ public class TabletScheduler extends MasterDaemon {
             boolean force, LoadStatisticForTag statistic) throws SchedException {
         Replica chosenReplica = null;
         double maxScore = 0;
+        long debugHighBeId = DebugPointUtil.getDebugParamOrDefault("FE.HIGH_LOAD_BE_ID", -1L);
         for (Replica replica : replicas) {
             BackendLoadStatistic beStatistic = statistic.getBackendLoadStatistic(replica.getBackendId());
             if (beStatistic == null) {
@@ -1006,6 +1008,11 @@ public class TabletScheduler extends MasterDaemon {
             if (loadScore > maxScore) {
                 maxScore = loadScore;
                 chosenReplica = replica;
+            }
+
+            if (debugHighBeId > 0 && replica.getBackendId() == debugHighBeId) {
+                chosenReplica = replica;
+                break;
             }
         }
 
@@ -1533,6 +1540,16 @@ public class TabletScheduler extends MasterDaemon {
 
                 if (statusPair.second.ordinal() < tabletCtx.getPriority().ordinal()) {
                     statusPair.second = tabletCtx.getPriority();
+                }
+            }
+
+            if (statusPair.first == TabletStatus.NEED_FURTHER_REPAIR) {
+                // replica is just waiting for finishing txns before furtherRepairWatermarkTxnTd,
+                // no need to add it immediately
+                Replica replica = tablet.getReplicaByBackendId(tabletCtx.getDestBackendId());
+                if (replica != null && replica.getVersion() >= partition.getVisibleVersion()
+                        && replica.getLastFailedVersion() < 0) {
+                    return;
                 }
             }
         } finally {

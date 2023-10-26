@@ -66,6 +66,12 @@ public class DebugPointUtilTest extends DorisHttpTestCase {
         Assert.assertTrue(debugPoint.param("v4", false));
         Assert.assertFalse(debugPoint.param("v5", false));
         Assert.assertEquals(123L, (long) debugPoint.param("v_no_exist", 123L));
+
+        Assert.assertEquals(1, (int) DebugPointUtil.getDebugParamOrDefault("dbug5", "v1", 0));
+        Assert.assertEquals(100, (int) DebugPointUtil.getDebugParamOrDefault("point_not_exists", "v1", 100));
+
+        sendRequest("/api/debug_point/add/dbug6?value=100");
+        Assert.assertEquals(100, (int) DebugPointUtil.getDebugParamOrDefault("dbug6", 0));
     }
 
     private void sendRequest(String uri) throws Exception {
