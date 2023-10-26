@@ -317,6 +317,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                   << ", disk=" << _tablet->data_dir()->path()
                   << ", segments=" << _input_num_segments << ", input_row_num=" << _input_row_num
                   << ", output_row_num=" << _output_rowset->num_rows()
+                  << ", input_rowset_size=" << _input_rowsets_size
+                  << ", output_rowset_size=" << _output_rowset->data_disk_size()
                   << ". elapsed time=" << watch.get_elapse_second()
                   << "s. cumulative_compaction_policy="
                   << (cumu_policy == nullptr ? "quick" : cumu_policy->name());
@@ -473,6 +475,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                       << ". tablet=" << _tablet->tablet_id()
                       << ", input row number=" << _input_row_num
                       << ", output row number=" << _output_rowset->num_rows()
+                      << ", input_rowset_size=" << _input_rowsets_size
+                      << ", output_rowset_size=" << _output_rowset->data_disk_size()
                       << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
         } else {
             LOG(INFO) << "skip doing index compaction due to no output segments"
@@ -514,6 +518,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
               << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << _input_num_segments
+              << ", input_rowset_size=" << _input_rowsets_size
+              << ", output_rowset_size=" << _output_rowset->data_disk_size()
               << ", input_row_num=" << _input_row_num
               << ", output_row_num=" << _output_rowset->num_rows()
               << ", filtered_row_num=" << stats.filtered_rows
