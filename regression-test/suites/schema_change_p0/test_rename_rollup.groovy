@@ -57,8 +57,6 @@ suite ("test_rename_rollup") {
         }
     }
 
-    qt_select """ select user_id, cost from ${tableName} order by user_id """
-
     sql """ INSERT INTO ${tableName} VALUES
             (1, '2017-10-01', 'Beijing', 10, 1, 1, 30, 20, hll_hash(1), to_bitmap(1))
         """
