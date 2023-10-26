@@ -3883,7 +3883,7 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
         std::string rowset_status_string = std::string(strbuf.GetString());
         LOG_EVERY_SECOND(WARNING) << rowset_status_string;
         // let it crash if correctness check failed in Debug mode
-        //DCHECK(false) << "delete bitmap correctness check failed in publish phase!";
+        DCHECK(false) << "delete bitmap correctness check failed in publish phase!";
         return Status::InternalError("check delete bitmap failed!");
     }
     return Status::OK();

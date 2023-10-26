@@ -714,7 +714,10 @@ Status BetaRowsetWriter::add_segment(uint32_t segment_id, SegmentStatistics& seg
         }
     }
     if (_context.mow_context != nullptr) {
+        LOG(INFO) << "mow context for " << _context.tablet_id << " is not null";
         RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
+    } else {
+        LOG(INFO) << "mow context for " << _context.tablet_id << " is null";
     }
     RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
