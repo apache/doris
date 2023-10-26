@@ -26,7 +26,7 @@ under the License.
 
 # WORKLOAD GROUP
 
-<version since="dev"></version>
+<version since="2.0"></version>
 
 workload group 可限制组内任务在单个be节点上的计算资源和内存资源的使用。当前支持query绑定到workload group。
 

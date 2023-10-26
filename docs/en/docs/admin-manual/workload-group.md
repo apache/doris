@@ -26,7 +26,7 @@ under the License.
 
 # WORKLOAD GROUP
 
-<version since="dev"></version>
+<version since="2.0"></version>
 
 The workload group can limit the use of compute and memory resources on a single be node for tasks within the group. Currently, query binding to workload groups is supported.
 

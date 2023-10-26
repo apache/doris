@@ -30,7 +30,7 @@ under the License.
 
 CREATE WORKLOAD GROUP
 
-<version since="dev"></version>
+<version since="2.0"></version>
 
 ### Description
 
