@@ -44,7 +44,7 @@ suite('docker_action') {
     // contains 5 backends
     options.beNum = 5
     // each backend has 3 disks
-    options.beDiskNum = 3
+    options.beDisks = ["HDD=1", "SSD=3"]
     docker(options) {
         sql '''create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10 properties ("replication_num"="5")'''
     }
