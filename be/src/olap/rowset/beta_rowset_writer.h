@@ -58,9 +58,6 @@ class SegmentWriter;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
-namespace vectorized::schema_util {
-class LocalSchemaChangeRecorder;
-}
 
 class BetaRowsetWriter : public RowsetWriter {
     friend class SegcompactionWorker;
