@@ -31,6 +31,7 @@
 #include <string>
 #include <thread>
 
+#include "common/logging.h"
 #include "common/signal_handler.h"
 #include "pipeline/pipeline_task.h"
 #include "pipeline/task_queue.h"
@@ -111,9 +112,9 @@ void BlockedTaskScheduler::_schedule() {
             if (state == PipelineTaskState::PENDING_FINISH) {
                 // should cancel or should finish
                 if (task->is_pending_finish()) {
-                    VLOG_DEBUG << "Task pending" << task->debug_string();
                     iter++;
                 } else {
+                    VLOG_DEBUG << "Task pending" << task->debug_string();
                     _make_task_run(local_blocked_tasks, iter, PipelineTaskState::PENDING_FINISH);
                 }
             } else if (task->query_context()->is_cancelled()) {
@@ -272,7 +273,6 @@ void TaskScheduler::_do_work(size_t index) {
             LOG(WARNING) << fmt::format(
                     "Pipeline task failed. query_id: {} reason: {}",
                     PrintInstanceStandardInfo(task->query_context()->query_id(),
-                                              task->fragment_context()->get_fragment_id(),
                                               task->fragment_context()->get_fragment_instance_id()),
                     status.msg());
             // Print detail informations below when you debugging here.
@@ -296,11 +296,22 @@ void TaskScheduler::_do_work(size_t index) {
                 fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                                      "finalize fail:" + status.msg());
             } else {
+                VLOG_DEBUG << fmt::format(
+                        "Try close task: {}, fragment_ctx->is_canceled(): {}",
+                        PrintInstanceStandardInfo(
+                                task->query_context()->query_id(),
+                                task->fragment_context()->get_fragment_instance_id()),
+                        fragment_ctx->is_canceled());
                 _try_close_task(task,
                                 fragment_ctx->is_canceled() ? PipelineTaskState::CANCELED
                                                             : PipelineTaskState::FINISHED,
                                 status);
             }
+            VLOG_DEBUG << fmt::format(
+                    "Task {} is eos, status {}.",
+                    PrintInstanceStandardInfo(task->query_context()->query_id(),
+                                              task->fragment_context()->get_fragment_instance_id()),
+                    get_state_name(task->get_state()));
             continue;
         }
 

@@ -31,6 +31,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -62,6 +63,8 @@ public class ExecutionProfile {
     // A countdown latch to mark the completion of each instance.
     // instance id -> dummy value
     private MarkedCountDownLatch<TUniqueId, Long> profileDoneSignal;
+
+    private int waitCount = 0;
 
     private TUniqueId queryId;
 
@@ -127,7 +130,11 @@ public class ExecutionProfile {
 
     public void markOneInstanceDone(TUniqueId fragmentInstanceId) {
         if (profileDoneSignal != null) {
-            profileDoneSignal.markedCountDown(fragmentInstanceId, -1L);
+            if (profileDoneSignal.markedCountDown(fragmentInstanceId, -1L)) {
+                LOG.info("Mark instance {} done succeed", DebugUtil.printId(fragmentInstanceId));
+            } else {
+                LOG.warn("Mark instance {} done failed", DebugUtil.printId(fragmentInstanceId));
+            }
         }
     }
 
@@ -135,6 +142,16 @@ public class ExecutionProfile {
         if (profileDoneSignal == null) {
             return true;
         }
+
+        waitCount++;
+
+        for (Entry<TUniqueId, Long> entry : profileDoneSignal.getLeftMarks()) {
+            if (waitCount > 2) {
+                LOG.info("Query {} waiting instance {}, waitCount: {}",
+                        DebugUtil.printId(queryId), DebugUtil.printId(entry.getKey()), waitCount);
+            }
+        }
+
         return profileDoneSignal.await(waitTimeS, TimeUnit.SECONDS);
     }
 

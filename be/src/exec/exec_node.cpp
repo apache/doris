@@ -208,12 +208,13 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
 
 Status ExecNode::close(RuntimeState* state) {
     if (_is_closed) {
-        LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id())
+        LOG(INFO) << "query= " << print_id(state->query_id())
+                  << " fragment_instance_id=" << print_id(state->fragment_instance_id())
                   << " already closed";
         return Status::OK();
     }
-    LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id()) << ", "
-              << " id=" << _id << " type=" << print_plan_node_type(_type) << " closed";
+    LOG(INFO) << "query= " << print_id(state->query_id())
+              << " fragment_instance_id=" << print_id(state->fragment_instance_id()) << " closed";
     _is_closed = true;
 
     Status result;

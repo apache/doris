@@ -69,7 +69,7 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     std::unique_lock<std::mutex> l(_lock);
     // wait until something shows up or we know we're done
     while (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
-        VLOG_ROW << "wait arrival fragment_instance_id=" << _recvr->fragment_instance_id()
+        VLOG_ROW << "wait arrival fragment_instance_id=" << print_id(_recvr->fragment_instance_id())
                  << " node=" << _recvr->dest_node_id();
         // Don't count time spent waiting on the sender as active time.
         CANCEL_SAFE_SCOPED_TIMER(_recvr->_data_arrival_timer, &_is_cancelled);
@@ -263,8 +263,9 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
     _sender_eos_set.insert(be_number);
     DCHECK_GT(_num_remaining_senders, 0);
     _num_remaining_senders--;
-    VLOG_FILE << "decremented senders: fragment_instance_id=" << _recvr->fragment_instance_id()
-              << " node_id=" << _recvr->dest_node_id() << " #senders=" << _num_remaining_senders;
+    VLOG_FILE << "decremented senders: fragment_instance_id="
+              << print_id(_recvr->fragment_instance_id()) << " node_id=" << _recvr->dest_node_id()
+              << " #senders=" << _num_remaining_senders;
     if (_num_remaining_senders == 0) {
         if (_dependency) {
             _dependency->set_always_done();
