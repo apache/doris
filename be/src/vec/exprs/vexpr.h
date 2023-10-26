@@ -76,22 +76,6 @@ public:
         return block->columns() - 1;
     }
 
-    static bool is_acting_on_a_slot(const VExprSPtr& expr) {
-        const auto& children = expr->children();
-        const size_t children_size = children.size();
-
-        for (size_t i = 0; i < children_size; ++i) {
-            // If any child expr acts on a column slot
-            // return true immediately.
-            if (is_acting_on_a_slot(children[i])) {
-                return true;
-            }
-        }
-
-        // This is a leaf expression.
-        return expr->node_type() == TExprNodeType::SLOT_REF;
-    }
-
     VExpr(const TExprNode& node);
     VExpr(const VExpr& vexpr);
     VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable);

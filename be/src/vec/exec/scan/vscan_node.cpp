@@ -65,6 +65,15 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
+namespace {
+bool is_acting_on_a_slot(const VExpr& expr) {
+    const auto& children = expr.children();
+    auto is_a_slot = std::any_of(children.begin(), children.end(),
+                                 [](const auto& child) { return is_acting_on_a_slot(*child); });
+
+    return is_a_slot ? true : (expr.node_type() == TExprNodeType::SLOT_REF);
+}
+} // namespace
 
 #define RETURN_IF_PUSH_DOWN(stmt, status)    \
     if (pdt == PushDownType::UNACCEPTABLE) { \
@@ -420,8 +429,7 @@ Status VScanNode::_normalize_conjuncts() {
             RETURN_IF_ERROR(_normalize_predicate(conjunct->root(), conjunct.get(), new_root));
             if (new_root) {
                 conjunct->set_root(new_root);
-                if (_should_push_down_common_expr() &&
-                    VExpr::is_acting_on_a_slot(conjunct->root())) {
+                if (_should_push_down_common_expr() && is_acting_on_a_slot(*(conjunct->root()))) {
                     // We need to make sure conjunct is acting on a slot before push it down.
                     // Or it will not be executed by SegmentIterator::_vec_init_lazy_materialization
                     _common_expr_ctxs_push_down.emplace_back(conjunct);
