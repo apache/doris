@@ -577,7 +577,6 @@ Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorX
 
     auto shared_state = LocalExchangeSharedState::create_shared();
     shared_state->data_queue.resize(_runtime_state->query_parallel_instance_num());
-    shared_state->num_partitions = _runtime_state->query_parallel_instance_num();
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
     return Status::OK();
 }
