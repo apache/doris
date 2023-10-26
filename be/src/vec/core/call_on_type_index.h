@@ -173,6 +173,8 @@ class DataTypeDate;
 class DataTypeDateV2;
 class DataTypeDateTimeV2;
 class DataTypeDateTime;
+class DataTypeIPv4;
+class DataTypeIPv6;
 class DataTypeString;
 template <typename T>
 class DataTypeEnum;
@@ -231,6 +233,11 @@ bool call_on_index_and_data_type(TypeIndex number, F&& f) {
         return f(TypePair<DataTypeDateTimeV2, T>());
     case TypeIndex::DateTime:
         return f(TypePair<DataTypeDateTime, T>());
+
+    case TypeIndex::IPv4:
+        return f(TypePair<DataTypeIPv4, T>());
+    case TypeIndex::IPv6:
+        return f(TypePair<DataTypeIPv6, T>());
 
     case TypeIndex::String:
         return f(TypePair<DataTypeString, T>());
