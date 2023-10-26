@@ -45,23 +45,23 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
         // Only thread attach query, and has not completely waited for thread_wait_gc_max_milliseconds,
         // will wait for gc, asynchronous cancel or throw bad::alloc.
         // Otherwise, if the external catch, directly throw bad::alloc.
-        auto err_msg = fmt::format(
-                "Allocator sys memory check failed: Cannot alloc:{}, consuming "
-                "tracker:<{}>, peak used {}, current used {}, exec node:<{}>, {}.",
-                size,
-                doris::is_thread_context_init()
-                        ? doris::thread_context()->thread_mem_tracker()->label()
-                        : "Orphan",
-                doris::is_thread_context_init()
-                        ? doris::thread_context()->thread_mem_tracker()->peak_consumption()
-                        : "",
-                doris::is_thread_context_init()
-                        ? doris::thread_context()->thread_mem_tracker()->consumption()
-                        : "",
-                doris::is_thread_context_init()
-                        ? doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker()
-                        : "",
-                doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str());
+        std::string err_msg;
+        if (doris::is_thread_context_init()) {
+            err_msg += fmt::format(
+                    "Allocator sys memory check failed: Cannot alloc:{}, consuming "
+                    "tracker:<{}>, peak used {}, current used {}, exec node:<{}>, {}.",
+                    size, doris::thread_context()->thread_mem_tracker()->label(),
+                    doris::thread_context()->thread_mem_tracker()->peak_consumption(),
+                    doris::thread_context()->thread_mem_tracker()->consumption(),
+                    doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
+                    doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str());
+        } else {
+            err_msg += fmt::format(
+                    "Allocator sys memory check failed: Cannot alloc:{}, consuming "
+                    "tracker:<{}>, {}.",
+                    size, "Orphan", doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str());
+        }
+
         if (size > 1024l * 1024 * 1024 && !doris::enable_thread_catch_bad_alloc &&
             !doris::config::disable_memory_gc) { // 1G
             err_msg += "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
