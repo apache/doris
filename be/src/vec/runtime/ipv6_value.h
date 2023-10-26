@@ -32,8 +32,7 @@ namespace doris {
 class IPv6Value {
 public:
     IPv6Value() {
-        _value.high = 0;
-        _value.low = 0;
+        _value = 0;
     }
 
     explicit IPv6Value(vectorized::IPv6 ipv6) { _value = ipv6; }
@@ -96,13 +95,14 @@ public:
             }
         }
 
-        x.high = (static_cast<uint64_t>(fields[0]) << 48) |
+        uint64_t high = (static_cast<uint64_t>(fields[0]) << 48) |
                  (static_cast<uint64_t>(fields[1]) << 32) |
                  (static_cast<uint64_t>(fields[2]) << 16) | static_cast<uint64_t>(fields[3]);
-        x.low = (static_cast<uint64_t>(fields[4]) << 48) |
+        uint64_t low = (static_cast<uint64_t>(fields[4]) << 48) |
                 (static_cast<uint64_t>(fields[5]) << 32) |
                 (static_cast<uint64_t>(fields[6]) << 16) | static_cast<uint64_t>(fields[7]);
 
+        x = static_cast<vectorized::IPv6>(high) << 64 | low;
         return true;
     }
 
@@ -112,19 +112,20 @@ public:
             return false;
         }
 
-        x.high = 0;
-        x.low = 0;
+        uint64_t high = 0;
+        uint64_t low = 0;
 
         const uint8_t* ipv6_binary = reinterpret_cast<const uint8_t*>(ipv6_binary_str.c_str());
 
         for (int i = 0; i < 8; ++i) {
-            x.high |= (static_cast<uint64_t>(ipv6_binary[i]) << (56 - i * 8));
+            high |= (static_cast<uint64_t>(ipv6_binary[i]) << (56 - i * 8));
         }
 
         for (int i = 8; i < 16; ++i) {
-            x.low |= (static_cast<uint64_t>(ipv6_binary[i]) << (56 - (i - 8) * 8));
+            low |= (static_cast<uint64_t>(ipv6_binary[i]) << (56 - (i - 8) * 8));
         }
 
+        x = static_cast<vectorized::IPv6>(high) << 64 | low;
         return true;
     }
 
@@ -132,18 +133,21 @@ public:
 
     static std::string to_string(vectorized::IPv6 x) {
         // "0000:0000:0000:0000:0000:0000:0000:0000"
-        if (x.high == 0 && x.low == 0) {
+        if (x == 0) {
             return "::";
         }
 
-        uint16_t fields[8] = {static_cast<uint16_t>((x.high >> 48) & 0xFFFF),
-                              static_cast<uint16_t>((x.high >> 32) & 0xFFFF),
-                              static_cast<uint16_t>((x.high >> 16) & 0xFFFF),
-                              static_cast<uint16_t>(x.high & 0xFFFF),
-                              static_cast<uint16_t>((x.low >> 48) & 0xFFFF),
-                              static_cast<uint16_t>((x.low >> 32) & 0xFFFF),
-                              static_cast<uint16_t>((x.low >> 16) & 0xFFFF),
-                              static_cast<uint16_t>(x.low & 0xFFFF)};
+        uint64_t low = static_cast<uint64_t>(x);
+        uint64_t high = static_cast<uint64_t>(x >> 64);
+
+        uint16_t fields[8] = {static_cast<uint16_t>((high >> 48) & 0xFFFF),
+                              static_cast<uint16_t>((high >> 32) & 0xFFFF),
+                              static_cast<uint16_t>((high >> 16) & 0xFFFF),
+                              static_cast<uint16_t>(high & 0xFFFF),
+                              static_cast<uint16_t>((low >> 48) & 0xFFFF),
+                              static_cast<uint16_t>((low >> 32) & 0xFFFF),
+                              static_cast<uint16_t>((low >> 16) & 0xFFFF),
+                              static_cast<uint16_t>(low & 0xFFFF)};
 
         uint8_t zero_start = 0, zero_end = 0;
 
@@ -193,22 +197,25 @@ public:
     [[nodiscard]] std::string to_binary_string() const { return to_binary_string(_value); }
 
     static std::string to_binary_string(vectorized::IPv6 x) {
-        uint8_t fields[16] = {static_cast<uint8_t>((x.high >> 56) & 0xFF),
-                              static_cast<uint8_t>((x.high >> 48) & 0xFF),
-                              static_cast<uint8_t>((x.high >> 40) & 0xFF),
-                              static_cast<uint8_t>((x.high >> 32) & 0xFF),
-                              static_cast<uint8_t>((x.high >> 24) & 0xFF),
-                              static_cast<uint8_t>((x.high >> 16) & 0xFF),
-                              static_cast<uint8_t>((x.high >> 8) & 0xFF),
-                              static_cast<uint8_t>(x.high & 0xFF),
-                              static_cast<uint8_t>((x.low >> 56) & 0xFF),
-                              static_cast<uint8_t>((x.low >> 48) & 0xFF),
-                              static_cast<uint8_t>((x.low >> 40) & 0xFF),
-                              static_cast<uint8_t>((x.low >> 32) & 0xFF),
-                              static_cast<uint8_t>((x.low >> 24) & 0xFF),
-                              static_cast<uint8_t>((x.low >> 16) & 0xFF),
-                              static_cast<uint8_t>((x.low >> 8) & 0xFF),
-                              static_cast<uint8_t>(x.low & 0xFF)};
+        uint64_t low = static_cast<uint64_t>(x);
+        uint64_t high = static_cast<uint64_t>(x >> 64);
+
+        uint8_t fields[16] = {static_cast<uint8_t>((high >> 56) & 0xFF),
+                              static_cast<uint8_t>((high >> 48) & 0xFF),
+                              static_cast<uint8_t>((high >> 40) & 0xFF),
+                              static_cast<uint8_t>((high >> 32) & 0xFF),
+                              static_cast<uint8_t>((high >> 24) & 0xFF),
+                              static_cast<uint8_t>((high >> 16) & 0xFF),
+                              static_cast<uint8_t>((high >> 8) & 0xFF),
+                              static_cast<uint8_t>(high & 0xFF),
+                              static_cast<uint8_t>((low >> 56) & 0xFF),
+                              static_cast<uint8_t>((low >> 48) & 0xFF),
+                              static_cast<uint8_t>((low >> 40) & 0xFF),
+                              static_cast<uint8_t>((low >> 32) & 0xFF),
+                              static_cast<uint8_t>((low >> 24) & 0xFF),
+                              static_cast<uint8_t>((low >> 16) & 0xFF),
+                              static_cast<uint8_t>((low >> 8) & 0xFF),
+                              static_cast<uint8_t>(low & 0xFF)};
 
         std::stringstream ss;
 

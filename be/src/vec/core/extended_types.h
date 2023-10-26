@@ -60,15 +60,6 @@ concept is_integer =
         std::is_integral_v<T> || std::is_same_v<T, Int256> || std::is_same_v<T, UInt256>;
 
 namespace std {
-// uint128_t and UInt128 are not compatible
-template <>
-struct make_unsigned<doris::vectorized::Int128> {
-    using type = doris::vectorized::Int128;
-};
-template <>
-struct make_unsigned<doris::vectorized::UInt128> {
-    using type = doris::uint128_t;
-};
 template <>
 struct make_unsigned<Int256> {
     using type = UInt256;

@@ -916,8 +916,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
         return try_read_bool_text(x, rb);
     }
 
-    if constexpr (std::is_integral_v<typename DataType::FieldType> &&
-                  !std::is_same_v<typename DataType::FieldType, IPv6>) {
+    if constexpr (std::is_integral_v<typename DataType::FieldType>) {
         return try_read_int_text(x, rb);
     }
 }

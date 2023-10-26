@@ -49,7 +49,6 @@ namespace vectorized {
 /// Data types for representing elementary values from a database in RAM.
 
 struct Null {};
-struct UInt128;
 
 // The identifier should be less than int16, because castexpr using the identifier
 // instead of type name as type parameter. It will using int16 as column type.
@@ -123,9 +122,6 @@ using Float32 = float;
 using Float64 = double;
 
 using String = std::string;
-
-using IPv4 = UInt32;
-using IPv6 = UInt128;
 
 /** Note that for types not used in DB, IsNumber is false.
   */
@@ -283,6 +279,10 @@ struct TypeId<String> {
 using Strings = std::vector<String>;
 
 using Int128 = __int128;
+
+using IPv4 = UInt32;
+using IPv6 = Int128;
+
 template <>
 inline constexpr bool IsNumber<Int128> = true;
 template <>
