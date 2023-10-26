@@ -146,11 +146,11 @@ public abstract class BaseAnalysisTask {
     }
 
     protected void init(AnalysisInfo info) {
-        tableSample = getTableSample();
         DBObjects dbObjects = StatisticsUtil.convertIdToObjects(info.catalogId, info.dbId, info.tblId);
         catalog = dbObjects.catalog;
         db = dbObjects.db;
         tbl = dbObjects.table;
+        tableSample = getTableSample();
         // External Table level task doesn't contain a column. Don't need to do the column related analyze.
         if (info.externalTableLevelTask) {
             return;

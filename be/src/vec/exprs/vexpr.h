@@ -39,6 +39,7 @@
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/functions/function.h"
@@ -73,6 +74,22 @@ public:
         elem.column = elem.column->clone_resized(size);
         block->insert(std::move(elem));
         return block->columns() - 1;
+    }
+
+    static bool is_acting_on_a_slot(const VExprSPtr& expr) {
+        const auto& children = expr->children();
+        const size_t children_size = children.size();
+
+        for (size_t i = 0; i < children_size; ++i) {
+            // If any child expr acts on a column slot
+            // return true immediately.
+            if (is_acting_on_a_slot(children[i])) {
+                return true;
+            }
+        }
+
+        // This is a leaf expression.
+        return expr->node_type() == TExprNodeType::SLOT_REF;
     }
 
     VExpr(const TExprNode& node);
@@ -362,6 +379,13 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         decimal_literal.__set_value(origin_value->to_string(scale));
         (*node).__set_decimal_literal(decimal_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL128I, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        const auto* origin_value = reinterpret_cast<const vectorized::Decimal<wide::Int256>*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        decimal_literal.__set_value(origin_value->to_string(scale));
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL256, precision, scale));
     } else if constexpr (T == TYPE_FLOAT) {
         auto origin_value = reinterpret_cast<const float*>(data);
         (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);

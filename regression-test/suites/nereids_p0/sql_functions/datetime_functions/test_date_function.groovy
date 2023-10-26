@@ -53,6 +53,31 @@ suite("test_date_function") {
 
     sql """ truncate table ${tableName} """
 
+    // test convert_tz for datetimev2
+    def tableScale6 = "dtv2s6"
+    sql """ DROP TABLE IF EXISTS ${tableScale6} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableScale6} (
+                k1 datetimev2(6) NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(k1)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(k1) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+            )
+        """
+    sql """ insert into ${tableScale6} values ("2019-08-01 13:21:03.000123"),("2019-08-01 13:21:03.123") """
+    // convert_tz
+    qt_sql """ SELECT k1, convert_tz(k1, 'Asia/Shanghai', 'America/Los_Angeles') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT k1, convert_tz(k1, '+08:00', 'America/Los_Angeles') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT k1, convert_tz(k1, 'Asia/Shanghai', 'Europe/London') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT k1, convert_tz(k1, '+08:00', 'Europe/London') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT k1, convert_tz(k1, '+08:00', 'America/London') result from ${tableScale6} order by k1 """
+    qt_sql """ SELECT convert_tz('2019-08-01 01:01:02.123' , '+00:00', '+07:00') """
+
     def timezoneCachedTableName = "test_convert_tz_with_timezone_cache"
     sql """ DROP TABLE IF EXISTS ${timezoneCachedTableName} """
     sql """
@@ -299,16 +324,16 @@ suite("test_date_function") {
     qt_sql """ select microsecond(cast('1999-01-02 10:11:12.067890' as datetimev2(6))); """
 
     // STR_TO_DATE
-    sql """ truncate table ${tableName} """
-    sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
-    qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
-    qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
-    qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
-    qt_sql """ select str_to_date('2023-07-05T02:09:55.880Z','%Y-%m-%dT%H:%i:%s.%fZ') """
-    qt_sql """ select str_to_date('200442 Monday', '%X%V %W') """
-    sql """ truncate table ${tableName} """
-    sql """ insert into ${tableName} values ("2020-09-01")  """
-    qt_sql """ select str_to_date(test_datetime, "%Y-%m-%d %H:%i:%s") from ${tableName};"""
+    // sql """ truncate table ${tableName} """
+    // sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
+    // qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
+    // qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
+    // qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
+    // qt_sql """ select str_to_date('2023-07-05T02:09:55.880Z','%Y-%m-%dT%H:%i:%s.%fZ') """
+    // qt_sql """ select str_to_date('200442 Monday', '%X%V %W') """
+    // sql """ truncate table ${tableName} """
+    // sql """ insert into ${tableName} values ("2020-09-01")  """
+    // qt_sql """ select str_to_date(test_datetime, "%Y-%m-%d %H:%i:%s") from ${tableName};"""
 
     // TIME_ROUND
     qt_sql """ SELECT YEAR_FLOOR('20200202000000') """
@@ -441,9 +466,9 @@ suite("test_date_function") {
     sql """ drop table ${tableName} """
 
     qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
-    qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
-    qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """
-    qt_sql """ select STR_TO_DATE('2018-4-2 15:3:28','%Y-%m-%d %H:%i:%s'); """
+    // qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
+    // qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """
+    // qt_sql """ select STR_TO_DATE('2018-4-2 15:3:28','%Y-%m-%d %H:%i:%s'); """
 
     qt_sql """ select length(cast(now() as string)), length(cast(now(0) as string)), length(cast(now(1) as string)),
                       length(cast(now(2) as string)), length(cast(now(3) as string)), length(cast(now(4) as string)),

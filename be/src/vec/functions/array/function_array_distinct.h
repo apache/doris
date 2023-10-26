@@ -304,6 +304,9 @@ private:
         } else if (which.is_decimal128i()) {
             res = _execute_number<ColumnDecimal128I>(src_column, src_offsets, dest_column,
                                                      dest_offsets, src_null_map, dest_null_map);
+        } else if (which.is_decimal256()) {
+            res = _execute_number<ColumnDecimal256>(src_column, src_offsets, dest_column,
+                                                    dest_offsets, src_null_map, dest_null_map);
         } else if (which.is_decimal128()) {
             res = _execute_number<ColumnDecimal128>(src_column, src_offsets, dest_column,
                                                     dest_offsets, src_null_map, dest_null_map);

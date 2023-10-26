@@ -37,8 +37,16 @@ Modify BE node properties (administrator only!)
 
 grammar:
 
+- Find backend through host and port
+
 ```sql
 ALTER SYSTEM MODIFY BACKEND "host:heartbeat_port" SET ("key" = "value"[, ...]);
+````
+
+- Find backend through backend_id
+
+```sql
+ALTER SYSTEM MODIFY BACKEND "id1" SET ("key" = "value"[, ...]);
 ````
 
   illustrate:
@@ -62,17 +70,30 @@ Note:
     ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("tag.location" = "group_a");
     ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("tag.location" = "group_a", "tag.compute" = "c1");
     ````
+   
+    ```sql
+    ALTER SYSTEM MODIFY BACKEND "id1" SET ("tag.location" = "group_a");
+    ALTER SYSTEM MODIFY BACKEND "id1" SET ("tag.location" = "group_a", "tag.compute" = "c1");
+    ````
 
 2. Modify the query disable property of BE
 
     ```sql
     ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("disable_query" = "true");
     ````
+   
+    ```sql
+    ALTER SYSTEM MODIFY BACKEND "id1" SET ("disable_query" = "true");
+    ````
 
 3. Modify the import disable property of BE
 
     ```sql
     ALTER SYSTEM MODIFY BACKEND "host1:heartbeat_port" SET ("disable_load" = "true");
+    ````
+   
+    ```sql
+    ALTER SYSTEM MODIFY BACKEND "id1" SET ("disable_load" = "true");
     ````
 
 ### Keywords

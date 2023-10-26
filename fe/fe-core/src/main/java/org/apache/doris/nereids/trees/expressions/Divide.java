@@ -68,9 +68,9 @@ public class Divide extends BinaryArithmetic implements AlwaysNullable {
     @Override
     public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
         int retPercision = t1.getPrecision() + t2.getScale() + Config.div_precision_increment;
-        Preconditions.checkState(retPercision <= DecimalV3Type.MAX_DECIMAL128_PRECISION,
+        Preconditions.checkState(retPercision <= DecimalV3Type.MAX_DECIMAL256_PRECISION,
                 "target precision " + retPercision + " larger than precision "
-                        + DecimalV3Type.MAX_DECIMAL128_PRECISION + " in Divide return type");
+                        + DecimalV3Type.MAX_DECIMAL256_PRECISION + " in Divide return type");
         int retScale = t1.getScale() + t2.getScale()
                 + Config.div_precision_increment;
         int targetPercision = retPercision;
