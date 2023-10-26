@@ -121,7 +121,7 @@ partial_columns:true
 ```
 'sink.properties.partial_columns' = 'true',
 ```
-同时在`sink.properties.column`中制定要导入的列（必须包含所有key列，不然无法更新）
+同时在`sink.properties.column`中指定要导入的列（必须包含所有key列，不然无法更新）
 
 #### INSERT INTO
 
