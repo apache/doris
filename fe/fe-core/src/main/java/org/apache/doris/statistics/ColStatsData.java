@@ -73,8 +73,8 @@ public class ColStatsData {
         sj.add(String.valueOf(count));
         sj.add(String.valueOf(ndv));
         sj.add(String.valueOf(nullCount));
-        sj.add(StatisticsUtil.quote(minLit));
-        sj.add(StatisticsUtil.quote(maxLit));
+        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(minLit)));
+        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(maxLit)));
         sj.add(String.valueOf(dataSizeInBytes));
         sj.add(StatisticsUtil.quote(updateTime));
         return sj.toString();
