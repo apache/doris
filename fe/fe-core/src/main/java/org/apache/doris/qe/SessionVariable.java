@@ -1156,7 +1156,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_FULL_AUTO_ANALYZE,
             description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
             flag = VariableMgr.GLOBAL)
-    public boolean enableFullAutoAnalyze = true;
+    public boolean enableFullAutoAnalyze = false;
 
     @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
             description = {"该参数定义自动ANALYZE例程的开始时间",
