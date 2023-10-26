@@ -60,6 +60,7 @@
 #include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
 #include "vec/common/allocator.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -137,8 +138,9 @@ private:
     void _build_tablet_node_mapping();
 
     void _generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
-                                   const VOlapTablePartition* partition, uint32_t tablet_index,
-                                   int row_idx);
+                                   const std::vector<const VOlapTablePartition*>& partitions,
+                                   const std::vector<uint32_t>& tablet_indexes,
+                                   const std::vector<bool>& skip, size_t row_cnt);
 
     Status _write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
                            const Rows& rows, const Streams& streams);
@@ -183,6 +185,11 @@ private:
     int64_t _send_data_ns = 0;
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
+
+    // reuse for find_tablet
+    std::vector<const VOlapTablePartition*> _partitions;
+    std::vector<bool> _skip;
+    std::vector<uint32_t> _tablet_indexes;
 
     MonotonicStopWatch _row_distribution_watch;
 
