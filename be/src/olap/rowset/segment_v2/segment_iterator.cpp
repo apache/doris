@@ -1508,7 +1508,7 @@ bool SegmentIterator::_has_char_type(const Field& column_desc) {
         return _has_char_type(*column_desc.get_sub_field(0)) ||
                _has_char_type(*column_desc.get_sub_field(1));
     case FieldType::OLAP_FIELD_TYPE_STRUCT:
-        for (int idx = 0; idx < column_desc.field_size(); ++idx) {
+        for (int idx = 0; idx < column_desc.get_sub_field_count(); ++idx) {
             if (_has_char_type(*column_desc.get_sub_field(idx))) {
                 return true;
             }
