@@ -72,6 +72,7 @@ suite("load_three_step") {
 
         // step 3: delete all data
         sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_delete.sql""").text
+        sql 'sync'
         for (int i = 1; i <= 5; i++) {
             def loadRowCount = sql "select count(1) from ${tableName}"
             logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())

@@ -76,6 +76,7 @@ suite("load_four_step") {
         // step 3: delete 50% data
         sql """ set delete_without_partition = true; """
         sql new File("""${context.file.parentFile.parent}/ddl/${tableName}_part_delete.sql""").text
+        sql 'sync'
         for (int i = 1; i <= 5; i++) {
             def loadRowCount = sql "select count(1) from ${tableName}"
             logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
