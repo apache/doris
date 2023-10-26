@@ -100,12 +100,6 @@ public:
         return local_state.sink(state, in_block, source_state);
     }
 
-    FinishDependency* finish_blocked_by(RuntimeState* state) const override {
-        auto& local_state =
-                state->get_sink_local_state(operator_id())->cast<OlapTableSinkLocalState>();
-        return local_state._finish_dependency->finish_blocked_by();
-    };
-
 private:
     friend class OlapTableSinkLocalState;
     template <typename Writer, typename Parent>

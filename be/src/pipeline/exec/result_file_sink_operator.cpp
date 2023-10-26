@@ -269,10 +269,4 @@ Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_
     return local_state.sink(state, in_block, source_state);
 }
 
-FinishDependency* ResultFileSinkOperatorX::finish_blocked_by(RuntimeState* state) const {
-    auto& local_state =
-            state->get_sink_local_state(operator_id())->cast<ResultFileSinkLocalState>();
-    return local_state._finish_dependency->finish_blocked_by();
-}
-
 } // namespace doris::pipeline

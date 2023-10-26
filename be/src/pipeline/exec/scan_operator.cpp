@@ -128,7 +128,8 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     _source_dependency->add_child(_open_dependency);
     _eos_dependency = EosDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
     _source_dependency->add_child(_eos_dependency);
-
+    _filter_dependency->set_filter_blocked_by_fn(
+            [this]() { return this->runtime_filters_are_ready_or_timeout(); });
     auto& p = _parent->cast<typename Derived::Parent>();
     set_scan_ranges(info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
@@ -1284,12 +1285,6 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
 }
 
 template <typename LocalStateType>
-FinishDependency* ScanOperatorX<LocalStateType>::finish_blocked_by(RuntimeState* state) const {
-    auto& local_state = state->get_local_state(operator_id())->template cast<LocalStateType>();
-    return local_state._finish_dependency->finish_blocked_by();
-}
-
-template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<LocalStateType>::init(tnode, state));
 
@@ -1368,14 +1363,6 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     }
 
     return PipelineXLocalState<>::close(state);
-}
-
-template <typename LocalStateType>
-bool ScanOperatorX<LocalStateType>::runtime_filters_are_ready_or_timeout(
-        RuntimeState* state) const {
-    return state->get_local_state(operator_id())
-            ->template cast<LocalStateType>()
-            .runtime_filters_are_ready_or_timeout();
 }
 
 template <typename LocalStateType>

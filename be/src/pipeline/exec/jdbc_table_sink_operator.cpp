@@ -63,9 +63,4 @@ Status JdbcTableSinkOperatorX::sink(RuntimeState* state, vectorized::Block* bloc
     return Status::OK();
 }
 
-FinishDependency* JdbcTableSinkOperatorX::finish_blocked_by(RuntimeState* state) const {
-    auto& local_state = state->get_sink_local_state(operator_id())->cast<JdbcTableSinkLocalState>();
-    return local_state._finish_dependency->finish_blocked_by();
-}
-
 } // namespace doris::pipeline
