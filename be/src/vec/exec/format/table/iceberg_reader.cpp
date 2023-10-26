@@ -157,25 +157,29 @@ Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool*
     // To support iceberg schema evolution. We change the column name in block to
     // make it match with the column name in parquet file before reading data. and
     // Set the name back to table column name before return this block.
-    for (int i = 0; i < block->columns(); i++) {
-        ColumnWithTypeAndName& col = block->get_by_position(i);
-        auto iter = _table_col_to_file_col.find(col.name);
-        if (iter != _table_col_to_file_col.end()) {
-            col.name = iter->second;
+    if (_has_schema_change) {
+        for (int i = 0; i < block->columns(); i++) {
+            ColumnWithTypeAndName& col = block->get_by_position(i);
+            auto iter = _table_col_to_file_col.find(col.name);
+            if (iter != _table_col_to_file_col.end()) {
+                col.name = iter->second;
+            }
         }
+        block->initialize_index_by_name();
     }
-    block->initialize_index_by_name();
 
     auto res = _file_format_reader->get_next_block(block, read_rows, eof);
     // Set the name back to table column name before return this block.
-    for (int i = 0; i < block->columns(); i++) {
-        ColumnWithTypeAndName& col = block->get_by_position(i);
-        auto iter = _file_col_to_table_col.find(col.name);
-        if (iter != _file_col_to_table_col.end()) {
-            col.name = iter->second;
+    if (_has_schema_change) {
+        for (int i = 0; i < block->columns(); i++) {
+            ColumnWithTypeAndName& col = block->get_by_position(i);
+            auto iter = _file_col_to_table_col.find(col.name);
+            if (iter != _file_col_to_table_col.end()) {
+                col.name = iter->second;
+            }
         }
+        block->initialize_index_by_name();
     }
-    block->initialize_index_by_name();
     return res;
 }
 
@@ -561,12 +565,16 @@ void IcebergTableReader::_gen_file_col_names() {
             // If the user creates the iceberg table, directly append the parquet file that already exists,
             // there is no 'iceberg.schema' field in the footer of parquet, the '_table_col_to_file_col' may be empty.
             // Because we are ignoring case, so, it is converted to lowercase here
-            _all_required_col_names.emplace_back(to_lower(name));
+            auto name_low = to_lower(name);
+            _all_required_col_names.emplace_back(name_low);
             if (_has_iceberg_schema) {
                 _not_in_file_col_names.emplace_back(name);
             } else {
-                _table_col_to_file_col.emplace(name, to_lower(name));
-                _file_col_to_table_col.emplace(to_lower(name), name);
+                _table_col_to_file_col.emplace(name, name_low);
+                _file_col_to_table_col.emplace(name_low, name);
+                if (name != name_low) {
+                    _has_schema_change = true;
+                }
             }
         } else {
             _all_required_col_names.emplace_back(iter->second);
