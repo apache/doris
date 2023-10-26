@@ -158,7 +158,11 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             .tag("instance_id", print_id(_runtime_state->fragment_instance_id()))
             .tag("reason", PPlanFragmentCancelReason_Name(reason))
             .tag("message", msg);
-
+    // TODO(zhiqiang): may be not need to check if query is already cancelled.
+    // Dont cancel in this situation may lead to bug. For example, result sink node
+    // can not be cancelled if other fragments set the query_ctx cancelled, this will
+    // make result receiver on fe be stocked on rpc forever until timeout...
+    // We need a more detail discussion.
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             LOG(WARNING) << "PipelineFragmentContext "
@@ -250,13 +254,19 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         fragment_context->set_is_report_success(request.query_options.is_report_success);
     }
 
-    auto* desc_tbl = _query_ctx->desc_tbl;
-    _runtime_state->set_desc_tbl(desc_tbl);
+    if (request.is_simplified_param) {
+        _desc_tbl = _query_ctx->desc_tbl;
+    } else {
+        DCHECK(request.__isset.desc_tbl);
+        RETURN_IF_ERROR(
+                DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl, &_desc_tbl));
+    }
+    _runtime_state->set_desc_tbl(_desc_tbl);
 
     // 2. Create ExecNode to build pipeline with PipelineFragmentContext
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
-                                  request.fragment.plan, *desc_tbl, &_root_plan));
+                                  request.fragment.plan, *_desc_tbl, &_root_plan));
 
     // Set senders of exchange nodes before pipeline build
     std::vector<ExecNode*> exch_nodes;
@@ -312,10 +322,12 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
                 _runtime_state->obj_pool(), request.fragment.output_sink,
                 request.fragment.output_exprs, request, idx, _root_plan->row_desc(),
-                _runtime_state.get(), &_sink, *desc_tbl));
+                _runtime_state.get(), &_sink, *_desc_tbl));
     }
 
     _root_pipeline = fragment_context->add_pipeline();
+    _root_pipeline->set_is_root_pipeline();
+    _root_pipeline->set_collect_query_statistics_with_every_batch();
     RETURN_IF_ERROR(_build_pipelines(_root_plan, _root_pipeline));
     if (_sink) {
         RETURN_IF_ERROR(_create_sink(request.local_params[idx].sender_id,
@@ -762,7 +774,7 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
     case TDataSinkType::OLAP_TABLE_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
         if (state->query_options().enable_memtable_on_sink_node &&
-            !_has_inverted_index(thrift_sink.olap_table_sink)) {
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
             sink_ = std::make_shared<OlapTableSinkV2OperatorBuilder>(next_operator_builder_id(),
                                                                      _sink.get());
         } else {
@@ -897,10 +909,13 @@ Status PipelineFragmentContext::send_report(bool done) {
             shared_from_this());
 }
 
-bool PipelineFragmentContext::_has_inverted_index(TOlapTableSink sink) {
+bool PipelineFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
     OlapTableSchemaParam schema;
     if (!schema.init(sink.schema).ok()) {
         return false;
+    }
+    if (schema.is_partial_update()) {
+        return true;
     }
     for (const auto& index_schema : schema.indexes()) {
         for (const auto& index : index_schema->indexes) {

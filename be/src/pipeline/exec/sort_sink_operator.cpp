@@ -68,9 +68,9 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     return Status::OK();
 }
 
-SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                      const DescriptorTbl& descs)
-        : DataSinkOperatorX(tnode.node_id),
+        : DataSinkOperatorX(operator_id, tnode.node_id),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
           _pool(pool),
           _reuse_mem(true),
@@ -138,7 +138,7 @@ Status SortSinkOperatorX::open(RuntimeState* state) {
 
 Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
                                SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (in_block->rows() > 0) {

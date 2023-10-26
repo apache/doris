@@ -50,8 +50,9 @@ class PriorityTaskQueue;
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineXTask : public PipelineTask {
 public:
-    PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
-                  PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
+    PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
+                  PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
+                  std::shared_ptr<LocalExchangeSharedState> local_exchange_state, int task_idx);
 
     Status prepare(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
@@ -73,8 +74,8 @@ public:
         if (_dry_run) {
             return true;
         }
-        for (auto& op : _operators) {
-            auto dep = op->wait_for_dependency(_state);
+        for (auto* op_dep : _read_dependencies) {
+            auto* dep = op_dep->read_blocked_by();
             if (dep != nullptr) {
                 dep->start_read_watcher();
                 return false;
@@ -88,7 +89,7 @@ public:
     }
 
     bool sink_can_write() override {
-        auto dep = _sink->wait_for_dependency(_state);
+        auto* dep = _write_dependencies->write_blocked_by();
         if (dep != nullptr) {
             dep->start_write_watcher();
             return false;
@@ -132,6 +133,8 @@ public:
     void release_dependency() override {
         std::vector<DependencySPtr> {}.swap(_downstream_dependency);
         DependencyMap {}.swap(_upstream_dependency);
+
+        _local_exchange_state = nullptr;
     }
 
     std::vector<DependencySPtr>& get_upstream_dependency(int id) {
@@ -140,6 +143,8 @@ public:
         }
         return _upstream_dependency[id];
     }
+
+    Status extract_dependencies();
 
 private:
     void set_close_pipeline_time() override {}
@@ -153,10 +158,14 @@ private:
     OperatorXPtr _root;
     DataSinkOperatorXPtr _sink;
 
+    std::vector<Dependency*> _read_dependencies;
+    WriteDependency* _write_dependencies;
+
     DependencyMap _upstream_dependency;
 
     std::vector<DependencySPtr> _downstream_dependency;
-
+    std::shared_ptr<LocalExchangeSharedState> _local_exchange_state;
+    int _task_idx;
     bool _dry_run = false;
 };
 

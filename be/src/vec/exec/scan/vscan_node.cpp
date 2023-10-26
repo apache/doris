@@ -276,7 +276,8 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
 
 Status VScanNode::_init_profile() {
     // 1. counters for scan node
-    _rows_read_counter = ADD_COUNTER(_runtime_profile, "RowsRead", TUnit::UNIT);
+    _rows_read_counter = ADD_COUNTER(_runtime_profile, "ScanRowsRead", TUnit::UNIT);
+    _byte_read_counter = ADD_COUNTER(_runtime_profile, "ScanByteRead", TUnit::BYTES);
     _total_throughput_counter =
             runtime_profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
@@ -398,6 +399,7 @@ Status VScanNode::_normalize_conjuncts() {
     M(DECIMAL32)                    \
     M(DECIMAL64)                    \
     M(DECIMAL128I)                  \
+    M(DECIMAL256)                   \
     M(DECIMALV2)                    \
     M(BOOLEAN)
             APPLY_FOR_PRIMITIVE_TYPE(M)
@@ -1216,7 +1218,8 @@ Status VScanNode::_change_value_range(ColumnValueRange<PrimitiveType>& temp_rang
                          (PrimitiveType == TYPE_SMALLINT) || (PrimitiveType == TYPE_INT) ||
                          (PrimitiveType == TYPE_BIGINT) || (PrimitiveType == TYPE_LARGEINT) ||
                          (PrimitiveType == TYPE_DECIMAL32) || (PrimitiveType == TYPE_DECIMAL64) ||
-                         (PrimitiveType == TYPE_DECIMAL128I) || (PrimitiveType == TYPE_STRING) ||
+                         (PrimitiveType == TYPE_DECIMAL128I) ||
+                         (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_STRING) ||
                          (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
         if constexpr (IsFixed) {
             func(temp_range,

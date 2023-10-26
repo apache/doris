@@ -72,9 +72,9 @@ Status SchemaScanLocalState::open(RuntimeState* state) {
     return _schema_scanner->start(state);
 }
 
-SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                          const DescriptorTbl& descs)
-        : Base(pool, tnode, descs),
+        : Base(pool, tnode, operator_id, descs),
           _table_name(tnode.schema_scan_node.table_name),
           _common_scanner_param(new SchemaScannerCommonParam()),
           _tuple_id(tnode.schema_scan_node.tuple_id),
@@ -211,7 +211,7 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
 
 Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     RETURN_IF_CANCELLED(state);
     bool schema_eos = false;

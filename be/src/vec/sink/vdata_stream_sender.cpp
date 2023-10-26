@@ -140,7 +140,13 @@ Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
 
         _local_recvr->add_block(&block, _parent->sender_id(), true);
         if (eos) {
-            _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
+            /// TODO: Supported on pipelineX, we can hold QueryStatistics on the fragment instead of on instances.
+            if constexpr (std::is_same_v<VDataStreamSender, Parent>) {
+                _local_recvr->remove_sender(_parent->sender_id(), _be_number,
+                                            _parent->query_statisticsPtr(), exec_status);
+            } else {
+                _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
+            }
         }
         return Status::OK();
     } else {
@@ -273,7 +279,12 @@ Status Channel<Parent>::close_internal(Status exec_status) {
         SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         if (is_local()) {
             if (_recvr_is_valid()) {
-                _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
+                if constexpr (std::is_same_v<VDataStreamSender, Parent>) {
+                    _local_recvr->remove_sender(_parent->sender_id(), _be_number,
+                                                _parent->query_statisticsPtr(), exec_status);
+                } else {
+                    _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
+                }
             }
         } else {
             status = send_remote_block((PBlock*)nullptr, true, exec_status);
@@ -418,11 +429,12 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
     const TDataStreamSink& t_stream_sink = tsink.stream_sink;
     if (_part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = _channels.size();
-        _partitioner.reset(new HashPartitioner(_channels.size()));
+        _partitioner.reset(new XXHashPartitioner<ShuffleChannelIds>(_channels.size()));
         RETURN_IF_ERROR(_partitioner->init(t_stream_sink.output_partition.partition_exprs));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = _channel_shared_ptrs.size();
-        _partitioner.reset(new BucketHashPartitioner(_channel_shared_ptrs.size()));
+        _partitioner.reset(
+                new Crc32HashPartitioner<ShuffleChannelIds>(_channel_shared_ptrs.size()));
         RETURN_IF_ERROR(_partitioner->init(t_stream_sink.output_partition.partition_exprs));
     } else if (_part_type == TPartitionType::RANGE_PARTITIONED) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
@@ -623,11 +635,11 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         RETURN_IF_ERROR(_partitioner->do_partitioning(state, block, _mem_tracker.get()));
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(state, _channels, _partition_count,
-                                             (uint64_t*)_partitioner->get_hash_values(), rows,
+                                             (uint64_t*)_partitioner->get_channel_ids(), rows,
                                              block, _enable_pipeline_exec ? eos : false));
         } else {
             RETURN_IF_ERROR(channel_add_rows(state, _channel_shared_ptrs, _partition_count,
-                                             (uint32_t*)_partitioner->get_hash_values(), rows,
+                                             (uint32_t*)_partitioner->get_channel_ids(), rows,
                                              block, _enable_pipeline_exec ? eos : false));
         }
     } else {
