@@ -740,13 +740,20 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
             FunctionUtil.dropFromNereids(this.getFullName(), function);
+            LOG.info("finished to drop function {}", function.getName().getFunction());
         }
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
-            FunctionUtil.dropFunctionImpl(functionSearchDesc, false, name2Function);
+            // Set ifExists to true to avoid throw exception if function is not found.
+            // It should not happen but the reason is unknown, so add warn log for debug.
+            if (!FunctionUtil.dropFunctionImpl(functionSearchDesc, true, name2Function)) {
+                LOG.warn("failed to find function to drop: {} when replay, skip",
+                        functionSearchDesc.getName().getFunction());
+            }
             FunctionUtil.dropFromNereids(this.getFullName(), functionSearchDesc);
+            LOG.info("finished to replay drop function {}", functionSearchDesc.getName().getFunction());
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
