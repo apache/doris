@@ -53,7 +53,7 @@ public:
     FifoThreadPool* light_work_pool() { return _light_work_pool; }
 
 private:
-    bthread::Mutex _lock;
+    std::mutex _lock;
     std::unordered_map<UniqueId, LoadStreamSharedPtr> _load_streams_map;
     std::unique_ptr<ThreadPool> _file_writer_thread_pool;
 
