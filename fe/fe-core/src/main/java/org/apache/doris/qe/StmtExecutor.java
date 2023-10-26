@@ -2802,8 +2802,11 @@ public class StmtExecutor {
                 context.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
         parsedStmt = SqlParserUtils.getFirstStmt(parser);
-        if (isGroupCommit && ((NativeInsertStmt) parsedStmt).getLabel() != null) {
-            throw new AnalysisException("label and group_commit can't be set at the same time");
+        if (isGroupCommit) {
+            if (((NativeInsertStmt) parsedStmt).getLabel() != null) {
+                throw new AnalysisException("label and group_commit can't be set at the same time");
+            }
+            ((NativeInsertStmt) parsedStmt).isGroupCommitStreamLoadSql = true;
         }
         analyze(context.getSessionVariable().toThrift());
     }
@@ -2819,10 +2822,6 @@ public class StmtExecutor {
                 // try to fall back to legacy planner
                 LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
                         + "\n because of " + e.getMessage(), e);
-                if (e instanceof NereidsException && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
-                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                    throw ((NereidsException) e).getException();
-                }
                 LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
                 generateStreamLoadLegacyPlan(queryId, isGroupCommit);
             } catch (Exception e) {

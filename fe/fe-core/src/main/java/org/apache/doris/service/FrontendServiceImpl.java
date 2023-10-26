@@ -24,12 +24,9 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TypeDef;
@@ -69,7 +66,6 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -87,7 +83,6 @@ import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.MasterCatalogExecutor;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -174,7 +169,6 @@ import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
-import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryStatsResult;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReplicaInfo;
@@ -224,7 +218,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.io.StringReader;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -2121,16 +2114,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setParams(plan);
             result.getParams().setDbName(ctx.getTxnEntry().getDb().getFullName());
             result.getParams().setTableName(ctx.getTxnEntry().getTable().getName());
-            // The txn_id here is obtained from the InsertStmt
             result.getParams().setTxnConf(new TTxnParams().setTxnId(txn_id));
             result.getParams().setImportLabel(ctx.getTxnEntry().getLabel());
-            // TODO Due to the support for Nereids, this judgment should not be made here
-            result.getParams().params.setGroupCommit(ctx.isGroupCommitTvf());
+            result.getParams().getParams().setGroupCommit(ctx.isGroupCommitTvf());
             result.setDbId(ctx.getTxnEntry().getDb().getId());
             result.setTableId(ctx.getTxnEntry().getTable().getId());
             result.setBaseSchemaVersion(((OlapTable) ctx.getTxnEntry().getTable()).getBaseSchemaVersion());
         } catch (UserException e) {
-            LOG.warn("exec sql error", e);
+            LOG.warn("exec sql error, sql is : {}", request.getLoadSql(), e);
             throw new UserException("exec sql error" + e);
         } catch (Throwable e) {
             LOG.warn("exec sql error catch unknown result.", e);
