@@ -48,29 +48,24 @@ suite("test_csv_with_enclose_and_escapeS3_load", "p0") {
     ]
 
     for (i in 0..<normalCases.size()) {
-        attributesList.add(new LoadAttributes("s3://test-for-student-1308700295/regression/zhiyu_test/${normalCases[i]}.csv",
-        // attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/${normalCases[i]}.csv",
+        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/${normalCases[i]}.csv",
                 "${tableName}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
                 "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
     }
 
-    attributesList.add(new LoadAttributes("s3://test-for-student-1308700295/regression/zhiyu_test/enclose_incomplete.csv",
-        // attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/${normalCases[i]}.csv",
+        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_incomplete.csv",
             "${tableName}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
             "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")").addProperties("max_filter_ratio", "0.5"))
 
-    attributesList.add(new LoadAttributes("s3://test-for-student-1308700295/regression/zhiyu_test/enclose_without_escape.csv",
-        // attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/${normalCases[i]}.csv",
+        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_without_escape.csv",
             "${tableName}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
             "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
 
-    attributesList.add(new LoadAttributes("s3://test-for-student-1308700295/regression/zhiyu_test/enclose_multi_char_delimiter.csv",
-        // attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/${normalCases[i]}.csv",
+        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_multi_char_delimiter.csv",
             "${tableName}", "LINES TERMINATED BY \"\$\$\$\"", "COLUMNS TERMINATED BY \"@@\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
             "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\", \"trim_double_quotes\" = \"true\")"))
 
-    attributesList.add(new LoadAttributes("s3://test-for-student-1308700295/regression/zhiyu_test/enclose_not_trim_quotes.csv",
-        // attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/${normalCases[i]}.csv",
+        attributesList.add(new LoadAttributes("s3://doris-build-1308700295/regression/load/data/enclose_not_trim_quotes.csv",
             "${tableName}", "", "COLUMNS TERMINATED BY \",\"", "FORMAT AS \"CSV\"", "(k1,k2,v1,v2,v3,v4)", 
             "PROPERTIES (\"enclose\" = \"\\\"\", \"escape\" = \"\\\\\")").addProperties("trim_double_quotes", "false"))
 
@@ -95,18 +90,13 @@ suite("test_csv_with_enclose_and_escapeS3_load", "p0") {
                 $attributes.dataDesc.whereExpr
             )
             WITH S3 (
+                "AWS_ACCESS_KEY" = "$ak",
+                "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                "AWS_ACCESS_KEY" = "AKIDd9RVMzIOI0V7Wlnbr9JG0WrhJk28zc2H",
-                "AWS_SECRET_KEY"="4uWxMhqnW3Plz97sPjqlSUXO1RhokRuO",
-                "AWS_REGION" = "ap-beijing"
+                "AWS_REGION" = "ap-beijing",
             )
             ${prop}
             """
-                // "AWS_ACCESS_KEY" = "$ak",
-                // "AWS_SECRET_KEY" = "$sk",
-                // "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
-                // "AWS_REGION" = "ap-beijing",
-                // "use_path_style" = "$attributes.usePathStyle"
         logger.info("submit sql: ${sql_str}");
         sql """${sql_str}"""
         logger.info("Submit load with lable: $label, table: $attributes.dataDesc.tableName, path: $attributes.dataDesc.path")
@@ -114,13 +104,6 @@ suite("test_csv_with_enclose_and_escapeS3_load", "p0") {
         def max_try_milli_secs = 600000
         while (max_try_milli_secs > 0) {
             String[][] result = sql """ show load where label="$attributes.label" order by createtime desc limit 1; """
-
-            // check {
-            //     result, exception, startTime, endTime ->
-            //         assertTrue(exception == null)
-            //         def json = parseJson(result)
-            //         assertEquals("Fail", json.Status)
-            // }
 
             if (result[0][2].equals("FINISHED")) {
                 if (attributes.isExceptFailed) {
@@ -131,7 +114,6 @@ suite("test_csv_with_enclose_and_escapeS3_load", "p0") {
             }
             if (result[0][2].equals("CANCELLED")) {
                 if (attributes.dataDesc.path.split("/")[-1] == "enclose_incomplete.csv" || attributes.dataDesc.path.split("/")[-1] == "enclose_without_escape.csv") {
-                    // assertTrue(false, "load failed: $result")
                     break
                 }
                 if (attributes.isExceptFailed) {
