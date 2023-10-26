@@ -106,7 +106,8 @@ public:
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeMapSerDe>(key_type->get_serde(nesting_level + 1),
-                                                  value_type->get_serde(nesting_level + 1));
+                                                  value_type->get_serde(nesting_level + 1),
+                                                  nesting_level);
     };
 };
 

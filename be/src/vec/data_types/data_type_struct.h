@@ -134,7 +134,7 @@ public:
         for (auto iter = elems.begin(); iter < elems.end(); ++iter) {
             ptrs.push_back((*iter)->get_serde(nesting_level + 1));
         }
-        return std::make_shared<DataTypeStructSerDe>(ptrs, names);
+        return std::make_shared<DataTypeStructSerDe>(ptrs, names, nesting_level);
     };
 };
 

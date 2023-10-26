@@ -124,7 +124,8 @@ public:
     bool is_null_literal() const override { return nested_data_type->is_null_literal(); }
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeNullableSerDe>(nested_data_type->get_serde(nesting_level));
+        return std::make_shared<DataTypeNullableSerDe>(nested_data_type->get_serde(nesting_level),
+                                                       nesting_level);
     }
 
 private:
