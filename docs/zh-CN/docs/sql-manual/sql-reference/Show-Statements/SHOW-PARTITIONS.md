@@ -46,7 +46,7 @@ SHOW PARTITIONS
 1. 支持PartitionId,PartitionName,State,Buckets,ReplicationNum,LastConsistencyCheckTime等列的过滤
 2. TEMPORARY指定列出临时分区
 
-<version since="dev">
+<version since="2.0">
 
 对于 Hive Catalog：
 支持返回所有分区，包括多级分区
