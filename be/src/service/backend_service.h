@@ -90,6 +90,11 @@ public:
         _agent_server->publish_cluster_state(result, request);
     }
 
+    void publish_topic_info(TPublishTopicResult& result,
+                            const TPublishTopicRequest& topic_request) override {
+        _agent_server->get_topic_subscriber()->handle_topic_info(topic_request);
+    }
+
     // DorisServer service
     void exec_plan_fragment(TExecPlanFragmentResult& return_val,
                             const TExecPlanFragmentParams& params) override;

@@ -15,30 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.common.publish;
 
-#include <gen_cpp/BackendService_types.h>
-#include <glog/logging.h>
+import org.apache.doris.catalog.Env;
+import org.apache.doris.thrift.TPublishTopicRequest;
+import org.apache.doris.thrift.TopicInfo;
 
-#include <map>
-#include <shared_mutex>
-#include <vector>
+public class WorkloadGroupPublisher implements TopicPublisher {
 
-namespace doris {
-class TopicListener;
+    private Env env;
 
-class TopicSubscriber {
-public:
-    TopicSubscriber();
-    ~TopicSubscriber() = default;
+    public WorkloadGroupPublisher(Env env) {
+        this.env = env;
+    }
 
-    void register_listener(TTopicInfoType::type topic_type,
-                           std::unique_ptr<TopicListener> topic_listener);
-
-    void handle_topic_info(const TPublishTopicRequest& topic_request);
-
-private:
-    std::map<TTopicInfoType::type, std::unique_ptr<TopicListener>> _registered_listeners;
-    std::shared_mutex _listener_mtx;
-};
-} // namespace doris
+    @Override
+    public void getTopicInfo(TPublishTopicRequest req) {
+        for (TopicInfo topicInfo : env.getWorkloadGroupMgr()
+                .getPublishTopicInfo()) {
+            req.addToTopicList(topicInfo);
+        }
+    }
+}

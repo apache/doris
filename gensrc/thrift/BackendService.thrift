@@ -138,6 +138,24 @@ struct TIngestBinlogResult {
     1: optional Status.TStatus status;
 }
 
+enum TTopicInfoType {
+    WORKLOAD_GROUP
+}
+
+struct TopicInfo {
+    1: optional string topic_key
+    2: required TTopicInfoType topic_type
+    3: optional map<string, string> info_map
+}
+
+struct TPublishTopicRequest {
+    1: required list<TopicInfo> topic_list
+}
+
+struct TPublishTopicResult {
+    1: required Status.TStatus status
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -193,4 +211,6 @@ service BackendService {
     TCheckStorageFormatResult check_storage_format();
 
     TIngestBinlogResult ingest_binlog(1: TIngestBinlogRequest ingest_binlog_request);
+
+    TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
 }

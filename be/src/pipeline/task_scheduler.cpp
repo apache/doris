@@ -189,6 +189,7 @@ void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
 
 TaskScheduler::~TaskScheduler() {
     stop();
+    LOG(INFO) << "Task scheduler " << _name << " shutdown";
 }
 
 Status TaskScheduler::start() {
@@ -363,7 +364,6 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
 void TaskScheduler::stop() {
     if (!this->_shutdown.load()) {
         this->_shutdown.store(true);
-        _blocked_task_scheduler->shutdown();
         if (_task_queue) {
             _task_queue->close();
         }
