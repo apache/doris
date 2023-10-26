@@ -99,6 +99,9 @@ public:
 
     virtual Dependency* dependency() { return nullptr; }
 
+    FinishDependency* finishdependency() { return _finish_dependency.get(); }
+    FilterDependency* filterdependency() { return _filter_dependency.get(); }
+
 protected:
     friend class OperatorXBase;
 
@@ -130,6 +133,7 @@ protected:
     bool _closed = false;
     vectorized::Block _origin_block;
     std::shared_ptr<FinishDependency> _finish_dependency;
+    std::unique_ptr<FilterDependency> _filter_dependency;
 };
 
 class OperatorXBase : public OperatorBase {
@@ -202,11 +206,7 @@ public:
         return true;
     }
 
-    virtual bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const { return true; }
-
     Status close(RuntimeState* state) override;
-
-    virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
 
     [[nodiscard]] virtual const RowDescriptor& intermediate_row_desc() const {
         return _row_descriptor;
@@ -368,6 +368,8 @@ public:
 
     virtual WriteDependency* dependency() { return nullptr; }
 
+    FinishDependency* finishdependency() { return _finish_dependency.get(); }
+
 protected:
     DataSinkOperatorXBase* _parent;
     RuntimeState* _state;
@@ -468,8 +470,6 @@ public:
         LOG(FATAL) << "should not reach here!";
         return false;
     }
-
-    virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
 
     [[nodiscard]] std::string debug_string() const override { return ""; }
 

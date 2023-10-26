@@ -94,8 +94,6 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    FinishDependency* finish_blocked_by(RuntimeState* state) const override;
-
 private:
     friend class ResultFileSinkLocalState;
     template <typename Writer, typename Parent>
