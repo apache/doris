@@ -116,6 +116,13 @@ partial_columns:true
 
 同时在`columns`中指定要导入的列（必须包含所有key列，不然无法更新）
 
+#### Flink Connector
+如果使用Flink Connector, 需要添加如下配置：
+```
+'sink.properties.partial_columns' = 'true',
+```
+同时在`sink.properties.column`中指定要导入的列（必须包含所有key列，不然无法更新）
+
 #### INSERT INTO
 
 在所有的数据模型中，`INSERT INTO` 给定一部分列时默认行为都是整行写入，为了防止误用，在Merge-on-Write实现中，`INSERT INTO`默认仍然保持整行UPSERT的语意，如果需要开启部分列更新的语意，需要设置如下 session variable
