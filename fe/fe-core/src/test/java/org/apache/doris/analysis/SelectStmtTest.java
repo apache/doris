@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
@@ -67,6 +68,7 @@ public class SelectStmtTest {
         Config.enable_batch_delete_by_default = true;
         Config.enable_http_server_v2 = false;
         UtFrameUtils.createDorisCluster(runningDir);
+        FeConstants.runningUnitTest = true;
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32),"
                 + " k2 varchar(32), k3 varchar(32), k4 int, k5 largeint) "
                 + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3"
@@ -890,7 +892,7 @@ public class SelectStmtTest {
         String sql4 = "SELECT * FROM db1.table1 TABLESAMPLE(9500 ROWS)";
         OriginalPlanner planner4 = (OriginalPlanner) dorisAssert.query(sql4).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds4 = ((OlapScanNode) planner4.getScanNodes().get(0)).getSampleTabletIds();
-        Assert.assertEquals(0, sampleTabletIds4.size()); // no sample, all tablet
+        Assert.assertEquals(10, sampleTabletIds4.size());
 
         String sql5 = "SELECT * FROM db1.table1 TABLESAMPLE(11000 ROWS)";
         OriginalPlanner planner5 = (OriginalPlanner) dorisAssert.query(sql5).internalExecuteOneAndGetPlan();
@@ -995,7 +997,7 @@ public class SelectStmtTest {
         String sql4 = "SELECT * FROM db1.table3 TABLESAMPLE(9500 ROWS)";
         OriginalPlanner planner4 = (OriginalPlanner) dorisAssert.query(sql4).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds4 = ((OlapScanNode) planner4.getScanNodes().get(0)).getSampleTabletIds();
-        Assert.assertEquals(0, sampleTabletIds4.size()); // no sample, all tablet
+        Assert.assertEquals(10, sampleTabletIds4.size());
 
         String sql5 = "SELECT * FROM db1.table3 TABLESAMPLE(11000 ROWS)";
         OriginalPlanner planner5 = (OriginalPlanner) dorisAssert.query(sql5).internalExecuteOneAndGetPlan();

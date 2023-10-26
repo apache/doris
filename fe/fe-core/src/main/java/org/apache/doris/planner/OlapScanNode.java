@@ -59,6 +59,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
@@ -547,6 +548,7 @@ public class OlapScanNode extends ScanNode {
             computePartitionInfo();
         }
         computeTupleState(analyzer);
+        computeSampleTabletIds();
 
         /**
          * Compute InAccurate cardinality before mv selector and tablet pruning.
@@ -944,6 +946,9 @@ public class OlapScanNode extends ScanNode {
         long selectedRows = 0;
         long totalSampleRows = 0;
         List<Long> selectedPartitionList = new ArrayList<>();
+        if (FeConstants.runningUnitTest && selectedIndexId == -1) {
+            selectedIndexId = olapTable.getBaseIndexId();
+        }
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
@@ -954,14 +959,12 @@ public class OlapScanNode extends ScanNode {
 
         // 2.Sampling is not required in some cases, will not take effect after clear sampleTabletIds.
         if (tableSample.isPercent()) {
-            if (tableSample.getSampleValue() == 100) {
-                sampleTabletIds.clear();
+            if (tableSample.getSampleValue() >= 100) {
                 return;
             }
             totalSampleRows = (long) Math.max(selectedRows * (tableSample.getSampleValue() / 100.0), 1);
         } else {
             if (tableSample.getSampleValue() > selectedRows) {
-                sampleTabletIds.clear();
                 return;
             }
             totalSampleRows = tableSample.getSampleValue();
@@ -994,12 +997,18 @@ public class OlapScanNode extends ScanNode {
                     ? tableSample.getSeek() : (long) (new SecureRandom().nextDouble() * tablets.size());
             for (int j = 0; j < tablets.size(); j++) {
                 int seekTid = (int) ((j + tabletSeek) % tablets.size());
-                if (tablets.get(seekTid).getRowCount(true) == 0) {
+                long tabletRowCount;
+                if (!FeConstants.runningUnitTest) {
+                    tabletRowCount = tablets.get(seekTid).getRowCount(true);
+                } else {
+                    tabletRowCount = selectedTable.getRowCount() / tablets.size();
+                }
+                if (tabletRowCount == 0) {
                     continue;
                 }
                 sampleTabletIds.add(tablets.get(seekTid).getId());
-                sampleRows -= tablets.get(seekTid).getRowCount(true);
-                hitRows += tablets.get(seekTid).getRowCount(true);
+                sampleRows -= tabletRowCount;
+                hitRows += tabletRowCount;
                 if (sampleRows <= 0) {
                     break;
                 }
@@ -1034,7 +1043,6 @@ public class OlapScanNode extends ScanNode {
          */
         Preconditions.checkState(scanBackendIds.size() == 0);
         Preconditions.checkState(scanTabletIds.size() == 0);
-        computeSampleTabletIds();
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
