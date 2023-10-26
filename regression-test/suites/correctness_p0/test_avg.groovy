@@ -38,8 +38,9 @@ suite("test_avg") {
         sql """ INSERT INTO ${tableName} values (10000000000000${i}) """
     }
     sql "sync"
-    qt_count """ SELECT COUNT(c_bigint) FROM ${tableName} """
+    qt_select """select c_bigint from ${tableName} order by c_bigint"""
     qt_sum """ SELECT SUM(c_bigint) FROM ${tableName} """
+    qt_count """ SELECT COUNT(c_bigint) FROM ${tableName} """
     qt_avg """ SELECT AVG(c_bigint) FROM ${tableName} """
     sql""" DROP TABLE IF EXISTS ${tableName} """
 
