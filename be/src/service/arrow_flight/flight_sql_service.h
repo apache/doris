@@ -36,6 +36,25 @@ public:
             const arrow::flight::ServerCallContext& context,
             const arrow::flight::sql::StatementQueryTicket& command) override;
 
+    arrow::Result<int64_t> DoPutCommandStatementUpdate(
+        const arrow::flight::ServerCallContext& context,
+        const arrow::flight::sql::StatementUpdate& update) override;
+
+    // arrow::Result<int64_t> DoPutPreparedStatementUpdate(
+    //   const arrow::flight::ServerCallContext& context, const arrow::flight::sql::PreparedStatementUpdate& command,
+    //   arrow::flight::FlightMessageReader* reader) override;
+    
+    arrow::Result<int64_t> DoPutPreparedStatementUpdate(
+        const arrow::flight::ServerCallContext& context, const arrow::flight::sql::PreparedStatementUpdate& command,
+        arrow::flight::FlightMessageReader* reader) override;
+    
+    arrow::Result<arrow::flight::sql::ActionCreatePreparedStatementResult> CreatePreparedStatement(
+      const arrow::flight::ServerCallContext& context,
+      const arrow::flight::sql::ActionCreatePreparedStatementRequest& request) override;
+    
+    arrow::Status ClosePreparedStatement(const arrow::flight::ServerCallContext& context,
+        const arrow::flight::sql::ActionClosePreparedStatementRequest& request) override;
+
     Status init(int port);
     Status join();
 

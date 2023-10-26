@@ -52,7 +52,9 @@ public class DorisFlightSqlService {
 
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(location, flightSessionsManager);
         flightServer = FlightServer.builder(allocator, location, producer)
-                .headerAuthenticator(new FlightBearerTokenAuthenticator(flightTokenManager)).build();
+            .build();
+//        flightServer = FlightServer.builder(allocator, location, producer)
+//                .headerAuthenticator(new FlightBearerTokenAuthenticator(flightTokenManager)).build();
     }
 
     // start Arrow Flight SQL service, return true if success, otherwise false

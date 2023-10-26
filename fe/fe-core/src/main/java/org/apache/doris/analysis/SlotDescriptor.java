@@ -297,7 +297,7 @@ public class SlotDescriptor {
         // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
         TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
                 byteOffset, 0, getIsNullable() ? 0 : -1,
-                ((column != null) ? column.getNonShadowName().toLowerCase() : ""), slotIdx,
+                ((column != null) ? column.getNonShadowName() : ""), slotIdx,
                 isMaterialized);
         tSlotDescriptor.setNeedMaterialize(needMaterialize);
         tSlotDescriptor.setIsAutoIncrement(isAutoInc);

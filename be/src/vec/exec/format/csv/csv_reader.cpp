@@ -69,6 +69,8 @@ enum class FileCachePolicy : uint8_t;
 
 namespace doris::vectorized {
 
+clock_t _clock;
+
 const static Slice _s_null_slice = Slice("\\N");
 
 void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
@@ -240,7 +242,9 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
     }
 }
 
-CsvReader::~CsvReader() = default;
+CsvReader::~CsvReader() {
+    LOG(INFO) << "wuwenchi xxxx csv time: " << _clock;
+}
 
 void CsvReader::_init_system_properties() {
     if (_range.__isset.file_type) {
@@ -460,6 +464,8 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         return Status::OK();
     }
 
+    clock_t t1 = clock();
+
     const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
     size_t rows = 0;
 
@@ -510,6 +516,9 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
     *eof = (rows == 0);
     *read_rows = rows;
+
+    clock_t t2 = clock();
+    _clock += (t2 - t1);
 
     return Status::OK();
 }

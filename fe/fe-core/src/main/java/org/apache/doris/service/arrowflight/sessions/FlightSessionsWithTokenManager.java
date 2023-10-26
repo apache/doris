@@ -17,6 +17,7 @@
 
 package org.apache.doris.service.arrowflight.sessions;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.arrowflight.tokens.FlightTokenDetails;
@@ -54,12 +55,14 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
     @Override
     public ConnectContext createConnectContext(String peerIdentity) {
         try {
-            final FlightTokenDetails flightTokenDetails = flightTokenManager.validateToken(peerIdentity);
-            if (flightTokenDetails.getCreatedSession()) {
-                return null;
-            }
-            return FlightSessionsManager.buildConnectContext(peerIdentity, flightTokenDetails.getUserIdentity(),
-                    flightTokenDetails.getRemoteIp());
+//            final FlightTokenDetails flightTokenDetails = flightTokenManager.validateToken(peerIdentity);
+//            if (flightTokenDetails.getCreatedSession()) {
+//                return null;
+//            }
+            UserIdentity root = new UserIdentity("root", "127.0.0.1");
+            root.setIsAnalyzed();
+            return FlightSessionsManager.buildConnectContext(peerIdentity, root,
+                    "127.0.0.1");
         } catch (IllegalArgumentException e) {
             LOG.error("Bearer token validation failed.", e);
             throw CallStatus.UNAUTHENTICATED.toRuntimeException();

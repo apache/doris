@@ -20,6 +20,14 @@
 
 package org.apache.doris.service.arrowflight;
 
+import org.apache.arrow.flight.sql.impl.FlightSql;
+import org.apache.arrow.memory.ArrowBuf;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ipc.WriteChannel;
+import org.apache.arrow.vector.ipc.message.MessageSerializer;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
@@ -67,8 +75,18 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+
+import static com.google.protobuf.Any.pack;
+import static com.google.protobuf.ByteString.copyFrom;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.UUID.randomUUID;
 
 public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable {
     private static final Logger LOG = LogManager.getLogger(DorisFlightSqlProducer.class);
@@ -94,6 +112,11 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     }
 
     @Override
+    public FlightInfo getFlightInfo(CallContext context, FlightDescriptor descriptor) {
+        return FlightSqlProducer.super.getFlightInfo(context, descriptor);
+    }
+
+    @Override
     public void getStreamPreparedStatement(final CommandPreparedStatementQuery command, final CallContext context,
             final ServerStreamListener listener) {
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamPreparedStatement unimplemented").toRuntimeException();
@@ -102,7 +125,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void closePreparedStatement(final ActionClosePreparedStatementRequest request, final CallContext context,
             final StreamListener<Result> listener) {
-        throw CallStatus.UNIMPLEMENTED.withDescription("closePreparedStatement unimplemented").toRuntimeException();
+        listener.onCompleted();
+//        throw CallStatus.UNIMPLEMENTED.withDescription("closePreparedStatement unimplemented").toRuntimeException();
     }
 
     @Override
@@ -110,7 +134,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             final FlightDescriptor descriptor) {
         ConnectContext connectContext = null;
         try {
-            connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            connectContext = flightSessionsManager.getConnectContext("wuwenchi");
             // Only for ConnectContext check timeout.
             connectContext.setCommand(MysqlCommand.COM_QUERY);
             final String query = request.getQuery();
@@ -171,8 +195,75 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void createPreparedStatement(final ActionCreatePreparedStatementRequest request, final CallContext context,
             final StreamListener<Result> listener) {
-        throw CallStatus.UNIMPLEMENTED.withDescription("createPreparedStatement unimplemented").toRuntimeException();
+//        throw CallStatus.UNIMPLEMENTED.withDescription("createPreparedStatement xxxxxx unimplemented").toRuntimeException();
+
+        // Running on another thread
+            try {
+                final ByteString preparedStatementHandle = copyFrom(randomUUID().toString().getBytes(UTF_8));
+//                // Ownership of the connection will be passed to the context. Do NOT close!
+//                final Connection connection = dataSource.getConnection();
+//                final PreparedStatement preparedStatement = connection.prepareStatement(request.getQuery(),
+//                    ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY);
+//                final StatementContext<PreparedStatement> preparedStatementContext =
+//                    new StatementContext<>(preparedStatement, request.getQuery());
+//
+////                preparedStatementLoadingCache.put(preparedStatementHandle, preparedStatementContext);
+//
+//                // TODO gen scheam
+////                String query = request.getQuery();
+////                Parser<ActionCreatePreparedStatementRequest> parserForType = request.getParserForType();
+////                parserForType.parseFrom()
+//                final Schema parameterSchema =
+//                    jdbcToArrowSchema(preparedStatement.getParameterMetaData(), DEFAULT_CALENDAR);
+//                ArrayList<Field> fields = new ArrayList<>();
+//                org.apache.arrow.vector.types.pojo.Field id = org.apache.arrow.vector.types.pojo.Field.nullable("id",
+//                    Types.MinorType.INT.getType());
+//                org.apache.arrow.vector.types.pojo.Field val = org.apache.arrow.vector.types.pojo.Field.nullable("val",
+//                    Types.MinorType.INT.getType());
+//
+//                fields.add(id);
+//                fields.add(val);
+//                Schema parameterSchema = new Schema(fields);
+
+                final List<Field> parameterFields = new ArrayList<>(2);
+
+                ArrowType.Int anInt = new ArrowType.Int(32, true);
+                final FieldType fieldType = new FieldType(true, anInt, /*dictionary=*/null);
+                parameterFields.add(new Field("id", fieldType, null));
+
+                ArrowType.Int anInt2 = new ArrowType.Int(32, true);
+                final FieldType fieldType2 = new FieldType(true, anInt2, /*dictionary=*/null);
+                parameterFields.add(new Field("val", fieldType2, null));
+
+//
+//                final ResultSetMetaData metaData = preparedStatement.getMetaData();
+                final ByteString bytes =
+                    ByteString.copyFrom(
+                        serializeSchemaData(new Schema(parameterFields)));
+                final FlightSql.ActionCreatePreparedStatementResult result = FlightSql.ActionCreatePreparedStatementResult.newBuilder()
+                    .setDatasetSchema(bytes)
+                    .setParameterSchema(copyFrom(serializeSchemaData(new Schema(parameterFields))))
+                    .setParameterSchema(copyFrom(serializeSchemaData(new Schema(parameterFields))))
+                    .setPreparedStatementHandle(preparedStatementHandle)
+                    .build();
+                listener.onNext(new Result(pack(result).toByteArray()));
+            } catch (final Throwable t) {
+                listener.onError(CallStatus.INTERNAL.withDescription("Unknown error: " + t).toRuntimeException());
+                return;
+            }
+            listener.onCompleted();
     }
+
+    private static ByteBuffer serializeSchemaData(final Schema schema) {
+        final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            MessageSerializer.serialize(new WriteChannel(Channels.newChannel(outputStream)), schema);
+            return ByteBuffer.wrap(outputStream.toByteArray());
+        } catch (final IOException e) {
+            throw new RuntimeException("Failed to serialize schema", e);
+        }
+    }
+
 
     @Override
     public void doExchange(CallContext context, FlightStream reader, ServerStreamListener writer) {
@@ -189,8 +280,51 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public Runnable acceptPutPreparedStatementUpdate(CommandPreparedStatementUpdate command, CallContext context,
             FlightStream flightStream, StreamListener<PutResult> ackStream) {
-        throw CallStatus.UNIMPLEMENTED.withDescription("acceptPutPreparedStatementUpdate unimplemented")
-                .toRuntimeException();
+//        throw CallStatus.UNIMPLEMENTED.withDescription("acceptPutPreparedStatementUpdate unimplemented")
+//                .toRuntimeException();
+
+//    final StatementContext<PreparedStatement> statement =
+//        preparedStatementLoadingCache.getIfPresent(command.getPreparedStatementHandle());
+
+    return () -> {
+//      if (statement == null) {
+//        ackStream.onError(CallStatus.NOT_FOUND
+//            .withDescription("Prepared statement does not exist")
+//            .toRuntimeException());
+//        return;
+//      }
+        //        final PreparedStatement preparedStatement = statement.getStatement();
+
+        while (flightStream.next()) {
+          final VectorSchemaRoot root = flightStream.getRoot();
+
+          final int rowCount = root.getRowCount();
+          final int recordCount = 10;
+
+            System.out.println(rowCount);
+          if (rowCount == 0) {
+//            preparedStatement.execute();
+//            recordCount = preparedStatement.getUpdateCount();
+          } else {
+//            final JdbcParameterBinder binder = JdbcParameterBinder.builder(preparedStatement, root).bindAll().build();
+//            while (binder.next()) {
+//              preparedStatement.addBatch();
+//            }
+//            int[] recordCounts = preparedStatement.executeBatch();
+//            recordCount = Arrays.stream(recordCounts).sum();
+              System.out.println(root);
+          }
+
+          final FlightSql.DoPutUpdateResult build =
+              FlightSql.DoPutUpdateResult.newBuilder().setRecordCount(recordCount).build();
+
+          try (final ArrowBuf buffer = rootAllocator.buffer(build.getSerializedSize())) {
+            buffer.writeBytes(build.toByteArray());
+            ackStream.onNext(PutResult.metadata(buffer));
+          }
+        }
+        ackStream.onCompleted();
+    };
     }
 
     @Override
