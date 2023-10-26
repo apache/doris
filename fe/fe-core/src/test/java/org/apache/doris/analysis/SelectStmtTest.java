@@ -68,7 +68,6 @@ public class SelectStmtTest {
         Config.enable_batch_delete_by_default = true;
         Config.enable_http_server_v2 = false;
         UtFrameUtils.createDorisCluster(runningDir);
-        FeConstants.runningUnitTest = true;
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32),"
                 + " k2 varchar(32), k3 varchar(32), k4 int, k5 largeint) "
                 + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3"
@@ -860,6 +859,7 @@ public class SelectStmtTest {
 
     @Test
     public void testSelectSampleHashBucketTable() throws Exception {
+        FeConstants.runningUnitTest = true;
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("table1");
         long tabletId = 10031L;
@@ -961,10 +961,12 @@ public class SelectStmtTest {
         OriginalPlanner planner16 = (OriginalPlanner) dorisAssert.query(sql16).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds16 = ((OlapScanNode) planner16.getScanNodes().get(0)).getSampleTabletIds();
         Assert.assertEquals(1, sampleTabletIds16.size());
+        FeConstants.runningUnitTest = false;
     }
 
     @Test
     public void testSelectSampleRandomBucketTable() throws Exception {
+        FeConstants.runningUnitTest = true;
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("table3");
         long tabletId = 10031L;
@@ -1066,6 +1068,7 @@ public class SelectStmtTest {
         OriginalPlanner planner16 = (OriginalPlanner) dorisAssert.query(sql16).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds16 = ((OlapScanNode) planner16.getScanNodes().get(0)).getSampleTabletIds();
         Assert.assertEquals(1, sampleTabletIds16.size());
+        FeConstants.runningUnitTest = false;
     }
 
 
