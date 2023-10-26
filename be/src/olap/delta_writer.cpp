@@ -95,10 +95,10 @@ Status DeltaWriter::init() {
         return Status::OK();
     }
     RETURN_IF_ERROR(_rowset_builder.init());
-    RETURN_IF_ERROR(
-            _memtable_writer->init(_rowset_builder.rowset_writer(), _rowset_builder.tablet_schema(),
-                                   _rowset_builder.get_partial_update_info(),
-                                   _rowset_builder.tablet()->enable_unique_key_merge_on_write()));
+    RETURN_IF_ERROR(_memtable_writer->init(
+            _rowset_builder.rowset_writer(), _rowset_builder.tablet_schema(),
+            _rowset_builder.get_partial_update_info(),
+            _rowset_builder.tablet()->enable_unique_key_merge_on_write(), _profile));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     return Status::OK();
@@ -146,7 +146,7 @@ Status DeltaWriter::build_rowset() {
             << "delta writer is supposed be to initialized before build_rowset() being called";
 
     SCOPED_TIMER(_close_wait_timer);
-    RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
+    RETURN_IF_ERROR(_memtable_writer->close_wait());
     return _rowset_builder.build_rowset();
 }
 

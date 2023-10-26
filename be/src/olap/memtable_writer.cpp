@@ -66,7 +66,7 @@ MemTableWriter::~MemTableWriter() {
 Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
                             TabletSchemaSPtr tablet_schema,
                             std::shared_ptr<PartialUpdateInfo> partial_update_info,
-                            bool unique_key_mow) {
+                            bool unique_key_mow, RuntimeProfile* profile) {
     _rowset_writer = rowset_writer;
     _tablet_schema = tablet_schema;
     _unique_key_mow = unique_key_mow;
@@ -80,6 +80,10 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     bool should_serial = false;
     RETURN_IF_ERROR(StorageEngine::instance()->memtable_flush_executor()->create_flush_token(
             _flush_token, _rowset_writer.get(), should_serial, _req.is_high_priority));
+
+    if (profile != nullptr) {
+        _init_profile(profile);
+    }
 
     _is_init = true;
     return Status::OK();
@@ -202,7 +206,7 @@ void MemTableWriter::_reset_mem_table() {
                                   _unique_key_mow, _partial_update_info.get(),
                                   mem_table_insert_tracker, mem_table_flush_tracker));
 
-    _segment_num++;
+    _segment_cnt++;
 }
 
 Status MemTableWriter::close() {
@@ -274,41 +278,47 @@ Status MemTableWriter::_do_close_wait() {
     return Status::OK();
 }
 
-void MemTableWriter::_update_profile(RuntimeProfile* profile) {
+void MemTableWriter::_init_profile(RuntimeProfile* profile) {
     // NOTE: MemTableWriter may be accessed when profile is out of scope, in MemTableMemoryLimiter.
     // To avoid accessing dangling pointers, we cannot make profile as a member of MemTableWriter.
+    _enable_profile = true;
     auto child =
             profile->create_child(fmt::format("MemTableWriter {}", _req.tablet_id), true, true);
-    auto lock_timer = ADD_TIMER(child, "LockTime");
-    auto sort_timer = ADD_TIMER(child, "MemTableSortTime");
-    auto agg_timer = ADD_TIMER(child, "MemTableAggTime");
-    auto memtable_duration_timer = ADD_TIMER(child, "MemTableDurationTime");
-    auto segment_writer_timer = ADD_TIMER(child, "SegmentWriterTime");
-    auto wait_flush_timer = ADD_TIMER(child, "MemTableWaitFlushTime");
-    auto put_into_output_timer = ADD_TIMER(child, "MemTablePutIntoOutputTime");
-    auto delete_bitmap_timer = ADD_TIMER(child, "DeleteBitmapTime");
-    auto close_wait_timer = ADD_TIMER(child, "CloseWaitTime");
-    auto sort_times = ADD_COUNTER(child, "MemTableSortTimes", TUnit::UNIT);
-    auto agg_times = ADD_COUNTER(child, "MemTableAggTimes", TUnit::UNIT);
-    auto segment_num = ADD_COUNTER(child, "SegmentNum", TUnit::UNIT);
-    auto raw_rows_num = ADD_COUNTER(child, "RawRowNum", TUnit::UNIT);
-    auto merged_rows_num = ADD_COUNTER(child, "MergedRowNum", TUnit::UNIT);
+    _lock_timer = ADD_TIMER(child, "LockTime");
+    _sort_timer = ADD_TIMER(child, "MemTableSortTime");
+    _agg_timer = ADD_TIMER(child, "MemTableAggTime");
+    _memtable_duration_timer = ADD_TIMER(child, "MemTableDurationTime");
+    _segment_writer_timer = ADD_TIMER(child, "SegmentWriterTime");
+    _wait_flush_timer = ADD_TIMER(child, "MemTableWaitFlushTime");
+    _put_into_output_timer = ADD_TIMER(child, "MemTablePutIntoOutputTime");
+    _delete_bitmap_timer = ADD_TIMER(child, "DeleteBitmapTime");
+    _close_wait_timer = ADD_TIMER(child, "CloseWaitTime");
+    _sort_times = ADD_COUNTER(child, "MemTableSortTimes", TUnit::UNIT);
+    _agg_times = ADD_COUNTER(child, "MemTableAggTimes", TUnit::UNIT);
+    _segment_num = ADD_COUNTER(child, "SegmentNum", TUnit::UNIT);
+    _raw_rows_num = ADD_COUNTER(child, "RawRowNum", TUnit::UNIT);
+    _merged_rows_num = ADD_COUNTER(child, "MergedRowNum", TUnit::UNIT);
+}
 
-    COUNTER_UPDATE(lock_timer, _lock_watch.elapsed_time());
-    COUNTER_SET(delete_bitmap_timer, _rowset_writer->delete_bitmap_ns());
-    COUNTER_SET(segment_writer_timer, _rowset_writer->segment_writer_ns());
-    COUNTER_SET(wait_flush_timer, _wait_flush_time_ns);
-    COUNTER_SET(close_wait_timer, _close_wait_time_ns);
-    COUNTER_SET(segment_num, _segment_num);
+void MemTableWriter::_update_profile() {
+    if (!_enable_profile) {
+        return;
+    }
+    COUNTER_UPDATE(_lock_timer, _lock_watch.elapsed_time());
+    COUNTER_SET(_delete_bitmap_timer, _rowset_writer->delete_bitmap_ns());
+    COUNTER_SET(_segment_writer_timer, _rowset_writer->segment_writer_ns());
+    COUNTER_SET(_wait_flush_timer, _wait_flush_time_ns);
+    COUNTER_SET(_close_wait_timer, _close_wait_time_ns);
+    COUNTER_SET(_segment_num, _segment_cnt);
     const auto& memtable_stat = _flush_token->memtable_stat();
-    COUNTER_SET(sort_timer, memtable_stat.sort_ns);
-    COUNTER_SET(agg_timer, memtable_stat.agg_ns);
-    COUNTER_SET(memtable_duration_timer, memtable_stat.duration_ns);
-    COUNTER_SET(put_into_output_timer, memtable_stat.put_into_output_ns);
-    COUNTER_SET(sort_times, memtable_stat.sort_times);
-    COUNTER_SET(agg_times, memtable_stat.agg_times);
-    COUNTER_SET(raw_rows_num, memtable_stat.raw_rows);
-    COUNTER_SET(merged_rows_num, memtable_stat.merged_rows);
+    COUNTER_SET(_sort_timer, memtable_stat.sort_ns);
+    COUNTER_SET(_agg_timer, memtable_stat.agg_ns);
+    COUNTER_SET(_memtable_duration_timer, memtable_stat.duration_ns);
+    COUNTER_SET(_put_into_output_timer, memtable_stat.put_into_output_ns);
+    COUNTER_SET(_sort_times, memtable_stat.sort_times);
+    COUNTER_SET(_agg_times, memtable_stat.agg_times);
+    COUNTER_SET(_raw_rows_num, memtable_stat.raw_rows);
+    COUNTER_SET(_merged_rows_num, memtable_stat.merged_rows);
 }
 
 Status MemTableWriter::cancel() {

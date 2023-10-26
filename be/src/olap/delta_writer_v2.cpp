@@ -127,7 +127,8 @@ Status DeltaWriterV2::init() {
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));
     RETURN_IF_ERROR(_memtable_writer->init(_rowset_writer, _tablet_schema, _partial_update_info,
-                                           _streams[0]->enable_unique_mow(_req.index_id)));
+                                           _streams[0]->enable_unique_mow(_req.index_id),
+                                           _profile));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     _streams.clear();
@@ -174,7 +175,7 @@ Status DeltaWriterV2::close_wait() {
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
 
-    RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
+    RETURN_IF_ERROR(_memtable_writer->close_wait());
 
     _delta_written_success = true;
     return Status::OK();

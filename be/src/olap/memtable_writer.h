@@ -68,8 +68,8 @@ public:
     ~MemTableWriter();
 
     Status init(std::shared_ptr<RowsetWriter> rowset_writer, TabletSchemaSPtr tablet_schema,
-                std::shared_ptr<PartialUpdateInfo> partial_update_info,
-                bool unique_key_mow = false);
+                std::shared_ptr<PartialUpdateInfo> partial_update_info, bool unique_key_mow = false,
+                RuntimeProfile* profile = nullptr);
 
     Status write(const vectorized::Block* block, const std::vector<int>& row_idxs,
                  bool is_append = false);
@@ -78,13 +78,11 @@ public:
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();
-    // wait for all memtables to be flushed, update profiles if provided.
+    // wait for all memtables to be flushed, update profiles if enabled.
     // mem_consumption() should be 0 after this function returns.
-    Status close_wait(RuntimeProfile* profile = nullptr) {
+    Status close_wait() {
         RETURN_IF_ERROR(_do_close_wait());
-        if (profile != nullptr) {
-            _update_profile(profile);
-        }
+        _update_profile();
         return Status::OK();
     }
 
@@ -116,7 +114,8 @@ private:
     void _reset_mem_table();
 
     Status _do_close_wait();
-    void _update_profile(RuntimeProfile* profile);
+    void _init_profile(RuntimeProfile* profile);
+    void _update_profile();
 
     std::atomic<bool> _is_init = false;
     bool _is_cancelled = false;
@@ -140,11 +139,27 @@ private:
     int64_t _total_received_rows = 0;
     int64_t _wait_flush_time_ns = 0;
     int64_t _close_wait_time_ns = 0;
-    int64_t _segment_num = 0;
+    int64_t _segment_cnt = 0;
 
     MonotonicStopWatch _lock_watch;
 
     std::shared_ptr<PartialUpdateInfo> _partial_update_info;
+
+    bool _enable_profile = false;
+    RuntimeProfile::Counter* _lock_timer = nullptr;
+    RuntimeProfile::Counter* _sort_timer = nullptr;
+    RuntimeProfile::Counter* _agg_timer = nullptr;
+    RuntimeProfile::Counter* _memtable_duration_timer = nullptr;
+    RuntimeProfile::Counter* _segment_writer_timer = nullptr;
+    RuntimeProfile::Counter* _wait_flush_timer = nullptr;
+    RuntimeProfile::Counter* _put_into_output_timer = nullptr;
+    RuntimeProfile::Counter* _delete_bitmap_timer = nullptr;
+    RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    RuntimeProfile::Counter* _sort_times = nullptr;
+    RuntimeProfile::Counter* _agg_times = nullptr;
+    RuntimeProfile::Counter* _segment_num = nullptr;
+    RuntimeProfile::Counter* _raw_rows_num = nullptr;
+    RuntimeProfile::Counter* _merged_rows_num = nullptr;
 };
 
 } // namespace doris
