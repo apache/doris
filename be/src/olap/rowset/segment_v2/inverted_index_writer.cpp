@@ -30,7 +30,14 @@
 #include <roaring/roaring.hh>
 #include <vector>
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #include "common/config.h"
 #include "olap/field.h"
 #include "olap/inverted_index_parser.h"

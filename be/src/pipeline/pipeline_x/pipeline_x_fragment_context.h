@@ -157,7 +157,14 @@ private:
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
     DataSinkOperatorXPtr _sink;
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
     std::atomic_bool _canceled = false;
 
