@@ -692,7 +692,6 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
                                                         segments, txn_id,
                                                         calc_delete_bitmap_token.get(), nullptr);
         calc_delete_bitmap_token->wait();
-        calc_delete_bitmap_token->get_delete_bitmap(delete_bitmap);
     }
 
     // Step 6.3: commit txn
