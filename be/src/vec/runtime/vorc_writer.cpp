@@ -113,7 +113,13 @@ std::unique_ptr<orc::ColumnVectorBatch> VOrcWriterWrapper::_create_row_batch(siz
 }
 
 int64_t VOrcWriterWrapper::written_len() {
-    return _output_stream->getLength();
+    // written_len() will be called in VFileResultWriter::_close_file_writer
+    // but _output_stream may be nullptr
+    // because the failure built by _schema in open()
+    if (_output_stream) {
+        return _output_stream->getLength();
+    }
+    return 0;
 }
 
 Status VOrcWriterWrapper::close() {
@@ -123,6 +129,9 @@ Status VOrcWriterWrapper::close() {
         } catch (const std::exception& e) {
             return Status::IOError(e.what());
         }
+    }
+    if (_output_stream) {
+        _output_stream->close();
     }
     return Status::OK();
 }
