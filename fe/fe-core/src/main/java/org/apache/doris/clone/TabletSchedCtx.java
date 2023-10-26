@@ -881,7 +881,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
             // addReplica() method will add this replica to tablet inverted index too.
             tablet.addReplica(cloneReplica);
-        } else if (tabletStatus == TabletStatus.VERSION_INCOMPLETE) {
+        } else {
+            // tabletStatus is VERSION_INCOMPLETE || NEED_FURTHER_REPAIR
             Preconditions.checkState(type == Type.REPAIR, type);
             // double check
             Replica replica = tablet.getReplicaByBackendId(destBackendId);
