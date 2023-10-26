@@ -98,7 +98,6 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
     _arena = std::make_shared<Arena>();
     _hash_table_variants = std::make_shared<HashTableVariants>();
     _process_hashtable_ctx_variants = std::make_unique<HashTableCtxVariants>();
-    _build_block = std::make_shared<Block>();
 }
 
 Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {

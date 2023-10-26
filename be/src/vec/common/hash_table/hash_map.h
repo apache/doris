@@ -373,7 +373,6 @@ private:
             build_idx = first[bucket_nums[probe_idx]];
             do_the_probe();
         }
-
         if (matched_cnt == batch_size && build_idx) {
             probe_idx--;
             current_probe_idx = probe_idx;

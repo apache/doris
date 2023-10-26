@@ -148,13 +148,12 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
                                                              Block* output_block,
                                                              size_t probe_rows) {
     auto& probe_index = _parent->_probe_index;
+    auto last_probe_index = probe_index;
 
     _init_probe_side<HashTableType>(hash_table_ctx, probe_rows, with_other_conjuncts,
                                     need_null_map_for_probe ? null_map->data() : nullptr);
 
     auto& mcol = mutable_block.mutable_columns();
-
-    int last_probe_index = probe_index;
 
     int current_offset = 0;
     bool all_match_one = false;
