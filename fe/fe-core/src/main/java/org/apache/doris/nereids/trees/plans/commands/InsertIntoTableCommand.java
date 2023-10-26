@@ -136,6 +136,16 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
         PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink<?>) plan.get());
 
+        OlapTable targetTable = physicalOlapTableSink.getTargetTable();
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), targetTable.getQualifiedDbName(), targetTable.getName(),
+                        PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    targetTable.getQualifiedDbName() + ": " + targetTable.getName());
+        }
+
         if (isOverwrite) {
             dealOverwrite(ctx, executor, physicalOlapTableSink);
             return;
@@ -198,12 +208,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         OlapTable targetTable = physicalOlapTableSink.getTargetTable();
         TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, targetTable.getQualifiedDbName(),
                 targetTable.getName());
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    tableName.getDb() + ": " + tableName.getTbl());
-        }
         ConnectContext.get().setSkipAuth(true);
         try {
             List<String> partitionNames = ((UnboundOlapTableSink<?>) logicalQuery).getPartitions();

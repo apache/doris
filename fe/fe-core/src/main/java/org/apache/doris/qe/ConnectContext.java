@@ -190,7 +190,10 @@ public class ConnectContext {
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
-    //internal call like `insert overwrite` not need skipAuth
+    //internal call like `insert overwrite` need skipAuth
+    // For example, `insert overwrite` only requires load permission,
+    // but the internal implementation will call the logic of `AlterTable`.
+    // In this case, `skipAuth` needs to be set to `true` to skip the permission check of `AlterTable`
     private boolean skipAuth = false;
 
     public void setUserQueryTimeout(int queryTimeout) {
