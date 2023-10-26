@@ -335,8 +335,7 @@ class BE(Node):
                     format(tp))
             num = int(type_and_num[1].strip())
             capactity = int(parts[1].strip()) if len(parts) >= 2 else -1
-            capactity_desc = "_capacity_{}gb".format(
-                capactity) if capactity > 0 else ""
+            capactity_desc = "_{}gb".format(capactity) if capactity > 0 else ""
 
             index = next_index.get(tp, 1)
             for i in range(num):
