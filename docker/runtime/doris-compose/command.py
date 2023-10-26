@@ -478,9 +478,7 @@ class ListCommand(Command):
             "--all",
             default=False,
             action=self._get_parser_bool_action(True),
-            help=
-            "Show all clusters, include stopped and bad doris compose projects."
-        )
+            help="Show all clusters, include stopped or bad clusters.")
         parser.add_argument("--detail",
                             default=False,
                             action=self._get_parser_bool_action(True),
