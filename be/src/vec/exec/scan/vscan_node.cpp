@@ -421,7 +421,7 @@ Status VScanNode::_normalize_conjuncts() {
             if (new_root) {
                 conjunct->set_root(new_root);
                 if (_should_push_down_common_expr() &&
-                    VExpr::is_acting_on_a_slot(conjunct->root())) {
+                    VExpr::is_acting_on_a_slot(*(conjunct->root()))) {
                     // We need to make sure conjunct is acting on a slot before push it down.
                     // Or it will not be executed by SegmentIterator::_vec_init_lazy_materialization
                     _common_expr_ctxs_push_down.emplace_back(conjunct);
