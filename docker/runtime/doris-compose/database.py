@@ -173,6 +173,7 @@ class DBManager(object):
             decommissioned = utils.is_true(decommissioned)
             tablet_num = int(tablet_num)
             id = CLUSTER.Node.get_id_from_ip(ip)
+            last_heartbeat = utils.escape_null(last_heartbeat)
             be = BEState(id, backend_id, decommissioned, alive, tablet_num,
                          last_heartbeat, err_msg)
             be_states[id] = be
