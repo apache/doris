@@ -120,19 +120,21 @@ CREATE CATALOG `paimon_hms` PROPERTIES (
 
 ## Column Type Mapping
 
-| Paimon Type               | Doris Type                 | Comment                                                                        |
-|---------------------------|----------------------------|--------------------------------------------------------------------------------|
-| boolean                   | boolean                    |                                                                                |
-| byte                      | TINYINT                    |                                                                                |
-| short                     | smallint                   |                                                                                |
-| int                       | int                        |                                                                                |
-| float                     | float                      |                                                                                |
-| long                      | bigint                     |                                                                                |
-| double                    | double                     |                                                                                |
-| string                    | string                     |                                                                                |
-| decimal                   | decimal                    |                                                                                |
-| timestamp                 | datetime                   |                                                                                |
-| `array<type>`             | `array<type>`              | Array nesting is not supported yet                                             |
-| `map<KeyType, ValueType>` | `map<KeyType, ValueType>`  | Map nesting is not supported yet, KeyType and ValueType need to be basic types |
-| other                     | unsupported                |                                                                                |
+| Paimon Data Type                      | Doris Data Type           | Comment        |
+|---------------------------------------|---------------------------|----------------|
+| BooleanType                           | Boolean                   |                |
+| TinyIntType                           | TINYINT                   |                |
+| SmallIntType                          | SmallInt                  |                |
+| IntType                               | Int                       |                |
+| FloatType                             | Float                     |                |
+| BigIntType                            | BigInt                    |                |
+| DoubleType                            | Double                    |                |
+| VarCharType                           | VarChar                   |                |
+| CharType                              | Char                      |                |
+| DecimalType(precision, scale)         | DECIMAL(precision, scale) |                |
+| TimestampType,LocalZonedTimestampType | DATETIME                  |                |
+| DateType                              | DATE                      |                |
+| MapType                               | ARRAY                     |                |
+| ArrayType                             | MAP                       |                |
+| VarBinaryType, BinaryType             | BINARY                    |                |
 

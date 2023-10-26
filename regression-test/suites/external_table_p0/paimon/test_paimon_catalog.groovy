@@ -158,6 +158,8 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             def c98= """select c72[29] from complex_all;"""
             def c99= """select c73[30] from complex_all;"""
 
+            def c100= """select * from array_nested order by c1;"""
+
             String hdfs_port = context.config.otherConfigs.get("hdfs_port")
             String catalog_name = "paimon1"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -269,5 +271,6 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c97 c97
             qt_c98 c98
             qt_c99 c99
+            qt_c100 c100
         }
 }
