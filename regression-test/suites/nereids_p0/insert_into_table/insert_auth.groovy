@@ -63,15 +63,17 @@ suite('nereids_insert_auth') {
         try {
             sql """ insert into ${db}.${t1} values (1, 1) """
         } catch (Exception e) {
+            log.info(e.getMessage())
             fail()
         }
     }
 
     connect(user=user, password="${pwd}", url=url) {
-            try {
-                sql """ insert overwrite table ${db}.${t1} values (2, 2) """
-            } catch (Exception e) {
-                fail()
-            }
+        try {
+            sql """ insert overwrite table ${db}.${t1} values (2, 2) """
+        } catch (Exception e) {
+            log.info(e.getMessage())
+            fail()
         }
+    }
 }
