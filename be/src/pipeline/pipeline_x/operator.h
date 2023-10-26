@@ -508,6 +508,14 @@ public:
 
     [[nodiscard]] std::string get_name() const override { return _name; }
 
+    [[nodiscard]] std::string get_dest_name() const override {
+        std::string name;
+        for (auto id : _dests_id) {
+            name += std::to_string(id) + " ";
+        }
+        return name;
+    }
+
     Status finalize(RuntimeState* state) override { return Status::OK(); }
 
     virtual bool should_dry_run(RuntimeState* state) { return false; }
@@ -567,7 +575,10 @@ public:
 
     [[nodiscard]] std::string debug_string(int indentation_level) const override;
 
-    virtual std::string id_name() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
+    virtual std::string id_name() {
+        return " (id=" + std::to_string(_parent->node_id()) + ", dst=" + _parent->get_dest_name() +
+               ")";
+    }
 
     WriteDependency* dependency() override { return _dependency; }
 
