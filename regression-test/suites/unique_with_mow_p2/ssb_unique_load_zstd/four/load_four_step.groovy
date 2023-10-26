@@ -79,7 +79,7 @@ suite("load_four_step") {
         for (int i = 1; i <= 5; i++) {
             def loadRowCount = sql "select count(1) from ${tableName}"
             logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
-            assertTrue(loadRowCount[0][0] == rows[3])
+            assertTrue(loadRowCount[0][0] == rows[2])
         }
 
         // step 4: load full data again
