@@ -155,7 +155,11 @@ public:
     }
 
     OperatorXBase(ObjectPool* pool, int node_id, int operator_id)
-            : OperatorBase(nullptr), _operator_id(operator_id), _node_id(node_id), _pool(pool) {};
+            : OperatorBase(nullptr),
+              _operator_id(operator_id),
+              _node_id(node_id),
+              _pool(pool),
+              _limit(-1) {}
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
     Status init(const TDataSink& tsink) override {
         LOG(FATAL) << "should not reach here!";

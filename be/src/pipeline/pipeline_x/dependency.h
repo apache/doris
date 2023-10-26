@@ -840,11 +840,12 @@ private:
     bool is_set_probe {false};
 };
 
+using PartitionedBlock = std::pair<std::shared_ptr<vectorized::Block>,
+                                   std::tuple<std::shared_ptr<std::vector<int>>, size_t, size_t>>;
 struct LocalExchangeSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
-    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> data_queue;
-    int num_partitions = 0;
+    std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> data_queue;
     std::atomic<int> running_sink_operators = 0;
 };
 

@@ -34,8 +34,8 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    Status channel_add_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                            vectorized::Block* block, SourceState source_state);
+    Status split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
+                      vectorized::Block* block, SourceState source_state);
 
 private:
     friend class LocalExchangeSinkOperatorX;
@@ -43,7 +43,7 @@ private:
     RuntimeProfile::Counter* _compute_hash_value_timer = nullptr;
     RuntimeProfile::Counter* _distribute_timer = nullptr;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
-    std::vector<std::unique_ptr<vectorized::MutableBlock>> _mutable_block;
+    std::vector<size_t> _partition_rows_histogram;
 };
 
 // A single 32-bit division on a recent x64 processor has a throughput of one instruction every six cycles with a latency of 26 cycles.
