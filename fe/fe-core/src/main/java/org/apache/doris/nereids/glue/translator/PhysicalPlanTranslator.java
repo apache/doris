@@ -623,6 +623,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, olapTable, tableName);
         tupleDescriptor.setRef(tableRef);
+        olapScanNode.setSampleTabletIds(olapScan.getSelectedTabletIds());
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
         if (olapScan.getTableSample().isPresent()) {
             olapScanNode.setTableSample(new TableSample(olapScan.getTableSample().get().isPercent,
