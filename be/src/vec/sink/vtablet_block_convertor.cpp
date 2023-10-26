@@ -137,14 +137,16 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
         pmap = IsMin ? &_min_decimal32_val : &_max_decimal32_val;
     } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal64>) {
         pmap = IsMin ? &_min_decimal64_val : &_max_decimal64_val;
-    } else {
+    } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal128I>) {
         pmap = IsMin ? &_min_decimal128_val : &_max_decimal128_val;
+    } else {
+        pmap = IsMin ? &_min_decimal256_val : &_max_decimal256_val;
     }
 
     // found
     auto iter = pmap->find(type.precision);
     if (iter != pmap->end()) {
-        return iter->second;
+        return DecimalType(iter->second);
     }
 
     typename DecimalType::NativeType value;
@@ -154,7 +156,7 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
         value = vectorized::max_decimal_value<DecimalType>(type.precision);
     }
     pmap->emplace(type.precision, value);
-    return value;
+    return DecimalType(value);
 }
 
 Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const TypeDescriptor& type,
@@ -336,6 +338,10 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal128I);
         break;
     }
+    case TYPE_DECIMAL256: {
+        CHECK_VALIDATION_FOR_DECIMALV3(vectorized::Decimal256);
+        break;
+    }
 #undef CHECK_VALIDATION_FOR_DECIMALV3
     case TYPE_ARRAY: {
         const auto* column_array =
@@ -416,11 +422,6 @@ Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::
                                                bool* stop_processing) {
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
-        DCHECK(block->columns() > i)
-                << "DEBUG LOG: block->columns(): " << block->columns() << " i: " << i
-                << " block structure: \n"
-                << block->dump_structure()
-                << " \n_output_tuple_desc: " << _output_tuple_desc->debug_string();
         block->get_by_position(i).column =
                 block->get_by_position(i).column->convert_to_full_column_if_const();
         const auto& column = block->get_by_position(i).column;

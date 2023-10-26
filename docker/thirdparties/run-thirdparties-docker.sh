@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino,kafka
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino,kafka,mariadb
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka"
+    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse,mariadb,iceberg"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka,mariadb"
         fi
     fi
 fi
@@ -132,7 +132,7 @@ RUN_HUDI=0
 RUN_TRINO=0
 RUN_KAFKA=0
 RUN_SPARK=0
-
+RUN_MARIADB=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -159,6 +159,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_TRINO=1
     elif [[ "${element}"x == "spark"x ]];then
         RUN_SPARK=1
+    elif [[ "${element}"x == "mariadb"x ]];then
+        RUN_MARIADB=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -256,7 +258,7 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
         local ip_host="$2"
         local backup_dir=/home/work/pipline/backup_center
 
-        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "multi_table_csv")
+        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "multi_table_csv" "multi_table_csv1")
 
         for topic in "${topics[@]}"; do
             while IFS= read -r line; do
@@ -267,7 +269,7 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
             done < "${ROOT}/docker-compose/kafka/scripts/${topic}.csv"
         done
 
-        declare -a json_topics=("basic_data_json" "basic_array_data_json" "basic_array_data_json_by_line" "basic_data_json_by_line" "multi_table_json")
+        declare -a json_topics=("basic_data_json" "basic_array_data_json" "basic_array_data_json_by_line" "basic_data_json_by_line" "multi_table_json" "multi_table_json1")
         
         for json_topic in "${json_topics[@]}"; do
             echo ${json_topics}
@@ -330,13 +332,12 @@ if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/entrypoint.sh
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/spark-defaults.conf
     sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env down
+    sudo rm -rf "${ROOT}"/docker-compose/iceberg/data
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm -rf "${ROOT}"/docker-compose/iceberg/notebooks
-        sudo mkdir "${ROOT}"/docker-compose/iceberg/notebooks
-        sudo rm -rf "${ROOT}"/docker-compose/iceberg/spark
-        sudo mkdir "${ROOT}"/docker-compose/iceberg/spark
-        sudo rm -rf "${ROOT}"/docker-compose/iceberg/warehouse
-        sudo mkdir "${ROOT}"/docker-compose/iceberg/warehouse
+        wget -P ${ROOT}/docker-compose/iceberg https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/iceberg/iceberg_data.zip
+        sudo unzip -d "${ROOT}"/docker-compose/iceberg -q ${ROOT}/docker-compose/iceberg/iceberg_data.zip
+        sudo mv "${ROOT}"/docker-compose/iceberg/iceberg_data "${ROOT}"/docker-compose/iceberg/data
+        sudo rm -rf ${ROOT}/docker-compose/iceberg/iceberg_data.zip
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
     fi
 fi
@@ -437,5 +438,17 @@ if  [[ "${RUN_TRINO}" -eq 1 ]]; then
         sleep 20s
         # execute create table sql
         docker exec -it ${TRINO_CONTAINER_ID} /bin/bash -c 'trino -f /scripts/create_trino_table.sql'
+    fi
+fi
+
+if [[ "${RUN_MARIADB}" -eq 1 ]]; then
+    # mariadb
+    cp "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml.tpl "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo mkdir -p "${ROOT}"/docker-compose/mariadb/data/
+        sudo rm "${ROOT}"/docker-compose/mariadb/data/* -rf
+        sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env up -d
     fi
 fi

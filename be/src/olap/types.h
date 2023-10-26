@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/status.h"
 #include "gutil/stringprintf.h"
 #include "gutil/strings/numbers.h"
@@ -53,6 +54,7 @@
 #include "util/string_parser.hpp"
 #include "util/types.h"
 #include "vec/common/arena.h"
+#include "vec/core/wide_integer.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -690,6 +692,11 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I> {
     using UnsignedCppType = uint128_t;
 };
 template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256> {
+    using CppType = Int256;
+    using UnsignedCppType = wide::UInt256;
+};
+template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
     using CppType = uint24_t;
     using UnsignedCppType = uint24_t;
@@ -1084,6 +1091,33 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>
 };
 
 template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256> {
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        auto value = StringParser::string_to_decimal<TYPE_DECIMAL256>(
+                scan_key.c_str(), scan_key.size(), BeConsts::MAX_DECIMAL256_PRECISION, scale,
+                &result);
+        if (result == StringParser::PARSE_FAILURE) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL256>::from_string meet PARSE_FAILURE");
+        }
+        *reinterpret_cast<Int256*>(buf) = value;
+        return Status::OK();
+    }
+    static std::string to_string(const void* src) {
+        // TODO: support decimal256
+        DCHECK(false);
+        return "";
+        // auto value = reinterpret_cast<const wide::Int256*>(src);
+        // fmt::memory_buffer buffer;
+        // fmt::format_to(buffer, "{}", *value);
+        // return std::string(buffer.data(), buffer.size());
+    }
+};
+
+template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>
         : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
@@ -1129,15 +1163,15 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
                     ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
             *reinterpret_cast<CppType*>(buf) = value;
         } else {
-            *reinterpret_cast<CppType*>(buf) = doris::vectorized::MIN_DATE_V2;
+            *reinterpret_cast<CppType*>(buf) = MIN_DATE_V2;
         }
 
         return Status::OK();
     }
     static std::string to_string(const void* src) {
         CppType tmp = *reinterpret_cast<const CppType*>(src);
-        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> value = binary_cast<
-                CppType, doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>>(tmp);
+        DateV2Value<DateV2ValueType> value =
+                binary_cast<CppType, DateV2Value<DateV2ValueType>>(tmp);
         string format = "%Y-%m-%d";
         string res;
         res.resize(12);
@@ -1148,11 +1182,11 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
 
     static void set_to_max(void* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;
-        *reinterpret_cast<CppType*>(buf) = doris::vectorized::MAX_DATE_V2;
+        *reinterpret_cast<CppType*>(buf) = MAX_DATE_V2;
     }
     static void set_to_min(void* buf) {
         // min is 0 * 16 * 32 + 1 * 32 + 1;
-        *reinterpret_cast<CppType*>(buf) = doris::vectorized::MIN_DATE_V2;
+        *reinterpret_cast<CppType*>(buf) = MIN_DATE_V2;
     }
 };
 
@@ -1161,24 +1195,22 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
         : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
-        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetimev2_value;
+        DateV2Value<DateTimeV2ValueType> datetimev2_value;
         std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
 
         if (datetimev2_value.from_date_format_str(date_format.data(), date_format.size(),
                                                   scan_key.data(), scan_key.size())) {
             *reinterpret_cast<CppType*>(buf) = datetimev2_value.to_date_int_val();
         } else {
-            *reinterpret_cast<CppType*>(buf) = doris::vectorized::MIN_DATETIME_V2;
+            *reinterpret_cast<CppType*>(buf) = MIN_DATETIME_V2;
         }
 
         return Status::OK();
     }
     static std::string to_string(const void* src) {
         CppType tmp = *reinterpret_cast<const CppType*>(src);
-        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> value =
-                binary_cast<CppType,
-                            doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>>(
-                        tmp);
+        DateV2Value<DateTimeV2ValueType> value =
+                binary_cast<CppType, DateV2Value<DateTimeV2ValueType>>(tmp);
         string format = "%Y-%m-%d %H:%i:%s.%f";
         string res;
         res.resize(30);
@@ -1189,11 +1221,11 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
 
     static void set_to_max(void* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;
-        *reinterpret_cast<CppType*>(buf) = doris::vectorized::MAX_DATETIME_V2;
+        *reinterpret_cast<CppType*>(buf) = MAX_DATETIME_V2;
     }
     static void set_to_min(void* buf) {
         // min is 0 * 16 * 32 + 1 * 32 + 1;
-        *reinterpret_cast<CppType*>(buf) = doris::vectorized::MIN_DATETIME_V2;
+        *reinterpret_cast<CppType*>(buf) = MIN_DATETIME_V2;
     }
 };
 

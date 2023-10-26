@@ -211,6 +211,14 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _pool(new ObjectPool) {}
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
+    auto status = _init_impl(opts);
+    if (!status.ok() && !config::disable_segment_cache) {
+        _segment->remove_from_segment_cache();
+    }
+    return status;
+}
+
+Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     // get file handle from file descriptor of segment
     if (_inited) {
         return Status::OK();
@@ -1497,24 +1505,38 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
     }
 }
 
+bool SegmentIterator::_has_char_type(const Field& column_desc) {
+    switch (column_desc.type()) {
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+        return true;
+    case FieldType::OLAP_FIELD_TYPE_ARRAY:
+        return _has_char_type(*column_desc.get_sub_field(0));
+    case FieldType::OLAP_FIELD_TYPE_MAP:
+        return _has_char_type(*column_desc.get_sub_field(0)) ||
+               _has_char_type(*column_desc.get_sub_field(1));
+    case FieldType::OLAP_FIELD_TYPE_STRUCT:
+        for (int idx = 0; idx < column_desc.get_sub_field_count(); ++idx) {
+            if (_has_char_type(*column_desc.get_sub_field(idx))) {
+                return true;
+            }
+        }
+        return false;
+    default:
+        return false;
+    }
+};
+
 void SegmentIterator::_vec_init_char_column_id() {
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
-        auto column_desc = _schema->column(cid);
+        const Field* column_desc = _schema->column(cid);
 
-        do {
-            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                _char_type_idx.emplace_back(i);
-                if (i != 0) {
-                    _char_type_idx_no_0.emplace_back(i);
-                }
-                break;
-            } else if (column_desc->type() != FieldType::OLAP_FIELD_TYPE_ARRAY) {
-                break;
+        if (_has_char_type(*column_desc)) {
+            _char_type_idx.emplace_back(i);
+            if (i != 0) {
+                _char_type_idx_no_0.emplace_back(i);
             }
-            // for Array<Char> or Array<Array<Char>>
-            column_desc = column_desc->get_sub_field(0);
-        } while (column_desc != nullptr);
+        }
     }
 }
 
@@ -1776,8 +1798,11 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
-    RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); });
-    return Status::OK();
+    auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); }); }();
+    if (!status.ok()) {
+        _segment->remove_from_segment_cache();
+    }
+    return status;
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {

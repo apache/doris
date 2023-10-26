@@ -87,9 +87,6 @@ class TabletMeta;
 class DeleteBitmap;
 class TBinlogConfig;
 
-using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
-using DeleteBitmapPtr = std::shared_ptr<DeleteBitmap>;
-
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
 class TabletMeta {
@@ -170,8 +167,6 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() const;
 
-    const TabletSchemaSPtr tablet_schema(Version version) const;
-
     TabletSchema* mutable_tablet_schema();
 
     const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
@@ -191,8 +186,6 @@ public:
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
-
-    std::string full_name() const;
 
     Status set_partition_id(int64_t partition_id);
 

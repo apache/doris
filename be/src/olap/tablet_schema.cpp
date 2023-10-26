@@ -92,6 +92,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL64;
     } else if (0 == upper_type_str.compare("DECIMAL128I")) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
+    } else if (0 == upper_type_str.compare("DECIMAL256")) {
+        type = FieldType::OLAP_FIELD_TYPE_DECIMAL256;
     } else if (0 == upper_type_str.compare(0, 7, "DECIMAL")) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL;
     } else if (0 == upper_type_str.compare(0, 7, "VARCHAR")) {
@@ -226,6 +228,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
         return "DECIMAL128I";
 
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+        return "DECIMAL256";
+
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
         return "VARCHAR";
 
@@ -351,6 +356,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return 8;
     case TPrimitiveType::DECIMAL128I:
         return 16;
+    case TPrimitiveType::DECIMAL256:
+        return 32;
     case TPrimitiveType::DECIMALV2:
         return 12; // use 12 bytes in olap engine.
     default:
@@ -521,7 +528,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
-    if (type && type->get_type_as_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+    if (type && type->get_type_as_type_descriptor().type == PrimitiveType::TYPE_AGG_STATE) {
         return get_aggregate_function_union(type);
     }
 
@@ -761,6 +768,7 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
     tablet_schema.to_schema_pb(&tablet_schema_pb);
     init_from_pb(tablet_schema_pb);
+    _table_id = tablet_schema.table_id();
 }
 
 std::string TabletSchema::to_key() const {
@@ -799,6 +807,9 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
+    _delete_sign_idx = -1;
+    _sequence_col_idx = -1;
+    _version_col_idx = -1;
 
     for (auto& column : index->columns) {
         if (column->is_key()) {

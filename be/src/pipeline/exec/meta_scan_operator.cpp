@@ -47,9 +47,9 @@ Status MetaScanLocalState::_process_conjuncts() {
     return Status::OK();
 }
 
-MetaScanOperatorX::MetaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+MetaScanOperatorX::MetaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                      const DescriptorTbl& descs)
-        : ScanOperatorX<MetaScanLocalState>(pool, tnode, descs),
+        : ScanOperatorX<MetaScanLocalState>(pool, tnode, operator_id, descs),
           _tuple_id(tnode.meta_scan_node.tuple_id) {
     _output_tuple_id = _tuple_id;
     if (tnode.meta_scan_node.__isset.current_user_ident) {

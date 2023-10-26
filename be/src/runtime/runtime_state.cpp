@@ -180,7 +180,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         _nano_seconds = 0;
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
-        vectorized::VecDateTimeValue dt;
+        VecDateTimeValue dt;
         dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
@@ -237,7 +237,7 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
         _nano_seconds = 0;
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
-        vectorized::VecDateTimeValue dt;
+        VecDateTimeValue dt;
         dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
@@ -313,6 +313,7 @@ Status RuntimeState::query_status() {
 }
 
 bool RuntimeState::is_cancelled() const {
+    // Maybe we should just return _is_cancelled.load()
     return _is_cancelled.load() || (_query_ctx && _query_ctx->is_cancelled());
 }
 
@@ -423,33 +424,50 @@ int64_t RuntimeState::get_load_mem_limit() {
     }
 }
 
-void RuntimeState::emplace_local_state(
-        int id, std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> state) {
-    std::unique_lock<std::mutex> l(_local_state_lock);
-    _op_id_to_local_state.emplace(id, state);
+void RuntimeState::resize_op_id_to_local_state(int size) {
+    _op_id_to_local_state.resize(size);
+    _op_id_to_sink_local_state.resize(size);
 }
 
-std::shared_ptr<doris::pipeline::PipelineXLocalStateBase> RuntimeState::get_local_state(int id) {
-    std::unique_lock<std::mutex> l(_local_state_lock);
-    if (_op_id_to_local_state.find(id) == _op_id_to_local_state.end()) {
-        return nullptr;
-    }
-    return _op_id_to_local_state[id];
+void RuntimeState::emplace_local_state(
+        int id, std::unique_ptr<doris::pipeline::PipelineXLocalStateBase> state) {
+    _op_id_to_local_state[id] = std::move(state);
 }
+
+doris::pipeline::PipelineXLocalStateBase* RuntimeState::get_local_state(int id) {
+    return _op_id_to_local_state[id].get();
+}
+
+Result<RuntimeState::LocalState*> RuntimeState::get_local_state_result(int id) {
+    if (id >= _op_id_to_local_state.size()) {
+        return ResultError(Status::InternalError("get_local_state out of range size:{} , id:{}",
+                                                 _op_id_to_local_state.size(), id));
+    }
+    if (!_op_id_to_local_state[id]) {
+        return ResultError(Status::InternalError("get_local_state id:{} is null", id));
+    }
+    return _op_id_to_local_state[id].get();
+};
 
 void RuntimeState::emplace_sink_local_state(
-        int id, std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
-    std::unique_lock<std::mutex> l(_local_sink_state_lock);
-    _op_id_to_sink_local_state.emplace(id, state);
+        int id, std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
+    _op_id_to_sink_local_state[id] = std::move(state);
 }
 
-std::shared_ptr<doris::pipeline::PipelineXSinkLocalStateBase> RuntimeState::get_sink_local_state(
-        int id) {
-    std::unique_lock<std::mutex> l(_local_sink_state_lock);
-    if (_op_id_to_sink_local_state.find(id) == _op_id_to_sink_local_state.end()) {
-        return nullptr;
+doris::pipeline::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state(int id) {
+    return _op_id_to_sink_local_state[id].get();
+}
+
+Result<RuntimeState::SinkLocalState*> RuntimeState::get_sink_local_state_result(int id) {
+    if (id >= _op_id_to_sink_local_state.size()) {
+        return ResultError(
+                Status::InternalError("_op_id_to_sink_local_state out of range size:{} , id:{}",
+                                      _op_id_to_sink_local_state.size(), id));
     }
-    return _op_id_to_sink_local_state[id];
+    if (!_op_id_to_sink_local_state[id]) {
+        return ResultError(Status::InternalError("_op_id_to_sink_local_state id:{} is null", id));
+    }
+    return _op_id_to_sink_local_state[id].get();
 }
 
 bool RuntimeState::enable_page_cache() const {

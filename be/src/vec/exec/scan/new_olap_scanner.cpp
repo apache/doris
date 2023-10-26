@@ -177,10 +177,7 @@ Status NewOlapScanner::init() {
     TabletSchemaSPtr cached_schema;
     std::string schema_key;
     {
-        auto [tablet, status] =
-                StorageEngine::instance()->tablet_manager()->get_tablet_and_status(tablet_id, true);
-        RETURN_IF_ERROR(status);
-        _tablet = std::move(tablet);
+        _tablet = DORIS_TRY(ExecEnv::get_tablet(tablet_id));
         TOlapScanNode& olap_scan_node =
                 _parent ? parent->_olap_scan_node : local_state->olap_scan_node();
         if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
@@ -264,7 +261,7 @@ Status NewOlapScanner::open(RuntimeState* state) {
     if (!res.ok()) {
         std::stringstream ss;
         ss << "failed to initialize storage reader. tablet="
-           << _tablet_reader_params.tablet->full_name() << ", res=" << res
+           << _tablet_reader_params.tablet->tablet_id() << ", res=" << res
            << ", backend=" << BackendOptions::get_localhost();
         return Status::InternalError(ss.str());
     }
@@ -554,7 +551,8 @@ void NewOlapScanner::_update_realtime_counters() {
 }
 
 void NewOlapScanner::_update_counters_before_close() {
-    if (!_state->enable_profile() || _has_updated_counter) {
+    //  Please don't directly enable the profile here, we need to set QueryStatistics using the counter inside.
+    if (_has_updated_counter) {
         return;
     }
     _has_updated_counter = true;

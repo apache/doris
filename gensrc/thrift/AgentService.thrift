@@ -60,6 +60,7 @@ enum TTabletType {
     TABLET_TYPE_MEMORY = 1
 }
 
+
 struct TS3StorageParam {
     1: optional string endpoint
     2: optional string region
@@ -87,6 +88,7 @@ struct TStorageResource {
     2: optional string name
     3: optional i64 version // alter version
     4: optional TS3StorageParam s3_storage_param
+    5: optional PlanNodes.THdfsParams hdfs_storage_param
     // more storage resource type
 }
 

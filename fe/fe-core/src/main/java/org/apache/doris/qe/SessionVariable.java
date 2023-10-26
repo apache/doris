@@ -213,6 +213,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PIPELINE_X_ENGINE = "enable_pipeline_x_engine";
 
+    public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
+
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
@@ -423,6 +425,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
 
+    public static final String ENABLE_DECIMAL256 = "enable_decimal256";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -430,6 +434,13 @@ public class SessionVariable implements Serializable, Writable {
             SKIP_STORAGE_ENGINE_MERGE,
             SHOW_HIDDEN_COLUMNS
     );
+
+    public static final String ENABLE_STATS = "enable_stats";
+    /**
+     * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
+     */
+    @VariableMgr.VarAttr(name = ENABLE_STATS)
+    public  boolean enableStats = true;
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -710,6 +721,8 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     private boolean enablePipelineXEngine = false;
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
+    private boolean enableLocalShuffle = false;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableAggState = false;
@@ -1253,6 +1266,10 @@ public class SessionVariable implements Serializable, Writable {
             description = {"'explain shape plan' 命令中忽略的PlanNode 类型",
                     "the plan node type which is ignored in 'explain shape plan' command"})
     public String ignoreShapePlanNodes = "";
+
+    @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = { "控制是否在计算过程中使用Decimal256类型",
+            "Set to true to enable Decimal256 type" })
+    public boolean enableDecimal256 = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1909,6 +1926,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enablePipelineXEngine = enablePipelineXEngine;
     }
 
+    public void setEnableLocalShuffle(boolean enableLocalShuffle) {
+        this.enableLocalShuffle = enableLocalShuffle;
+    }
+
     public boolean enablePushDownNoGroupAgg() {
         return enablePushDownNoGroupAgg;
     }
@@ -2314,6 +2335,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
         tResult.setEnablePipelineXEngine(enablePipelineXEngine);
+        tResult.setEnableLocalShuffle(enableLocalShuffle);
         tResult.setParallelInstance(getParallelExecInstanceNum());
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
@@ -2387,6 +2409,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
 
         tResult.setFasterFloatConvert(fasterFloatConvert);
+
+        tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
 
         return tResult;
     }
@@ -2669,7 +2693,7 @@ public class SessionVariable implements Serializable, Writable {
             return;
         }
         setIsSingleSetVar(true);
-        VariableMgr.setVar(this, new SetVar(SessionVariable.DISABLE_JOIN_REORDER, new StringLiteral("false")));
+        VariableMgr.setVar(this, new SetVar(SessionVariable.DISABLE_JOIN_REORDER, new StringLiteral("true")));
     }
 
     // return number of variables by given variable annotation
@@ -2715,6 +2739,10 @@ public class SessionVariable implements Serializable, Writable {
             return true;
         }
         return connectContext.getSessionVariable().enableAggState;
+    }
+
+    public boolean enableDecimal256() {
+        return enableDecimal256;
     }
 
     public void checkAnalyzeTimeFormat(String time) {

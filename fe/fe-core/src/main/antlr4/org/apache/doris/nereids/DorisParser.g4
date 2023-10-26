@@ -50,7 +50,8 @@ statement
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
         propertyClause?
         (AS query)?                                                    #createTable
-    | explain? INSERT (INTO | OVERWRITE TABLE) tableName=multipartIdentifier
+    | explain? INSERT (INTO | OVERWRITE TABLE)
+        (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         (PARTITION partition=identifierList)?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
@@ -884,6 +885,7 @@ nonReserved
     | DISTINCTPC
     | DISTINCTPCSA
     | DO
+    | DORIS_INTERNAL_TABLE_ID
     | DYNAMIC
     | ENABLE
     | ENCRYPTKEY

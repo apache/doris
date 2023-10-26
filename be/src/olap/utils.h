@@ -257,6 +257,7 @@ constexpr bool is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
            field_type == FieldType::OLAP_FIELD_TYPE_BOOL;
 }
 

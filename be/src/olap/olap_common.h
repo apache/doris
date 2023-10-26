@@ -143,7 +143,8 @@ enum class FieldType {
     OLAP_FIELD_TYPE_DECIMAL128I = 33,
     OLAP_FIELD_TYPE_JSONB = 34,
     OLAP_FIELD_TYPE_VARIANT = 35,
-    OLAP_FIELD_TYPE_AGG_STATE = 36
+    OLAP_FIELD_TYPE_AGG_STATE = 36,
+    OLAP_FIELD_TYPE_DECIMAL256 = 37,
 };
 
 // Define all aggregation methods supported by Field
@@ -197,6 +198,7 @@ constexpr bool field_is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
            field_type == FieldType::OLAP_FIELD_TYPE_BOOL;
 }
 

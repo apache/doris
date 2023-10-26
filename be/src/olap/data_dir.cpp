@@ -369,7 +369,7 @@ Status DataDir::load() {
     // if one rowset load failed, then the total data dir will not be loaded
 
     // necessarily check incompatible old format. when there are old metas, it may load to data missing
-    static_cast<void>(_check_incompatible_old_format_tablet());
+    RETURN_IF_ERROR(_check_incompatible_old_format_tablet());
 
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
     LOG(INFO) << "begin loading rowset from meta";
@@ -411,7 +411,7 @@ Status DataDir::load() {
                 rowset_meta->serialize(&result);
                 std::string key =
                         ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
-                static_cast<void>(_meta->put(META_COLUMN_FAMILY_INDEX, key, result));
+                RETURN_IF_ERROR(_meta->put(META_COLUMN_FAMILY_INDEX, key, result));
             }
         }
         dir_rowset_metas.push_back(rowset_meta);
@@ -481,8 +481,8 @@ Status DataDir::load() {
     for (int64_t tablet_id : tablet_ids) {
         TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
         if (tablet && tablet->set_tablet_schema_into_rowset_meta()) {
-            static_cast<void>(TabletMetaManager::save(
-                    this, tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_meta()));
+            RETURN_IF_ERROR(TabletMetaManager::save(this, tablet->tablet_id(),
+                                                    tablet->schema_hash(), tablet->tablet_meta()));
         }
     }
 
@@ -499,7 +499,7 @@ Status DataDir::load() {
                 pending_publish_info_pb.transaction_id(), true);
         return true;
     };
-    static_cast<void>(
+    RETURN_IF_ERROR(
             TabletMetaManager::traverse_pending_publish(_meta, load_pending_publish_info_func));
 
     // traverse rowset
@@ -531,9 +531,9 @@ Status DataDir::load() {
             rowset_meta->tablet_uid() == tablet->tablet_uid()) {
             if (!rowset_meta->tablet_schema()) {
                 rowset_meta->set_tablet_schema(tablet->tablet_schema());
-                static_cast<void>(RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(),
-                                                          rowset_meta->rowset_id(),
-                                                          rowset_meta->get_rowset_pb()));
+                RETURN_IF_ERROR(RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(),
+                                                        rowset_meta->rowset_id(),
+                                                        rowset_meta->get_rowset_pb()));
             }
             Status commit_txn_status = _txn_manager->commit_txn(
                     _meta, rowset_meta->partition_id(), rowset_meta->txn_id(),
@@ -553,9 +553,9 @@ Status DataDir::load() {
                    rowset_meta->tablet_uid() == tablet->tablet_uid()) {
             if (!rowset_meta->tablet_schema()) {
                 rowset_meta->set_tablet_schema(tablet->tablet_schema());
-                static_cast<void>(RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(),
-                                                          rowset_meta->rowset_id(),
-                                                          rowset_meta->get_rowset_pb()));
+                RETURN_IF_ERROR(RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(),
+                                                        rowset_meta->rowset_id(),
+                                                        rowset_meta->get_rowset_pb()));
             }
             Status publish_status = tablet->add_rowset(rowset);
             if (!publish_status && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
@@ -614,7 +614,7 @@ Status DataDir::load() {
         }
         return true;
     };
-    static_cast<void>(TabletMetaManager::traverse_delete_bitmap(_meta, load_delete_bitmap_func));
+    RETURN_IF_ERROR(TabletMetaManager::traverse_delete_bitmap(_meta, load_delete_bitmap_func));
 
     // At startup, we only count these invalid rowset, but do not actually delete it.
     // The actual delete operation is in StorageEngine::_clean_unused_rowset_metas,
@@ -624,16 +624,6 @@ Status DataDir::load() {
               << ", invalid rowset num: " << invalid_rowset_counter;
 
     return Status::OK();
-}
-
-void DataDir::add_pending_ids(const std::string& id) {
-    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
-    _pending_path_ids.insert(id);
-}
-
-void DataDir::remove_pending_ids(const std::string& id) {
-    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
-    _pending_path_ids.erase(id);
 }
 
 void DataDir::perform_path_gc() {
@@ -839,11 +829,6 @@ void DataDir::_process_garbage_path(const std::string& path) {
     }
 }
 
-bool DataDir::_check_pending_ids(const std::string& id) {
-    std::shared_lock rd_lock(_pending_path_mutex);
-    return _pending_path_ids.find(id) != _pending_path_ids.end();
-}
-
 Status DataDir::update_capacity() {
     RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path, &_disk_capacity_bytes,
                                                                   &_available_bytes));
@@ -857,7 +842,12 @@ Status DataDir::update_capacity() {
 
 void DataDir::update_trash_capacity() {
     auto trash_path = fmt::format("{}/{}", _path, TRASH_PREFIX);
-    _trash_used_bytes = StorageEngine::instance()->get_file_or_directory_size(trash_path);
+    try {
+        _trash_used_bytes = StorageEngine::instance()->get_file_or_directory_size(trash_path);
+    } catch (const std::filesystem::filesystem_error& e) {
+        LOG(WARNING) << "update trash capacity failed, path: " << _path << ", err: " << e.what();
+        return;
+    }
     disks_trash_used_capacity->set_value(_trash_used_bytes);
     LOG(INFO) << "path: " << _path << " trash capacity: " << _trash_used_bytes;
 }
@@ -948,7 +938,7 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     if (sub_files.empty()) {
         LOG(INFO) << "remove empty dir " << source_parent_dir;
         // no need to exam return status
-        static_cast<void>(io::global_local_filesystem()->delete_directory(source_parent_dir));
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(source_parent_dir));
     }
 
     return Status::OK();

@@ -21,11 +21,13 @@
 #include <fmt/format.h>
 
 #include <filesystem>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
@@ -56,9 +58,8 @@
 namespace doris {
 using namespace ErrorCode;
 
-RowsetBuilder::RowsetBuilder(const WriteRequest& req, StorageEngine* storage_engine,
-                             RuntimeProfile* profile)
-        : _req(req), _tablet_schema(new TabletSchema), _storage_engine(storage_engine) {
+RowsetBuilder::RowsetBuilder(const WriteRequest& req, RuntimeProfile* profile)
+        : _req(req), _tablet_schema(std::make_shared<TabletSchema>()) {
     _init_profile(profile);
 }
 
@@ -82,83 +83,107 @@ RowsetBuilder::~RowsetBuilder() {
     if (_calc_delete_bitmap_token != nullptr) {
         _calc_delete_bitmap_token->cancel();
     }
-
-    if (_tablet != nullptr) {
-        _tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
-                                                _rowset_writer->rowset_id().to_string());
-    }
 }
 
 void RowsetBuilder::_garbage_collection() {
-    Status rollback_status = Status::OK();
-    TxnManager* txn_mgr = _storage_engine->txn_manager();
-    if (_tablet != nullptr) {
-        rollback_status = txn_mgr->rollback_txn(_req.partition_id, _tablet, _req.txn_id);
+    if (config::cloud_mode) {
+        return;
+    }
+    Status rollback_status;
+    TxnManager* txn_mgr = StorageEngine::instance()->txn_manager();
+    auto tablet = static_cast<Tablet*>(_tablet.get());
+    if (tablet != nullptr) {
+        rollback_status = txn_mgr->rollback_txn(_req.partition_id, *tablet, _req.txn_id);
     }
     // has to check rollback status, because the rowset maybe committed in this thread and
     // published in another thread, then rollback will fail.
     // when rollback failed should not delete rowset
     if (rollback_status.ok()) {
-        _storage_engine->add_unused_rowset(_rowset);
+        StorageEngine::instance()->add_unused_rowset(_rowset);
     }
 }
 
+Status RowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context) {
+    if (config::cloud_mode) {
+        // TODO(plat1ko)
+        return Status::NotSupported("init_mow_context");
+    }
+    auto tablet = static_cast<Tablet*>(_tablet.get());
+    std::lock_guard<std::shared_mutex> lck(tablet->get_header_lock());
+    int64_t cur_max_version = tablet->max_version_unlocked().second;
+    // tablet is under alter process. The delete bitmap will be calculated after conversion.
+    if (tablet->tablet_state() == TABLET_NOTREADY) {
+        // Disable 'partial_update' when the tablet is undergoing a 'schema changing process'
+        if (_req.table_schema_param->is_partial_update()) {
+            return Status::InternalError(
+                    "Unable to do 'partial_update' when "
+                    "the tablet is undergoing a 'schema changing process'");
+        }
+        _rowset_ids.clear();
+    } else {
+        RETURN_IF_ERROR(tablet->all_rs_id(cur_max_version, &_rowset_ids));
+    }
+    _delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
+    mow_context =
+            std::make_shared<MowContext>(cur_max_version, _req.txn_id, _rowset_ids, _delete_bitmap);
+    return Status::OK();
+}
+
+Status RowsetBuilder::check_tablet_version_count() {
+    if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
+        MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+        return Status::OK();
+    }
+    if (config::cloud_mode) {
+        // TODO(plat1ko)
+        return Status::OK();
+    }
+    auto tablet = std::static_pointer_cast<Tablet>(_tablet);
+    //trigger compaction
+    auto st = StorageEngine::instance()->submit_compaction_task(
+            tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+    if (!st.ok()) [[unlikely]] {
+        LOG(WARNING) << "failed to trigger compaction, tablet_id=" << _tablet->tablet_id() << " : "
+                     << st;
+    }
+    int version_count = tablet->version_count();
+    if (version_count > config::max_tablet_version_num) {
+        return Status::Error<TOO_MANY_VERSION>(
+                "failed to init rowset builder. version count: {}, exceed limit: {}, "
+                "tablet: {}",
+                version_count, config::max_tablet_version_num, tablet->tablet_id());
+    }
+    return Status::OK();
+}
+
+Status RowsetBuilder::prepare_txn() {
+    if (config::cloud_mode) {
+        // TODO(plat1ko)
+        return Status::OK();
+    }
+    auto tablet = static_cast<Tablet*>(_tablet.get());
+    std::shared_lock base_migration_lock(tablet->get_migration_lock(), std::try_to_lock);
+    if (!base_migration_lock.owns_lock()) {
+        return Status::Error<TRY_LOCK_FAILED>("try migration lock failed");
+    }
+    std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
+    return StorageEngine::instance()->txn_manager()->prepare_txn(_req.partition_id, *tablet,
+                                                                 _req.txn_id, _req.load_id);
+}
+
 Status RowsetBuilder::init() {
-    TabletManager* tablet_mgr = _storage_engine->tablet_manager();
-    _tablet = tablet_mgr->get_tablet(_req.tablet_id);
-    if (_tablet == nullptr) {
-        return Status::Error<TABLE_NOT_FOUND>("fail to find tablet. tablet_id={}, schema_hash={}",
-                                              _req.tablet_id, _req.schema_hash);
-    }
-
-    std::shared_ptr<MowContext> mow_context = nullptr;
-    // get rowset ids snapshot
+    _tablet = DORIS_TRY(ExecEnv::get_tablet(_req.tablet_id));
+    std::shared_ptr<MowContext> mow_context;
     if (_tablet->enable_unique_key_merge_on_write()) {
-        std::lock_guard<std::shared_mutex> lck(_tablet->get_header_lock());
-        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        int64_t cur_max_version = _tablet->max_version_unlocked().second;
-        // tablet is under alter process. The delete bitmap will be calculated after conversion.
-        if (_tablet->tablet_state() == TABLET_NOTREADY &&
-            SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
-            // Disable 'partial_update' when the tablet is undergoing a 'schema changing process'
-            if (_req.table_schema_param->is_partial_update()) {
-                return Status::InternalError(
-                        "Unable to do 'partial_update' when "
-                        "the tablet is undergoing a 'schema changing process'");
-            }
-            _rowset_ids.clear();
-        } else {
-            _rowset_ids = _tablet->all_rs_id(cur_max_version);
-        }
-        _delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
-        mow_context = std::make_shared<MowContext>(cur_max_version, _req.txn_id, _rowset_ids,
-                                                   _delete_bitmap);
+        RETURN_IF_ERROR(init_mow_context(mow_context));
     }
 
-    // check tablet version number
-    if (!config::disable_auto_compaction &&
-        _tablet->exceed_version_limit(config::max_tablet_version_num - 100) &&
-        !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
-        //trigger compaction
-        static_cast<void>(StorageEngine::instance()->submit_compaction_task(
-                _tablet, CompactionType::CUMULATIVE_COMPACTION, true));
-        if (_tablet->version_count() > config::max_tablet_version_num) {
-            return Status::Error<TOO_MANY_VERSION>(
-                    "failed to init rowset builder. version count: {}, exceed limit: {}, tablet: "
-                    "{}",
-                    _tablet->version_count(), config::max_tablet_version_num, _tablet->full_name());
-        }
+    if (!config::disable_auto_compaction) {
+        RETURN_IF_ERROR(check_tablet_version_count());
     }
 
-    {
-        std::shared_lock base_migration_lock(_tablet->get_migration_lock(), std::try_to_lock);
-        if (!base_migration_lock.owns_lock()) {
-            return Status::Error<TRY_LOCK_FAILED>("get lock failed");
-        }
-        std::lock_guard<std::mutex> push_lock(_tablet->get_push_lock());
-        RETURN_IF_ERROR(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
-                                                                    _req.txn_id, _req.load_id));
-    }
+    RETURN_IF_ERROR(prepare_txn());
+
     // build tablet schema in request level
     _build_current_tablet_schema(_req.index_id, _req.table_schema_param, *_tablet->tablet_schema());
     RowsetWriterContext context;
@@ -177,7 +202,13 @@ Status RowsetBuilder::init() {
     std::unique_ptr<RowsetWriter> rowset_writer;
     RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &rowset_writer));
     _rowset_writer = std::move(rowset_writer);
-    _calc_delete_bitmap_token = _storage_engine->calc_delete_bitmap_executor()->create_token();
+
+    if (config::cloud_mode) {
+        // TODO(plat1ko)
+    } else {
+        _calc_delete_bitmap_token =
+                StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
+    }
 
     _is_init = true;
     return Status::OK();
@@ -185,8 +216,8 @@ Status RowsetBuilder::init() {
 
 Status RowsetBuilder::build_rowset() {
     std::lock_guard<std::mutex> l(_lock);
-    DCHECK(_is_init)
-            << "rowset builder is supposed be to initialized before build_rowset() being called";
+    DCHECK(_is_init) << "rowset builder is supposed be to initialized before "
+                        "build_rowset() being called";
 
     SCOPED_TIMER(_build_rowset_timer);
     // use rowset meta manager to save meta
@@ -198,28 +229,27 @@ Status RowsetBuilder::submit_calc_delete_bitmap_task() {
     if (!_tablet->enable_unique_key_merge_on_write()) {
         return Status::OK();
     }
+    if (config::cloud_mode) {
+        // TODO(plat1ko)
+        return Status::OK();
+    }
+    auto tablet = static_cast<Tablet*>(_tablet.get());
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_submit_delete_bitmap_timer);
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY &&
-        SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+    if (tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
                      "tablet_id: "
-                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
+                  << tablet->tablet_id() << " txn_id: " << _req.txn_id;
         return Status::OK();
     }
     auto beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
-    // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY &&
-        SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
-        return Status::OK();
-    }
     if (segments.size() > 1) {
         // calculate delete bitmap between segments
         RETURN_IF_ERROR(
-                _tablet->calc_delete_bitmap_between_segments(_rowset, segments, _delete_bitmap));
+                tablet->calc_delete_bitmap_between_segments(_rowset, segments, _delete_bitmap));
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation
@@ -229,11 +259,11 @@ Status RowsetBuilder::submit_calc_delete_bitmap_task() {
         return Status::OK();
     }
 
-    LOG(INFO) << "submit calc delete bitmap task to executor, tablet_id: " << _tablet->tablet_id()
+    LOG(INFO) << "submit calc delete bitmap task to executor, tablet_id: " << tablet->tablet_id()
               << ", txn_id: " << _req.txn_id;
-    return _tablet->commit_phase_update_delete_bitmap(_rowset, _rowset_ids, _delete_bitmap,
-                                                      segments, _req.txn_id,
-                                                      _calc_delete_bitmap_token.get(), nullptr);
+    return tablet->commit_phase_update_delete_bitmap(_rowset, _rowset_ids, _delete_bitmap, segments,
+                                                     _req.txn_id, _calc_delete_bitmap_token.get(),
+                                                     nullptr);
 }
 
 Status RowsetBuilder::wait_calc_delete_bitmap() {
@@ -243,18 +273,21 @@ Status RowsetBuilder::wait_calc_delete_bitmap() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_wait_delete_bitmap_timer);
     RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
-    RETURN_IF_ERROR(_calc_delete_bitmap_token->get_delete_bitmap(_delete_bitmap));
     LOG(INFO) << "Got result of calc delete bitmap task from executor, tablet_id: "
               << _tablet->tablet_id() << ", txn_id: " << _req.txn_id;
     return Status::OK();
 }
 
 Status RowsetBuilder::commit_txn() {
-    if (_tablet->enable_unique_key_merge_on_write() &&
+    if (config::cloud_mode) {
+        // TODO(plat1ko)
+        return Status::OK();
+    }
+    auto tablet = static_cast<Tablet*>(_tablet.get());
+    if (tablet->enable_unique_key_merge_on_write() &&
         config::enable_merge_on_write_correctness_check && _rowset->num_rows() != 0 &&
-        !(_tablet->tablet_state() == TABLET_NOTREADY &&
-          SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id()))) {
-        auto st = _tablet->check_delete_bitmap_correctness(
+        tablet->tablet_state() != TABLET_NOTREADY) {
+        auto st = tablet->check_delete_bitmap_correctness(
                 _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, _rowset_ids);
         if (!st.ok()) {
             LOG(WARNING) << fmt::format(
@@ -265,11 +298,11 @@ Status RowsetBuilder::commit_txn() {
             return st;
         }
     }
-
+    auto storage_engine = StorageEngine::instance();
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
-    Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
-                                                            _req.load_id, _rowset, false);
+    Status res = storage_engine->txn_manager()->commit_txn(_req.partition_id, *tablet, _req.txn_id,
+                                                           _req.load_id, _rowset, false);
 
     if (!res && !res.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         LOG(WARNING) << "Failed to commit txn: " << _req.txn_id
@@ -277,8 +310,8 @@ Status RowsetBuilder::commit_txn() {
         return res;
     }
     if (_tablet->enable_unique_key_merge_on_write()) {
-        _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
-                _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->tablet_uid(), true,
+        storage_engine->txn_manager()->set_txn_related_delete_bitmap(
+                _req.partition_id, _req.txn_id, tablet->tablet_id(), tablet->tablet_uid(), true,
                 _delete_bitmap, _rowset_ids, _partial_update_info);
     }
 

@@ -20,8 +20,10 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -411,7 +413,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitInsertIntoQuery(InsertIntoQueryContext ctx) {
         boolean isOverwrite = ctx.INTO() == null;
-        List<String> tableName = visitMultipartIdentifier(ctx.tableName);
+        List<String> tableName = new ArrayList<>();
+        if (null != ctx.tableName) {
+            tableName = visitMultipartIdentifier(ctx.tableName);
+        } else if (null != ctx.tableId) {
+            TableName name = Env.getCurrentEnv().getInternalCatalog()
+                    .getTableNameByTableId(Long.valueOf(ctx.tableId.getText()));
+            tableName.add(name.getDb());
+            tableName.add(name.getTbl());
+        } else {
+            throw new ParseException("tableName and tableId cannot both be null");
+        }
         String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
         List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
@@ -1865,8 +1877,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitCreateTable(CreateTableContext ctx) {
+        String ctlName = null;
         String dbName = null;
-        String tableName;
+        String tableName = null;
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         // TODO: support catalog
         if (nameParts.size() == 1) {
@@ -1874,8 +1887,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (nameParts.size() == 2) {
             dbName = nameParts.get(0);
             tableName = nameParts.get(1);
+        } else if (nameParts.size() == 3) {
+            ctlName = nameParts.get(0);
+            dbName = nameParts.get(1);
+            tableName = nameParts.get(2);
         } else {
-            throw new AnalysisException("nameParts in create table should be 1 or 2");
+            throw new AnalysisException("nameParts in create table should be [ctl.][db.]tbl");
         }
         KeysType keysType = null;
         if (ctx.DUPLICATE() != null) {
@@ -1906,6 +1923,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             return new CreateTableCommand(Optional.empty(), new CreateTableInfo(
                     ctx.EXISTS() != null,
+                    ctlName,
                     dbName,
                     tableName,
                     visitColumnDefs(ctx.columnDefs()),
@@ -1918,11 +1936,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
                     ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
                     desc,
-                    ImmutableList.of(),
+                    ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties));
         } else if (ctx.AS() != null) {
             return new CreateTableCommand(Optional.of(visitQuery(ctx.query())), new CreateTableInfo(
                     ctx.EXISTS() != null,
+                    ctlName,
                     dbName,
                     tableName,
                     ctx.ctasCols != null ? visitIdentifierList(ctx.ctasCols) : null,
@@ -1934,7 +1953,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
                     ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
                     desc,
-                    ImmutableList.of(),
+                    ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties));
         } else {
             throw new AnalysisException("Should contain at least one column in a table");
@@ -2067,7 +2086,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitRollupDefs(RollupDefsContext ctx) {
+    public List<RollupDefinition> visitRollupDefs(RollupDefsContext ctx) {
         return ctx.rollups.stream().map(this::visitRollupDef).collect(Collectors.toList());
     }
 

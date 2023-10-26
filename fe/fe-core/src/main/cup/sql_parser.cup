@@ -347,6 +347,7 @@ terminal String
     KW_DISTRIBUTION,
     KW_DIV,
     KW_DO,
+    KW_DORIS_INTERNAL_TABLE_ID,
     KW_DOUBLE,
     KW_DROP,
     KW_DROPP,
@@ -595,7 +596,6 @@ terminal String
     KW_SYNC,
     KW_SYSTEM,
     KW_TABLE,
-    KW_TABLE_ID,
     KW_TABLES,
     KW_TABLESAMPLE,
     KW_TABLET,
@@ -4122,7 +4122,11 @@ show_param ::=
     :}
     | KW_PROPERTY opt_user:user opt_wild_where
     {:
-        RESULT = new ShowUserPropertyStmt(user, parser.wild);
+        RESULT = new ShowUserPropertyStmt(user, parser.wild, false);
+    :}
+    | KW_ALL KW_PROPERTIES opt_wild_where
+    {:
+        RESULT = new ShowUserPropertyStmt(null, parser.wild, true);
     :}
     | KW_BACKUP opt_db:db opt_wild_where
     {:
@@ -4312,7 +4316,7 @@ show_param ::=
     {:
         RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
     :}
-    | KW_CONVERT_LSC KW_FROM opt_db:db
+    | KW_CONVERT_LSC opt_db:db
     {:
         RESULT = new ShowConvertLSCStmt(db);
     :}
@@ -4842,7 +4846,7 @@ insert_stmt ::=
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
     | /* used for group commit */
-    KW_INSERT KW_INTO KW_TABLE_ID LPAREN INTEGER_LITERAL:table_id RPAREN opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
+    KW_INSERT KW_INTO KW_DORIS_INTERNAL_TABLE_ID LPAREN INTEGER_LITERAL:table_id RPAREN opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
         RESULT = new NativeInsertStmt(table_id, label, cols, source, hints);
     :}

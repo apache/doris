@@ -20,12 +20,10 @@
 #include <memory>
 
 #include "exec/scan_node.h"
-#include "exec/text_converter.h"
 #include "runtime/descriptors.h"
 #include "vec/exec/scan/mysql_scanner.h"
 namespace doris {
 
-class TextConverter;
 class TupleDescriptor;
 class RuntimeState;
 class Status;
@@ -37,7 +35,7 @@ public:
     VMysqlScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VMysqlScanNode() override = default;
 
-    // initialize mysql_scanner, and create text_converter.
+    // initialize mysql_scanner, and create text_serde.
     Status prepare(RuntimeState* state) override;
 
     // Start MySQL scan using mysql_scanner.
@@ -54,8 +52,6 @@ public:
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
 private:
-    Status write_text_column(char* value, int value_length, SlotDescriptor* slot,
-                             vectorized::MutableColumnPtr* column_ptr, RuntimeState* state);
     // Write debug string of this into out.
     void debug_string(int indentation_level, std::stringstream* out) const override;
 
@@ -79,7 +75,8 @@ private:
     // Jni helper for scanning an HBase table.
     std::unique_ptr<MysqlScanner> _mysql_scanner;
     // Helper class for converting text to other types;
-    std::unique_ptr<TextConverter> _text_converter;
+    DataTypeSerDeSPtrs _text_serdes;
+    DataTypeSerDe::FormatOptions _text_formatOptions;
 };
 } // namespace vectorized
 } // namespace doris

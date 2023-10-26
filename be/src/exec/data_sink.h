@@ -42,6 +42,7 @@ class QueryStatistics;
 class TDataSink;
 class TExpr;
 class TPipelineFragmentParams;
+class TOlapTableSink;
 
 namespace vectorized {
 class Block;
@@ -113,6 +114,9 @@ public:
     const RowDescriptor& row_desc() { return _row_desc; }
 
     virtual bool can_write() { return true; }
+
+private:
+    static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
 
 protected:
     // Set to true after close() has been called. subclasses should check and set this in

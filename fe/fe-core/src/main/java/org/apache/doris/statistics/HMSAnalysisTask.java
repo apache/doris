@@ -50,7 +50,6 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
 
     // While doing sample analysis, the sampled ndv result will multiply a factor (total size/sample size)
     // if ndv(col)/count(col) is greater than this threshold.
-    private static final String NDV_MULTIPLY_THRESHOLD = "0.3";
 
     private static final String ANALYZE_TABLE_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
@@ -63,13 +62,10 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "'${colId}' AS col_id, "
             + "NULL AS part_id, "
             + "ROUND(COUNT(1) * ${scaleFactor}) AS row_count, "
-            + "case when NDV(`${colName}`)/count('${colName}') < "
-            + NDV_MULTIPLY_THRESHOLD
-            + " then NDV(`${colName}`) "
-            + "else NDV(`${colName}`) * ${scaleFactor} end AS ndv, "
+            + NDV_SAMPLE_TEMPLATE
             + "ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS null_count, "
-            + "MIN(`${colName}`) AS min, "
-            + "MAX(`${colName}`) AS max, "
+            + "${minFunction} AS min, "
+            + "${maxFunction} AS max, "
             + "${dataSizeFunction} * ${scaleFactor} AS data_size, "
             + "NOW() "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleExpr}";
@@ -182,6 +178,8 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         sb.append(ANALYZE_TABLE_TEMPLATE);
         Map<String, String> params = buildStatsParams("NULL");
         params.put("dataSizeFunction", getDataSizeFunction(col));
+        params.put("minFunction", getMinFunction());
+        params.put("maxFunction", getMaxFunction());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(sb.toString());
         executeInsertSql(sql);

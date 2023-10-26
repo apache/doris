@@ -184,6 +184,8 @@ public:
         _previous_schedule_id = id;
     }
 
+    virtual void release_dependency() {}
+
     bool has_dependency();
 
     OperatorPtr get_root() { return _root; }
@@ -193,6 +195,7 @@ public:
     taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
 
     void set_task_queue(TaskQueue* task_queue);
+    TaskQueue* get_task_queue() { return _task_queue; }
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
     static constexpr auto THREAD_TIME_SLICE_US = 100000L; // 100ms
@@ -365,6 +368,9 @@ protected:
     int64_t _close_pipeline_time = 0;
 
     RuntimeProfile::Counter* _pip_task_total_timer;
+    std::shared_ptr<QueryStatistics> _query_statistics;
+    Status _collect_query_statistics();
+    bool _collect_query_statistics_with_every_batch = false;
 
 private:
     Operators _operators; // left is _source, right is _root
