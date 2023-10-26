@@ -24,4 +24,22 @@ suite("test_from_unixtime") {
     sql "set time_zone='+00:00'"
 
     qt_sql2 "select from_unixtime(1553152255)"
+
+    qt_sql3 "select from_unixtime(0, \"%Y-%m-%d\")"
+    qt_sql4 "select from_unixtime(0);"
+
+    qt_sql5 "select from_unixtime(-1, \"%Y-%m-%d\");"
+    qt_sql6 "select from_unixtime(-1);"
+
+    // https://dev.mysql.com/doc/refman/8.0/en/date-and-time-functions.html#function_from-unixtime
+    // 32536771199 is mysql max valid timestamp on 64bit system, return 3001-01-18 23:59:59
+    // INT32_MAX(2147483647) < 32536771199 < INT64_MAX
+    qt_sql7 "select from_unixtime(32536771199)"
+
+    // Return NULL, same with msyql
+    qt_sql8 "select from_unixtime(32536771199 + 1)"
+
+    qt_sql9 "select from_unixtime(-7629445119491449, \"%Y-%m-%d\");"
+    qt_sql10 "select from_unixtime(-7629445119491449);"
+
 }
