@@ -515,10 +515,10 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
             uint32_t len = ser_request.size();
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
-        if (cb == nullptr) {
-            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
-        } else {
+        if (cb) {
             return _exec_env->fragment_mgr()->exec_plan_fragment(t_request, cb);
+        } else {
+            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
         }
     } else if (version == PFragmentRequestVersion::VERSION_2) {
         TExecPlanFragmentParamsList t_request;
@@ -529,10 +529,10 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
         }
 
         for (const TExecPlanFragmentParams& params : t_request.paramsList) {
-            if (cb == nullptr) {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
-            } else {
+            if (cb) {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params, cb));
+            } else {
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
             }
         }
         return Status::OK();
@@ -545,10 +545,10 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
         }
 
         for (const TPipelineFragmentParams& params : t_request.params_list) {
-            if (cb == nullptr) {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
-            } else {
+            if (cb) {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params, cb));
+            } else {
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
             }
         }
         return Status::OK();
