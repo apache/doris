@@ -1331,7 +1331,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     int filtered_rows = 0;
     {
         SCOPED_RAW_TIMER(&_validate_data_ns);
-        _filter_bitmap.resize(block.rows());
+        _filter_bitmap.clear();
+        _filter_bitmap.resize(block.rows(), 0);
         bool stop_processing = false;
         RETURN_IF_ERROR(
                 _validate_data(state, &block, _filter_bitmap, &filtered_rows, &stop_processing));
