@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.TryEliminateUninterestedPredicates.Context;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -101,6 +102,27 @@ public class TryEliminateUninterestedPredicates extends DefaultExpressionRewrite
         parentContext.childrenContainsInterestedSlots |= currentContext.childrenContainsInterestedSlots;
         parentContext.childrenContainsNonInterestedSlots |= currentContext.childrenContainsNonInterestedSlots;
 
+        return expr;
+    }
+
+    @Override
+    public Expression visitAnd(And and, Context parentContext) {
+        Expression left = and.left();
+        Context leftContext = new Context();
+        Expression newLeft = this.visit(left, leftContext);
+        if (leftContext.childrenContainsNonInterestedSlots) {
+            newLeft = BooleanLiteral.TRUE;
+        }
+
+        Expression right = and.right();
+        Context rightContext = new Context();
+        Expression newRight = this.visit(right, rightContext);
+        if (rightContext.childrenContainsNonInterestedSlots) {
+            newRight = BooleanLiteral.TRUE;
+        }
+        Expression expr = new And(newLeft, newRight).accept(FoldConstantRuleOnFE.INSTANCE, expressionRewriteContext);
+        parentContext.childrenContainsInterestedSlots =
+                rightContext.childrenContainsInterestedSlots || leftContext.childrenContainsInterestedSlots;
         return expr;
     }
 
