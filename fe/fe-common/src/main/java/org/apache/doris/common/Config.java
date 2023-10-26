@@ -1613,9 +1613,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cpu_hard_limit = false;
 
-    @ConfField(mutable = true)
-    public static boolean disable_shared_scan = false;
-
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
