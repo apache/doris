@@ -75,7 +75,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         boolean isBelongStableCG = colocateTableIndex.isColocateTable(olapTable.getId())
                 && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()));
         boolean isSelectUnpartition = olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
-                || olapScan.getSelectedPartitionIds().size() == 1;
+                || olapScan.getSelectedPartitionIds().size() == 1
+                || olapTable.isPartitionColumnsEqualsToDistributeColumns();
         // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
         if (distributionInfo instanceof HashDistributionInfo && (isBelongStableCG || isSelectUnpartition)) {
             if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {

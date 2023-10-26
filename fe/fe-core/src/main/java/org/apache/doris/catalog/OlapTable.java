@@ -2370,4 +2370,14 @@ public class OlapTable extends Table {
             }
         }
     }
+
+    public boolean isPartitionColumnsEqualsToDistributeColumns() {
+        if (getDefaultDistributionInfo() instanceof HashDistributionInfo) {
+            HashDistributionInfo distributionInfo = (HashDistributionInfo) getDefaultDistributionInfo();
+            return distributionInfo.getDistributionColumns().containsAll(getPartitionInfo().getPartitionColumns())
+                    && distributionInfo.getDistributionColumns().size()
+                    == getPartitionInfo().getPartitionColumns().size();
+        }
+        return false;
+    }
 }
