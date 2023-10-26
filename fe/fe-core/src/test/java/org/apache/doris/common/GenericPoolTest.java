@@ -32,6 +32,8 @@ import org.apache.doris.thrift.TExportTaskRequest;
 import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPublishTopicRequest;
+import org.apache.doris.thrift.TPublishTopicResult;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TScanBatchResult;
 import org.apache.doris.thrift.TScanCloseParams;
@@ -136,6 +138,11 @@ public class GenericPoolTest {
 
         @Override
         public TAgentResult publishClusterState(TAgentPublishRequest request) throws TException {
+            return null;
+        }
+
+        @Override
+        public TPublishTopicResult publishTopicInfo(TPublishTopicRequest request) throws TException {
             return null;
         }
 

@@ -17,31 +17,21 @@
 
 #pragma once
 
-#include <gen_cpp/AgentService_types.h>
-#include <stdint.h>
+#include <glog/logging.h>
 
 #include "agent/topic_listener.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
-class ExecEnv;
-class TMasterInfo;
-
-class UserResourceListener : public TopicListener {
+class WorkloadGroupListener : public TopicListener {
 public:
-    ~UserResourceListener();
-    // Input parameters:
-    //   root_cgroups_path: root cgroups allocated by admin to doris
-    UserResourceListener(ExecEnv* exec_env, const TMasterInfo& master_info);
-    // This method should be async
-    virtual void handle_update(const TAgentServiceVersion::type& protocol_version,
-                               const TTopicUpdate& topic_update);
+    ~WorkloadGroupListener() {}
+    WorkloadGroupListener(ExecEnv* exec_env) : _exec_env(exec_env) {}
+
+    void handle_topic_info(const TPublishTopicRequest& topic_request) override;
 
 private:
-    const TMasterInfo& _master_info;
     ExecEnv* _exec_env;
-    // Call cgroups mgr to update user's cgroups resource share
-    // Also refresh local user resource's cache
-    void update_users_resource(int64_t new_version);
 };
 } // namespace doris

@@ -113,6 +113,9 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.publish.TopicPublisher;
+import org.apache.doris.common.publish.TopicPublisherThread;
+import org.apache.doris.common.publish.WorkloadGroupPublisher;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.HttpURLUtil;
@@ -492,6 +495,8 @@ public class Env {
 
     private HiveTransactionMgr hiveTransactionMgr;
 
+    private TopicPublisherThread topicPublisherThread;
+
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
 
@@ -726,6 +731,8 @@ public class Env {
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
+        this.topicPublisherThread = new TopicPublisherThread(
+                "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
     }
 
     public static void destroyCheckpoint() {
@@ -970,6 +977,10 @@ public class Env {
         }
 
         queryCancelWorker.start();
+
+        TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
+        topicPublisherThread.addToTopicPublisherList(wgPublisher);
+        topicPublisherThread.start();
     }
 
     // wait until FE is ready.

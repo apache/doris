@@ -144,8 +144,14 @@ public:
         _wg_name = wg_name;
     }
 
+    ~SimplifiedScanScheduler() {
+        stop();
+        LOG(INFO) << "Scanner sche " << _wg_name << " shutdown";
+    }
+
     void stop() {
         _is_stop.store(true);
+        _scan_task_queue->shutdown();
         _scan_thread_pool->shutdown();
         _scan_thread_pool->wait();
     }
@@ -169,8 +175,9 @@ private:
     void _work() {
         while (!_is_stop.load()) {
             SimplifiedScanTask scan_task;
-            _scan_task_queue->blocking_get(&scan_task);
-            scan_task.scan_func();
+            if (_scan_task_queue->blocking_get(&scan_task)) {
+                scan_task.scan_func();
+            };
         }
     }
 

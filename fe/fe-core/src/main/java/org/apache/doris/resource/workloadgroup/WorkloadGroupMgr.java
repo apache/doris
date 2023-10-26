@@ -40,6 +40,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUserIdentity;
+import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -52,6 +53,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -127,6 +129,19 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             workloadGroups.get(0).getProperties().put(WorkloadGroup.CPU_HARD_LIMIT,
                     String.valueOf(cpuHardLimitThriftVal));
             context.setWorkloadGroupName(groupName);
+        } finally {
+            readUnlock();
+        }
+        return workloadGroups;
+    }
+
+    public List<TopicInfo> getPublishTopicInfo() {
+        List<TopicInfo> workloadGroups = new ArrayList();
+        readLock();
+        try {
+            for (WorkloadGroup wg : idToWorkloadGroup.values()) {
+                workloadGroups.add(wg.toTopicInfo());
+            }
         } finally {
             readUnlock();
         }

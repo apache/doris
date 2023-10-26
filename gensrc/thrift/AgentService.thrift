@@ -507,4 +507,3 @@ struct TAgentPublishRequest {
     1: required TAgentServiceVersion protocol_version
     2: required list<TTopicUpdate> updates
 }
-

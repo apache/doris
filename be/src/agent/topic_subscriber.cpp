@@ -17,7 +17,7 @@
 
 #include "agent/topic_subscriber.h"
 
-#include <gen_cpp/AgentService_types.h>
+#include <pthread.h>
 
 #include <mutex>
 #include <utility>
@@ -28,38 +28,22 @@ namespace doris {
 
 TopicSubscriber::TopicSubscriber() {}
 
-TopicSubscriber::~TopicSubscriber() {
-    // Delete all listeners in the register
-    std::map<TTopicType::type, std::vector<TopicListener*>>::iterator it =
-            _registered_listeners.begin();
-    for (; it != _registered_listeners.end(); ++it) {
-        std::vector<TopicListener*>& listeners = it->second;
-        std::vector<TopicListener*>::iterator listener_it = listeners.begin();
-        for (; listener_it != listeners.end(); ++listener_it) {
-            delete *listener_it;
-        }
-    }
-}
-
-void TopicSubscriber::register_listener(TTopicType::type topic_type, TopicListener* listener) {
+void TopicSubscriber::register_listener(TTopicInfoType::type topic_type,
+                                        std::unique_ptr<TopicListener> topic_listener) {
     // Unique lock here to prevent access to listeners
     std::lock_guard<std::shared_mutex> lock(_listener_mtx);
-    this->_registered_listeners[topic_type].push_back(listener);
+    this->_registered_listeners.emplace(topic_type, std::move(topic_listener));
 }
 
-void TopicSubscriber::handle_updates(const TAgentPublishRequest& agent_publish_request) {
-    // Shared lock here in order to avoid updates in listeners' map
+void TopicSubscriber::handle_topic_info(const TPublishTopicRequest& topic_request) {
+    // NOTE(wb): if we found there is bottleneck for handle_topic_info by LOG(INFO)
+    // eg, update workload info may delay other listener, then we need add a thread here
+    // to handle_topic_info asynchronous
     std::shared_lock lock(_listener_mtx);
-    // Currently, not deal with protocol version, the listener should deal with protocol version
-    const std::vector<TTopicUpdate>& topic_updates = agent_publish_request.updates;
-    std::vector<TTopicUpdate>::const_iterator topic_update_it = topic_updates.begin();
-    for (; topic_update_it != topic_updates.end(); ++topic_update_it) {
-        std::vector<TopicListener*>& listeners = this->_registered_listeners[topic_update_it->type];
-        std::vector<TopicListener*>::iterator listener_it = listeners.begin();
-        // Send the update to all listeners with protocol version.
-        for (; listener_it != listeners.end(); ++listener_it) {
-            (*listener_it)->handle_update(agent_publish_request.protocol_version, *topic_update_it);
-        }
+    LOG(INFO) << "begin handle topic info";
+    for (auto& listener_pair : _registered_listeners) {
+        listener_pair.second->handle_topic_info(topic_request);
+        LOG(INFO) << "handle topic " << listener_pair.first << " succ";
     }
 }
 } // namespace doris
