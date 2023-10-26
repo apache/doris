@@ -273,13 +273,17 @@ public class BindExpression implements AnalysisRuleFactory {
                      group_by_key is bound on t1.a
                     */
                     duplicatedSlotNames.forEach(childOutputsToExpr::remove);
-                    output.stream()
-                            .filter(ne -> ne instanceof Alias)
-                            .map(Alias.class::cast)
-                            // agg function cannot be bound with group_by_key
-                            .filter(alias -> !alias.child()
-                                    .anyMatch(expr -> expr instanceof AggregateFunction))
-                            .forEach(alias -> childOutputsToExpr.putIfAbsent(alias.getName(), alias.child()));
+                    for (int i = 0; i < output.size(); i++) {
+                        if (!(output.get(i) instanceof Alias)) {
+                            continue;
+                        }
+                        Alias alias = (Alias) output.get(i);
+                        if (alias.child().anyMatch(expr -> expr instanceof AggregateFunction)) {
+                            continue;
+                        }
+                        // NOTICE: must use unbound expressions, because we will bind them in binding group by expr.
+                        childOutputsToExpr.putIfAbsent(alias.getName(), agg.getOutputExpressions().get(i).child(0));
+                    }
 
                     List<Expression> replacedGroupBy = agg.getGroupByExpressions().stream()
                             .map(groupBy -> {
