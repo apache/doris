@@ -375,17 +375,8 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src,
 
     const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
 
-    if constexpr (std::is_same_v<T, UInt8>) {
-        // nullmap : indices_begin[i] == 0 means is null at the here, set true here
-        for (int i = 0; i < new_size; ++i) {
-            data[origin_size + i] =
-                    (indices_begin[i] == 0) + (indices_begin[i] != 0) * src_data[indices_begin[i]];
-        }
-    } else {
-        // real data : indices_begin[i] == 0 what at is meaningless
-        for (int i = 0; i < new_size; ++i) {
-            data[origin_size + i] = src_data[indices_begin[i]];
-        }
+    for (int i = 0; i < new_size; ++i) {
+        data[origin_size + i] = src_data[indices_begin[i]];
     }
 }
 

@@ -955,6 +955,14 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
     RETURN_IF_ERROR(_do_evaluate(block, _build_expr_ctxs, *_build_expr_call_timer, res_col_ids));
     if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
         _convert_block_to_null(block);
+        // first row is mocked
+        for (int i = 0; i < block.columns(); i++) {
+            assert_cast<ColumnNullable*>(
+                    (*std::move(block.safe_get_by_position(i).column)).mutate().get())
+                    ->get_null_map_column()
+                    .get_data()
+                    .data()[0] = 1;
+        }
     }
     // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
     //  so we have to initialize this flag by the first build block.

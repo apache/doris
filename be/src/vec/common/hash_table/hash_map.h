@@ -220,7 +220,7 @@ public:
     void prepare_build(size_t num_elem, int batch_size) {
         max_batch_size = batch_size;
         bucket_size = calc_bucket_size(num_elem + 1);
-        first.resize(bucket_size, 0);
+        first.resize(bucket_size + 1, 0);
         next.resize(num_elem);
 
         if constexpr (JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
@@ -238,6 +238,7 @@ public:
             next[i] = first[bucket_nums[i]];
             first[bucket_nums[i]] = i;
         }
+        first[bucket_size] = 0;
     }
 
     template <int JoinOpType>
@@ -275,7 +276,7 @@ public:
         while (count < batch_size && iter_idx < elem_num) {
             const auto matched = visited[iter_idx];
             build_idxs[count] = iter_idx;
-            if constexpr (JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN) {
+            if constexpr (JoinOpType != doris::TJoinOp::RIGHT_ANTI_JOIN) {
                 count += !matched;
             } else {
                 count += matched;
@@ -336,6 +337,10 @@ private:
         uint32_t build_idx = 0;
         const auto batch_size = max_batch_size;
 
+        if (!build_keys) {
+            probe_idx = probe_rows;
+        }
+
         auto do_the_probe = [&]() {
             while (build_idx && LIKELY(matched_cnt < batch_size)) {
                 if (keys[probe_idx] == build_keys[build_idx]) {
@@ -353,7 +358,7 @@ private:
             if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                           JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
                 // `(!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)` means not match one build side
-                if (!build_idx && (!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)) {
+                if (!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx) {
                     probe_idxs[matched_cnt] = probe_idx;
                     build_idxs[matched_cnt] = 0;
                     matched_cnt++;
@@ -381,7 +386,8 @@ private:
         return std::pair {probe_idx, matched_cnt};
     }
 
-    const Key* __restrict build_keys;
+    const Key* __restrict build_keys = nullptr;
+
     std::vector<uint8_t> visited;
 
     int max_batch_size = 0;

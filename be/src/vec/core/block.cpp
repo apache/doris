@@ -1066,7 +1066,7 @@ std::unique_ptr<Block> Block::create_same_struct_block(size_t size, bool is_rese
         if (is_reserve) {
             column->reserve(size);
         } else {
-            column->resize(size);
+            column->insert_many_defaults(size);
         }
         temp_block->insert({std::move(column), d.type, d.name});
     }

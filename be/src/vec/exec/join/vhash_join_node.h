@@ -87,10 +87,8 @@ struct ProcessRuntimeFilterBuild {
                 state, hash_table_ctx.hash_table->size(), parent->_build_rf_cardinality));
 
         if (!parent->_runtime_filter_slots->empty() && !parent->_inserted_blocks.empty()) {
-            {
-                SCOPED_TIMER(parent->_push_compute_timer);
-                parent->_runtime_filter_slots->insert(parent->_inserted_blocks);
-            }
+            SCOPED_TIMER(parent->_push_compute_timer);
+            parent->_runtime_filter_slots->insert(parent->_inserted_blocks);
         }
         {
             SCOPED_TIMER(parent->_push_down_timer);
@@ -137,7 +135,7 @@ struct ProcessHashTableBuild {
 
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr, true);
-        hash_table_ctx.calculate_bucket(_rows);
+        init_bucket_num(hash_table_ctx, _rows, null_map ? null_map->data() : nullptr);
         hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.hash_values.data(),
                                          _rows);
         return Status::OK();

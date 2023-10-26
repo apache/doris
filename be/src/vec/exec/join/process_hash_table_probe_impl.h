@@ -68,7 +68,7 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
     constexpr auto probe_all =
             JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN;
 
-    if (!is_semi_anti_join || have_other_join_conjunct) {
+    if ((!is_semi_anti_join || have_other_join_conjunct) && size) {
         for (int i = 0; i < _right_col_len; i++) {
             const auto& column = *_build_block->safe_get_by_position(i).column;
             if (output_slot_flags[i]) {
@@ -134,7 +134,7 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
         _parent->_ready_probe = true;
         hash_table_ctx.reset();
         hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map);
-        hash_table_ctx.calculate_bucket(probe_rows);
+        init_bucket_num(hash_table_ctx,probe_rows, null_map);
     }
     return typename HashTableType::State(_parent->_probe_columns);
 }

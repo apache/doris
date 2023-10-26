@@ -37,7 +37,7 @@ Status LocalExchangeSinkLocalState::split_rows(RuntimeState* state,
     auto& data_queue = _shared_state->data_queue;
     const auto num_partitions = data_queue.size();
     const auto rows = block->rows();
-    auto row_idx = std::make_shared<std::vector<int>>(rows);
+    auto row_idx = std::make_shared<std::vector<uint32_t>>(rows);
     {
         _partition_rows_histogram.assign(num_partitions + 1, 0);
         for (size_t i = 0; i < rows; ++i) {

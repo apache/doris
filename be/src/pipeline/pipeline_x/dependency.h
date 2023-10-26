@@ -839,8 +839,9 @@ private:
     bool is_set_probe {false};
 };
 
-using PartitionedBlock = std::pair<std::shared_ptr<vectorized::Block>,
-                                   std::tuple<std::shared_ptr<std::vector<int>>, size_t, size_t>>;
+using PartitionedBlock =
+        std::pair<std::shared_ptr<vectorized::Block>,
+                  std::tuple<std::shared_ptr<std::vector<uint32_t>>, size_t, size_t>>;
 struct LocalExchangeSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
