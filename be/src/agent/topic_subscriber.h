@@ -27,22 +27,18 @@
 namespace doris {
 class TopicListener;
 
-struct ThreadArgsPair {
-    TopicListener* first = nullptr;
-    TPublishTopicRequest* second = nullptr;
-};
-
 class TopicSubscriber {
 public:
     TopicSubscriber();
-    ~TopicSubscriber();
+    ~TopicSubscriber() = default;
 
-    void register_listener(TTopicInfoType::type topic_type, TopicListener* topic_listener);
+    void register_listener(TTopicInfoType::type topic_type,
+                           std::unique_ptr<TopicListener> topic_listener);
 
     void handle_topic_info(const TPublishTopicRequest& topic_request);
 
 private:
-    std::map<TTopicInfoType::type, TopicListener*> _registered_listeners;
+    std::map<TTopicInfoType::type, std::unique_ptr<TopicListener>> _registered_listeners;
     std::shared_mutex _listener_mtx;
 };
 } // namespace doris

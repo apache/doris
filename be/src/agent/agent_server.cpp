@@ -130,9 +130,10 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 
 #if !defined(BE_TEST) && !defined(__APPLE__)
     // Add subscriber here and register listeners
-    TopicListener* wg_listener = new WorkloadGroupListener(exec_env);
+    std::unique_ptr<TopicListener> wg_listener = std::make_unique<WorkloadGroupListener>(exec_env);
     LOG(INFO) << "Register workload group listener";
-    _topic_subscriber->register_listener(doris::TTopicInfoType::type::WORKLOAD_GROUP, wg_listener);
+    _topic_subscriber->register_listener(doris::TTopicInfoType::type::WORKLOAD_GROUP,
+                                         std::move(wg_listener));
 #endif
 }
 

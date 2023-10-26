@@ -28,42 +28,22 @@ namespace doris {
 
 TopicSubscriber::TopicSubscriber() {}
 
-TopicSubscriber::~TopicSubscriber() {
-    for (auto iter = _registered_listeners.begin(); iter != _registered_listeners.end(); iter++) {
-        delete iter->second;
-    }
-}
-
 void TopicSubscriber::register_listener(TTopicInfoType::type topic_type,
-                                        TopicListener* topic_listener) {
+                                        std::unique_ptr<TopicListener> topic_listener) {
     // Unique lock here to prevent access to listeners
     std::lock_guard<std::shared_mutex> lock(_listener_mtx);
-    this->_registered_listeners.emplace(topic_type, topic_listener);
+    this->_registered_listeners.emplace(topic_type, std::move(topic_listener));
 }
 
 void TopicSubscriber::handle_topic_info(const TPublishTopicRequest& topic_request) {
-    // Shared lock here in order to avoid updates in listeners' map
+    // NOTE(wb): if we found there is bottleneck for handle_topic_info by LOG(INFO)
+    // eg, update workload info may delay other listener, then we need add a thread here
+    // to handle_topic_info asynchronous
     std::shared_lock lock(_listener_mtx);
-    pthread_t tids[_registered_listeners.size()];
-    int i = 0;
+    LOG(INFO) << "begin handle topic info";
     for (auto& listener_pair : _registered_listeners) {
-        ThreadArgsPair* arg_pair = new ThreadArgsPair();
-        arg_pair->first = listener_pair.second;
-        arg_pair->second = new TPublishTopicRequest(topic_request);
-        int ret = pthread_create(
-                &tids[i], NULL,
-                [](void* arg) {
-                    auto* local_pair = (ThreadArgsPair*)(arg);
-                    local_pair->first->handle_topic_info(*(local_pair->second));
-                    delete local_pair->second;
-                    delete local_pair;
-                    return (void*)0;
-                },
-                (void*)(arg_pair));
-        if (ret != 0) {
-            LOG(WARNING) << "create thread failed when handle topic info";
-        }
-        i++;
+        listener_pair.second->handle_topic_info(topic_request);
+        LOG(INFO) << "handle topic " << listener_pair.first << " succ";
     }
 }
 } // namespace doris

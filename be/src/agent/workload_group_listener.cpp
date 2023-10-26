@@ -39,6 +39,5 @@ void WorkloadGroupListener::handle_topic_info(const TPublishTopicRequest& topic_
     }
 
     _exec_env->task_group_manager()->delete_task_group_by_ids(current_wg_ids);
-    LOG(INFO) << "finish update workload group info, size=" << topic_request.topic_list.size();
 }
 } // namespace doris

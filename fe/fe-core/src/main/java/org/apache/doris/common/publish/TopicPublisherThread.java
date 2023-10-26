@@ -19,6 +19,7 @@ package org.apache.doris.common.publish;
 
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -28,11 +29,12 @@ import org.apache.doris.thrift.TPublishTopicRequest;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 
 public class TopicPublisherThread extends MasterDaemon {
 
@@ -40,7 +42,8 @@ public class TopicPublisherThread extends MasterDaemon {
 
     private SystemInfoService clusterInfoService;
 
-    public TopicPublisherThread() {}
+    private ExecutorService executor = ThreadPoolManager
+            .newDaemonFixedThreadPool(6, 256, "topic-publish-thread", true);
 
     public TopicPublisherThread(String name, long intervalMs,
             SystemInfoService clusterInfoService) {
@@ -68,26 +71,49 @@ public class TopicPublisherThread extends MasterDaemon {
 
         // step 2: publish topic info to all be
         Collection<Backend> nodesToPublish = clusterInfoService.getIdToBackend().values();
+        AckResponseHandler handler = new AckResponseHandler(nodesToPublish);
         for (Backend be : nodesToPublish) {
+            executor.submit(new TopicPublishWorker(request, be, handler));
+        }
+        try {
+            int timeoutMs = Config.publish_topic_info_interval_ms / 3 * 2;
+            if (!handler.awaitAllInMs(timeoutMs)) {
+                Backend[] backends = handler.pendingNodes();
+                if (backends.length > 0) {
+                    LOG.warn("timed out waiting for all nodes to publish. (pending nodes: {})",
+                            Arrays.toString(backends));
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    public class TopicPublishWorker implements Runnable {
+        private TPublishTopicRequest request;
+        private Backend be;
+        private ResponseHandler handler;
+
+        public TopicPublishWorker(TPublishTopicRequest request, Backend node, ResponseHandler handler) {
+            this.request = request;
+            this.be = node;
+            this.handler = handler;
+        }
+
+        @Override
+        public void run() {
+            long beginTime = System.currentTimeMillis();
             try {
                 TNetworkAddress addr = new TNetworkAddress(be.getHost(), be.getBePort());
-                BackendService.Client client = null;
-                try {
-                    client = ClientPool.backendPool.borrowObject(addr);
-                } catch (Exception e) {
-                    LOG.warn("Fetch a agent client failed. backend=[{}] reason=[{}]", addr, e);
-                    continue;
-                }
-                try {
-                    client.publishTopicInfo(request);
-                } catch (TException e) {
-                    LOG.warn("rpc publish_topic_info failed ", e);
-                    continue;
-                }
-
-                LOG.info("publish topic info to be {} success", be.getHost());
+                BackendService.Client client = ClientPool.backendPool.borrowObject(addr);
+                client.publishTopicInfo(request);
+                LOG.info("publish topic info to be {} success, time cost={} ms",
+                        be.getHost(), (System.currentTimeMillis() - beginTime));
             } catch (Exception e) {
-                LOG.warn("topic publish be {} error happens: ", be.getHost(), e);
+                LOG.warn("publish topic info to be {} error happens: , time cost={} ms",
+                        be.getHost(), (System.currentTimeMillis() - beginTime), e);
+            } finally {
+                handler.onResponse(be);
             }
         }
     }
