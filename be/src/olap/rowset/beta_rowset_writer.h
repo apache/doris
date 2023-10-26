@@ -166,13 +166,6 @@ private:
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
 
-    // Unfold variant column to Block
-    // Eg. [A | B | C | (D, E, F)]
-    // After unfold block structure changed to -> [A | B | C | D | E | F]
-    // The expanded D, E, F is dynamic part of the block
-    // The flushed Block columns should match exactly from the same type of frontend meta
-    Status _unfold_variant_column(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
-
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
     RowsetSharedPtr _build_tmp();
