@@ -58,12 +58,12 @@ Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::
         *block = mutable_block->to_block();
     } else {
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
+        if (local_state._shared_state->running_sink_operators == 0) {
+            source_state = SourceState::FINISHED;
+        }
     }
 
     local_state.reached_limit(block, source_state);
-    if (local_state._shared_state->running_sink_operators == 0) {
-        source_state = SourceState::FINISHED;
-    }
 
     return Status::OK();
 }
