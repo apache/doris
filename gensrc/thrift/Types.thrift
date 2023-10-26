@@ -95,7 +95,9 @@ enum TPrimitiveType {
   VARIANT,
   LAMBDA_FUNCTION,
   AGG_STATE,
-  DECIMAL256
+  DECIMAL256,
+  IPV4,
+  IPV6
 }
 
 enum TTypeNodeType {

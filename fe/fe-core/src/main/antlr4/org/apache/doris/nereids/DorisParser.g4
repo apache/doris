@@ -747,6 +747,8 @@ primitiveColType:
     | type=CHAR
     | type=DECIMAL
     | type=DECIMALV3
+    | type=IPV4
+    | type=IPV6
     | type=ALL
     ;
 

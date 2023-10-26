@@ -145,6 +145,8 @@ enum class FieldType {
     OLAP_FIELD_TYPE_VARIANT = 35,
     OLAP_FIELD_TYPE_AGG_STATE = 36,
     OLAP_FIELD_TYPE_DECIMAL256 = 37,
+    OLAP_FIELD_TYPE_IPV4 = 38,
+    OLAP_FIELD_TYPE_IPV6 = 39,
 };
 
 // Define all aggregation methods supported by Field

@@ -99,6 +99,8 @@ enum class TypeIndex {
     Time = 43,
     AggState = 44,
     Decimal256 = 45,
+    IPv4 = 46,
+    IPv6 = 47,
     Int256
 };
 
@@ -277,6 +279,10 @@ struct TypeId<String> {
 using Strings = std::vector<String>;
 
 using Int128 = __int128;
+
+using IPv4 = UInt32;
+using IPv6 = Int128;
+
 template <>
 inline constexpr bool IsNumber<Int128> = true;
 template <>
@@ -1030,6 +1036,10 @@ inline const char* getTypeName(TypeIndex idx) {
         return "DateTimeV2";
     case TypeIndex::TimeV2:
         return "TimeV2";
+    case TypeIndex::IPv4:
+        return "IPv4";
+    case TypeIndex::IPv6:
+        return "IPv6";
     case TypeIndex::String:
         return TypeName<String>::get();
     case TypeIndex::FixedString:

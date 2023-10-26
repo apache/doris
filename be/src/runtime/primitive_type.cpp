@@ -113,6 +113,12 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::BINARY:
         return TYPE_BINARY;
 
+    case TPrimitiveType::IPV4:
+        return TYPE_IPV4;
+
+    case TPrimitiveType::IPV6:
+        return TYPE_IPV6;
+
     case TPrimitiveType::DECIMALV2:
         return TYPE_DECIMALV2;
 
@@ -229,6 +235,12 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_BINARY:
         return TPrimitiveType::BINARY;
 
+    case TYPE_IPV4:
+        return TPrimitiveType::IPV4;
+
+    case TYPE_IPV6:
+        return TPrimitiveType::IPV6;
+
     case TYPE_DECIMALV2:
         return TPrimitiveType::DECIMALV2;
 
@@ -335,6 +347,12 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_BINARY:
         return "BINARY";
+
+    case TYPE_IPV4:
+        return "IPV4";
+
+    case TYPE_IPV6:
+        return "IPV6";
 
     case TYPE_DECIMALV2:
         return "DECIMALV2";
@@ -447,6 +465,12 @@ std::string type_to_odbc_string(PrimitiveType t) {
 
     case TYPE_BINARY:
         return "binary";
+
+    case TYPE_IPV4:
+        return "ipv4";
+
+    case TYPE_IPV6:
+        return "ipv6";
 
     case TYPE_DECIMALV2:
         return "decimalv2";

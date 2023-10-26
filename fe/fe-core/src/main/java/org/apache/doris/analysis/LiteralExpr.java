@@ -94,6 +94,12 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DATETIMEV2:
                 literalExpr = new DateLiteral(value, type);
                 break;
+            case IPV4:
+                literalExpr = new IPv4Literal(value);
+                break;
+            case IPV6:
+                literalExpr = new IPv6Literal(value);
+                break;
             default:
                 throw new AnalysisException("Type[" + type.toSql() + "] not supported.");
         }

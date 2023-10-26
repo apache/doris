@@ -213,6 +213,10 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
         return valid_datetime(value_str, column.frac());
     case FieldType::OLAP_FIELD_TYPE_BOOL:
         return valid_bool(value_str);
+    case FieldType::OLAP_FIELD_TYPE_IPV4:
+        return valid_ipv4(value_str);
+    case FieldType::OLAP_FIELD_TYPE_IPV6:
+        return valid_ipv6(value_str);
     default:
         LOG(WARNING) << "unknown field type. [type=" << int(field_type) << "]";
     }

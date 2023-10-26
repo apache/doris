@@ -73,6 +73,8 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_LARGEINT:
     case TYPE_DATE:
     case TYPE_DATEV2:
+    case TYPE_IPV4:
+    case TYPE_IPV6:
         return true;
 
     case INVALID_TYPE:
@@ -216,6 +218,16 @@ struct PrimitiveTypeTraits<TYPE_LARGEINT> {
     using ColumnType = vectorized::ColumnInt128;
 };
 template <>
+struct PrimitiveTypeTraits<TYPE_IPV4> {
+    using CppType = vectorized::IPv4;
+    using ColumnType = vectorized::ColumnIPv4;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_IPV6> {
+    using CppType = vectorized::IPv6;
+    using ColumnType = vectorized::ColumnIPv6;
+};
+template <>
 struct PrimitiveTypeTraits<TYPE_CHAR> {
     using CppType = StringRef;
     using ColumnType = vectorized::ColumnString;
@@ -225,19 +237,16 @@ struct PrimitiveTypeTraits<TYPE_VARCHAR> {
     using CppType = StringRef;
     using ColumnType = vectorized::ColumnString;
 };
-
 template <>
 struct PrimitiveTypeTraits<TYPE_STRING> {
     using CppType = StringRef;
     using ColumnType = vectorized::ColumnString;
 };
-
 template <>
 struct PrimitiveTypeTraits<TYPE_HLL> {
     using CppType = StringRef;
     using ColumnType = vectorized::ColumnString;
 };
-
 template <>
 struct PrimitiveTypeTraits<TYPE_JSONB> {
     using CppType = JsonBinaryValue;

@@ -329,6 +329,19 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
+    private boolean canCompareIP(PrimitiveType t1, PrimitiveType t2) {
+        if (t1.isIPv4Type()) {
+            return t2.isIPv4Type() || t2.isStringType();
+        } else if (t2.isIPv4Type()) {
+            return t1.isStringType();
+        } else if (t1.isIPv6Type()) {
+            return t2.isIPv6Type() || t2.isStringType();
+        } else if (t2.isIPv6Type()) {
+            return t1.isStringType();
+        }
+        return false;
+    }
+
     private Type dateV2ComparisonResultType(ScalarType t1, ScalarType t2) {
         if (!t1.isDatetimeV2() && !t2.isDatetimeV2()) {
             return Type.DATEV2;
@@ -408,6 +421,19 @@ public class BinaryPredicate extends Predicate implements Writable {
                 return Type.DATE;
             } else {
                 return Type.DATETIME;
+            }
+        }
+
+        if (canCompareIP(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
+            if ((getChild(0).getType().isIP() && getChild(1) instanceof StringLiteral)
+                    || (getChild(1).getType().isIP() && getChild(0) instanceof StringLiteral)
+                    || (getChild(0).getType().isIP() && getChild(1).getType().isIP())) {
+                if (getChild(0).getType().isIPv4() || getChild(1).getType().isIPv4()) {
+                    return Type.IPV4;
+                }
+                if (getChild(0).getType().isIPv6() || getChild(1).getType().isIPv6()) {
+                    return Type.IPV6;
+                }
             }
         }
 

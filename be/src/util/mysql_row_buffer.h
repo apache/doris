@@ -49,6 +49,8 @@ namespace doris {
  */
 using int128_t = __int128;
 class DecimalV2Value;
+class IPv4Value;
+class IPv6Value;
 
 template <bool is_binary_format = false>
 class MysqlRowBuffer {
@@ -76,6 +78,8 @@ public:
     template <typename DateType>
     int push_datetime(const DateType& data);
     int push_decimal(const DecimalV2Value& data, int round_scale);
+    int push_ipv4(const IPv4Value& ipv4_val);
+    int push_ipv6(const IPv6Value& ipv6_val);
     int push_string(const char* str, int64_t length);
     int push_null();
 
