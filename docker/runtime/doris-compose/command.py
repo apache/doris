@@ -171,10 +171,15 @@ class UpCommand(Command):
                             type=str,
                             help="Specify be configs for be.conf. "\
                                     "Example: --be-config \"enable_debug_points = true\" \"enable_auth = true\".")
-        group1.add_argument("--be-disk-num",
-                            default=None,
-                            type=int,
-                            help="Specify be disk num, default is 1.")
+        group1.add_argument("--be-disks",
+                            nargs="*",
+                            default=["HDD=1"],
+                            type=str,
+                            help="Specify each be disks, each group is \"disk_type=disk_num[,disk_capactity]\", "\
+                                    "disk_type is HDD or SSD, disk_capactity is capactity limit in gb. default: HDD=1. "\
+                                  "Example: --be-disks \"HDD=1\", \"SSD=1,10\", \"SSD=2,100\""\
+                                  "means each be has 1 HDD without capactity limit, 1 SSD with 10GB capactity limit, "\
+                                  "2 SSD with 100GB capactity limit")
 
         self._add_parser_ids_args(parser)
 
@@ -213,7 +218,7 @@ class UpCommand(Command):
                     utils.render_yellow("Ignore --be-id for new cluster"))
             cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE,
                                           args.fe_config, args.be_config,
-                                          args.be_disk_num)
+                                          args.be_disks)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
             if not args.add_fe_num:
