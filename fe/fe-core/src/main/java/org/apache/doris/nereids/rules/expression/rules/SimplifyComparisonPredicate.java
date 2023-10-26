@@ -146,7 +146,6 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
     }
 
     private Expression processDateLikeTypeCoercion(ComparisonPredicate cp, Expression left, Expression right) {
-        Expression originalRight = right;
         if (left instanceof DateLiteral) {
             cp = cp.commute();
             Expression temp = left;
