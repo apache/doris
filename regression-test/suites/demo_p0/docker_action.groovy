@@ -18,6 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 
 suite('docker_action') {
+    // run a new docker
     docker {
         sql '''create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10'''
         sql '''insert into tb1 values (1),(2),(3)'''
@@ -37,14 +38,15 @@ suite('docker_action') {
         }
     }
 
-    // run another docker
     def options = new ClusterOptions()
     // add fe config items
     options.feConfigs = ['example_conf_k1=v1', 'example_conf_k2=v2']
     // contains 5 backends
     options.beNum = 5
-    // each backend has 3 disks
-    options.beDisks = ["HDD=1", "SSD=3"]
+    // each backend has 1 HDD disk and 3 SSD disks
+    options.beDisks = ['HDD=1', 'SSD=3']
+
+    // run another docker
     docker(options) {
         sql '''create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10 properties ("replication_num"="5")'''
     }
