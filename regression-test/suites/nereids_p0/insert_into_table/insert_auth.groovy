@@ -22,9 +22,9 @@ suite('nereids_insert_auth') {
     sql 'set enable_strict_consistency_dml=true'
 
     def db = 'nereids_insert_auth_db'
-    sql 'drop database if exists ${db}'
-    sql 'create database ${db}'
-    sql 'use ${db}'
+    sql "drop database if exists ${db}"
+    sql "create database ${db}""
+    sql "use ${db}"
 
     def t1 = 't1'
 
