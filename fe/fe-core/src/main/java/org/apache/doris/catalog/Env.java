@@ -170,11 +170,12 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
@@ -491,6 +492,8 @@ public class Env {
 
     private HiveTransactionMgr hiveTransactionMgr;
 
+    private MTMVService mtmvService;
+
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
 
@@ -720,6 +723,7 @@ public class Env {
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
+        this.mtmvService = new MTMVService();
     }
 
     public static void destroyCheckpoint() {
@@ -773,6 +777,10 @@ public class Env {
 
     public AccessControllerManager getAccessManager() {
         return accessManager;
+    }
+
+    public MTMVService getMtmvService() {
+        return mtmvService;
     }
 
     public TabletScheduler getTabletScheduler() {
@@ -4033,15 +4041,14 @@ public class Env {
         this.alter.processRefreshMaterializedView(info);
     }
 
-    public void alterMTMV(AlterMTMVInfo info) throws UserException {
-        AlterMTMV alter = new AlterMTMV(info.getMvName(), info.getBuildMode(), info.getRefreshMethod(),
-                info.getRefreshTriggerInfo());
+    public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) throws UserException {
+        AlterMTMV alter = new AlterMTMV(info.getMvName(), info.getRefreshInfo(), true);
         this.alter.processAlterMTMV(alter, false);
     }
 
     public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) throws UserException {
-        AlterMTMV alter = new AlterMTMV(mvName, status);
-        this.alter.processAlterMTMV(alter, false);
+         AlterMTMV alter = new AlterMTMV(mvName, status);
+         this.alter.processAlterMTMV(alter, false);
     }
 
     /*
@@ -4074,8 +4081,12 @@ public class Env {
         getBackupHandler().cancel(stmt);
     }
 
-    // entry of rename table operation
     public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
+        renameTable(db, table, tableRenameClause.getNewTableName());
+    }
+
+    // entry of rename table operation
+    public void renameTable(Database db, Table table, String newTableName) throws DdlException {
         db.writeLockOrDdlException();
         try {
             table.writeLockOrDdlException();
@@ -4086,7 +4097,6 @@ public class Env {
                 }
 
                 String oldTableName = table.getName();
-                String newTableName = tableRenameClause.getNewTableName();
                 if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(newTableName)) {
                     newTableName = newTableName.toLowerCase();
                 }

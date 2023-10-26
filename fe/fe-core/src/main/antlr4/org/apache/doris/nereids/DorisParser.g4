@@ -83,16 +83,17 @@ statement
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
     | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
-        (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode
-        REFRESH refreshMethod refreshTrigger
+        (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
+        (REFRESH refreshMethod? refreshTrigger?)?
         (KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
         AS query                                                        #createMTMV
     | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier              #refreshMTMV
-    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier buildMode
-      REFRESH refreshMethod refreshTrigger                              #alterMTMV
+    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
+       | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
+       | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
     ;
 
 dataDesc

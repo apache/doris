@@ -17,53 +17,55 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshEnum.MTMVRefreshState;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshEnum.MTMVState;
+
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.Objects;
 
 public class MTMVStatus {
-    @SerializedName("lfem")
-    private String lastRefreshErrorMsg;
-    @SerializedName("les")
-    private String lastExecutorSql;
-    @SerializedName("lfs")
-    private boolean lastRefreshState;
-    @SerializedName("lrft")
-    private long lastRefreshFinishedTime;
-    @SerializedName("lrst")
-    private long lastRefreshStartTime;
-    @SerializedName("lrji")
-    private long lastRefreshJobId;
+    @SerializedName("s")
+    private MTMVState state;
+    @SerializedName("scd")
+    private String schemaChangeDetail;
+    @SerializedName("rs")
+    private MTMVRefreshState refreshState;
 
-    public MTMVStatus(String lastRefreshErrorMsg, String lastExecutorSql, boolean lastRefreshState,
-            long lastRefreshStartTime, long lastRefreshFinishedTime, long lastRefreshJobId) {
-        this.lastRefreshErrorMsg = lastRefreshErrorMsg;
-        this.lastExecutorSql = lastExecutorSql;
-        this.lastRefreshState = lastRefreshState;
-        this.lastRefreshStartTime = lastRefreshStartTime;
-        this.lastRefreshFinishedTime = lastRefreshFinishedTime;
-        this.lastRefreshJobId = lastRefreshJobId;
+    public MTMVStatus() {
+        this.state = MTMVState.INIT;
+        this.refreshState = MTMVRefreshState.INIT;
     }
 
-    public String getLastRefreshErrorMsg() {
-        return lastRefreshErrorMsg;
+    public MTMVStatus(MTMVState state, String schemaChangeDetail) {
+        this.state = state;
+        this.schemaChangeDetail = schemaChangeDetail;
     }
 
-    public String getLastExecutorSql() {
-        return lastExecutorSql;
+    public MTMVState getState() {
+        return state;
     }
 
-    public boolean isLastRefreshState() {
-        return lastRefreshState;
+    public String getSchemaChangeDetail() {
+        return schemaChangeDetail;
     }
 
-    public long getLastRefreshFinishedTime() {
-        return lastRefreshFinishedTime;
+    public MTMVRefreshState getRefreshState() {
+        return refreshState;
     }
 
-    public long getLastRefreshStartTime() {
-        return lastRefreshStartTime;
-    }
-
-    public long getLastRefreshJobId() {
-        return lastRefreshJobId;
+    public MTMVStatus updateNotNull(MTMVStatus status) {
+        Objects.requireNonNull(status);
+        if (status.getRefreshState() != null) {
+            this.state = status.getState();
+        }
+        if (!StringUtils.isEmpty(status.getSchemaChangeDetail())) {
+            this.schemaChangeDetail = status.getSchemaChangeDetail();
+        }
+        if (status.getRefreshState() != null) {
+            this.refreshState = status.getRefreshState();
+        }
+        return this;
     }
 }

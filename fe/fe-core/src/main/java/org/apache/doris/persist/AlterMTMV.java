@@ -20,9 +20,7 @@ package org.apache.doris.persist;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mtmv.MTMVStatus;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.BuildMode;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshMethod;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshTriggerInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -36,25 +34,17 @@ import java.util.Objects;
 public class AlterMTMV implements Writable {
     @SerializedName("mn")
     private TableNameInfo mvName;
-    @SerializedName("bm")
-    private BuildMode buildMode;
-    @SerializedName("rm")
-    private RefreshMethod refreshMethod;
-    @SerializedName("rti")
-    private MVRefreshTriggerInfo refreshTriggerInfo;
+    @SerializedName("ri")
+    private MTMVRefreshInfo refreshInfo;
     @SerializedName("s")
     private MTMVStatus status;
     @SerializedName("nrj")
     private boolean needRebuildJob = false;
 
-    public AlterMTMV(TableNameInfo mvName, BuildMode buildMode,
-            RefreshMethod refreshMethod,
-            MVRefreshTriggerInfo refreshTriggerInfo) {
+    public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo, boolean needRebuildJob) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
-        this.buildMode = buildMode;
-        this.refreshMethod = refreshMethod;
-        this.refreshTriggerInfo = refreshTriggerInfo;
-        this.needRebuildJob = true;
+        this.refreshInfo = Objects.requireNonNull(refreshInfo, "require refreshInfo object");
+        this.needRebuildJob = needRebuildJob;
     }
 
     public AlterMTMV(TableNameInfo mvName, MTMVStatus status) {
@@ -66,24 +56,16 @@ public class AlterMTMV implements Writable {
         return mvName;
     }
 
-    public BuildMode getBuildMode() {
-        return buildMode;
-    }
-
-    public RefreshMethod getRefreshMethod() {
-        return refreshMethod;
-    }
-
-    public MVRefreshTriggerInfo getRefreshTriggerInfo() {
-        return refreshTriggerInfo;
-    }
-
     public MTMVStatus getStatus() {
         return status;
     }
 
     public boolean isNeedRebuildJob() {
         return needRebuildJob;
+    }
+
+    public MTMVRefreshInfo getRefreshInfo() {
+        return refreshInfo;
     }
 
     @Override

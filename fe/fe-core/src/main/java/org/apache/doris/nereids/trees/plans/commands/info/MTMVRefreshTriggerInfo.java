@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshTrigger;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshEnum.RefreshTrigger;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -27,21 +27,21 @@ import java.util.Objects;
 /**
  * refresh trigger info in mtmv
  */
-public class MVRefreshTriggerInfo {
+public class MTMVRefreshTriggerInfo {
     @SerializedName("rt")
     private RefreshTrigger refreshTrigger;
     @SerializedName("it")
-    private MVRefreshSchedule intervalTrigger;
+    private MTMVRefreshSchedule intervalTrigger;
 
     // For deserialization
-    public MVRefreshTriggerInfo() {
+    public MTMVRefreshTriggerInfo() {
     }
 
-    public MVRefreshTriggerInfo(RefreshTrigger trigger) {
+    public MTMVRefreshTriggerInfo(RefreshTrigger trigger) {
         this(trigger, null);
     }
 
-    public MVRefreshTriggerInfo(RefreshTrigger refreshTrigger, MVRefreshSchedule intervalTrigger) {
+    public MTMVRefreshTriggerInfo(RefreshTrigger refreshTrigger, MTMVRefreshSchedule intervalTrigger) {
         this.refreshTrigger = Objects.requireNonNull(refreshTrigger, "require refreshTrigger object");
         this.intervalTrigger = intervalTrigger;
     }
@@ -58,9 +58,9 @@ public class MVRefreshTriggerInfo {
     /**
      * getIntervalTrigger
      *
-     * @return MVRefreshSchedule
+     * @return MTMVRefreshSchedule
      */
-    public MVRefreshSchedule getIntervalTrigger() {
+    public MTMVRefreshSchedule getIntervalTrigger() {
         return intervalTrigger;
     }
 

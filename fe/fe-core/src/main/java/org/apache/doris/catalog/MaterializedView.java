@@ -19,36 +19,32 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.OlapTableFactory.MaterializedViewParams;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.MTMVStatus;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.BuildMode;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshMethod;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshTriggerInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.EnvInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVJobInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
 
 
 public class MaterializedView extends OlapTable {
-    @SerializedName("bm")
-    private BuildMode buildMode;
-    @SerializedName("rm")
-    private RefreshMethod refreshMethod;
-    @SerializedName("rti")
-    private MVRefreshTriggerInfo refreshTriggerInfo;
+    @SerializedName("ri")
+    private MTMVRefreshInfo refreshInfo;
     @SerializedName("qs")
     private String querySql;
-    @SerializedName("bt")
-    private List<BaseTableInfo> baseTables = Lists.newArrayList();
     @SerializedName("s")
     private MTMVStatus status;
-    @SerializedName("a")
-    private boolean active;
+    @SerializedName("ei")
+    private EnvInfo envInfo;
+    @SerializedName("ji")
+    private MTMVJobInfo jobInfo;
 
     // For deserialization
     public MaterializedView() {
@@ -64,80 +60,55 @@ public class MaterializedView extends OlapTable {
                 params.partitionInfo,
                 params.distributionInfo
         );
-        type = TableType.MATERIALIZED_VIEW;
-        buildMode = params.buildMode;
-        refreshMethod = params.refreshMethod;
-        querySql = params.querySql;
-        refreshTriggerInfo = params.refreshTriggerInfo;
-        for (TableIf tableIf : params.baseTables) {
-            baseTables.add(transferTableIfToBaseTableInfo(tableIf));
-        }
+        this.type = TableType.MATERIALIZED_VIEW;
+        this.querySql = params.querySql;
+        this.refreshInfo = params.refreshInfo;
+        this.envInfo = params.envInfo;
+        this.status = new MTMVStatus();
+        this.jobInfo = new MTMVJobInfo(MTMVJobManager.MTMV_JOB_PREFIX + params.tableId);
     }
 
-    private BaseTableInfo transferTableIfToBaseTableInfo(TableIf tableIf) {
-        DatabaseIf db = tableIf.getDatabase();
-        return new BaseTableInfo(tableIf.getId(), db.getId(), db.getCatalog().getId());
-    }
-
-    public BuildMode getBuildMode() {
-        return buildMode;
-    }
-
-    public RefreshMethod getRefreshMethod() {
-        return refreshMethod;
-    }
-
-    public MVRefreshTriggerInfo getRefreshTriggerInfo() {
-        return refreshTriggerInfo;
+    public MTMVRefreshInfo getRefreshInfo() {
+        return refreshInfo;
     }
 
     public String getQuerySql() {
         return querySql;
     }
 
-    public List<BaseTableInfo> getBaseTables() {
-        return baseTables;
-    }
-
-    public void setBuildMode(BuildMode buildMode) {
-        this.buildMode = buildMode;
-    }
-
-    public void setRefreshMethod(RefreshMethod refreshMethod) {
-        this.refreshMethod = refreshMethod;
-    }
-
-    public void setRefreshTriggerInfo(MVRefreshTriggerInfo refreshTriggerInfo) {
-        this.refreshTriggerInfo = refreshTriggerInfo;
-    }
-
     public MTMVStatus getStatus() {
         return status;
     }
 
-    public void setStatus(MTMVStatus status) {
-        this.status = status;
+    public EnvInfo getEnvInfo() {
+        return envInfo;
     }
 
-    public boolean isActive() {
-        return active;
+    public MTMVJobInfo getJobInfo() {
+        return jobInfo;
     }
 
-    public void setActive(boolean active) {
-        this.active = active;
+    public MTMVRefreshInfo alterRefreshInfo(MTMVRefreshInfo newRefreshInfo) {
+        return refreshInfo.updateNotNull(newRefreshInfo);
+    }
+
+    public MTMVStatus alterStatus(MTMVStatus status) {
+        return status.updateNotNull(status);
+    }
+
+    public long getGracePeriod() {
+        if (getTableProperty().getProperties().containsKey(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) {
+            return Long.parseLong(getTableProperty().getProperties().get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD));
+        } else {
+            return 0l;
+        }
     }
 
     public String toSql() {
-        // TODO: 2023/9/21 more info
+        // TODO: 2023/9/21 zd
         StringBuilder builder = new StringBuilder();
         builder.append("CREATE MATERIALIZED VIEW ");
         builder.append(name);
-        builder.append(" ");
-        builder.append(buildMode);
-        builder.append(" REFRESH");
-        builder.append(refreshMethod);
-        builder.append(" ");
-        builder.append(refreshTriggerInfo);
         builder.append(" AS ");
         builder.append(querySql);
         return builder.toString();
@@ -153,13 +124,12 @@ public class MaterializedView extends OlapTable {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         MaterializedView materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
-        buildMode = materializedView.buildMode;
-        refreshMethod = materializedView.refreshMethod;
-        refreshTriggerInfo = materializedView.refreshTriggerInfo;
+        refreshInfo = materializedView.refreshInfo;
         querySql = materializedView.querySql;
-        baseTables = materializedView.baseTables;
         status = materializedView.status;
-        active = materializedView.active;
+        envInfo = materializedView.envInfo;
+        jobInfo = materializedView.jobInfo;
+        Env.getCurrentEnv().getMtmvService().registerMTMV(this);
     }
 
 }

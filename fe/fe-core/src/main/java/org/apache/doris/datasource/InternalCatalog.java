@@ -137,7 +137,6 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
-import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -925,6 +924,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                     db.getId(), table.getId());
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
+            if (table.getType() == TableType.MATERIALIZED_VIEW) {
+                Env.getCurrentEnv().getMtmvService().dropMTMV((MaterializedView) table);
+            }
+            Env.getCurrentEnv().getMtmvService().dropTable(table);
+        } catch (UserException e) {
+            throw new DdlException(e.getMessage());
         } finally {
             db.writeUnlock();
         }
@@ -942,6 +947,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         } else if (table.getType() == TableType.ICEBERG) {
             // drop Iceberg database table creation record
             icebergTableCreationRecordMgr.deregisterTable(db, (IcebergTable) table);
+        } else if (table.getType() == TableType.MATERIALIZED_VIEW) {
+            Env.getCurrentEnv().getMtmvService().deregisterMTMV((MaterializedView) table);
         }
 
         db.dropTable(table.getName());
@@ -951,10 +958,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (table.getType() == TableType.OLAP) {
                 Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, isReplay);
             }
-        }
-
-        if (table instanceof MaterializedView) {
-            MTMVJobManager.dropMTMV((MaterializedView) table);
         }
         LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
         return true;
@@ -2600,7 +2603,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         if (olapTable instanceof MaterializedView) {
-            MTMVJobManager.createMTMV((MaterializedView) olapTable);
+            Env.getCurrentEnv().getMtmvService().createMTMV((MaterializedView) olapTable);
         }
     }
 

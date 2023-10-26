@@ -33,6 +33,7 @@ import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryDetail;
@@ -536,31 +537,8 @@ public class MetadataGenerator {
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setLongVal(mv.getId()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getName()));
-                trow.addToColumnValue(new TCell().setBoolVal(mv.isActive()));
-                if (status != null) {
-                    trow.addToColumnValue(
-                            new TCell().setStringVal(TimeUtils.longToTimeString(status.getLastRefreshStartTime())));
-                    trow.addToColumnValue(
-                            new TCell().setStringVal(TimeUtils.longToTimeString(status.getLastRefreshFinishedTime())));
-                    trow.addToColumnValue(
-                            new TCell().setLongVal(
-                                    status.getLastRefreshFinishedTime() - status.getLastRefreshStartTime()));
-                    trow.addToColumnValue(
-                            new TCell().setStringVal(status.isLastRefreshState() ? "success" : "fail"));
-                    trow.addToColumnValue(
-                            new TCell().setStringVal(status.getLastRefreshErrorMsg()));
-                    trow.addToColumnValue(
-                            new TCell().setStringVal(status.getLastExecutorSql()));
-                    trow.addToColumnValue(new TCell().setLongVal(status.getLastRefreshJobId()));
-                } else {
-                    trow.addToColumnValue(new TCell().setStringVal("NULL"));
-                    trow.addToColumnValue(new TCell().setStringVal("NULL"));
-                    trow.addToColumnValue(new TCell().setLongVal(0L));
-                    trow.addToColumnValue(new TCell().setStringVal("NULL"));
-                    trow.addToColumnValue(new TCell().setStringVal("NULL"));
-                    trow.addToColumnValue(new TCell().setStringVal("NULL"));
-                    trow.addToColumnValue(new TCell().setLongVal(0L));
-                }
+                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mv.getStatus())));
+                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mv.getJobInfo())));
                 trow.addToColumnValue(new TCell().setStringVal(mv.toSql()));
                 dataBatch.add(trow);
             }

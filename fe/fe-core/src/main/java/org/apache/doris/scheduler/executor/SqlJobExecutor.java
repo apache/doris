@@ -79,7 +79,7 @@ public class SqlJobExecutor implements JobExecutor {
             return new ExecutorResult<>(null, false, e.getMessage(), sql);
         }
         long lastRefreshFinishedTime = System.currentTimeMillis();
-        afterExecute(executorResult, taskStartTime, lastRefreshFinishedTime, job.getJobId());
+        afterExecute(executorResult, taskStartTime, lastRefreshFinishedTime, taskIdString);
         return executorResult;
     }
 
@@ -96,6 +96,6 @@ public class SqlJobExecutor implements JobExecutor {
                 + ctx.getState().getWarningRows() + ",infoMsg" + ctx.getState().getInfoMessage();
     }
 
-    protected void afterExecute(ExecutorResult result, long taskStartTime, long lastRefreshFinishedTime, long jobId) {
+    protected void afterExecute(ExecutorResult result, long taskStartTime, long lastRefreshFinishedTime, String taskId) {
     }
 }

@@ -19,53 +19,37 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.BuildMode;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshMethod;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshTriggerInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.EnvInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshInfo;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
-    private final BuildMode buildMode;
-    private final RefreshMethod refreshMethod;
-    private final MVRefreshTriggerInfo refreshTriggerInfo;
+    private final MTMVRefreshInfo refreshInfo;
     private final String querySql;
-    private final List<TableIf> baseTables;
+    private final EnvInfo envInfo;
 
     public CreateMultiTableMaterializedViewStmt(boolean ifNotExists, TableName mvName, List<Column> columns,
-            BuildMode buildMode,
-            RefreshMethod refreshMethod, KeysDesc keyDesc, DistributionDesc distributionDesc,
-            Map<String, String> properties, String querySql, MVRefreshTriggerInfo refreshTriggerInfo,
-            List<TableIf> baseTables, String comment) {
+            MTMVRefreshInfo refreshInfo, KeysDesc keyDesc, DistributionDesc distributionDesc,
+            Map<String, String> properties, String querySql, String comment, EnvInfo envInfo) {
         super(ifNotExists, false, mvName, columns, new ArrayList<Index>(), DEFAULT_ENGINE_NAME, keyDesc, null,
                 distributionDesc, properties, null, comment, null, null);
-        this.buildMode = buildMode;
+        this.refreshInfo = refreshInfo;
         this.querySql = querySql;
-        this.refreshTriggerInfo = refreshTriggerInfo;
-        this.refreshMethod = refreshMethod;
-        this.baseTables = baseTables;
+        this.envInfo = envInfo;
     }
 
-    public BuildMode getBuildMode() {
-        return buildMode;
-    }
-
-    public RefreshMethod getRefreshMethod() {
-        return refreshMethod;
-    }
-
-    public MVRefreshTriggerInfo getRefreshTriggerInfo() {
-        return refreshTriggerInfo;
+    public MTMVRefreshInfo getRefreshInfo() {
+        return refreshInfo;
     }
 
     public String getQuerySql() {
         return querySql;
     }
 
-    public List<TableIf> getBaseTables() {
-        return baseTables;
+    public EnvInfo getEnvInfo() {
+        return envInfo;
     }
 }

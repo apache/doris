@@ -25,10 +25,12 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.BuildMode;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshTrigger;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshSchedule;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshEnum.BuildMode;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshSchedule;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.job.Job;
@@ -38,25 +40,21 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.List;
 import java.util.UUID;
 
-public class MTMVJobManager {
+public class MTMVJobManager implements MTMVHookService {
+    public final static String MTMV_JOB_PREFIX = "mtmv_";
 
-    public static void refreshMTMV(TableNameInfo mvName) throws DdlException, MetaNotFoundException {
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
-        MaterializedView mv = (MaterializedView) db
-                .getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
-        createOnceJob(mv);
-    }
-
-    public static void createMTMV(MaterializedView materializedView) throws DdlException {
-        if (materializedView.getRefreshTriggerInfo().getRefreshTrigger().equals(RefreshTrigger.SCHEDULE)) {
+    @Override
+    public void createMTMV(MaterializedView materializedView) throws DdlException {
+        if (materializedView.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger()
+                .equals(RefreshTrigger.SCHEDULE)) {
             createCycleJob(materializedView);
-        } else if (materializedView.getBuildMode().equals(BuildMode.IMMEDIATE)) {
+        } else if (materializedView.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
             createOnceJob(materializedView);
         }
 
     }
 
-    private static void createOnceJob(MaterializedView materializedView) throws DdlException {
+    private void createOnceJob(MaterializedView materializedView) throws DdlException {
         String uid = UUID.randomUUID().toString().replace("-", "_");
         Job job = new Job();
         job.setCycleJob(false);
@@ -71,7 +69,7 @@ public class MTMVJobManager {
         Env.getCurrentEnv().getJobRegister().registerJob(job);
     }
 
-    private static void createCycleJob(MaterializedView materializedView) throws DdlException {
+    private void createCycleJob(MaterializedView materializedView) throws DdlException {
         String uid = UUID.randomUUID().toString().replace("-", "_");
         Job job = new Job();
         job.setCycleJob(true);
@@ -79,12 +77,13 @@ public class MTMVJobManager {
         job.setDbName(ConnectContext.get().getDatabase());
         job.setJobName(materializedView.getName() + "_" + uid);
         job.setExecutor(generateJobExecutor(materializedView));
-        MVRefreshSchedule intervalTrigger = materializedView.getRefreshTriggerInfo().getIntervalTrigger();
+        MTMVRefreshSchedule intervalTrigger = materializedView.getRefreshInfo().getRefreshTriggerInfo()
+                .getIntervalTrigger();
         job.setIntervalUnit(intervalTrigger.getTimeUnit());
         job.setOriginInterval(intervalTrigger.getInterval());
-        if (materializedView.getBuildMode().equals(BuildMode.IMMEDIATE)) {
+        if (materializedView.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
             job.setImmediatelyStart(true);
-        } else if (materializedView.getBuildMode().equals(BuildMode.DEFERRED) && !StringUtils
+        } else if (materializedView.getRefreshInfo().getBuildMode().equals(BuildMode.DEFERRED) && !StringUtils
                 .isEmpty(intervalTrigger.getStartTime())) {
             job.setStartTimeMs(TimeUtils.timeStringToLong(intervalTrigger.getStartTime()));
         }
@@ -94,7 +93,8 @@ public class MTMVJobManager {
         Env.getCurrentEnv().getJobRegister().registerJob(job);
     }
 
-    public static void dropMTMV(MaterializedView table) {
+    @Override
+    public void dropMTMV(MaterializedView table) {
         List<Job> jobs = Env.getCurrentEnv().getJobRegister()
                 .getJobs(table.getQualifiedDbName(), null, JobCategory.MTMV, null);
         for (Job job : jobs) {
@@ -103,6 +103,33 @@ public class MTMVJobManager {
                 Env.getCurrentEnv().getJobRegister().stopJob(job.getJobId());
             }
         }
+    }
+
+    @Override
+    public void registerMTMV(MaterializedView materializedView) {
+
+    }
+
+    @Override
+    public void deregisterMTMV(MaterializedView materializedView) {
+
+    }
+
+    @Override
+    public void alterMTMV(MaterializedView materializedView, AlterMTMV alterMTMV) throws DdlException {
+        if (alterMTMV.isNeedRebuildJob()) {
+            dropMTMV(materializedView);
+            createMTMV(materializedView);
+        }
+    }
+
+    @Override
+    public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
+        TableNameInfo mvName = info.getMvName();
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
+        MaterializedView mv = (MaterializedView) db
+                .getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
+        createOnceJob(mv);
     }
 
     private static String generateSql(MaterializedView materializedView) {
@@ -118,13 +145,9 @@ public class MTMVJobManager {
         return builder.toString();
     }
 
-    private static MTMVJobExecutor generateJobExecutor(MaterializedView materializedView) {
+    private MTMVJobExecutor generateJobExecutor(MaterializedView materializedView) {
         return new MTMVJobExecutor(materializedView.getQualifiedDbName(), materializedView.getName(),
                 generateSql(materializedView));
     }
 
-    public static void alterMTMV(MaterializedView materializedView) throws DdlException {
-        dropMTMV(materializedView);
-        createMTMV(materializedView);
-    }
 }

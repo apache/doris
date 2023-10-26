@@ -17,42 +17,42 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Objects;
 
 /**
- * MTMV info in alter MTMV.
+ * rename
  */
-public abstract class AlterMTMVInfo {
-    protected final TableNameInfo mvName;
+public class AlterMTMVRenameInfo extends AlterMTMVInfo {
+    private final String newName;
 
     /**
      * constructor for alter MTMV
+     *
+     * @param mvName
+     * @param newName
      */
-    public AlterMTMVInfo(TableNameInfo mvName) {
-        this.mvName = Objects.requireNonNull(mvName, "require mvName object");
+    public AlterMTMVRenameInfo(TableNameInfo mvName, String newName) {
+        super(mvName);
+        this.newName = Objects.requireNonNull(newName, "require newName object");
     }
 
-    /**
-     * analyze alter table info
-     */
-    public void analyze(ConnectContext ctx) throws org.apache.doris.common.AnalysisException {
-        mvName.analyze(ctx);
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getDb(),
-                mvName.getTbl(), PrivPredicate.ALTER)) {
-            throw new AnalysisException("Access denied");
-        }
+    public void analyze(ConnectContext ctx) throws AnalysisException {
+        super.analyze(ctx);
+        FeNameFormat.checkTableName(newName);
     }
 
-    public abstract void run() throws UserException;
-
-    public TableNameInfo getMvName() {
-        return mvName;
+    @Override
+    public void run() throws DdlException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
+        Table table = db.getTableOrDdlException(mvName.getTbl());
+        Env.getCurrentEnv().renameTable(db, table, newName);
     }
-
 }

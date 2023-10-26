@@ -48,14 +48,8 @@ public class MaterializedViewsTableValuedFunction extends MetadataTableValuedFun
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)),
             new Column("Name", ScalarType.createStringType()),
-            new Column("IsActive", ScalarType.createType(PrimitiveType.BOOLEAN)),
-            new Column("LastRefreshStartTime", ScalarType.createStringType()),
-            new Column("LastRefreshFinishedTime", ScalarType.createStringType()),
-            new Column("LastRefreshDuration(ms)", ScalarType.createType(PrimitiveType.BIGINT)),
-            new Column("LastRefreshState", ScalarType.createStringType()),
-            new Column("LastRefreshErrorMsg", ScalarType.createStringType()),
-            new Column("LastExecutorSql", ScalarType.createStringType()),
-            new Column("LastRefreshJobId", ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column("Status", ScalarType.createStringType()),
+            new Column("JobInfo", ScalarType.createStringType()),
             new Column("Definition", ScalarType.createStringType()));
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;

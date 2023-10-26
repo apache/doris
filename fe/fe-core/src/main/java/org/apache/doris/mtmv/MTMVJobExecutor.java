@@ -17,9 +17,7 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVTaskResult;
 import org.apache.doris.scheduler.executor.SqlJobExecutor;
 import org.apache.doris.scheduler.job.ExecutorResult;
 
@@ -49,12 +47,12 @@ public class MTMVJobExecutor extends SqlJobExecutor {
     }
 
     @Override
-    protected void afterExecute(ExecutorResult result, long taskStartTime, long lastRefreshFinishedTime, long jobId) {
+    protected void afterExecute(ExecutorResult result, long taskStartTime, long lastRefreshFinishedTime, String taskId) {
         try {
-            MTMVStatus mtmvStatus = new MTMVStatus(result.getErrorMsg(), result.getExecutorSql(), result.isSuccess(),
-                    taskStartTime, lastRefreshFinishedTime, jobId);
-            Env.getCurrentEnv().alterMTMVStatus(new TableNameInfo(dbName, tableName), mtmvStatus);
-        } catch (UserException e) {
+            MTMVTaskResult taskResult = new MTMVTaskResult(result.getErrorMsg(), result.getExecutorSql(), result.isSuccess(),
+                    taskStartTime, lastRefreshFinishedTime, taskId);
+            // Env.getCurrentEnv().alterMTMVStatus(new TableNameInfo(dbName, tableName), taskResult);
+        } catch (Exception e) {
             e.printStackTrace();
             LOG.warn("afterExecute failed: {} ", e.getMessage());
         }

@@ -18,41 +18,40 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Objects;
 
 /**
- * MTMV info in alter MTMV.
+ * rename
  */
-public abstract class AlterMTMVInfo {
-    protected final TableNameInfo mvName;
+public class AlterMTMVRefreshInfo extends AlterMTMVInfo {
+    private final MTMVRefreshInfo refreshInfo;
 
     /**
      * constructor for alter MTMV
+     *
+     * @param mvName
+     * @param refreshInfo
      */
-    public AlterMTMVInfo(TableNameInfo mvName) {
-        this.mvName = Objects.requireNonNull(mvName, "require mvName object");
+    public AlterMTMVRefreshInfo(TableNameInfo mvName,MTMVRefreshInfo refreshInfo) {
+        super(mvName);
+        this.refreshInfo = Objects.requireNonNull(refreshInfo, "require refreshInfo object");
     }
 
-    /**
-     * analyze alter table info
-     */
-    public void analyze(ConnectContext ctx) throws org.apache.doris.common.AnalysisException {
-        mvName.analyze(ctx);
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getDb(),
-                mvName.getTbl(), PrivPredicate.ALTER)) {
-            throw new AnalysisException("Access denied");
-        }
+    public void analyze(ConnectContext ctx) throws AnalysisException {
+        super.analyze(ctx);
+        refreshInfo.validate();
     }
 
-    public abstract void run() throws UserException;
-
-    public TableNameInfo getMvName() {
-        return mvName;
+    @Override
+    public void run() throws UserException {
+         Env.getCurrentEnv().alterMTMVRefreshInfo(this);
     }
 
+    public MTMVRefreshInfo getRefreshInfo() {
+        return refreshInfo;
+    }
 }

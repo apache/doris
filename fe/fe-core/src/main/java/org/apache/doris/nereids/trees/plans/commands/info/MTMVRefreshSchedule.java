@@ -29,7 +29,7 @@ import java.util.Objects;
 /**
  * refresh schedule in mtmv
  */
-public class MVRefreshSchedule {
+public class MTMVRefreshSchedule {
     @SerializedName("st")
     private String startTime;
     @SerializedName("i")
@@ -38,10 +38,10 @@ public class MVRefreshSchedule {
     private IntervalUnit timeUnit;
 
     // For deserialization
-    public MVRefreshSchedule() {
+    public MTMVRefreshSchedule() {
     }
 
-    public MVRefreshSchedule(String startTime, int interval, IntervalUnit timeUnit) {
+    public MTMVRefreshSchedule(String startTime, int interval, IntervalUnit timeUnit) {
         this.startTime = startTime;
         this.interval = Objects.requireNonNull(interval, "require interval object");
         this.timeUnit = Objects.requireNonNull(timeUnit, "require timeUnit object");

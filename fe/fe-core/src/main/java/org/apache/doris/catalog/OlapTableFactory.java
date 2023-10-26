@@ -21,10 +21,8 @@ import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.BuildMode;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshMethod;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshTriggerInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.EnvInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshInfo;
 
 import com.google.common.base.Preconditions;
 
@@ -46,11 +44,9 @@ public class OlapTableFactory {
     }
 
     public static class MaterializedViewParams extends BuildParams {
-        public MVRefreshInfo.BuildMode buildMode;
-        public RefreshMethod refreshMethod;
-        public MVRefreshTriggerInfo refreshTriggerInfo;
+        public MTMVRefreshInfo refreshInfo;
+        public EnvInfo envInfo;
         public String querySql;
-        public List<TableIf> baseTables;
     }
 
     private BuildParams params;
@@ -140,33 +136,19 @@ public class OlapTableFactory {
         return this;
     }
 
-    private OlapTableFactory withBuildMode(BuildMode buildMode) {
-        MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
-        materializedViewParams.buildMode = buildMode;
-        return this;
-    }
-
-    public OlapTableFactory withRefreshMethod(RefreshMethod refreshMethod) {
+    private OlapTableFactory withRefreshInfo(MTMVRefreshInfo refreshInfo) {
         Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
                 + params.getClass().getSimpleName());
         MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
-        materializedViewParams.refreshMethod = refreshMethod;
+        materializedViewParams.refreshInfo = refreshInfo;
         return this;
     }
 
-    public OlapTableFactory withMVRefreshTriggerInfo(MVRefreshTriggerInfo refreshTriggerInfo) {
+    private OlapTableFactory withEnvInfo(EnvInfo envInfo) {
         Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
                 + params.getClass().getSimpleName());
         MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
-        materializedViewParams.refreshTriggerInfo = refreshTriggerInfo;
-        return this;
-    }
-
-    public OlapTableFactory withBaseTables(List<TableIf> baseTables) {
-        Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
-                + params.getClass().getSimpleName());
-        MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
-        materializedViewParams.baseTables = baseTables;
+        materializedViewParams.envInfo = envInfo;
         return this;
     }
 
@@ -177,11 +159,9 @@ public class OlapTableFactory {
             return withIndexes(new TableIndexes(createOlapTableStmt.getIndexes()));
         } else {
             CreateMultiTableMaterializedViewStmt createMVStmt = (CreateMultiTableMaterializedViewStmt) stmt;
-            return withBuildMode(createMVStmt.getBuildMode())
-                    .withRefreshMethod(createMVStmt.getRefreshMethod())
+            return withRefreshInfo(createMVStmt.getRefreshInfo())
                     .withQuerySql(createMVStmt.getQuerySql())
-                    .withMVRefreshTriggerInfo(createMVStmt.getRefreshTriggerInfo())
-                    .withBaseTables(createMVStmt.getBaseTables());
+                    .withEnvInfo(createMVStmt.getEnvInfo());
         }
     }
 }

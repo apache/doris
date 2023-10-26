@@ -20,6 +20,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
@@ -137,6 +138,14 @@ public class TableNameInfo implements Writable {
      */
     public String getTbl() {
         return tbl;
+    }
+
+    /**
+     * transferToTableName
+     * @return TableName
+     */
+    public TableName transferToTableName() {
+        return new TableName(ctl, db, tbl);
     }
 
     @Override

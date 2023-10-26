@@ -64,7 +64,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
@@ -127,7 +126,7 @@ public class Alter {
 
     public void processCreateMultiTableMaterializedView(CreateMultiTableMaterializedViewStmt stmt)
             throws UserException {
-        ((MaterializedViewHandler) materializedViewHandler).processCreateMultiTablesMaterializedView(stmt);
+        Env.getCurrentEnv().createTable(stmt);
     }
 
     public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
@@ -155,7 +154,7 @@ public class Alter {
 
     public void processRefreshMaterializedView(RefreshMTMVInfo info)
             throws DdlException, MetaNotFoundException {
-        MTMVJobManager.refreshMTMV(info.getMvName());
+        Env.getCurrentEnv().getMtmvService().refreshMTMV(info);
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
@@ -217,6 +216,7 @@ public class Alter {
         } else if (currentAlterOps.hasSchemaChangeOp()) {
             // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
             schemaChangeHandler.process(stmt.toSql(), alterClauses, clusterName, db, olapTable);
+            Env.getCurrentEnv().getMtmvService().alterTable(olapTable);
         } else if (currentAlterOps.hasRollupOp()) {
             materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
         } else if (currentAlterOps.hasPartitionOp()) {
@@ -272,6 +272,7 @@ public class Alter {
             }
         } else if (currentAlterOps.hasRenameOp()) {
             processRename(db, olapTable, alterClauses);
+            Env.getCurrentEnv().getMtmvService().alterTable(olapTable);
         } else if (currentAlterOps.hasReplaceTableOp()) {
             processReplaceTable(db, olapTable, alterClauses);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_PROPERTY_SYNC)) {
@@ -901,23 +902,15 @@ public class Alter {
             mtmv = (MaterializedView) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
 
             mtmv.writeLock();
-            if (alterMTMV.getBuildMode() != null) {
-                mtmv.setBuildMode(alterMTMV.getBuildMode());
+            if (alterMTMV.getRefreshInfo() != null) {
+                mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
+            } else if (alterMTMV.getStatus() != null) {
+                mtmv.alterStatus(alterMTMV.getStatus());
             }
-            if (alterMTMV.getRefreshMethod() != null) {
-                mtmv.setRefreshMethod(alterMTMV.getRefreshMethod());
-            }
-            if (alterMTMV.getRefreshTriggerInfo() != null) {
-                mtmv.setRefreshTriggerInfo(alterMTMV.getRefreshTriggerInfo());
-            }
-            if (alterMTMV.getStatus() != null) {
-                mtmv.setStatus(alterMTMV.getStatus());
-            }
+
             // 4. log it and replay it in the follower
             if (!isReplay) {
-                if (alterMTMV.isNeedRebuildJob()) {
-                    MTMVJobManager.alterMTMV(mtmv);
-                }
+                Env.getCurrentEnv().getMtmvService().alterMTMV(mtmv, alterMTMV);
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
             }
         } finally {

@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 /**
- * refresh info in mtmv
+ * refresh enum
  */
-public class MVRefreshInfo {
+public class MTMVRefreshEnum {
 
     /**
      * RefreshMethod
@@ -43,5 +43,24 @@ public class MVRefreshInfo {
     public enum RefreshTrigger {
         MANUAL, //manual
         SCHEDULE // schedule
+    }
+
+    /**
+     * MTMVState
+     */
+    public enum MTMVState {
+        INIT,
+        NORMAL,
+        SCHEMA_CHANGE
+    }
+
+    /**
+     * MTMVRefreshState
+     */
+    public enum MTMVRefreshState {
+        INIT,
+        REFRESHING,
+        FAIL,
+        SUCCESS
     }
 }

@@ -17,21 +17,44 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.cluster.ClusterNamespace;
+
+import com.google.common.base.Objects;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 
 @Data
 public class BaseTableInfo {
-    @SerializedName("t")
-    private long tableId;
-    @SerializedName("d")
-    private long dbId;
-    @SerializedName("c")
-    private long ctlId;
+    @SerializedName("tn")
+    private String tableName;
+    @SerializedName("dn")
+    private String dbName;
+    @SerializedName("cn")
+    private String ctlName;
 
-    public BaseTableInfo(long tableId, long dbId, long ctlId) {
-        this.tableId = tableId;
-        this.dbId = dbId;
-        this.ctlId = ctlId;
+    public BaseTableInfo(String tableName, String dbName, String ctlName) {
+        this.tableName = java.util.Objects.requireNonNull(tableName, "require tableName object");
+        this.dbName = ClusterNamespace
+                .getNameFromFullName(java.util.Objects.requireNonNull(dbName, "require dbName object"));
+        this.ctlName = java.util.Objects.requireNonNull(ctlName, "require ctlName object");
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        BaseTableInfo that = (BaseTableInfo) o;
+        return Objects.equal(tableName, that.tableName) &&
+                Objects.equal(dbName, that.dbName) &&
+                Objects.equal(ctlName, that.ctlName);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(tableName, dbName, ctlName);
     }
 }

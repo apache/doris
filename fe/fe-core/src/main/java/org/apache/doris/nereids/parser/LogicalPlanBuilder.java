@@ -312,6 +312,9 @@ import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRenameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
@@ -323,11 +326,12 @@ import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.BuildMode;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshMethod;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshInfo.RefreshTrigger;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshSchedule;
-import org.apache.doris.nereids.trees.plans.commands.info.MVRefreshTriggerInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshEnum.BuildMode;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshSchedule;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshTriggerInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.MaxValue;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
@@ -455,21 +459,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public CreateMTMVCommand visitCreateMTMV(CreateMTMVContext ctx) {
-        String dbName = null;
-        String tableName;
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
-        if (nameParts.size() == 1) {
-            tableName = nameParts.get(0);
-        } else if (nameParts.size() == 2) {
-            dbName = nameParts.get(0);
-            tableName = nameParts.get(1);
-        } else {
-            throw new AnalysisException("nameParts in create table should be 1 or 2");
-        }
 
         BuildMode buildMode = visitBuildMode(ctx.buildMode());
         RefreshMethod refreshMethod = visitRefreshMethod(ctx.refreshMethod());
-        MVRefreshTriggerInfo refreshTriggerInfo = visitRefreshTrigger(ctx.refreshTrigger());
+        MTMVRefreshTriggerInfo refreshTriggerInfo = visitRefreshTrigger(ctx.refreshTrigger());
         LogicalPlan logicalPlan = visitQuery(ctx.query());
         String querySql = getOriginSql(ctx.query());
 
@@ -483,11 +477,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : null;
 
-        return new CreateMTMVCommand(new CreateMTMVInfo(ctx.EXISTS() != null, dbName, tableName,
+        return new CreateMTMVCommand(new CreateMTMVInfo(ctx.EXISTS() != null, new TableNameInfo(nameParts),
                 ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
                 ctx.STRING_LITERAL() != null ? ctx.STRING_LITERAL().getText() : null,
-                desc, properties, logicalPlan, querySql, buildMode, refreshMethod,
-                refreshTriggerInfo, visitSimpleColumnDefs(ctx.cols)
+                desc, properties, logicalPlan, querySql,
+                new MTMVRefreshInfo(buildMode, refreshMethod, refreshTriggerInfo),
+                visitSimpleColumnDefs(ctx.cols)
         ));
     }
 
@@ -521,23 +516,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public MVRefreshTriggerInfo visitRefreshTrigger(RefreshTriggerContext ctx) {
+    public MTMVRefreshTriggerInfo visitRefreshTrigger(RefreshTriggerContext ctx) {
         if (ctx.MANUAL() != null) {
-            return new MVRefreshTriggerInfo(RefreshTrigger.MANUAL);
+            return new MTMVRefreshTriggerInfo(RefreshTrigger.MANUAL);
         }
         if (ctx.SCHEDULE() != null) {
-            return new MVRefreshTriggerInfo(RefreshTrigger.SCHEDULE, visitRefreshSchedule(ctx.refreshSchedule()));
+            return new MTMVRefreshTriggerInfo(RefreshTrigger.SCHEDULE, visitRefreshSchedule(ctx.refreshSchedule()));
         }
-        throw new ParseException("not support", ctx);
+        return new MTMVRefreshTriggerInfo(RefreshTrigger.MANUAL);
     }
 
     @Override
-    public MVRefreshSchedule visitRefreshSchedule(RefreshScheduleContext ctx) {
+    public MTMVRefreshSchedule visitRefreshSchedule(RefreshScheduleContext ctx) {
         int interval = Integer.parseInt(ctx.INTEGER_VALUE().getText());
         String startTime = ctx.STARTS() == null ? null
                 : ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
         IntervalUnit unit = visitMvRefreshUnit(ctx.mvRefreshUnit());
-        return new MVRefreshSchedule(startTime, interval, unit);
+        return new MTMVRefreshSchedule(startTime, interval, unit);
     }
 
     @Override
@@ -547,6 +542,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public RefreshMethod visitRefreshMethod(RefreshMethodContext ctx) {
+        if (ctx == null) {
+            return RefreshMethod.COMPLETE;
+        }
         return RefreshMethod.valueOf(ctx.getText().toUpperCase());
     }
 
@@ -557,7 +555,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.IMMEDIATE() != null) {
             return BuildMode.IMMEDIATE;
         }
-        throw new ParseException("not support", ctx);
+        return BuildMode.IMMEDIATE;
     }
 
     @Override
@@ -569,13 +567,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public AlterMTMVCommand visitAlterMTMV(AlterMTMVContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
-
-        BuildMode buildMode = visitBuildMode(ctx.buildMode());
-        RefreshMethod refreshMethod = visitRefreshMethod(ctx.refreshMethod());
-        MVRefreshTriggerInfo refreshTriggerInfo = visitRefreshTrigger(ctx.refreshTrigger());
-        //todo originSql
-        return new AlterMTMVCommand(
-                new AlterMTMVInfo(new TableNameInfo(nameParts), buildMode, refreshMethod, refreshTriggerInfo));
+        TableNameInfo mvName = new TableNameInfo(nameParts);
+        AlterMTMVInfo alterMTMVInfo = null;
+        if (ctx.RENAME() != null) {
+            alterMTMVInfo = new AlterMTMVRenameInfo(mvName, ctx.newName.getText());
+        } else if (ctx.REFRESH() != null) {
+            MTMVRefreshInfo refreshInfo = new MTMVRefreshInfo();
+            if (ctx.refreshMethod() != null) {
+                refreshInfo.setRefreshMethod(visitRefreshMethod(ctx.refreshMethod()));
+            }
+            if (ctx.refreshTrigger() != null) {
+                refreshInfo.setRefreshTriggerInfo(visitRefreshTrigger(ctx.refreshTrigger()));
+            }
+            alterMTMVInfo = new AlterMTMVRefreshInfo(mvName, refreshInfo);
+        } else if (ctx.SET() != null) {
+            alterMTMVInfo = new AlterMTMVPropertyInfo(mvName,
+                    Maps.newHashMap(visitPropertyItemList(ctx.fileProperties)));
+        }
+        return new AlterMTMVCommand(alterMTMVInfo);
     }
 
     @Override
