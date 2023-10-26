@@ -130,8 +130,10 @@ public class Column implements Writable, GsonPostProcessable {
 
     private boolean isCompoundKey = false;
 
+    @SerializedName(value = "hasOnUpdateDefaultValue")
     private boolean hasOnUpdateDefaultValue = false;
 
+    @SerializedName(value = "onUpdateDefaultValueExprDef")
     private DefaultValueExprDef onUpdateDefaultValueExprDef;
 
     public Column() {
