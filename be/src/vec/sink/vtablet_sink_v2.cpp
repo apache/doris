@@ -288,20 +288,28 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     _row_distribution_watch.start();
     const auto num_rows = input_rows;
     const auto* __restrict filter_map = _block_convertor->filter_map();
-    for (int i = 0; i < num_rows; ++i) {
-        if (UNLIKELY(has_filtered_rows) && filter_map[i]) {
-            continue;
+
+    //reuse vars
+    _partitions.assign(num_rows, nullptr);
+    _skip.assign(num_rows, false);
+    _tablet_indexes.assign(num_rows, 0);
+
+    RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block.get(), num_rows, _partitions,
+                                                 _tablet_indexes, stop_processing, _skip));
+
+    if (has_filtered_rows) {
+        for (int i = 0; i < num_rows; i++) {
+            _skip[i] = _skip[i] || filter_map[i];
         }
-        const VOlapTablePartition* partition = nullptr;
-        bool is_continue = false;
-        uint32_t tablet_index = 0;
-        RETURN_IF_ERROR(_tablet_finder->find_tablet(state, block.get(), i, &partition, tablet_index,
-                                                    stop_processing, is_continue));
-        if (is_continue) {
-            continue;
-        }
-        _generate_rows_for_tablet(rows_for_tablet, partition, tablet_index, i);
     }
+
+    for (int i = 0; i < num_rows; ++i) {
+        if (_skip[i]) {
+            continue;
+        }
+        _generate_rows_for_tablet(rows_for_tablet, _partitions[i], _tablet_indexes[i], i);
+    }
+
     _row_distribution_watch.stop();
 
     // For each tablet, send its input_rows from block to delta writer
