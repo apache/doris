@@ -150,7 +150,8 @@ class DBManager(object):
             is_master = utils.is_true(is_master)
             alive = utils.is_true(alive)
             id = CLUSTER.Node.get_id_from_ip(ip)
-            query_port = query_ports.get(id, None)
+            query_port = query_ports.get(id, "")
+            last_heartbeat = utils.escape_null(last_heartbeat)
             fe = FEState(id, query_port, is_master, alive, last_heartbeat,
                          err_msg)
             fe_states[id] = fe

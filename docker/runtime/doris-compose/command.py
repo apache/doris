@@ -18,6 +18,7 @@
 import argparse
 import cluster as CLUSTER
 import database
+import dateutil.parser
 import utils
 import os
 import os.path
@@ -78,15 +79,15 @@ class Command(object):
         parser.add_argument("--output-json",
                             default=False,
                             action=self._get_parser_bool_action(True),
-                            help="output as json, and don't print log")
+                            help="output as json, and don't print log.")
 
     def _add_parser_ids_args(self, parser):
         group = parser.add_argument_group("for existing nodes",
                                           "apply to the existing nodes.")
         group.add_argument("--fe-id", nargs="*", type=int, help="Specify up fe ids, support multiple ids, " \
-                "if specific --fe-id but not specific ids, apply to all fe.")
+                "if specific --fe-id but not specific ids, apply to all fe. Example: '--fe-id 2 3' will select fe-2 and fe-3.")
         group.add_argument("--be-id", nargs="*", type=int, help="Specify up be ids, support multiple ids, " \
-                "if specific --be but not specific ids, apply to all be.")
+                "if specific --be-id but not specific ids, apply to all be. Example: '--be-id' will select all backends.")
 
     def _get_parser_bool_action(self, is_store_true):
         if sys.version_info.major == 3 and sys.version_info.minor >= 9:
@@ -140,7 +141,8 @@ class UpCommand(Command):
             type=int,
             default=0,
             help=
-            "Specify wait seconds for upping: 0(default) not wait, > 0 max wait seconds, -1 wait unlimited."
+            "Specify wait seconds for fe/be ready for service: 0 not wait (default), "\
+            "> 0 max wait seconds, -1 wait unlimited."
         )
 
         self._add_parser_output_json(parser)
@@ -150,19 +152,25 @@ class UpCommand(Command):
         group1.add_argument(
             "--add-fe-num",
             type=int,
-            help="Specify add fe num, default 3 for a new cluster.")
+            help=
+            "Specify add fe num, default: 3 for a new cluster, 0 for a existing cluster."
+        )
         group1.add_argument(
             "--add-be-num",
             type=int,
-            help="Specify add be num, default 3 for a new cluster.")
+            help=
+            "Specify add be num, default: 3 for a new cluster, 0 for a existing cluster."
+        )
         group1.add_argument("--fe-config",
                             nargs="*",
                             type=str,
-                            help="Specify fe configs.")
+                            help="Specify fe configs for fe.conf. "\
+                                "Example: --fe-config \"enable_debug_points = true\" \"sys_log_level = ERROR\".")
         group1.add_argument("--be-config",
                             nargs="*",
                             type=str,
-                            help="Specify be configs.")
+                            help="Specify be configs for be.conf. "\
+                                    "Example: --be-config \"enable_debug_points = true\" \"enable_auth = true\".")
         group1.add_argument("--be-disk-num",
                             default=None,
                             type=int,
@@ -172,10 +180,11 @@ class UpCommand(Command):
 
         group2 = parser.add_mutually_exclusive_group()
         group2.add_argument(
-            "--no-start",
-            default=False,
-            action=self._get_parser_bool_action(True),
-            help="Not start containers, create or update config image only.")
+            "--start",
+            default=True,
+            action=self._get_parser_bool_action(False),
+            help="Start containers, default is true. If specific --no-start, "\
+            "will create or update config image only but not start containers.")
         group2.add_argument("--force-recreate",
                            default=False,
                            action=self._get_parser_bool_action(True),
@@ -236,7 +245,7 @@ class UpCommand(Command):
         cluster.save()
 
         options = []
-        if args.no_start:
+        if not args.start:
             options.append("--no-start")
         else:
             options = ["-d", "--remove-orphans"]
@@ -250,7 +259,7 @@ class UpCommand(Command):
 
         utils.exec_docker_compose_command(cluster.get_compose_file(), "up",
                                           options, related_nodes)
-        if args.no_start:
+        if not args.start:
             LOG.info(
                 utils.render_green(
                     "Not up cluster cause specific --no-start, related node num {}"
@@ -314,7 +323,7 @@ class DownCommand(Command):
             default=False,
             action=self._get_parser_bool_action(True),
             help=
-            "Clean container related files, include expose data, config and logs"
+            "Clean container related files, include expose data, config and logs."
         )
         parser.add_argument(
             "--drop-force",
@@ -469,7 +478,9 @@ class ListCommand(Command):
             "--all",
             default=False,
             action=self._get_parser_bool_action(True),
-            help="Show all stopped and bad doris compose projects")
+            help=
+            "Show all clusters, include stopped and bad doris compose projects."
+        )
         parser.add_argument("--detail",
                             default=False,
                             action=self._get_parser_bool_action(True),
@@ -549,7 +560,7 @@ class ListCommand(Command):
 
         TYPE_COMPOSESERVICE = type(ComposeService("", "", ""))
         if not args.NAME:
-            header = ("CLUSTER", "STATUS", "CONFIG FILES")
+            header = ("CLUSTER", "OWNER", "STATUS", "CONFIG FILES")
             rows = []
             for name in sorted(clusters.keys()):
                 cluster_info = clusters[name]
@@ -565,10 +576,11 @@ class ListCommand(Command):
                 ])
                 if not args.all and service_statuses.get("running", 0) == 0:
                     continue
+                owner = utils.get_path_owner(CLUSTER.get_cluster_path(name))
                 compose_file = CLUSTER.get_compose_file(name)
-                rows.append(
-                    (name, show_status, "{}{}".format(compose_file,
-                                                      cluster_info["status"])))
+                rows.append((name, owner, show_status,
+                             "{}{}".format(compose_file,
+                                           cluster_info["status"])))
             return self._handle_data(header, rows)
 
         header = [
@@ -609,9 +621,9 @@ class ListCommand(Command):
                     node.image = container.image
                     node.status = SERVICE_DEAD
                 else:
-                    node.created = container.attrs.get("Created",
-                                                       "")[:19].replace(
-                                                           "T", " ")
+                    node.created = dateutil.parser.parse(
+                        container.attrs.get("Created")).astimezone().strftime(
+                            "%Y-%m-%d %H:%M:%S")
                     node.ip = list(
                         container.attrs["NetworkSettings"]
                         ["Networks"].values())[0]["IPAMConfig"]["IPv4Address"]
