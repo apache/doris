@@ -1937,10 +1937,9 @@ public class Coordinator implements CoordInterface {
 
                         // disable shared scan optimization if one of conditions below is met:
                         // 1. Use non-pipeline or pipelineX engine
-                        // 2. Number of scan ranges is larger than instances
-                        // 3. This fragment has a colocated scan node
-                        // 4. This fragment has a FileScanNode
-                        // 5. Disable shared scan optimization by session variable
+                        // 2. This fragment has a colocated scan node
+                        // 3. This fragment has a FileScanNode
+                        // 4. Disable shared scan optimization by session variable
                         if (!enablePipelineEngine || (node.isPresent() && node.get().getShouldColoScan())
                                 || (node.isPresent() && node.get() instanceof FileScanNode)
                                 || (node.isPresent() && node.get().shouldDisableSharedScan(context))
@@ -1950,6 +1949,12 @@ public class Coordinator implements CoordInterface {
                                 //the scan instance num should not larger than the tablets num
                                 expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
                             }
+                            // if have limit and conjunts, only need 1 instance to save cpu and
+                            // mem resource
+                            if (node.isPresent() && node.get().haveLimitAndConjunts()) {
+                                expectedInstanceNum = 1;
+                            }
+
                             perInstanceScanRanges = ListUtil.splitBySize(perNodeScanRanges,
                                     expectedInstanceNum);
                             sharedScanOpts = Collections.nCopies(perInstanceScanRanges.size(), false);
@@ -1957,6 +1962,12 @@ public class Coordinator implements CoordInterface {
                             int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                     leftMostNode.getNumInstances());
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
+                            // if have limit and conjunts, only need 1 instance to save cpu and
+                            // mem resource
+                            if (node.isPresent() && node.get().haveLimitAndConjunts()) {
+                                expectedInstanceNum = 1;
+                            }
+
                             perInstanceScanRanges = Collections.nCopies(expectedInstanceNum, perNodeScanRanges);
                             sharedScanOpts = Collections.nCopies(perInstanceScanRanges.size(), true);
                         }

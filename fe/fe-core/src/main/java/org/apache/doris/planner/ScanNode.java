@@ -667,4 +667,8 @@ public abstract class ScanNode extends PlanNode {
     public boolean shouldDisableSharedScan(ConnectContext context) {
         return isKeySearch() || !context.getSessionVariable().getEnableSharedScan();
     }
+
+    public boolean haveLimitAndConjunts() {
+        return hasLimit() && !conjuncts.isEmpty();
+    }
 }
