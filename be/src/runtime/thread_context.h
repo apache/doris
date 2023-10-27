@@ -293,11 +293,15 @@ static ThreadContext* thread_context() {
         DCHECK(pthread_context_ptr_init);
         DCHECK(thread_context_ptr != nullptr);
         return thread_context_ptr;
-    } else {
-        // in bthread
-        DCHECK(bthread_context != nullptr);
-        return bthread_context;
     }
+    // in bthread
+    if (!bthread_equal(bthread_self(), bthread_id)) {
+        // bthread switching pthread may be very frequent, remember not to use lock or other time-consuming operations.
+        bthread_id = bthread_self();
+        bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
+    }
+    DCHECK(bthread_context != nullptr);
+    return bthread_context;
 }
 
 class ScopeMemCount {
