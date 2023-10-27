@@ -1914,7 +1914,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         DistributionDescriptor desc = new DistributionDescriptor(isHash, ctx.AUTO() != null,
                 bucketNum, ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
         Map<String, String> properties = ctx.propertyClause() != null
-                ? visitPropertyClause(ctx.propertyClause()) : null;
+                // NOTICE: we should not generate immutable map here, because it will be modified when analyzing.
+                ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
         String partitionType = null;
         if (ctx.PARTITION() != null) {
             partitionType = ctx.RANGE() != null ? "RANGE" : "LIST";

@@ -203,7 +203,7 @@ public class CreateTableInfo {
         if (properties != null) {
             try {
                 enableDuplicateWithoutKeysByDefault =
-                        PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(Maps.newHashMap(properties));
+                        PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
@@ -227,25 +227,27 @@ public class CreateTableInfo {
                 }
                 keysType = KeysType.AGG_KEYS;
             } else {
-                int keyLength = 0;
-                for (ColumnDefinition column : columns) {
-                    DataType type = column.getType();
-                    Type catalogType = column.getType().toCatalogDataType();
-                    keyLength += catalogType.getIndexSize();
-                    if (keys.size() >= FeConstants.shortkey_max_column_count
-                            || keyLength > FeConstants.shortkey_maxsize_bytes) {
-                        if (keys.isEmpty() && type.isStringLikeType()) {
-                            keys.add(column.getName());
+                if (!enableDuplicateWithoutKeysByDefault) {
+                    int keyLength = 0;
+                    for (ColumnDefinition column : columns) {
+                        DataType type = column.getType();
+                        Type catalogType = column.getType().toCatalogDataType();
+                        keyLength += catalogType.getIndexSize();
+                        if (keys.size() >= FeConstants.shortkey_max_column_count
+                                || keyLength > FeConstants.shortkey_maxsize_bytes) {
+                            if (keys.isEmpty() && type.isStringLikeType()) {
+                                keys.add(column.getName());
+                            }
+                            break;
                         }
-                        break;
-                    }
-                    if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
-                            || catalogType.isComplexType()) {
-                        break;
-                    }
-                    keys.add(column.getName());
-                    if (type.isVarcharType()) {
-                        break;
+                        if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
+                                || catalogType.isComplexType()) {
+                            break;
+                        }
+                        keys.add(column.getName());
+                        if (type.isVarcharType()) {
+                            break;
+                        }
                     }
                 }
                 keysType = KeysType.DUP_KEYS;
@@ -253,7 +255,7 @@ public class CreateTableInfo {
             // The OLAP table must have at least one short key,
             // and the float and double should not be short key,
             // so the float and double could not be the first column in OLAP table.
-            if (keys.isEmpty()) {
+            if (keys.isEmpty() && (keysType != KeysType.DUP_KEYS || !enableDuplicateWithoutKeysByDefault)) {
                 throw new AnalysisException("The olap table first column could not be float, double, string"
                         + " or array, struct, map, please use decimal or varchar instead.");
             }
