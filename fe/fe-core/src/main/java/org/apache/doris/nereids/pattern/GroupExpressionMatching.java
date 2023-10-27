@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -150,8 +149,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                 }
             }
 
-            List<Plan> matchingChildren = new ArrayList<>();
-            new GroupMatching(childPattern, childGroup).forEach(matchingChildren::add);
+            List<Plan> matchingChildren = GroupMatching.getAllMatchingPlans(childPattern, childGroup);
             return matchingChildren;
         }
 
