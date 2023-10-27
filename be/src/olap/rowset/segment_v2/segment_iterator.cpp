@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/segment_iterator.h"
 
 #include <assert.h>
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 
@@ -27,6 +28,7 @@
 #include <numeric>
 #include <set>
 #include <utility>
+#include <vector>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -42,6 +44,7 @@
 #include "olap/field.h"
 #include "olap/iterators.h"
 #include "olap/like_column_predicate.h"
+#include "olap/match_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
@@ -1040,6 +1043,53 @@ Status SegmentIterator::_apply_inverted_index() {
             }
         }
     }
+
+    // delete from _common_expr_ctxs_push_down if MATCH predicate will be removed from _col_predicates
+    // since it's not necessary to eval it any more to avoid index miss
+    for (auto pred : _col_predicates) {
+        if (pred->type() == PredicateType::MATCH &&
+            std::find(remaining_predicates.begin(), remaining_predicates.end(), pred) ==
+                remaining_predicates.end()) {
+            MatchPredicate* match_pred = dynamic_cast<MatchPredicate*>(pred);
+            for (auto it = _common_expr_ctxs_push_down.begin();
+                 it != _common_expr_ctxs_push_down.end(); ) {
+                if (*it) {
+                    auto expr = (*it)->root().get();
+                    if (expr->node_type() == TExprNodeType::MATCH_PRED && expr->children().size() == 2 &&
+                        expr->get_child(0)->is_slot_ref() && expr->get_child(1)->is_constant()) {
+                        auto slot_ref =
+                            dynamic_cast<vectorized::VSlotRef*>(expr->get_child(0).get());
+                        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+                        if (expr->get_child(1)->get_const_col((*it).get(), &const_col_wrapper)) {
+                            if (const vectorized::ColumnConst* const_column =
+                                    check_and_get_column<vectorized::ColumnConst>(
+                                        const_col_wrapper->column_ptr)) {
+                                if (match_pred->column_id() == slot_ref->slot_id() &&
+                                    StringRef(match_pred->get_value()) == const_column->get_data_at(0)) {
+                                    // delete the expr from _common_expr_ctxs_push_down
+                                    VLOG_DEBUG << "delete expr from _common_expr_ctxs_push_down "
+                                               << expr->debug_string();
+                                    it = _common_expr_ctxs_push_down.erase(it);
+                                    for (auto it1 = _remaining_conjunct_roots.begin();
+                                         it1 != _remaining_conjunct_roots.end(); it1++) {
+                                        if (it1->get() == expr) {
+                                            VLOG_DEBUG << "delete expr from _remaining_conjunct_roots "
+                                                       << expr->debug_string();
+                                            _remaining_conjunct_roots.erase(it1);
+                                            break;
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                it++;
+            }
+        }
+    }
+
     _col_predicates = std::move(remaining_predicates);
     _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
     return Status::OK();
