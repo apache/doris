@@ -285,7 +285,8 @@ update_submodule() {
         cd "${submodule_path}"
         submodule_commit_id=$(git rev-parse HEAD)
         cd -
-        echo "Current commit ID of ${submodule_name} submodule: ${submodule_commit_id}"
+        expect_submodule_commit_id=$(git ls-tree HEAD "${submodule_path}" | awk '{print $3}')
+        echo "Current commit ID of ${submodule_name} submodule: ${submodule_commit_id}, expected is ${expect_submodule_commit_id}"
     fi
     set -e
     if [[ "${exit_code}" -ne 0 ]]; then
