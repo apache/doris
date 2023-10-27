@@ -162,7 +162,7 @@ public class MetaService extends RestBaseController {
         String filename = Storage.IMAGE + "." + versionStr;
         File dir = new File(Env.getCurrentEnv().getImageDir());
         try {
-            MetaHelper.getRemoteFile(url, TIMEOUT_SECOND * 1000, MetaHelper.getFile(filename, dir));
+            MetaHelper.getRemoteFile(url, Config.sync_image_timeout_second * 1000, MetaHelper.getFile(filename, dir));
             MetaHelper.complete(filename, dir);
         } catch (FileNotFoundException e) {
             return ResponseEntityBuilder.notFound("file not found.");
