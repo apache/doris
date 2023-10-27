@@ -51,11 +51,12 @@ Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::FutureBlock> block)
     std::unique_lock l(*_mutex);
     RETURN_IF_ERROR(_status);
     // TODO: change it.
-    while (bytes() > config::group_commit_max_queue_size) {
+    while (*_all_block_queues_bytes > config::group_commit_max_queue_size) {
         _put_cond.wait(l);
     }
     if (block->rows() > 0) {
         _block_queue.push_back(block);
+        *_all_block_queues_bytes += block->bytes();
     }
     _get_cond.notify_all();
     return Status::OK();
@@ -76,6 +77,7 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
     }
     while (_status.ok() && _block_queue.empty() &&
            (!need_commit || (need_commit && !_load_ids.empty()))) {
+        CHECK(*_all_block_queues_bytes == 0);
         auto left_milliseconds = config::group_commit_interval_ms;
         if (!need_commit) {
             left_milliseconds = config::group_commit_interval_ms -
@@ -99,9 +101,12 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
         fblock->swap_future_block(future_block);
         *find_block = true;
         _block_queue.pop_front();
+        *_all_block_queues_bytes -= fblock->bytes();
+        CHECK(*_all_block_queues_bytes >= 0);
         _put_cond.notify_all();
     }
     if (_block_queue.empty() && need_commit && _load_ids.empty()) {
+        CHECK(*_all_block_queues_bytes == 0);
         *eos = true;
     } else {
         *eos = false;
@@ -136,18 +141,12 @@ void LoadBlockQueue::cancel(const Status& st) {
             auto& future_block = _block_queue.front();
             std::unique_lock<doris::Mutex> l0(*(future_block->lock));
             future_block->set_result(st, future_block->rows(), 0);
+            *_all_block_queues_bytes -= future_block->bytes();
+            CHECK(*_all_block_queues_bytes >= 0);
             future_block->cv->notify_all();
         }
         _block_queue.pop_front();
     }
-}
-
-size_t LoadBlockQueue::bytes() {
-    return std::accumulate(
-            _block_queue.begin(), _block_queue.end(), 0,
-            [](size_t block_queue_mem_size, std::shared_ptr<vectorized::FutureBlock> block) {
-                return block_queue_mem_size + block->bytes();
-            });
 }
 
 Status GroupCommitTable::get_first_block_load_queue(
@@ -266,8 +265,8 @@ Status GroupCommitTable::_create_group_commit_load(
                << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id)
                << ", is_pipeline=" << is_pipeline;
     {
-        load_block_queue =
-                std::make_shared<LoadBlockQueue>(instance_id, label, txn_id, schema_version);
+        load_block_queue = std::make_shared<LoadBlockQueue>(
+                instance_id, label, txn_id, schema_version, _all_block_queues_bytes);
         std::unique_lock l(_lock);
         _load_block_queues.emplace(instance_id, load_block_queue);
         _need_plan_fragment = false;
@@ -405,14 +404,6 @@ Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,
     }
     load_block_queue = it->second;
     return Status::OK();
-}
-
-size_t GroupCommitTable::load_block_queues_bytes() {
-    return std::accumulate(
-            _load_block_queues.begin(), _load_block_queues.end(), 0,
-            [](size_t block_queues_size,
-               std::pair<const doris::UniqueId, std::shared_ptr<doris::LoadBlockQueue>>
-                       block_queues) { return block_queues_size + block_queues.second->bytes(); });
 }
 
 GroupCommitMgr::GroupCommitMgr(ExecEnv* exec_env) : _exec_env(exec_env) {
@@ -562,7 +553,8 @@ Status GroupCommitMgr::get_first_block_load_queue(
         std::lock_guard wlock(_lock);
         if (_table_map.find(table_id) == _table_map.end()) {
             _table_map.emplace(table_id, std::make_shared<GroupCommitTable>(
-                                                 _exec_env, _thread_pool.get(), db_id, table_id));
+                                                 _exec_env, _thread_pool.get(), db_id, table_id,
+                                                 _all_block_queues_bytes));
         }
         group_commit_table = _table_map[table_id];
     }
@@ -582,8 +574,5 @@ Status GroupCommitMgr::get_load_block_queue(int64_t table_id, const TUniqueId& i
         group_commit_table = it->second;
     }
     return group_commit_table->get_load_block_queue(instance_id, load_block_queue);
-}
-size_t GroupCommitMgr::all_block_queues_bytes() {
-    return std::accumulate(, , 0, )
 }
 } // namespace doris
