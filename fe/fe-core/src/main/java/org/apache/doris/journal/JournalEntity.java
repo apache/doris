@@ -790,7 +790,6 @@ public class JournalEntity implements Writable {
             case OperationType.OP_CHANGE_MTMV_TASK:
             case OperationType.OP_DROP_MTMV_TASK:
             case OperationType.OP_ALTER_MTMV_STMT: {
-                Text.readString(in);
                 isRead = true;
                 break;
             }
