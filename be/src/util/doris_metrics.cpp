@@ -367,28 +367,31 @@ void DorisMetrics::_update_process_fd_num() {
     int64_t pid = getpid();
 
     // fd used
-    std::stringstream ss;
-    ss << "/proc/" << pid << "/fd/";
     int64_t count = 0;
-    auto cb = [&count](const io::FileInfo& file) -> bool {
-        count += 1;
-        return true;
-    };
-    Status st = io::global_local_filesystem()->iterate_directory(ss.str(), cb);
-    if (!st.ok()) {
-        LOG(WARNING) << "failed to count fd: " << st;
+    std::error_code ec;
+    std::filesystem::directory_iterator dict_iter(fmt::format("/proc/{}/fd/", pid), ec);
+    if (ec) {
+        LOG(WARNING) << "failed to count fd: " << ec.message();
         process_fd_num_used->set_value(0);
         return;
     }
+    for (const auto& entry : dict_iter) {
+        ec.clear();
+        // Ignore error_code checking, because the fd maybe was closed or file was deleted.
+        if (!entry.is_regular_file(ec)) {
+            continue;
+        }
+        ++count;
+    }
+
     process_fd_num_used->set_value(count);
 
+    auto limits = fmt::format("/proc/{}/limits", pid);
     // fd limits
-    std::stringstream ss2;
-    ss2 << "/proc/" << pid << "/limits";
-    FILE* fp = fopen(ss2.str().c_str(), "r");
+    FILE* fp = fopen(limits.c_str(), "r");
     if (fp == nullptr) {
         char buf[64];
-        LOG(WARNING) << "open " << ss2.str() << " failed, errno=" << errno
+        LOG(WARNING) << "open " << limits << " failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
         return;
     }
