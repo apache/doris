@@ -222,7 +222,7 @@ public abstract class ExpressionVisitor<R, C>
     }
 
     public R visitArrayItemSlot(ArrayItemReference.ArrayItemSlot arrayItemSlot, C context) {
-        return visit(arrayItemSlot, context);
+        return visitSlotReference(arrayItemSlot, context);
     }
 
     public R visitMarkJoinReference(MarkJoinSlotReference markJoinSlotReference, C context) {
@@ -434,7 +434,7 @@ public abstract class ExpressionVisitor<R, C>
     }
 
     public R visitVirtualReference(VirtualSlotReference virtualSlotReference, C context) {
-        return visit(virtualSlotReference, context);
+        return visitSlotReference(virtualSlotReference, context);
     }
 
     public R visitArrayItemReference(ArrayItemReference arrayItemReference, C context) {
