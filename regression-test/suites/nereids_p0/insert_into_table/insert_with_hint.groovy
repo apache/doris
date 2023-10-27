@@ -40,6 +40,10 @@ suite('nereids_insert_with_hint') {
     sql """insert /*+ SET_VAR(enable_unique_key_partial_update=true, enable_insert_strict = false)*/
         into ${tableName}(id,score) values(2,400),(1,200),(4,400);"""
     qt_1 """ select * from ${tableName} order by id; """
+    // enable_unique_key_partial_update=false in session variable
+    // so it's a row update
+    sql """ insert into ${tableName}(id,score) values(1,999);"""
+    qt_1 """ select * from ${tableName} order by id; """ 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
 
@@ -76,10 +80,10 @@ suite('nereids_insert_with_hint') {
 
 
 
-    def tableName4 = "nereids_insert_with_hint4"
-    sql """ DROP TABLE IF EXISTS ${tableName4} """
+    def tableName3 = "nereids_insert_with_hint4"
+    sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """
-            CREATE TABLE ${tableName4} (
+            CREATE TABLE ${tableName3} (
                 `id` int(11) NOT NULL COMMENT "用户 ID",
                 `name` varchar(65533) NOT NULL DEFAULT "yixiu" COMMENT "用户姓名",
                 `score` int(11) NULL COMMENT "用户得分",
@@ -88,19 +92,18 @@ suite('nereids_insert_with_hint') {
                 UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true")
     """
-    sql """insert into ${tableName4} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1),(3,"doris3",5000,34,345);"""
-    qt_4 """ select * from ${tableName4} order by id; """
+    sql """insert into ${tableName3} values(2, "doris2", 2000, 223, 1),(1, "doris", 1000, 123, 1),(3,"doris3",5000,34,345);"""
+    qt_3 """ select * from ${tableName3} order by id; """
     // partial update with delete sign
     sql """ insert /*+ SET_VAR(enable_unique_key_partial_update=true, enable_insert_strict = false)*/ 
-        into ${tableName4}(id,__DORIS_DELETE_SIGN__) values(2,1);"""
-    qt_4 """ select * from ${tableName4} order by id; """
+        into ${tableName3}(id,__DORIS_DELETE_SIGN__) values(2,1);"""
+    qt_3 """ select * from ${tableName3} order by id; """
+    sql """ DROP TABLE IF EXISTS ${tableName3} """
+
+
+    def tableName4 = "nereids_insert_with_hint6"
     sql """ DROP TABLE IF EXISTS ${tableName4} """
-
-
-
-    def tableName6 = "nereids_insert_with_hint6"
-    sql """ DROP TABLE IF EXISTS ${tableName6} """
-    sql """create table ${tableName6} (
+    sql """create table ${tableName4} (
         k int null,
         v int null,
         v2 int null,
@@ -109,14 +112,9 @@ suite('nereids_insert_with_hint') {
     properties("replication_num" = "1",
     "enable_unique_key_merge_on_write"="true",
     "disable_auto_compaction"="true"); """
-    sql "insert into ${tableName6} values(1,1,3,4),(2,2,4,5),(3,3,2,3),(4,4,1,2);"
-    qt_6 "select * from ${tableName6} order by k;"
-    sql "set enable_unique_key_partial_update=true;"
-    sql "sync;"
-    sql "insert /*+ SET_VAR(enable_unique_key_partial_update=true) */into ${tableName6}(k,v) select v2,v3 from ${tableName6};"
-    qt_6 "select * from ${tableName6} order by k;"
-    sql "set enable_unique_key_partial_update=false;"
-    sql "set enable_insert_strict = false;"
-    sql "sync;"
-    sql """ DROP TABLE IF EXISTS ${tableName6}; """
+    sql "insert into ${tableName4} values(1,1,3,4),(2,2,4,5),(3,3,2,3),(4,4,1,2);"
+    qt_4 "select * from ${tableName4} order by k;"
+    sql "insert /*+ SET_VAR(enable_unique_key_partial_update=true) */into ${tableName4}(k,v) select v2,v3 from ${tableName4};"
+    qt_4 "select * from ${tableName4} order by k;"
+    sql """ DROP TABLE IF EXISTS ${tableName4}; """
 }

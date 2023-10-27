@@ -432,7 +432,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 colNames,
                 ImmutableList.of(),
                 partitions,
-                ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
+                false,
                 true,
                 visitQuery(ctx.query()));
         if (ctx.explain() != null) {

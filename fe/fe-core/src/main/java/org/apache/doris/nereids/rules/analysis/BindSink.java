@@ -81,9 +81,11 @@ public class BindSink implements AnalysisRuleFactory {
                     LogicalPlan child = ((LogicalPlan) sink.child());
                     boolean isNeedSequenceCol = child.getOutput().stream()
                             .anyMatch(slot -> slot.getName().equals(Column.SEQUENCE_COL));
+                    boolean isPartialUpdate = (sink.isPartialUpdate() || (sink.isFromNativeInsertStmt()
+                            && ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate()));
 
                     if (sink.getColNames().isEmpty() && sink.isFromNativeInsertStmt()
-                            && sink.isPartialUpdate()) {
+                            && isPartialUpdate) {
                         throw new AnalysisException("You must explicitly specify the columns to be updated when "
                                 + "updating partial columns using the INSERT statement.");
                     }
@@ -96,7 +98,7 @@ public class BindSink implements AnalysisRuleFactory {
                             child.getOutput().stream()
                                     .map(NamedExpression.class::cast)
                                     .collect(ImmutableList.toImmutableList()),
-                            sink.isPartialUpdate(),
+                            isPartialUpdate,
                             sink.isFromNativeInsertStmt(),
                             sink.child());
 
@@ -172,7 +174,7 @@ public class BindSink implements AnalysisRuleFactory {
                                 if (columnToOutput.get(seqCol.get().getName()) != null) {
                                     columnToOutput.put(column.getName(), columnToOutput.get(seqCol.get().getName()));
                                 }
-                            } else if (sink.isPartialUpdate()) {
+                            } else if (isPartialUpdate) {
                                 // If the current load is a partial update, the values of unmentioned
                                 // columns will be filled in SegmentWriter. And the output of sink node
                                 // should not contain these unmentioned columns, so we just skip them.
