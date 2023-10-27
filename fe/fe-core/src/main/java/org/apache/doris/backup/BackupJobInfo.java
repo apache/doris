@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -91,6 +92,12 @@ public class BackupJobInfo implements Writable {
 
     @SerializedName("meta_version")
     public int metaVersion;
+    @SerializedName("major_version")
+    public int majorVersion;
+    @SerializedName("minor_version")
+    public int minorVersion;
+    @SerializedName("patch_version")
+    public int patchVersion;
 
     // This map is used to save the table alias mapping info when processing a restore job.
     // origin -> alias
@@ -498,6 +505,9 @@ public class BackupJobInfo implements Writable {
         jobInfo.dbId = dbId;
         jobInfo.metaVersion = FeConstants.meta_version;
         jobInfo.content = content;
+        jobInfo.majorVersion = Version.DORIS_BUILD_VERSION_MAJOR;
+        jobInfo.minorVersion = Version.DORIS_BUILD_VERSION_MINOR;
+        jobInfo.patchVersion = Version.DORIS_BUILD_VERSION_PATCH;
 
         Collection<Table> tbls = backupMeta.getTables().values();
         // tbls
