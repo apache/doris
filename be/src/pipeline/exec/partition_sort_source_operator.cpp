@@ -79,11 +79,6 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
     return Status::OK();
 }
 
-Dependency* PartitionSortSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->read_blocked_by();
-}
-
 Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
                                                       vectorized::Block* output_block,
                                                       PartitionSortSourceLocalState& local_state) {

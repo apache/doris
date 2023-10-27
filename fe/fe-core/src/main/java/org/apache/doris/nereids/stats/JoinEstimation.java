@@ -294,6 +294,11 @@ public class JoinEstimation {
      */
     public static Statistics estimate(Statistics leftStats, Statistics rightStats, Join join) {
         JoinType joinType = join.getJoinType();
+        Statistics crossJoinStats = new StatisticsBuilder()
+                .setRowCount(Math.max(1, leftStats.getRowCount()) * Math.max(1, rightStats.getRowCount()))
+                .putColumnStatistics(leftStats.columnStatistics())
+                .putColumnStatistics(rightStats.columnStatistics())
+                .build();
         if (joinType.isSemiOrAntiJoin()) {
             return estimateSemiOrAnti(leftStats, rightStats, join);
         } else if (joinType == JoinType.INNER_JOIN) {
@@ -304,15 +309,15 @@ public class JoinEstimation {
             Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
             double rowCount = Math.max(leftStats.getRowCount(), innerJoinStats.getRowCount());
             rowCount = Math.max(leftStats.getRowCount(), rowCount);
-            return innerJoinStats.withRowCountAndEnforceValid(rowCount);
+            return crossJoinStats.withRowCountAndEnforceValid(rowCount);
         } else if (joinType == JoinType.RIGHT_OUTER_JOIN) {
             Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
             double rowCount = Math.max(rightStats.getRowCount(), innerJoinStats.getRowCount());
             rowCount = Math.max(rowCount, rightStats.getRowCount());
-            return innerJoinStats.withRowCountAndEnforceValid(rowCount);
+            return crossJoinStats.withRowCountAndEnforceValid(rowCount);
         } else if (joinType == JoinType.FULL_OUTER_JOIN) {
             Statistics innerJoinStats = estimateInnerJoin(leftStats, rightStats, join);
-            return innerJoinStats.withRowCountAndEnforceValid(leftStats.getRowCount()
+            return crossJoinStats.withRowCountAndEnforceValid(leftStats.getRowCount()
                     + rightStats.getRowCount() + innerJoinStats.getRowCount());
         } else if (joinType == JoinType.CROSS_JOIN) {
             return new StatisticsBuilder()

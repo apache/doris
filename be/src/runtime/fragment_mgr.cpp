@@ -385,7 +385,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     VLOG_DEBUG << "reportExecStatus params is "
                << apache::thrift::ThriftDebugString(params).c_str();
     if (!exec_status.ok()) {
-        LOG(WARNING) << "report error status: " << exec_status.to_string()
+        LOG(WARNING) << "report error status: " << exec_status.msg()
                      << " to coordinator: " << req.coord_addr
                      << ", query id: " << print_id(req.query_id)
                      << ", instance id: " << print_id(req.fragment_instance_id);
@@ -417,7 +417,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     if (!rpc_status.ok()) {
         // we need to cancel the execution of this fragment
         static_cast<void>(req.update_fn(rpc_status));
-        req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, "rpc fail 2");
+        req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, rpc_status.msg());
     }
 }
 
@@ -584,6 +584,17 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
         query_ctx = search->second;
     } else {
+        {
+            // Find _query_ctx_map, in case some other request has already
+            // create the query fragments context.
+            std::lock_guard<std::mutex> lock(_lock);
+            auto search = _query_ctx_map.find(query_id);
+            if (search != _query_ctx_map.end()) {
+                query_ctx = search->second;
+                return Status::OK();
+            }
+        }
+
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
