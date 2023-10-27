@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "olap/column_predicate.h"
 #include "olap/schema.h"
+#include "runtime/primitive_type.h"
 
 namespace roaring {
 class Roaring;

@@ -427,7 +427,7 @@ void NewOlapScanNode::_filter_and_collect_suspended_eliminate_cast_column(
         }
         std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();
         SlotDescriptor* src_slot_desc = slots[_slot_id_to_slot_idx[src_slot->slot_id()]];
-        PrimitiveType cast_dst_type = cast_expr->get_target_type()->get_type_as_primitive_type();
+        PrimitiveType cast_dst_type = cast_expr->get_target_type()->get_type_as_type_descriptor().type;
         if (src_slot_desc->type().is_variant_type()) {
             colname_to_cast_types[src_slot_desc->col_name()].push_back(cast_dst_type);
         }

@@ -620,7 +620,7 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
                                  .build();
         vectorized::schema_util::get_column_by_type(
                 final_data_type_from_object, column_name, tablet_column,
-                vectorized::schema_util::ExtraInfo {.unique_id = -1,
+                vectorized::schema_util::ExtraInfo {.unique_id = parent_variant.unique_id(),
                                                     .parent_unique_id = parent_variant.unique_id(),
                                                     .path_info = full_path});
         flush_schema->append_column(std::move(tablet_column));
@@ -660,6 +660,8 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
         flush_schema->mutable_columns()[variant_pos].set_path_info(full_root_path);
         VLOG_DEBUG << "set root_path : " << full_root_path.get_path();
     }
+
+    vectorized::schema_util::inherit_tablet_index(flush_schema);
 
     {
         // Update rowset schema, tablet's tablet schema will be updated when build Rowset

@@ -200,6 +200,9 @@ private:
 SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr schema)
         : _segment(std::move(segment)),
           _schema(schema),
+          _column_iterators(_schema->num_columns()),
+          _bitmap_index_iterators(_schema->num_columns()),
+          _inverted_index_iterators(_schema->num_columns()),
           _cur_rowid(0),
           _lazy_materialization_read(false),
           _lazy_inited(false),
@@ -795,8 +798,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             continue;
         }
 
-        int32_t unique_id = _schema->unique_id(pred->column_id());
-        bool need_remaining_after_evaluate = _column_has_fulltext_index(unique_id) &&
+        bool need_remaining_after_evaluate = _column_has_fulltext_index(pred->column_id()) &&
                                              PredicateTypeTraits::is_equal_or_list(pred_type);
         if (!res.ok()) {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
@@ -821,8 +823,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             _check_column_pred_all_push_down(column_name, true,
                                              pred->type() == PredicateType::MATCH) &&
             !pred->predicate_params()->marked_by_runtime_filter) {
-            int32_t unique_id = _schema->unique_id(pred->column_id());
-            _need_read_data_indices[unique_id] = false;
+            _need_read_data_indices[pred->column_id()] = false;
         }
     }
 
@@ -873,12 +874,10 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* pre
     return pred_result_sign;
 }
 
-bool SegmentIterator::_column_has_fulltext_index(int32_t unique_id) {
-    bool has_fulltext_index =
-            _inverted_index_iterators.count(unique_id) > 0 &&
-            _inverted_index_iterators[unique_id] != nullptr &&
-            _inverted_index_iterators[unique_id]->get_inverted_index_reader_type() ==
-                    InvertedIndexReaderType::FULLTEXT;
+bool SegmentIterator::_column_has_fulltext_index(int32_t cid) {
+    bool has_fulltext_index = _inverted_index_iterators[cid] != nullptr &&
+                              _inverted_index_iterators[cid]->get_inverted_index_reader_type() ==
+                                      InvertedIndexReaderType::FULLTEXT;
 
     return has_fulltext_index;
 }
@@ -902,8 +901,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
     if (!_check_apply_by_inverted_index(pred)) {
         remaining_predicates.emplace_back(pred);
     } else {
-        int32_t unique_id = _schema->unique_id(pred->column_id());
-        bool need_remaining_after_evaluate = _column_has_fulltext_index(unique_id) &&
+        bool need_remaining_after_evaluate = _column_has_fulltext_index(pred->column_id()) &&
                                              PredicateTypeTraits::is_equal_or_list(pred->type());
         roaring::Roaring bitmap = _row_bitmap;
         // TODO handle variant
@@ -943,7 +941,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         if (_check_column_pred_all_push_down(column_name, false,
                                              pred->type() == PredicateType::MATCH) &&
             !pred->predicate_params()->marked_by_runtime_filter) {
-            _need_read_data_indices[unique_id] = false;
+            _need_read_data_indices[pred->column_id()] = false;
         }
     }
     return Status::OK();
@@ -1896,7 +1894,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 auto storage_column_type = _storage_name_and_type[cid].second;
                 _current_return_columns[cid] = Schema::get_predicate_column_ptr(
                         TabletColumn::get_field_type_by_type(
-                                storage_column_type->get_type_as_primitive_type()),
+                                storage_column_type->get_type_as_type_descriptor().type),
                         storage_column_type->is_nullable(), _opts.io_ctx.reader_type);
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});

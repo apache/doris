@@ -169,7 +169,7 @@ public:
             // Predicate should nerver apply on variant type
             return false;
         }
-        return pred->can_do_apply_safely(storage_column_type->get_type_as_primitive_type(),
+        return pred->can_do_apply_safely(storage_column_type->get_type_as_type_descriptor().type,
                                          storage_column_type->is_nullable());
     }
 
