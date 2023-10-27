@@ -92,15 +92,10 @@ public:
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
-    // This method can only be used to cancel a fragment of non-pipeline query.
-    void cancel_fragment(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
-                         const std::string& msg = "");
-    void cancel_fragment_unlocked(const TUniqueId& instance_id,
-                                  const PPlanFragmentCancelReason& reason,
-                                  const std::unique_lock<std::mutex>& state_lock,
-                                  const std::string& msg = "");
+    Status trigger_pipeline_context_report(const ReportStatusRequest,
+                                           std::shared_ptr<pipeline::PipelineFragmentContext>&&);
 
-    // Pipeline version, cancel a fragment instance.
+    // Cancel instance (pipeline or nonpipeline).
     void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
                          const std::string& msg = "");
     void cancel_instance_unlocked(const TUniqueId& instance_id,
@@ -186,7 +181,7 @@ private:
     std::condition_variable _cv;
 
     // Make sure that remove this before no data reference PlanFragmentExecutor
-    std::unordered_map<TUniqueId, std::shared_ptr<PlanFragmentExecutor>> _fragment_map;
+    std::unordered_map<TUniqueId, std::shared_ptr<PlanFragmentExecutor>> _fragment_instance_map;
 
     std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
 
@@ -203,6 +198,7 @@ private:
     UIntGauge* timeout_canceled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;
+    std::unique_ptr<ThreadPool> _async_report_thread_pool; // used for pipeliine context report
 };
 
 } // namespace doris

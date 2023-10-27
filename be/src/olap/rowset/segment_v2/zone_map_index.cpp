@@ -91,10 +91,12 @@ template <PrimitiveType Type>
 Status TypedZoneMapIndexWriter<Type>::flush() {
     // Update segment zone map.
     if (_field->compare(_segment_zone_map.min_value, _page_zone_map.min_value) > 0) {
-        _field->type_info()->direct_copy(_segment_zone_map.min_value, _page_zone_map.min_value);
+        _field->type_info()->direct_copy_may_cut(_segment_zone_map.min_value,
+                                                 _page_zone_map.min_value);
     }
     if (_field->compare(_segment_zone_map.max_value, _page_zone_map.max_value) < 0) {
-        _field->type_info()->direct_copy(_segment_zone_map.max_value, _page_zone_map.max_value);
+        _field->type_info()->direct_copy_may_cut(_segment_zone_map.max_value,
+                                                 _page_zone_map.max_value);
     }
     if (_page_zone_map.has_null) {
         _segment_zone_map.has_null = true;
@@ -194,11 +196,14 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     M(TYPE_DATETIME)             \
     M(TYPE_DATEV2)               \
     M(TYPE_DATETIMEV2)           \
+    M(TYPE_IPV4)                 \
+    M(TYPE_IPV6)                 \
     M(TYPE_VARCHAR)              \
     M(TYPE_STRING)               \
     M(TYPE_DECIMAL32)            \
     M(TYPE_DECIMAL64)            \
-    M(TYPE_DECIMAL128I)
+    M(TYPE_DECIMAL128I)          \
+    M(TYPE_DECIMAL256)
 
 Status ZoneMapIndexWriter::create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res) {
     switch (field->type()) {

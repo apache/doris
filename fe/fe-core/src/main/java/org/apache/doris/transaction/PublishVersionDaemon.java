@@ -18,9 +18,8 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.SystemInfoService;
@@ -61,6 +60,9 @@ public class PublishVersionDaemon extends MasterDaemon {
     }
 
     private void publishVersion() {
+        if (DebugPointUtil.isEnable("PublishVersionDaemon.stop_publish")) {
+            return;
+        }
         GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         List<TransactionState> readyTransactionStates = globalTransactionMgr.getReadyToPublishTransactions();
         if (readyTransactionStates.isEmpty()) {
@@ -127,8 +129,6 @@ public class PublishVersionDaemon extends MasterDaemon {
             AgentTaskExecutor.submit(batchTask);
         }
 
-        TabletInvertedIndex tabletInvertedIndex = Env.getCurrentEnv().getTabletInvertedIndex();
-        Set<Long> tabletIdFilter = Sets.newHashSet();
         Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
@@ -138,28 +138,21 @@ public class PublishVersionDaemon extends MasterDaemon {
                     .stream()
                     .peek(task -> {
                         if (task.isFinished() && CollectionUtils.isEmpty(task.getErrorTablets())) {
-                            Map<Long, Long> tabletIdToDeltaNumRows =
-                                    task.getTabletIdToDeltaNumRows();
-                            tabletIdToDeltaNumRows.forEach((tabletId, numRows) -> {
-                                if (!tabletIdFilter.add(tabletId)) {
-                                    // means the delta num rows for this tablet id has been collected
-                                    return;
-                                }
-                                TabletMeta tabletMeta = tabletInvertedIndex.getTabletMeta(tabletId);
-                                if (tabletMeta == null) {
-                                    // for delete, drop, schema change etc. here may be a null value
-                                    return;
-                                }
-                                long tableId = tabletMeta.getTableId();
-                                tableIdToNumDeltaRows.computeIfPresent(tableId, (tblId, orgNum) -> orgNum + numRows);
+                            Map<Long, Long> tableIdToDeltaNumRows =
+                                    task.getTableIdToDeltaNumRows();
+                            tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
+                                tableIdToDeltaNumRows
+                                        .computeIfPresent(tableId, (id, orgNumRows) -> orgNumRows + numRows);
                                 tableIdToNumDeltaRows.putIfAbsent(tableId, numRows);
                             });
                         }
                     });
             boolean hasBackendAliveAndUnfinishedTask = publishVersionTaskStream
                     .anyMatch(task -> !task.isFinished() && infoService.checkBackendAlive(task.getBackendId()));
+            transactionState.setTableIdToTotalNumDeltaRows(tableIdToNumDeltaRows);
 
-            boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask || transactionState.isPublishTimeout();
+            boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask || transactionState.isPublishTimeout()
+                    || DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks");
             if (shouldFinishTxn) {
                 try {
                     // one transaction exception should not affect other transaction

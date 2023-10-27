@@ -22,7 +22,6 @@
 #include "exprs/bloom_filter_func.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
-#include "vec/common/aggregation_common.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -49,15 +48,19 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
-    _shared_hash_table_dependency = SharedHashTableDependency::create_shared(_parent->id());
+    _shared_hash_table_dependency =
+            SharedHashTableDependency::create_shared(_parent->operator_id());
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
-    _shared_state->probe_key_sz = p._build_key_sz;
-    _shared_state->build_blocks.reset(new std::vector<vectorized::Block>());
-    // avoid vector expand change block address.
-    // one block can store 4g data, _build_blocks can store 128*4g data.
-    // if probe data bigger than 512g, runtime filter maybe will core dump when insert data.
-    _shared_state->build_blocks->reserve(vectorized::HASH_JOIN_MAX_BUILD_BLOCK_COUNT);
+    if (p._is_broadcast_join && state->enable_share_hash_table_for_broadcast_join()) {
+        _shared_state->build_blocks = p._shared_hash_table_context->blocks;
+    } else {
+        _shared_state->build_blocks.reset(new std::vector<vectorized::Block>());
+        // avoid vector expand change block address.
+        // one block can store 4g data, _build_blocks can store 128*4g data.
+        // if probe data bigger than 512g, runtime filter maybe will core dump when insert data.
+        _shared_state->build_blocks->reserve(vectorized::HASH_JOIN_MAX_BUILD_BLOCK_COUNT);
+    }
     _shared_state->is_null_safe_eq_join = p._is_null_safe_eq_join;
     _shared_state->store_null_in_hash_table = p._store_null_in_hash_table;
     _build_expr_ctxs.resize(p._build_expr_ctxs.size());
@@ -72,10 +75,20 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         if (state->enable_share_hash_table_for_broadcast_join()) {
             profile()->add_info_string("ShareHashTableEnabled", "true");
             _should_build_hash_table = p._shared_hashtable_controller->should_build_hash_table(
-                    state->fragment_instance_id(), p.id());
+                    state->fragment_instance_id(), p.node_id());
         } else {
             profile()->add_info_string("ShareHashTableEnabled", "false");
         }
+    }
+    if (!_should_build_hash_table) {
+        _shared_hash_table_dependency->block_writing();
+        p._shared_hashtable_controller->append_dependency(p.node_id(),
+                                                          _shared_hash_table_dependency);
+    } else if (p._is_broadcast_join) {
+        // avoid vector expand change block address.
+        // one block can store 4g data, _build_blocks can store 128*4g data.
+        // if probe data bigger than 512g, runtime filter maybe will core dump when insert data.
+        _shared_state->build_blocks->reserve(vectorized::HASH_JOIN_MAX_BUILD_BLOCK_COUNT);
     }
 
     _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
@@ -132,11 +145,19 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+bool HashJoinBuildSinkLocalState::build_unique() const {
+    return _parent->cast<HashJoinBuildSinkOperatorX>()._build_unique;
+}
+
+std::vector<TRuntimeFilterDesc>& HashJoinBuildSinkLocalState::runtime_filter_descs() const {
+    return _parent->cast<HashJoinBuildSinkOperatorX>()._runtime_filter_descs;
+}
+
 void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->short_circuit_for_probe =
-            (_short_circuit_for_null_in_probe_side &&
-             p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) ||
+            (_shared_state->_has_null_in_build_side &&
+             p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN && !p._is_mark_join) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::INNER_JOIN &&
              !p._is_mark_join) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::LEFT_SEMI_JOIN &&
@@ -144,6 +165,14 @@ void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
             (_shared_state->build_blocks->empty() && p._join_op == TJoinOp::RIGHT_ANTI_JOIN);
+
+    //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
+    //we could get the result is probe table + null-column(if need output)
+    _shared_state->empty_right_table_need_probe_dispose =
+            (_shared_state->build_blocks->empty() && !p._have_other_join_conjunct &&
+             !p._is_mark_join) &&
+            (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN ||
+             p._join_op == TJoinOp::LEFT_ANTI_JOIN);
 }
 
 Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
@@ -190,9 +219,9 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                     [&](auto&& arg, auto has_null_value,
                         auto short_circuit_for_null_in_build_side) -> Status {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
-                        vectorized::HashJoinBuildContext context(this);
-                        vectorized::ProcessHashTableBuild<HashTableCtxType>
-                                hash_table_build_process(rows, block, raw_ptrs, &context,
+                        vectorized::ProcessHashTableBuild<HashTableCtxType,
+                                                          HashJoinBuildSinkLocalState>
+                                hash_table_build_process(rows, block, raw_ptrs, this,
                                                          state->batch_size(), offset, state);
                         return hash_table_build_process
                                 .template run<has_null_value, short_circuit_for_null_in_build_side>(
@@ -200,7 +229,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                                         has_null_value || short_circuit_for_null_in_build_side
                                                 ? &null_map_val->get_data()
                                                 : nullptr,
-                                        &_short_circuit_for_null_in_probe_side);
+                                        &_shared_state->_has_null_in_build_side);
                     }},
             *_shared_state->hash_table_variants,
             vectorized::make_bool_variant(_build_side_ignore_null),
@@ -235,11 +264,6 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                                                    JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
                                                    JoinOpType::value == TJoinOp::FULL_OUTER_JOIN,
                                            vectorized::RowRefListWithFlag, vectorized::RowRefList>>;
-                _shared_state->probe_row_match_iter
-                        .emplace<vectorized::ForwardIterator<RowRefListType>>();
-                _shared_state->outer_join_pull_visited_iter
-                        .emplace<vectorized::ForwardIterator<RowRefListType>>();
-
                 if (_build_expr_ctxs.size() == 1 && !p._store_null_in_hash_table[0]) {
                     // Single column optimization
                     switch (_build_expr_ctxs[0]->root()->result_type()) {
@@ -299,62 +323,8 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                     }
                     return;
                 }
-
-                bool use_fixed_key = true;
-                bool has_null = false;
-                size_t key_byte_size = 0;
-                size_t bitmap_size = vectorized::get_bitmap_size(_build_expr_ctxs.size());
-
-                for (int i = 0; i < _build_expr_ctxs.size(); ++i) {
-                    const auto vexpr = _build_expr_ctxs[i]->root();
-                    const auto& data_type = vexpr->data_type();
-
-                    if (!data_type->have_maximum_size_of_value()) {
-                        use_fixed_key = false;
-                        break;
-                    }
-
-                    auto is_null = data_type->is_nullable();
-                    has_null |= is_null;
-                    key_byte_size += p._build_key_sz[i];
-                }
-
-                if (bitmap_size + key_byte_size > sizeof(vectorized::UInt256)) {
-                    use_fixed_key = false;
-                }
-
-                if (use_fixed_key) {
-                    // TODO: may we should support uint256 in the future
-                    if (has_null) {
-                        if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt64)) {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I64FixedKeyHashTableContext<
-                                            true, RowRefListType>>();
-                        } else if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt128)) {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I128FixedKeyHashTableContext<
-                                            true, RowRefListType>>();
-                        } else {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I256FixedKeyHashTableContext<
-                                            true, RowRefListType>>();
-                        }
-                    } else {
-                        if (key_byte_size <= sizeof(vectorized::UInt64)) {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I64FixedKeyHashTableContext<
-                                            false, RowRefListType>>();
-                        } else if (key_byte_size <= sizeof(vectorized::UInt128)) {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I128FixedKeyHashTableContext<
-                                            false, RowRefListType>>();
-                        } else {
-                            _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I256FixedKeyHashTableContext<
-                                            false, RowRefListType>>();
-                        }
-                    }
-                } else {
+                if (!try_get_hash_map_context_fixed<PartitionedHashMap, HashCRC32, RowRefListType>(
+                            *_shared_state->hash_table_variants, _build_expr_ctxs)) {
                     _shared_state->hash_table_variants
                             ->emplace<vectorized::SerializedHashTableContext<RowRefListType>>();
                 }
@@ -369,15 +339,16 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                                          __builtin_unreachable();
                                      },
                                      [&](auto&& arg) {
-                                         arg.hash_table.set_partitioned_threshold(
+                                         arg.hash_table->set_partitioned_threshold(
                                                  state->partitioned_hash_join_rows_threshold());
                                      }},
                *_shared_state->hash_table_variants);
 }
 
-HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
+                                                       const TPlanNode& tnode,
                                                        const DescriptorTbl& descs)
-        : JoinBuildSinkOperatorX(pool, tnode, descs),
+        : JoinBuildSinkOperatorX(pool, operator_id, tnode, descs),
           _is_broadcast_join(tnode.hash_join_node.__isset.is_broadcast_join &&
                              tnode.hash_join_node.is_broadcast_join) {
     _runtime_filter_descs = tnode.runtime_filters;
@@ -388,7 +359,7 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
         if (state->enable_share_hash_table_for_broadcast_join()) {
             _shared_hashtable_controller =
                     state->get_query_ctx()->get_shared_hash_table_controller();
-            _shared_hash_table_context = _shared_hashtable_controller->get_context(id());
+            _shared_hash_table_context = _shared_hashtable_controller->get_context(node_id());
         }
     }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_build_expr_ctxs, state, _child_x->row_desc()));
@@ -410,15 +381,6 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         _build_expr_ctxs.push_back(ctx);
 
         const auto vexpr = _build_expr_ctxs.back()->root();
-        const auto& data_type = vexpr->data_type();
-
-        if (!data_type->have_maximum_size_of_value()) {
-            break;
-        }
-
-        auto is_null = data_type->is_nullable();
-        _build_key_sz.push_back(data_type->get_maximum_size_of_value_in_memory() -
-                                (is_null ? 1 : 0));
 
         bool null_aware = eq_join_conjunct.__isset.opcode &&
                           eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
@@ -430,7 +392,6 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
                 null_aware ||
                 (_build_expr_ctxs.back()->root()->is_nullable() && build_stores_null));
     }
-
     return Status::OK();
 }
 
@@ -440,16 +401,15 @@ Status HashJoinBuildSinkOperatorX::open(RuntimeState* state) {
 
 Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                         SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    SCOPED_TIMER(local_state._build_timer);
 
     // make one block for each 4 gigabytes
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
-    if (local_state._short_circuit_for_null_in_probe_side) {
-        // TODO: if _short_circuit_for_null_in_probe_side is true we should finish current pipeline task.
+    if (local_state._shared_state->_has_null_in_build_side) {
+        // TODO: if _has_null_in_build_side is true we should finish current pipeline task.
         DCHECK(state->enable_pipeline_exec());
         return Status::OK();
     }
@@ -507,22 +467,20 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     state, (*local_state._shared_state->build_blocks)[local_state._build_block_idx],
                     local_state._build_block_idx));
         }
-        auto ret = std::visit(Overload {[&](std::monostate&) -> Status {
-                                            LOG(FATAL) << "FATAL: uninited hash table";
-                                            __builtin_unreachable();
-                                        },
-                                        [&](auto&& arg) -> Status {
-                                            using HashTableCtxType = std::decay_t<decltype(arg)>;
-                                            vectorized::RuntimeFilterContext context(&local_state);
-                                            vectorized::ProcessRuntimeFilterBuild<HashTableCtxType>
-                                                    runtime_filter_build_process(&context);
-                                            return runtime_filter_build_process(state, arg);
-                                        }},
-                              *local_state._shared_state->hash_table_variants);
+        auto ret = std::visit(
+                Overload {[&](std::monostate&) -> Status {
+                              LOG(FATAL) << "FATAL: uninited hash table";
+                              __builtin_unreachable();
+                          },
+                          [&](auto&& arg) -> Status {
+                              vectorized::ProcessRuntimeFilterBuild runtime_filter_build_process;
+                              return runtime_filter_build_process(state, arg, &local_state);
+                          }},
+                *local_state._shared_state->hash_table_variants);
         if (!ret.ok()) {
             if (_shared_hashtable_controller) {
                 _shared_hash_table_context->status = ret;
-                _shared_hashtable_controller->signal(id());
+                _shared_hashtable_controller->signal(node_id());
             }
             return ret;
         }
@@ -530,16 +488,15 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             _shared_hash_table_context->status = Status::OK();
             // arena will be shared with other instances.
             _shared_hash_table_context->arena = local_state._shared_state->arena;
-            _shared_hash_table_context->blocks = local_state._shared_state->build_blocks;
             _shared_hash_table_context->hash_table_variants =
                     local_state._shared_state->hash_table_variants;
             _shared_hash_table_context->short_circuit_for_null_in_probe_side =
-                    local_state._short_circuit_for_null_in_probe_side;
+                    local_state._shared_state->_has_null_in_build_side;
             if (local_state._runtime_filter_slots) {
                 local_state._runtime_filter_slots->copy_to_shared_context(
                         _shared_hash_table_context);
             }
-            _shared_hashtable_controller->signal(id());
+            _shared_hashtable_controller->signal(node_id());
         }
     } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
@@ -551,13 +508,21 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         local_state.profile()->add_info_string(
                 "SharedHashTableFrom",
-                print_id(_shared_hashtable_controller->get_builder_fragment_instance_id(id())));
-        local_state._short_circuit_for_null_in_probe_side =
+                print_id(
+                        _shared_hashtable_controller->get_builder_fragment_instance_id(node_id())));
+        local_state._shared_state->_has_null_in_build_side =
                 _shared_hash_table_context->short_circuit_for_null_in_probe_side;
-        local_state._shared_state->hash_table_variants =
-                std::static_pointer_cast<vectorized::HashTableVariants>(
-                        _shared_hash_table_context->hash_table_variants);
-        local_state._shared_state->build_blocks = _shared_hash_table_context->blocks;
+        std::visit(
+                [](auto&& dst, auto&& src) {
+                    if constexpr (!std::is_same_v<std::monostate, std::decay_t<decltype(dst)>> &&
+                                  std::is_same_v<std::decay_t<decltype(src)>,
+                                                 std::decay_t<decltype(dst)>>) {
+                        dst.hash_table = src.hash_table;
+                    }
+                },
+                *local_state._shared_state->hash_table_variants,
+                *std::static_pointer_cast<vectorized::HashTableVariants>(
+                        _shared_hash_table_context->hash_table_variants));
 
         if (!_shared_hash_table_context->runtime_filters.empty()) {
             auto ret = std::visit(
@@ -575,7 +540,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                                                 _build_expr_ctxs, _runtime_filter_descs);
 
                                 RETURN_IF_ERROR(local_state._runtime_filter_slots->init(
-                                        state, arg.hash_table.size(), 0));
+                                        state, arg.hash_table->size(), 0));
                                 RETURN_IF_ERROR(
                                         local_state._runtime_filter_slots->copy_from_shared_context(
                                                 _shared_hash_table_context));
@@ -589,6 +554,12 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     local_state.init_short_circuit_for_probe();
     if (source_state == SourceState::FINISHED) {
+        // Since the comparison of null values is meaningless, null aware left anti join should not output null
+        // when the build side is not empty.
+        if (!local_state._shared_state->build_blocks->empty() &&
+            _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            local_state._shared_state->probe_ignore_null = true;
+        }
         local_state._dependency->set_ready_for_read();
     }
 

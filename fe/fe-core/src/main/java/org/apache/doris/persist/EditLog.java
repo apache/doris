@@ -87,7 +87,7 @@ import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -577,6 +577,7 @@ public class EditLog {
                 case OperationType.OP_TRUNCATE_TABLE: {
                     TruncateTableInfo info = (TruncateTableInfo) journal.getData();
                     env.replayTruncateTable(info);
+                    env.getBinlogManager().addTruncateTable(info, logId);
                     break;
                 }
                 case OperationType.OP_COLOCATE_ADD_TABLE: {
@@ -602,6 +603,11 @@ public class EditLog {
                 case OperationType.OP_COLOCATE_MARK_STABLE: {
                     final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
                     env.getColocateTableIndex().replayMarkGroupStable(info);
+                    break;
+                }
+                case OperationType.OP_COLOCATE_MOD_REPLICA_ALLOC: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    env.getColocateTableIndex().replayModifyReplicaAlloc(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_COLOCATE: {
@@ -915,6 +921,11 @@ public class EditLog {
                     env.getCatalogMgr().replayAlterCatalogName(log);
                     break;
                 }
+                case OperationType.OP_ALTER_CATALOG_COMMENT: {
+                    CatalogLog log = (CatalogLog) journal.getData();
+                    env.getCatalogMgr().replayAlterCatalogComment(log);
+                    break;
+                }
                 case OperationType.OP_ALTER_CATALOG_PROPS: {
                     CatalogLog log = (CatalogLog) journal.getData();
                     env.getCatalogMgr().replayAlterCatalogProps(log, null, true);
@@ -1118,11 +1129,15 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_UPDATE_TABLE_STATS: {
-                    env.getAnalysisManager().replayUpdateTableStatsStatus((TableStats) journal.getData());
+                    env.getAnalysisManager().replayUpdateTableStatsStatus((TableStatsMeta) journal.getData());
                     break;
                 }
                 case OperationType.OP_PERSIST_AUTO_JOB: {
                     env.getAnalysisManager().replayPersistSysJob((AnalysisInfo) journal.getData());
+                    break;
+                }
+                case OperationType.OP_DELETE_TABLE_STATS: {
+                    env.getAnalysisManager().replayTableStatsDeletion((TableStatsDeletionLog) journal.getData());
                     break;
                 }
                 default: {
@@ -1542,7 +1557,13 @@ public class EditLog {
     }
 
     public void logTruncateTable(TruncateTableInfo info) {
-        logEdit(OperationType.OP_TRUNCATE_TABLE, info);
+        long logId = logEdit(OperationType.OP_TRUNCATE_TABLE, info);
+        LOG.info("log truncate table, logId:{}, infos: {}", logId, info);
+        Env.getCurrentEnv().getBinlogManager().addTruncateTable(info, logId);
+    }
+
+    public void logColocateModifyRepliaAlloc(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_MOD_REPLICA_ALLOC, info);
     }
 
     public void logColocateAddTable(ColocatePersistInfo info) {
@@ -1965,7 +1986,7 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_AUTO_INCREMENT_ID, log);
     }
 
-    public void logCreateTableStats(TableStats tableStats) {
+    public void logCreateTableStats(TableStatsMeta tableStats) {
         logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
     }
 
@@ -1973,4 +1994,7 @@ public class EditLog {
         logEdit(OperationType.OP_PERSIST_AUTO_JOB, analysisInfo);
     }
 
+    public void logDeleteTableStats(TableStatsDeletionLog log) {
+        logEdit(OperationType.OP_DELETE_TABLE_STATS, log);
+    }
 }

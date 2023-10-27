@@ -50,7 +50,8 @@ statement
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
         propertyClause?
         (AS query)?                                                    #createTable
-    | explain? INSERT (INTO | OVERWRITE TABLE) tableName=multipartIdentifier
+    | explain? INSERT (INTO | OVERWRITE TABLE)
+        (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         (PARTITION partition=identifierList)?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
@@ -380,11 +381,11 @@ identifierSeq
 
 relationPrimary
     : multipartIdentifier specifiedPartition?
-       tabletList? tableAlias relationHint? lateralView*           #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*         #aliasedQuery
+       tabletList? tableAlias sample? relationHint? lateralView*           #tableName
+    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
-      RIGHT_PAREN tableAlias                                       #tableValuedFunction
+      RIGHT_PAREN tableAlias                                               #tableValuedFunction
     ;
 
 propertyClause
@@ -686,8 +687,8 @@ constant
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
     | STRING_LITERAL                                                                           #stringLiteral
-    | LEFT_BRACKET items+=constant (COMMA items+=constant)* RIGHT_BRACKET                      #arrayLiteral
-    | LEFT_BRACE items+=constant COLON items+=constant
+    | LEFT_BRACKET (items+=constant)? (COMMA items+=constant)* RIGHT_BRACKET                   #arrayLiteral
+    | LEFT_BRACE (items+=constant COLON items+=constant)?
        (COMMA items+=constant COLON items+=constant)* RIGHT_BRACE                              #mapLiteral
     | LEFT_BRACE items+=constant (COMMA items+=constant)* RIGHT_BRACE                          #structLiteral
     ;
@@ -723,7 +724,7 @@ dataType
 primitiveColType:
     | type=TINYINT
     | type=SMALLINT
-    | (SIGNED | UNSIGNED)? type=INT
+    | (SIGNED | UNSIGNED)? type=(INT | INTEGER)
     | type=BIGINT
     | type=LARGEINT
     | type=BOOLEAN
@@ -746,6 +747,8 @@ primitiveColType:
     | type=CHAR
     | type=DECIMAL
     | type=DECIMALV3
+    | type=IPV4
+    | type=IPV6
     | type=ALL
     ;
 
@@ -759,6 +762,15 @@ complexColType
 
 commentSpec
     : COMMENT STRING_LITERAL
+    ;
+
+sample
+    : TABLESAMPLE LEFT_PAREN sampleMethod? RIGHT_PAREN (REPEATABLE seed=INTEGER_VALUE)?
+    ;
+
+sampleMethod
+    : percentage=INTEGER_VALUE PERCENT                              #sampleByPercentile
+    | INTEGER_VALUE ROWS                                            #sampleByRows
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
@@ -875,6 +887,7 @@ nonReserved
     | DISTINCTPC
     | DISTINCTPCSA
     | DO
+    | DORIS_INTERNAL_TABLE_ID
     | DYNAMIC
     | ENABLE
     | ENCRYPTKEY

@@ -210,7 +210,8 @@ public class CastExpr extends Expr {
         if (isAnalyzed) {
             return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
         } else {
-            return "CAST(" + getChild(0).toSql() + " AS " + targetTypeDef.toSql() + ")";
+            return "CAST(" + getChild(0).toSql() + " AS "
+                    + (isImplicit ? type.toString() : targetTypeDef.toSql()) + ")";
         }
     }
 
@@ -513,6 +514,7 @@ public class CastExpr extends Expr {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+            case DECIMAL256:
                 // normal decimal
                 if (targetType.getPrecision() != 0) {
                     newTargetType = targetType;

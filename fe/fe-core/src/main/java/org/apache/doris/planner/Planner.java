@@ -29,6 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.PlanTreeBuilder;
 import org.apache.doris.common.profile.PlanTreePrinter;
 import org.apache.doris.common.util.LiteralUtils;
+import org.apache.doris.common.util.ProfileStatistics;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.thrift.TQueryOptions;
 
@@ -38,7 +39,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public abstract class Planner {
@@ -87,6 +90,30 @@ public abstract class Planner {
         }
         appendHintInfo(str);
         return str.toString();
+    }
+
+    public String getExplainStringToProfile(ProfileStatistics statistics) {
+        org.apache.doris.thrift.TExplainLevel explainLevel = org.apache.doris.thrift.TExplainLevel.NORMAL;
+        StringBuilder str = new StringBuilder();
+        for (int i = 0; i < fragments.size(); ++i) {
+            PlanFragment fragment = fragments.get(i);
+            if (i > 0) {
+                // a blank line between plan fragments
+                str.append("\n");
+            }
+            str.append("PLAN FRAGMENT " + i + "\n");
+            str.append(fragment.getExplainStringToProfile(explainLevel, statistics, i));
+        }
+        return str.toString();
+    }
+
+    public Map<Integer, String> getExplainStringMap() {
+        Map<Integer, String> planNodeMap = new HashMap<Integer, String>();
+        for (int i = 0; i < fragments.size(); ++i) {
+            PlanFragment fragment = fragments.get(i);
+            fragment.getExplainStringMap(planNodeMap);
+        }
+        return planNodeMap;
     }
 
     protected void handleLiteralInFe(LiteralExpr literalExpr, List<String> data) {

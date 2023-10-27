@@ -253,7 +253,10 @@ public class TransactionState implements Writable {
     // tbl id -> (index ids)
     private Map<Long, Set<Long>> loadedTblIndexes = Maps.newHashMap();
 
-    private Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
+    /**
+     * the value is the num delta rows of all replicas in each table
+     */
+    private final Map<Long, Long> tableIdToTotalNumDeltaRows = Maps.newHashMap();
 
     private String errorLogUrl = null;
 
@@ -703,12 +706,12 @@ public class TransactionState implements Writable {
         }
     }
 
-    public Map<Long, Long> getTableIdToNumDeltaRows() {
-        return tableIdToNumDeltaRows;
+    public Map<Long, Long> getTableIdToTotalNumDeltaRows() {
+        return tableIdToTotalNumDeltaRows;
     }
 
-    public void setTableIdToNumDeltaRows(Map<Long, Long> tableIdToNumDeltaRows) {
-        this.tableIdToNumDeltaRows.putAll(tableIdToNumDeltaRows);
+    public void setTableIdToTotalNumDeltaRows(Map<Long, Long> tableIdToTotalNumDeltaRows) {
+        this.tableIdToTotalNumDeltaRows.putAll(tableIdToTotalNumDeltaRows);
     }
 
     public void setErrorMsg(String errMsg) {

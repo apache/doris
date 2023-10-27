@@ -41,6 +41,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -106,8 +107,14 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                 dataType = DecimalV2Type.SYSTEM_DEFAULT;
             } else if (i == 0 && dataType.isStringType()) {
                 dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
+            } else if (dataType instanceof CharacterType) {
+                // if column is not come from column, we should set varchar length to max
+                if (((CharacterType) dataType).getLen() > 0 && !s.isColumnFromTable()) {
+                    dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
+                }
             }
-            columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, s.nullable()));
+            // if the column is an expression, we set it to nullable, otherwise according to the nullable of the slot.
+            columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, !s.isColumnFromTable() || s.nullable()));
         }
         createTableInfo.validateCreateTableAsSelect(columnsOfQuery.build(), ctx);
         CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
@@ -141,6 +148,10 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             // TODO: refactor it with normal error process.
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
         }
+    }
+
+    public boolean isCtasCommand() {
+        return ctasQuery.isPresent();
     }
 
     @Override

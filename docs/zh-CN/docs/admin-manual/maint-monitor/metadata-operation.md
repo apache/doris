@@ -189,12 +189,15 @@ FE 有可能因为某些原因出现无法启动 bdbje、FE 之间无法同步�
 
 3. 以下操作都在由第2步中选择出来的 FE 节点上进行。
 
-    1. 如果该节点是一个 OBSERVER，先将 `meta_dir/image/ROLE` 文件中的 `role=OBSERVER` 改为 `role=FOLLOWER`。（从 OBSERVER 节点恢复会比较麻烦，先按这里的步骤操作，后面会有单独说明）)
+    1. 修改 `fe.conf` 
+      - 如果该节点是一个 OBSERVER，先将 `meta_dir/image/ROLE` 文件中的 `role=OBSERVER` 改为 `role=FOLLOWER`。（从 OBSERVER 节点恢复会比较麻烦，先按这里的步骤操作，后面会有单独说明）)
+      - 如果 FE 版本< 2.0.2, 则还需要在 fe.conf 中添加配置：`metadata_failure_recovery=true`。
     2. 执行 `sh bin/start_fe.sh --metadata_failure_recovery` 启动这个 FE。
     3. 如果正常，这个 FE 会以 MASTER 的角色启动，类似于前面 `启动单节点 FE` 一节中的描述。在 fe.log 应该会看到 `transfer from XXXX to MASTER` 等字样。
     4. 启动完成后，先连接到这个 FE，执行一些查询导入，检查是否能够正常访问。如果不正常，有可能是操作有误，建议仔细阅读以上步骤，用之前备份的元数据再试一次。如果还是不行，问题可能就比较严重了。
     5. 如果成功，通过 `show frontends;` 命令，应该可以看到之前所添加的所有 FE，并且当前 FE 是 master。
     6. 后重启这个 FE（**重要**）。
+    7. **如果 FE 版本 < 2.0.2**，将 fe.conf 中的 `metadata_failure_recovery=true` 配置项删除，或者设置为 `false`，然后重启这个 FE（**重要**）。
 
 
     > 如果你是从一个 OBSERVER 节点的元数据进行恢复的，那么完成如上步骤后，通过 `show frontends;` 语句你会发现，当前这个 FE 的角色为 OBSERVER，但是 `IsMaster` 显示为 `true`。这是因为，这里看到的 “OBSERVER” 是记录在 Doris 的元数据中的，而是否是 master，是记录在 bdbje 的元数据中的。因为我们是从一个 OBSERVER 节点恢复的，所以这里出现了不一致。请按如下步骤修复这个问题（这个问题我们会在之后的某个版本修复）：

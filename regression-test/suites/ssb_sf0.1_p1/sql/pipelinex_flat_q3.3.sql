@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 --Q3.3
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
     C_CITY,
     S_CITY, (LO_ORDERDATE DIV 10000) AS YEAR,
     SUM(LO_REVENUE) AS revenue

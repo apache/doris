@@ -537,6 +537,10 @@ public class OlapScanNode extends ScanNode {
         // lazy evaluation, since stmt is a prepared statment
         isFromPrepareStmt = analyzer.getPrepareStmt() != null;
         if (!isFromPrepareStmt) {
+            if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
+                partitionsInfo = olapTable.getPartitionInfo();
+                analyzerPartitionExpr(analyzer, partitionsInfo);
+            }
             computeColumnsFilter();
             computePartitionInfo();
         }
@@ -966,6 +970,8 @@ public class OlapScanNode extends ScanNode {
                 continue;
             }
 
+            // It is assumed here that all tablets row count is uniformly distributed
+            // TODO Use `p.getBaseIndex().getTablet(n).getRowCount()` to get each tablet row count to compute sample.
             long avgRowsPerTablet = Math.max(p.getBaseIndex().getRowCount() / ids.size(), 1);
             long tabletCounts = Math.max(
                     avgRowsPerPartition / avgRowsPerTablet + (avgRowsPerPartition % avgRowsPerTablet != 0 ? 1 : 0), 1);
@@ -1022,19 +1028,28 @@ public class OlapScanNode extends ScanNode {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
             final List<Tablet> tablets = Lists.newArrayList();
-            final Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
+            Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
             LOG.debug("distribution prune tablets: {}", tabletIds);
-            if (tabletIds != null && sampleTabletIds.size() != 0) {
-                tabletIds.retainAll(sampleTabletIds);
+            if (sampleTabletIds.size() != 0) {
+                if (tabletIds != null) {
+                    tabletIds.retainAll(sampleTabletIds);
+                } else {
+                    tabletIds = sampleTabletIds;
+                }
                 LOG.debug("after sample tablets: {}", tabletIds);
             }
 
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             if (tabletIds != null) {
                 for (Long id : tabletIds) {
-                    tablets.add(selectedTable.getTablet(id));
+                    if (selectedTable.getTablet(id) != null) {
+                        tablets.add(selectedTable.getTablet(id));
+                        scanTabletIds.add(id);
+                    } else {
+                        // The tabletID specified in query does not exist in this partition, skip scan partition.
+                        Preconditions.checkState(sampleTabletIds.size() != 0);
+                    }
                 }
-                scanTabletIds.addAll(tabletIds);
             } else {
                 tablets.addAll(selectedTable.getTablets());
                 scanTabletIds.addAll(allTabletIds);
@@ -1117,7 +1132,7 @@ public class OlapScanNode extends ScanNode {
         // Lazy evaluation
         selectedIndexId = olapTable.getBaseIndexId();
         // Only key columns
-        computeColumnsFilter(olapTable.getBaseSchemaKeyColumns());
+        computeColumnsFilter(olapTable.getBaseSchemaKeyColumns(), olapTable.getPartitionInfo());
         computePartitionInfo();
         scanBackendIds.clear();
         scanTabletIds.clear();
@@ -1283,6 +1298,51 @@ public class OlapScanNode extends ScanNode {
     }
 
     @Override
+    // If scan is key search, should not enable the shared scan opt to prevent the performance problem
+    // 1. where contain the eq or in expr of key column slot
+    // 2. key column slot is distribution column and first column
+    public boolean isKeySearch() {
+        List<SlotRef> whereSlot = Lists.newArrayList();
+        for (Expr conjunct : conjuncts) {
+            if (conjunct instanceof BinaryPredicate) {
+                BinaryPredicate binaryPredicate = (BinaryPredicate) conjunct;
+                if (binaryPredicate.getOp().isEquivalence()) {
+                    if (binaryPredicate.getChild(0) instanceof SlotRef) {
+                        whereSlot.add((SlotRef) binaryPredicate.getChild(0));
+                    }
+                    if (binaryPredicate.getChild(1) instanceof SlotRef) {
+                        whereSlot.add((SlotRef) binaryPredicate.getChild(1));
+                    }
+                }
+            }
+
+            if (conjunct instanceof InPredicate) {
+                InPredicate inPredicate = (InPredicate) conjunct;
+                if (!inPredicate.isNotIn()) {
+                    if (inPredicate.getChild(0) instanceof SlotRef) {
+                        whereSlot.add((SlotRef) inPredicate.getChild(0));
+                    }
+                    if (inPredicate.getChild(1) instanceof SlotRef) {
+                        whereSlot.add((SlotRef) inPredicate.getChild(1));
+                    }
+                }
+            }
+        }
+
+        for (SlotRef slotRef : whereSlot) {
+            String columnName = slotRef.getDesc().getColumn().getName().toLowerCase();
+            if (olapTable != null) {
+                if (olapTable.getDistributionColumnNames().contains(columnName)
+                        && olapTable.getBaseSchema().get(0).getName().toLowerCase().equals(columnName)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    @Override
     protected void toThrift(TPlanNode msg) {
         List<String> keyColumnNames = new ArrayList<String>();
         List<TPrimitiveType> keyColumnTypes = new ArrayList<TPrimitiveType>();
@@ -1386,6 +1446,13 @@ public class OlapScanNode extends ScanNode {
                     }
                 }
             }
+        }
+    }
+
+    private void analyzerPartitionExpr(Analyzer analyzer, PartitionInfo partitionInfo) throws AnalysisException {
+        ArrayList<Expr> exprs = partitionInfo.getPartitionExprs();
+        for (Expr e : exprs) {
+            e.analyze(analyzer);
         }
     }
 
@@ -1585,4 +1652,5 @@ public class OlapScanNode extends ScanNode {
         return true;
     }
 }
+
 

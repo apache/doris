@@ -33,6 +33,7 @@
 
 #include "common/global_types.h"
 #include "common/status.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 
@@ -45,6 +46,7 @@ using InstanceLoId = int64_t;
 namespace pipeline {
 class BroadcastDependency;
 class ExchangeSinkQueueDependency;
+class FinishDependency;
 } // namespace pipeline
 
 namespace vectorized {
@@ -94,6 +96,7 @@ struct TransmitInfo {
     vectorized::PipChannel<Parent>* channel;
     std::unique_ptr<PBlock> block;
     bool eos;
+    Status exec_status;
 };
 
 template <typename Parent>
@@ -174,16 +177,19 @@ public:
     void register_sink(TUniqueId);
 
     Status add_block(TransmitInfo<Parent>&& request);
-    Status add_block(BroadcastTransmitInfo<Parent>&& request);
+    Status add_block(BroadcastTransmitInfo<Parent>&& request, [[maybe_unused]] bool* sent);
     bool can_write() const;
     bool is_pending_finish();
     void close();
     void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
 
-    void set_queue_dependency(std::shared_ptr<ExchangeSinkQueueDependency> queue_dependency) {
+    void set_dependency(std::shared_ptr<ExchangeSinkQueueDependency> queue_dependency,
+                        std::shared_ptr<FinishDependency> finish_dependency) {
         _queue_dependency = queue_dependency;
+        _finish_dependency = finish_dependency;
     }
+    void set_query_statistics(QueryStatistics* statistics) { _statistics = statistics; }
 
 private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
@@ -201,7 +207,10 @@ private:
     // TODO: make all flat_hash_map to a STRUT
     phmap::flat_hash_map<InstanceLoId, PackageSeq> _instance_to_seq;
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<PTransmitDataParams>> _instance_to_request;
-    phmap::flat_hash_map<InstanceLoId, bool> _instance_to_sending_by_pipeline;
+    // One channel is corresponding to a downstream instance.
+    phmap::flat_hash_map<InstanceLoId, bool> _rpc_channel_is_idle;
+    // Number of busy channels;
+    std::atomic<int> _busy_channels = 0;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
     phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
     phmap::flat_hash_map<InstanceLoId, ExchangeRpcContext> _instance_to_rpc_ctx;
@@ -229,6 +238,8 @@ private:
     static constexpr int QUEUE_CAPACITY_FACTOR = 64;
     int _queue_capacity = 0;
     std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
+    std::shared_ptr<FinishDependency> _finish_dependency = nullptr;
+    QueryStatistics* _statistics = nullptr;
 };
 
 } // namespace pipeline

@@ -69,9 +69,7 @@ namespace doris {
 using namespace ErrorCode;
 
 LoadStreamWriter::LoadStreamWriter(WriteRequest* req, RuntimeProfile* profile)
-        : _req(*req),
-          _rowset_builder(*req, StorageEngine::instance(), profile),
-          _rowset_writer(nullptr) {}
+        : _req(*req), _rowset_builder(*req, profile), _rowset_writer(nullptr) {}
 
 LoadStreamWriter::~LoadStreamWriter() = default;
 
@@ -124,8 +122,7 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
 }
 
 Status LoadStreamWriter::add_segment(uint32_t segid, SegmentStatistics& stat) {
-    _rowset_writer->add_segment(segid, stat);
-    return Status::OK();
+    return _rowset_writer->add_segment(segid, stat);
 }
 
 Status LoadStreamWriter::close() {
@@ -152,10 +149,10 @@ Status LoadStreamWriter::close() {
         }
     }
 
-    _rowset_builder.build_rowset();
-    _rowset_builder.submit_calc_delete_bitmap_task();
-    _rowset_builder.wait_calc_delete_bitmap();
-    _rowset_builder.commit_txn();
+    RETURN_IF_ERROR(_rowset_builder.build_rowset());
+    RETURN_IF_ERROR(_rowset_builder.submit_calc_delete_bitmap_task());
+    RETURN_IF_ERROR(_rowset_builder.wait_calc_delete_bitmap());
+    RETURN_IF_ERROR(_rowset_builder.commit_txn());
 
     return Status::OK();
 }

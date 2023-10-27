@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
@@ -49,6 +50,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
+import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
@@ -72,6 +74,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -93,6 +96,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected Map<String, SlotDescriptor> destSlotDescByName;
     protected TFileScanRangeParams params;
 
+    @Getter
     protected TableSample tableSample;
 
     /**
@@ -274,11 +278,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
         TFileFormatType fileFormatType = getFileFormatType();
         params.setFormatType(fileFormatType);
         boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
-        if (isCsvOrJson) {
+        boolean isWal = fileFormatType == TFileFormatType.FORMAT_WAL;
+        if (isCsvOrJson || isWal) {
             params.setFileAttributes(getFileAttributes());
             if (getLocationType() == TFileType.FILE_STREAM) {
                 params.setFileType(TFileType.FILE_STREAM);
-                params.setCompressType(TFileCompressType.PLAIN);
+                FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
+                ExternalFileTableValuedFunction tableValuedFunction = (ExternalFileTableValuedFunction) table.getTvf();
+                params.setCompressType(tableValuedFunction.getTFileCompressType());
 
                 TScanRangeLocations curLocations = newLocations();
                 TFileRangeDesc rangeDesc = new TFileRangeDesc();
@@ -311,7 +318,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         for (Split split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
             TFileType locationType = getLocationType(fileSplit.getPath().toString());
-            setLocationPropertiesIfNecessary(locationType, fileSplit, locationProperties);
+            setLocationPropertiesIfNecessary(locationType, locationProperties);
 
             TScanRangeLocations curLocations = newLocations();
             // If fileSplit has partition values, use the values collected from hive partitions.
@@ -387,7 +394,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 scanRangeLocations.size(), (System.currentTimeMillis() - start));
     }
 
-    private void setLocationPropertiesIfNecessary(TFileType locationType, FileSplit fileSplit,
+    private void setLocationPropertiesIfNecessary(TFileType locationType,
             Map<String, String> locationProperties) throws UserException {
         if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
             if (!params.isSetHdfsParams()) {
@@ -473,13 +480,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected abstract TableIf getTargetTable() throws UserException;
 
     protected abstract Map<String, String> getLocationProperties() throws UserException;
-
-    // eg: hdfs://namenode  s3://buckets
-    protected String getFsName(FileSplit split) {
-        String fullPath = split.getPath().toUri().toString();
-        String filePath = split.getPath().toUri().getPath();
-        return fullPath.replace(filePath, "");
-    }
 
     protected static Optional<TFileType> getTFileType(String location) {
         if (location != null && !location.isEmpty()) {

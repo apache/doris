@@ -41,6 +41,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ProfileStatistics;
 import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -62,6 +63,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -574,6 +576,83 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return expBuilder.toString();
     }
 
+    protected final String getExplainStringToProfile(String rootPrefix, String prefix, TExplainLevel detailLevel,
+            ProfileStatistics statistics) {
+        StringBuilder expBuilder = new StringBuilder();
+        String detailPrefix = prefix;
+        boolean traverseChildren = children != null
+                && children.size() > 0
+                && !(this instanceof ExchangeNode);
+        // if (children != null && children.size() > 0) {
+        if (traverseChildren) {
+            detailPrefix += "|  ";
+        } else {
+            detailPrefix += "   ";
+        }
+
+        // Print the current node
+        // The plan node header line will be prefixed by rootPrefix and the remaining
+        // details
+        // will be prefixed by detailPrefix.
+        expBuilder.append(rootPrefix + id.asInt() + ":" + planNodeName + "\n");
+        expBuilder.append(getNodeExplainString(detailPrefix, detailLevel));
+        statistics.getInfoById(id.asInt(), detailPrefix, expBuilder);
+        if (limit != -1) {
+            expBuilder.append(detailPrefix + "limit: " + limit + "\n");
+        }
+        if (!CollectionUtils.isEmpty(projectList)) {
+            expBuilder.append(detailPrefix).append("projections: ").append(getExplainString(projectList)).append("\n");
+            expBuilder.append(detailPrefix).append("project output tuple id: ")
+                    .append(outputTupleDesc.getId().asInt()).append("\n");
+        }
+        // Output Tuple Ids only when explain plan level is set to verbose
+        if (detailLevel.equals(TExplainLevel.VERBOSE)) {
+            expBuilder.append(detailPrefix + "tuple ids: ");
+            for (TupleId tupleId : tupleIds) {
+                String nullIndicator = nullableTupleIds.contains(tupleId) ? "N" : "";
+                expBuilder.append(tupleId.asInt() + nullIndicator + " ");
+            }
+            expBuilder.append("\n");
+        }
+
+        // Print the children
+        // if (children != null && children.size() > 0) {
+        if (traverseChildren) {
+            expBuilder.append(detailPrefix + "\n");
+            String childHeadlinePrefix = prefix + "|----";
+            String childDetailPrefix = prefix + "|    ";
+            for (int i = 1; i < children.size(); ++i) {
+                expBuilder.append(
+                        children.get(i).getExplainStringToProfile(childHeadlinePrefix, childDetailPrefix,
+                                detailLevel, statistics));
+                expBuilder.append(childDetailPrefix + "\n");
+            }
+            expBuilder.append(children.get(0).getExplainStringToProfile(prefix, prefix, detailLevel, statistics));
+        }
+        return expBuilder.toString();
+    }
+
+    private String getplanNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        StringBuilder expBuilder = new StringBuilder();
+        expBuilder.append(getNodeExplainString(prefix, detailLevel));
+        if (limit != -1) {
+            expBuilder.append(prefix + "limit: " + limit + "\n");
+        }
+        if (!CollectionUtils.isEmpty(projectList)) {
+            expBuilder.append(prefix).append("projections: ").append(getExplainString(projectList)).append("\n");
+            expBuilder.append(prefix).append("project output tuple id: ")
+                    .append(outputTupleDesc.getId().asInt()).append("\n");
+        }
+        return expBuilder.toString();
+    }
+
+    public void getExplainStringMap(TExplainLevel detailLevel, Map<Integer, String> planNodeMap) {
+        planNodeMap.put(id.asInt(), getplanNodeExplainString("", detailLevel));
+        for (int i = 0; i < children.size(); ++i) {
+            children.get(i).getExplainStringMap(detailLevel, planNodeMap);
+        }
+    }
+
     /**
      * Return the node-specific details.
      * Subclass should override this function.
@@ -1059,24 +1138,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
         List<String> filtersStr = new ArrayList<>();
         for (RuntimeFilter filter : runtimeFilters) {
-            StringBuilder filterStr = new StringBuilder();
-            filterStr.append(filter.getFilterId());
-            if (!isBrief) {
-                filterStr.append("[");
-                filterStr.append(filter.getType().toString().toLowerCase());
-                filterStr.append("]");
-                if (isBuildNode) {
-                    filterStr.append(" <- ");
-                    filterStr.append(filter.getSrcExpr().toSql());
-                    filterStr.append("(").append(filter.getEstimateNdv()).append("/")
-                            .append(filter.getExpectFilterSizeBytes()).append("/")
-                            .append(filter.getFilterSizeBytes()).append(")");
-                } else {
-                    filterStr.append(" -> ");
-                    filterStr.append(filter.getTargetExpr(getId()).toSql());
-                }
-            }
-            filtersStr.add(filterStr.toString());
+            filtersStr.add(filter.getExplainString(isBuildNode, isBrief, getId()));
         }
         return Joiner.on(", ").join(filtersStr) + "\n";
     }

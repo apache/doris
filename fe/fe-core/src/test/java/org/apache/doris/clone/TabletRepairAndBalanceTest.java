@@ -20,6 +20,7 @@ package org.apache.doris.clone;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.BackendClause;
+import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
@@ -105,7 +106,7 @@ public class TabletRepairAndBalanceTest {
         FeConstants.runningUnitTest = true;
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
-        FeConstants.tablet_checker_interval_ms = 1000;
+        Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
         Config.colocate_group_relocate_delay_second = 1;
         // 5 backends:
@@ -128,7 +129,7 @@ public class TabletRepairAndBalanceTest {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
             tDisk1.setRootPath("/home/doris.HDD");
-            tDisk1.setDiskTotalCapacity(2000000000);
+            tDisk1.setDiskTotalCapacity(10L << 30);
             tDisk1.setDataUsedCapacity(1);
             tDisk1.setUsed(true);
             tDisk1.setDiskAvailableCapacity(tDisk1.disk_total_capacity - tDisk1.data_used_capacity);
@@ -138,7 +139,7 @@ public class TabletRepairAndBalanceTest {
 
             TDisk tDisk2 = new TDisk();
             tDisk2.setRootPath("/home/doris.SSD");
-            tDisk2.setDiskTotalCapacity(2000000000);
+            tDisk2.setDiskTotalCapacity(10L << 30);
             tDisk2.setDataUsedCapacity(1);
             tDisk2.setUsed(true);
             tDisk2.setDiskAvailableCapacity(tDisk2.disk_total_capacity - tDisk2.data_used_capacity);
@@ -497,6 +498,20 @@ public class TabletRepairAndBalanceTest {
         // set one replica to bad, see if it can be repaired
         oneReplica.setBad(true);
         Assert.assertTrue(checkReplicaBad(oneTablet, oneReplica));
+
+
+        //test cancel decommission backend by ids
+
+        String stmtStr4 = "alter system decommission backend \"" + be.getHost() + ":" + be.getHeartbeatPort() + "\"";
+        stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr4, connectContext);
+        DdlExecutor.execute(Env.getCurrentEnv(), stmt);
+
+        String stmtStr5 = "cancel decommission backend \"" + be.getId() + "\"";
+        CancelAlterSystemStmt cancelAlterSystemStmt = (CancelAlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr5, connectContext);
+        DdlExecutor.execute(Env.getCurrentEnv(), cancelAlterSystemStmt);
+
+        Assert.assertFalse(be.isDecommissioned());
+
     }
 
     private static boolean checkReplicaState(Replica replica) throws Exception {

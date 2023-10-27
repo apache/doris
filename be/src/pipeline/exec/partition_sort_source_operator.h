@@ -57,37 +57,27 @@ public:
     using Base = PipelineXLocalState<PartitionSortDependency>;
     PartitionSortSourceLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<PartitionSortDependency>(state, parent),
+              _get_sorted_timer(nullptr),
               _get_next_timer(nullptr) {}
 
-    Status init(RuntimeState* state, LocalStateInfo& info) override {
-        RETURN_IF_ERROR(PipelineXLocalState<PartitionSortDependency>::init(state, info));
-        _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
-        _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
-        _shared_state->previous_row = std::make_unique<vectorized::SortCursorCmp>();
-        return Status::OK();
-    }
-
-    Status close(RuntimeState* state) override;
-
-    int64_t _num_rows_returned = 0;
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
 
 private:
     friend class PartitionSortSourceOperatorX;
     RuntimeProfile::Counter* _get_sorted_timer;
-    RuntimeProfile::Counter* _get_next_timer = nullptr;
+    RuntimeProfile::Counter* _get_next_timer;
+    int _sort_idx = 0;
 };
 
 class PartitionSortSourceOperatorX final : public OperatorX<PartitionSortSourceLocalState> {
 public:
     using Base = OperatorX<PartitionSortSourceLocalState>;
-    PartitionSortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    PartitionSortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                  const DescriptorTbl& descs)
-            : OperatorX<PartitionSortSourceLocalState>(pool, tnode, descs) {}
+            : OperatorX<PartitionSortSourceLocalState>(pool, tnode, operator_id, descs) {}
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
-
-    Dependency* wait_for_dependency(RuntimeState* state) override;
 
     bool is_source() const override { return true; }
 

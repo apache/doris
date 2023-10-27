@@ -81,9 +81,10 @@ public:
     using Base = AggSinkLocalState<AggDependency, StreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(StreamingAggSinkLocalState);
     StreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
+    ~StreamingAggSinkLocalState() override = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
 
 private:
@@ -92,10 +93,6 @@ private:
     Status _pre_agg_with_serialized_key(doris::vectorized::Block* in_block,
                                         doris::vectorized::Block* out_block);
     bool _should_expand_preagg_hash_tables();
-
-    vectorized::Block _preagg_block = vectorized::Block();
-
-    vectorized::PODArray<vectorized::AggregateDataPtr> _places;
 
     RuntimeProfile::Counter* _queue_byte_size_counter;
     RuntimeProfile::Counter* _queue_size_counter;
@@ -107,15 +104,12 @@ private:
 
 class StreamingAggSinkOperatorX final : public AggSinkOperatorX<StreamingAggSinkLocalState> {
 public:
-    StreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    StreamingAggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+                              const DescriptorTbl& descs);
+    ~StreamingAggSinkOperatorX() override = default;
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state._dependency->write_blocked_by();
-    }
 };
 
 } // namespace pipeline

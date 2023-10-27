@@ -27,6 +27,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.common.util.ProfileStatistics;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
@@ -42,6 +43,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -325,6 +327,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         }
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");
+        str.append("  HAS_COLO_PLAN_NODE: " + hasColocatePlanNode + "\n");
+        str.append("\n");
         if (sink != null) {
             str.append(sink.getExplainString("  ", explainLevel) + "\n");
         }
@@ -332,6 +336,31 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             str.append(planRoot.getExplainString("  ", "  ", explainLevel));
         }
         return str.toString();
+    }
+
+    public String getExplainStringToProfile(TExplainLevel explainLevel, ProfileStatistics statistics, int fragmentIdx) {
+        StringBuilder str = new StringBuilder();
+        Preconditions.checkState(dataPartition != null);
+        if (CollectionUtils.isNotEmpty(outputExprs)) {
+            str.append("  OUTPUT EXPRS:\n    ");
+            str.append(outputExprs.stream().map(Expr::toSql).collect(Collectors.joining("\n    ")));
+        }
+        str.append("\n");
+        str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");
+        if (sink != null) {
+            str.append(sink.getExplainStringToProfile("  ", explainLevel, statistics, fragmentIdx) + "\n");
+        }
+        if (planRoot != null) {
+            str.append(planRoot.getExplainStringToProfile("  ", "  ", explainLevel, statistics));
+        }
+        return str.toString();
+    }
+
+    public void getExplainStringMap(Map<Integer, String> planNodeMap) {
+        org.apache.doris.thrift.TExplainLevel explainLevel = org.apache.doris.thrift.TExplainLevel.NORMAL;
+        if (planRoot != null) {
+            planRoot.getExplainStringMap(explainLevel, planNodeMap);
+        }
     }
 
     /**

@@ -72,6 +72,10 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         this.requestPropertyFromParent = context.getRequiredProperties();
     }
 
+    public RequestPropertyDeriver(PhysicalProperties requestPropertyFromParent) {
+        this.requestPropertyFromParent = requestPropertyFromParent;
+    }
+
     /**
      * get request children property list
      */
@@ -161,8 +165,10 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (JoinUtils.couldShuffle(hashJoin)) {
             addShuffleJoinRequestProperty(hashJoin);
         }
+
         // for broadcast join
-        if (JoinUtils.couldBroadcast(hashJoin)) {
+        if (JoinUtils.couldBroadcast(hashJoin)
+                && (JoinUtils.checkBroadcastJoinStats(hashJoin) || requestPropertyToChildren.isEmpty())) {
             addBroadcastJoinRequestProperty();
         }
         return null;

@@ -27,7 +27,6 @@
 #include <string>
 
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/key_holder_helpers.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
@@ -36,7 +35,6 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/hash_set.h"
-#include "vec/common/hash_table/hash_table_key_holder.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
@@ -75,8 +73,9 @@ struct AggregateFunctionCollectSetData {
 
     void merge(const SelfType& rhs) {
         if constexpr (HasLimit::value) {
-            DCHECK(max_size == -1 || max_size == rhs.max_size);
-            max_size = rhs.max_size;
+            if (max_size == -1) {
+                max_size = rhs.max_size;
+            }
 
             for (auto& rhs_elem : rhs.data_set) {
                 if (size() >= max_size) {
@@ -115,7 +114,7 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     using SelfType = AggregateFunctionCollectSetData<ElementType, HasLimit>;
-    using Set = HashSetWithSavedHashWithStackMemory<ElementType, DefaultHash<ElementType>, 4>;
+    using Set = HashSetWithStackMemory<ElementType, DefaultHash<ElementType>, 4>;
     Set data_set;
     Int64 max_size = -1;
 
@@ -124,14 +123,17 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
     void add(const IColumn& column, size_t row_num, Arena* arena) {
         Set::LookupResult it;
         bool inserted;
-        auto key_holder = get_key_holder<true>(column, row_num, *arena);
-        data_set.emplace(key_holder, it, inserted);
+        auto key = column.get_data_at(row_num);
+        key.data = arena->insert(key.data, key.size);
+        data_set.emplace(key, it, inserted);
     }
 
     void merge(const SelfType& rhs, Arena* arena) {
         bool inserted;
         Set::LookupResult it;
-        DCHECK(max_size == -1 || max_size == rhs.max_size);
+        if (max_size == -1) {
+            max_size = rhs.max_size;
+        }
         max_size = rhs.max_size;
 
         for (auto& rhs_elem : rhs.data_set) {
@@ -141,7 +143,9 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
                 }
             }
             assert(arena != nullptr);
-            data_set.emplace(ArenaKeyHolder {rhs_elem.get_value(), *arena}, it, inserted);
+            StringRef key = rhs_elem.get_value();
+            key.data = arena->insert(key.data, key.size);
+            data_set.emplace(key, it, inserted);
         }
     }
 
@@ -192,7 +196,9 @@ struct AggregateFunctionCollectListData {
 
     void merge(const SelfType& rhs) {
         if constexpr (HasLimit::value) {
-            DCHECK(max_size == -1 || max_size == rhs.max_size);
+            if (max_size == -1) {
+                max_size = rhs.max_size;
+            }
             max_size = rhs.max_size;
             for (auto& rhs_elem : rhs.data) {
                 if (size() >= max_size) {
@@ -244,7 +250,9 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
 
     void merge(const AggregateFunctionCollectListData& rhs) {
         if constexpr (HasLimit::value) {
-            DCHECK(max_size == -1 || max_size == rhs.max_size);
+            if (max_size == -1) {
+                max_size = rhs.max_size;
+            }
             max_size = rhs.max_size;
 
             data->insert_range_from(*rhs.data, 0,
@@ -424,12 +432,12 @@ class AggregateFunctionCollect
 public:
     using BaseHelper = IAggregateFunctionHelper<AggregateFunctionCollect<Data, HasLimit, ShowNull>>;
 
-    AggregateFunctionCollect(const DataTypes& argument_types,
+    AggregateFunctionCollect(const DataTypes& argument_types_,
                              UInt64 max_size_ = std::numeric_limits<UInt64>::max())
             : IAggregateFunctionDataHelper<Data,
                                            AggregateFunctionCollect<Data, HasLimit, ShowNull>>(
-                      {argument_types}),
-              return_type(argument_types[0]) {}
+                      {argument_types_}),
+              return_type(argument_types_[0]) {}
 
     std::string get_name() const override {
         if constexpr (ShowNull::value) {

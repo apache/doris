@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -32,7 +31,6 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.common.collect.Maps;
 import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,11 +56,11 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     @Override
     protected void collect() {
-        if (!StatisticsUtil.checkAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
+        if (!StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
             analysisTaskExecutor.clear();
             return;
         }
-        if (Config.enable_full_auto_analyze) {
+        if (StatisticsUtil.enableAutoAnalyze()) {
             analyzeAll();
         }
     }
@@ -115,24 +113,26 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         if (!(table instanceof OlapTable || table instanceof ExternalTable)) {
             return true;
         }
-        if (table.getDataSize() < Config.huge_table_lower_bound_size_in_bytes) {
+        if (table.getDataSize(true) < Config.huge_table_lower_bound_size_in_bytes) {
             return false;
         }
-        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        // means it's never got analyzed
+        if (tableStats == null) {
+            return false;
+        }
         return System.currentTimeMillis() - tableStats.updatedTime < Config.huge_table_auto_analyze_interval_in_millis;
     }
 
     protected void createAnalyzeJobForTbl(DatabaseIf<? extends TableIf> db,
             List<AnalysisInfo> analysisInfos, TableIf table) {
-        AnalysisMethod analysisMethod = table.getDataSize() > Config.huge_table_lower_bound_size_in_bytes
+        AnalysisMethod analysisMethod = table.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
-        TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(),
-                table.getName());
         AnalysisInfo jobInfo = new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
-                .setCatalogName(db.getCatalog().getName())
-                .setDbName(db.getFullName())
-                .setTblName(tableName.getTbl())
+                .setCatalogId(db.getCatalog().getId())
+                .setDBId(db.getId())
+                .setTblId(table.getId())
                 .setColName(
                         table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                                 .map(
@@ -141,7 +141,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
                 .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
                 .setAnalysisMethod(analysisMethod)
-                .setSamplePercent(Config.huge_table_default_sample_rows)
+                .setSampleRows(Config.huge_table_default_sample_rows)
                 .setScheduleType(ScheduleType.AUTOMATIC)
                 .setState(AnalysisState.PENDING)
                 .setTaskIds(new ArrayList<>())
@@ -153,11 +153,11 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     @VisibleForTesting
     protected AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
         TableIf table = StatisticsUtil
-                .findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
+                .findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
-        TableStats tblStats = analysisManager.findTableStatsStatus(table.getId());
+        TableStatsMeta tblStats = analysisManager.findTableStatsStatus(table.getId());
 
-        if (!(tblStats == null || table.needReAnalyzeTable(tblStats))) {
+        if (!table.needReAnalyzeTable(tblStats)) {
             return null;
         }
 
@@ -170,27 +170,4 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         return new AnalysisInfoBuilder(jobInfo).setColToPartitions(needRunPartitions).build();
     }
 
-    @VisibleForTesting
-    protected AnalysisInfo getAnalysisJobInfo(AnalysisInfo jobInfo, TableIf table,
-            Set<String> needRunPartitions) {
-        Map<String, Set<String>> newColToPartitions = Maps.newHashMap();
-        Map<String, Set<String>> colToPartitions = jobInfo.colToPartitions;
-        if (colToPartitions == null) {
-            for (Column c : table.getColumns()) {
-                if (StatisticsUtil.isUnsupportedType(c.getType())) {
-                    continue;
-                }
-                newColToPartitions.put(c.getName(), needRunPartitions);
-            }
-        } else {
-            colToPartitions.keySet().forEach(colName -> {
-                Column column = table.getColumn(colName);
-                if (column != null) {
-                    newColToPartitions.put(colName, needRunPartitions);
-                }
-            });
-        }
-        return new AnalysisInfoBuilder(jobInfo)
-                .setColToPartitions(newColToPartitions).build();
-    }
 }

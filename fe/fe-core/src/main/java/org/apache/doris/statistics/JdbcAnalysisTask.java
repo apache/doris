@@ -84,7 +84,7 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
                 StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(ANALYZE_TABLE_COUNT_TEMPLATE));
         String rowCount = columnResult.get(0).get(0);
         Env.getCurrentEnv().getAnalysisManager()
-            .updateTableStatsStatus(new TableStats(table.getId(), Long.parseLong(rowCount), info));
+            .updateTableStatsStatus(new TableStatsMeta(table.getId(), Long.parseLong(rowCount), info));
     }
 
     /**
@@ -130,11 +130,11 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
             QueryState queryState = r.connectContext.getState();
             if (queryState.getStateType().equals(QueryState.MysqlStateType.ERR)) {
                 LOG.warn(String.format("Failed to analyze %s.%s.%s, sql: [%s], error: [%s]",
-                        info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
+                        catalog.getName(), db.getFullName(), info.colName, sql, queryState.getErrorMessage()));
                 throw new RuntimeException(queryState.getErrorMessage());
             }
             LOG.debug(String.format("Analyze %s.%s.%s done. SQL: [%s]. Cost %d ms.",
-                    info.catalogName, info.dbName, info.colName, sql, (System.currentTimeMillis() - startTime)));
+                    catalog.getName(), db.getFullName(), info.colName, sql, (System.currentTimeMillis() - startTime)));
         }
     }
 

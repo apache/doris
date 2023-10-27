@@ -21,6 +21,7 @@
 
 #include "io/fs/file_system.h"
 #include "olap/olap_define.h"
+#include "olap/partial_update_info.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 
@@ -88,7 +89,7 @@ struct RowsetWriterContext {
     bool enable_unique_key_merge_on_write = false;
     std::set<int32_t> skip_inverted_index;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
-    std::shared_ptr<Tablet> tablet = nullptr;
+    BaseTabletSPtr tablet = nullptr;
     // for tracing local schema change record
     std::shared_ptr<vectorized::schema_util::LocalSchemaChangeRecorder> schema_change_recorder =
             nullptr;
@@ -105,6 +106,10 @@ struct RowsetWriterContext {
 
     // segcompaction for this RowsetWriter, disable it for some transient writers
     bool enable_segcompaction = true;
+
+    std::shared_ptr<PartialUpdateInfo> partial_update_info;
+
+    bool is_transient_rowset_writer = false;
 };
 
 } // namespace doris

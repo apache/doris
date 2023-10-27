@@ -9,27 +9,27 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](supplier.s_nationkey = n2.n_nationkey)
+------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = n2.n_nationkey))otherCondition=()
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](supplier.s_suppkey = lineitem.l_suppkey)
+----------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey))otherCondition=()
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[supplier]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN](lineitem.l_orderkey = orders.o_orderkey)
+----------------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey))otherCondition=()
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN](orders.o_custkey = customer.c_custkey)
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_custkey = customer.c_custkey))otherCondition=()
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter((orders.o_orderdate <= 1996-12-31)(orders.o_orderdate >= 1995-01-01))
+----------------------------------------filter((orders.o_orderdate <= '1996-12-31') and (orders.o_orderdate >= '1995-01-01'))
 ------------------------------------------PhysicalOlapScan[orders]
 ------------------------------------PhysicalDistribute
---------------------------------------hashJoin[INNER_JOIN](customer.c_nationkey = n1.n_nationkey)
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = n1.n_nationkey))otherCondition=()
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[customer]
 ----------------------------------------PhysicalDistribute
-------------------------------------------hashJoin[INNER_JOIN](n1.n_regionkey = region.r_regionkey)
+------------------------------------------hashJoin[INNER_JOIN] hashCondition=((n1.n_regionkey = region.r_regionkey))otherCondition=()
 --------------------------------------------PhysicalDistribute
 ----------------------------------------------PhysicalProject
 ------------------------------------------------PhysicalOlapScan[nation]
@@ -39,7 +39,7 @@ PhysicalResultSink
 --------------------------------------------------PhysicalOlapScan[region]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN](part.p_partkey = lineitem.l_partkey)
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey))otherCondition=()
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[lineitem]
 ------------------------------------PhysicalDistribute

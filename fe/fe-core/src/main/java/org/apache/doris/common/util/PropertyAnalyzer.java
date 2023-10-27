@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.KeysType;
@@ -32,6 +33,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
@@ -48,6 +50,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -61,6 +64,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_SHORT_KEY = "short_key";
     public static final String PROPERTIES_REPLICATION_NUM = "replication_num";
     public static final String PROPERTIES_REPLICATION_ALLOCATION = "replication_allocation";
+    public static final String PROPERTIES_MIN_LOAD_REPLICA_NUM = "min_load_replica_num";
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
     public static final String PROPERTIES_STORAGE_COOLDOWN_TIME = "storage_cooldown_time";
@@ -343,6 +347,24 @@ public class PropertyAnalyzer {
             properties.remove(propKey);
         }
         return replicationNum;
+    }
+
+    public static short analyzeMinLoadReplicaNum(Map<String, String> properties) throws AnalysisException {
+        short minLoadReplicaNum = -1;
+        if (properties != null && properties.containsKey(PROPERTIES_MIN_LOAD_REPLICA_NUM)) {
+            try {
+                minLoadReplicaNum = Short.parseShort(properties.get(PROPERTIES_MIN_LOAD_REPLICA_NUM));
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage());
+            }
+
+            if (minLoadReplicaNum <= 0 && minLoadReplicaNum != -1) {
+                throw new AnalysisException("min_load_replica_num should > 0 or =-1");
+            }
+
+            properties.remove(PROPERTIES_MIN_LOAD_REPLICA_NUM);
+        }
+        return minLoadReplicaNum;
     }
 
     public static String analyzeColumnSeparator(Map<String, String> properties, String oldColumnSeparator) {
@@ -924,6 +946,19 @@ public class PropertyAnalyzer {
         return tagMap;
     }
 
+    public static boolean hasBinlogConfig(Map<String, String> properties) {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+
+        for (String key : properties.keySet()) {
+            if (key.startsWith(PROPERTIES_BINLOG_PREFIX)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static Map<String, String> analyzeBinlogConfig(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return null;
@@ -1144,4 +1179,73 @@ public class PropertyAnalyzer {
             }
         }
     }
+
+    public static Map<String, String> rewriteReplicaAllocationProperties(
+            String ctl, String db, Map<String, String> properties) {
+        if (Config.force_olap_table_replication_num <= 0) {
+            return rewriteReplicaAllocationPropertiesByDatabase(ctl, db, properties);
+        }
+        // if force_olap_table_replication_num is set, use this value to rewrite the replication_num or
+        // replication_allocation properties
+        Map<String, String> newProperties = properties;
+        if (newProperties == null) {
+            newProperties = Maps.newHashMap();
+        }
+        boolean rewrite = false;
+        if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                    String.valueOf(Config.force_olap_table_replication_num));
+            rewrite = true;
+        }
+        if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                    new ReplicaAllocation((short) Config.force_olap_table_replication_num).toCreateStmt());
+            rewrite = true;
+        }
+        if (!rewrite) {
+            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                    String.valueOf(Config.force_olap_table_replication_num));
+        }
+        return newProperties;
+    }
+
+    private static Map<String, String> rewriteReplicaAllocationPropertiesByDatabase(
+            String ctl, String database, Map<String, String> properties) {
+        // if table contain `replication_allocation` or `replication_allocation`,not need rewrite by db
+        if (properties != null && (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
+            return properties;
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogNullable(ctl);
+        if (catalog == null) {
+            return properties;
+        }
+        DatabaseIf db = catalog.getDbNullable(database);
+        if (db == null) {
+            return properties;
+        }
+        // if db not have properties,not need rewrite
+        if (db.getDbProperties() == null) {
+            return properties;
+        }
+        Map<String, String> dbProperties = db.getDbProperties().getProperties();
+        if (dbProperties == null) {
+            return properties;
+        }
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION) && StringUtils
+                .isNotEmpty(dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION))) {
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                    dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION));
+        }
+        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM) && StringUtils
+                .isNotEmpty(dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                    dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+        }
+        return properties;
+    }
+
 }

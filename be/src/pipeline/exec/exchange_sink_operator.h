@@ -57,8 +57,6 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    RuntimeState* state() { return _state; }
-
 private:
     std::unique_ptr<ExchangeSinkBuffer<vectorized::VDataStreamSender>> _sink_buffer;
     int _dest_node_id = -1;
@@ -82,6 +80,11 @@ public:
     virtual ~BroadcastDependency() = default;
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {
+        if (config::enable_fuzzy_mode && _available_block == 0 &&
+            _write_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                         << id();
+        }
         return _available_block > 0 ? nullptr : this;
     }
 
@@ -111,41 +114,13 @@ private:
 class ChannelDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(ChannelDependency);
-    ChannelDependency(int id, int sender_id, vectorized::VDataStreamRecvr* local_recvr)
-            : WriteDependency(id, "ChannelDependency"),
-              _sender_id(sender_id),
-              _local_recvr(local_recvr) {}
-    virtual ~ChannelDependency() = default;
+    ChannelDependency(int id) : WriteDependency(id, "ChannelDependency") {}
+    ~ChannelDependency() override = default;
 
     void* shared_state() override { return nullptr; }
-
-    void try_set_ready_for_write() {
-        if (_ready_for_write) {
-            return;
-        }
-        if (_is_runnable()) {
-            _write_dependency_watcher.stop();
-            _ready_for_write = true;
-        }
-    }
-
-    void try_block_writing() {
-        if (!_is_runnable()) {
-            _ready_for_write = false;
-        }
-    }
-
-private:
-    bool _is_runnable() {
-        return _local_recvr->is_closed() || !_local_recvr->exceeds_limit(0) ||
-               _local_recvr->sender_queue_empty(_sender_id);
-    }
-
-    int _sender_id;
-    vectorized::VDataStreamRecvr* _local_recvr;
 };
 
-class ExchangeSinkLocalState : public PipelineXSinkLocalState<> {
+class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
 
 public:
@@ -156,11 +131,11 @@ public:
               _serializer(this) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status close(RuntimeState* state) override;
-
+    Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
+    WriteDependency* dependency() override { return _exchange_sink_dependency.get(); }
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer);
-    bool channel_all_can_write();
     Status get_next_available_buffer(vectorized::BroadcastPBlockHolder** holder);
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
@@ -184,9 +159,8 @@ public:
 
     [[nodiscard]] int sender_id() const { return _sender_id; }
 
+    std::string id_name() override;
     segment_v2::CompressionTypePB& compression_type();
-
-    vectorized::VExprContextSPtrs partition_expr_ctxs;
 
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
     std::vector<std::shared_ptr<vectorized::PipChannel<ExchangeSinkLocalState>>>
@@ -235,18 +209,15 @@ private:
     std::shared_ptr<AndDependency> _exchange_sink_dependency = nullptr;
     std::shared_ptr<BroadcastDependency> _broadcast_dependency = nullptr;
     std::vector<std::shared_ptr<ChannelDependency>> _channels_dependency;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    int _partition_count;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
 public:
-    ExchangeSinkOperatorX(RuntimeState* state, const RowDescriptor& row_desc,
+    ExchangeSinkOperatorX(RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
                           const TDataStreamSink& sink,
                           const std::vector<TPlanFragmentDestination>& destinations,
-                          bool send_query_statistics_with_every_batch);
-    ExchangeSinkOperatorX(const RowDescriptor& row_desc, PlanNodeId dest_node_id,
-                          const std::vector<TPlanFragmentDestination>& destinations,
-                          bool send_query_statistics_with_every_batch);
-    ExchangeSinkOperatorX(const RowDescriptor& row_desc,
                           bool send_query_statistics_with_every_batch);
     Status init(const TDataSink& tsink) override;
 
@@ -261,9 +232,7 @@ public:
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
 
-    Status try_close(RuntimeState* state) override;
-    WriteDependency* wait_for_dependency(RuntimeState* state) override;
-    bool is_pending_finish(RuntimeState* state) const override;
+    Status try_close(RuntimeState* state, Status exec_status) override;
 
 private:
     friend class ExchangeSinkLocalState;
@@ -271,19 +240,13 @@ private:
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
-    Status get_partition_column_result(vectorized::Block* block, int* result) const {
-        int counter = 0;
-        for (auto ctx : _partition_expr_ctxs) {
-            RETURN_IF_ERROR(ctx->execute(block, &result[counter++]));
-        }
-        return Status::OK();
-    }
-
-    template <typename Channels>
+    template <typename Channels, typename HashValueType>
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
-                            const uint64_t* channel_ids, int rows, vectorized::Block* block,
+                            const HashValueType* channel_ids, int rows, vectorized::Block* block,
                             bool eos);
     RuntimeState* _state = nullptr;
+
+    const std::vector<TExpr>& _texprs;
 
     const RowDescriptor& _row_desc;
 
@@ -293,17 +256,13 @@ private:
     // one while the other one is still being sent
     PBlock _pb_block1;
     PBlock _pb_block2;
-    PBlock* _cur_pb_block = nullptr;
-
-    // compute per-row partition values
-    vectorized::VExprContextSPtrs _partition_expr_ctxs;
 
     const std::vector<TPlanFragmentDestination> _dests;
     const bool _send_query_statistics_with_every_batch;
 
     std::unique_ptr<MemTracker> _mem_tracker;
     // Identifier of the destination plan node.
-    PlanNodeId _dest_node_id;
+    const PlanNodeId _dest_node_id;
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;

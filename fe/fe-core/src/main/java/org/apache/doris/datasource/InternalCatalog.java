@@ -375,10 +375,6 @@ public class InternalCatalog implements CatalogIf<Database> {
      * create the tablet inverted index from metadata.
      */
     public void recreateTabletInvertIndex() {
-        if (Env.isCheckpointThread()) {
-            return;
-        }
-
         // create inverted index
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         for (Database db : this.fullNameToDb.values()) {
@@ -929,6 +925,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getEditLog().logDropTable(info);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                     db.getId(), table.getId());
+            Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         } finally {
             db.writeUnlock();
         }
@@ -1310,31 +1307,31 @@ public class InternalCatalog implements CatalogIf<Database> {
         } catch (DdlException e) {
             throw new MetaNotFoundException(e.getMessage());
         }
-        if (!Env.isCheckpointThread()) {
-            // add to inverted index
-            if (table.isManagedTable()) {
-                TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-                OlapTable olapTable = (OlapTable) table;
-                long dbId = db.getId();
-                long tableId = table.getId();
-                for (Partition partition : olapTable.getAllPartitions()) {
-                    long partitionId = partition.getId();
-                    TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId)
-                            .getStorageMedium();
-                    for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                        long indexId = mIndex.getId();
-                        int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                        for (Tablet tablet : mIndex.getTablets()) {
-                            TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash,
-                                    medium);
-                            long tabletId = tablet.getId();
-                            invertedIndex.addTablet(tabletId, tabletMeta);
-                            for (Replica replica : tablet.getReplicas()) {
-                                invertedIndex.addReplica(tabletId, replica);
-                            }
+        // add to inverted index
+        if (table.isManagedTable()) {
+            TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+            OlapTable olapTable = (OlapTable) table;
+            long dbId = db.getId();
+            long tableId = table.getId();
+            for (Partition partition : olapTable.getAllPartitions()) {
+                long partitionId = partition.getId();
+                TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId)
+                        .getStorageMedium();
+                for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                    long indexId = mIndex.getId();
+                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                    for (Tablet tablet : mIndex.getTablets()) {
+                        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash,
+                                medium);
+                        long tabletId = tablet.getId();
+                        invertedIndex.addTablet(tabletId, tabletMeta);
+                        for (Replica replica : tablet.getReplicas()) {
+                            invertedIndex.addReplica(tabletId, replica);
                         }
                     }
-                } // end for partitions
+                }
+            } // end for partitions
+            if (!Env.isCheckpointThread()) {
                 DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(dbId, olapTable, true);
             }
         }
@@ -1615,17 +1612,19 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                         List<Column> oldSchema = indexIdToMeta.get(indexId).getSchema();
                         List<Column> newSchema = entry.getValue().getSchema();
-                        oldSchema.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
-                        newSchema.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
                         if (oldSchema.size() != newSchema.size()) {
                             LOG.warn("schema column size diff, old schema {}, new schema {}", oldSchema, newSchema);
                             metaChanged = true;
                             break;
                         } else {
-                            for (int i = 0; i < oldSchema.size(); ++i) {
-                                if (!oldSchema.get(i).equals(newSchema.get(i))) {
-                                    LOG.warn("schema diff, old schema {}, new schema {}",
-                                            oldSchema.get(i), newSchema.get(i));
+                            List<Column> oldSchemaCopy = Lists.newArrayList(oldSchema);
+                            List<Column> newSchemaCopy = Lists.newArrayList(newSchema);
+                            oldSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                            newSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                            for (int i = 0; i < oldSchemaCopy.size(); ++i) {
+                                if (!oldSchemaCopy.get(i).equals(newSchemaCopy.get(i))) {
+                                    LOG.warn("schema diff, old schema {}, new schema {}", oldSchemaCopy.get(i),
+                                            newSchemaCopy.get(i));
                                     metaChanged = true;
                                     break;
                                 }
@@ -1707,20 +1706,18 @@ public class InternalCatalog implements CatalogIf<Database> {
             partitionInfo.unprotectHandleNewSinglePartitionDesc(partition.getId(), info.isTempPartition(),
                     partitionItem, info.getDataProperty(), info.getReplicaAlloc(), info.isInMemory(), info.isMutable());
 
-            if (!Env.isCheckpointThread()) {
-                // add to inverted index
-                TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                    long indexId = index.getId();
-                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                    for (Tablet tablet : index.getTablets()) {
-                        TabletMeta tabletMeta = new TabletMeta(info.getDbId(), info.getTableId(), partition.getId(),
-                                index.getId(), schemaHash, info.getDataProperty().getStorageMedium());
-                        long tabletId = tablet.getId();
-                        invertedIndex.addTablet(tabletId, tabletMeta);
-                        for (Replica replica : tablet.getReplicas()) {
-                            invertedIndex.addReplica(tabletId, replica);
-                        }
+            // add to inverted index
+            TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                long indexId = index.getId();
+                int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                for (Tablet tablet : index.getTablets()) {
+                    TabletMeta tabletMeta = new TabletMeta(info.getDbId(), info.getTableId(), partition.getId(),
+                            index.getId(), schemaHash, info.getDataProperty().getStorageMedium());
+                    long tabletId = tablet.getId();
+                    invertedIndex.addTablet(tabletId, tabletMeta);
+                    for (Replica replica : tablet.getReplicas()) {
+                        invertedIndex.addReplica(tabletId, replica);
                     }
                 }
             }
@@ -2064,6 +2061,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         // set base index info to table
         // this should be done before create partition.
         Map<String, String> properties = stmt.getProperties();
+
+        short minLoadReplicaNum = -1;
+        try {
+            minLoadReplicaNum = PropertyAnalyzer.analyzeMinLoadReplicaNum(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        if (minLoadReplicaNum > replicaAlloc.getTotalReplicaNum()) {
+            throw new DdlException("Failed to check min load replica num [" + minLoadReplicaNum + "]  <= "
+                    + "default replica num [" + replicaAlloc.getTotalReplicaNum() + "]");
+        }
+        olapTable.setMinLoadReplicaNum(minLoadReplicaNum);
 
         // get use light schema change
         Boolean enableLightSchemaChange;
@@ -2517,10 +2526,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                                 "Can not create UNIQUE KEY table that enables Merge-On-write"
                                         + " with storage policy(" + partionStoragePolicy + ")");
                     }
-                    if (!partionStoragePolicy.equals("")) {
-                        storagePolicy = partionStoragePolicy;
+                    // The table's storage policy has higher priority than partition's policy,
+                    // so we'll directly use table's policy when it's set. Otherwise we use the
+                    // partition's policy
+                    if (!storagePolicy.isEmpty()) {
+                        partionStoragePolicy = storagePolicy;
                     }
-                    Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
+                    Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(partionStoragePolicy);
 
                     Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
                             olapTable.getId(), olapTable.getName(), olapTable.getBaseIndexId(), entry.getValue(),
@@ -2528,8 +2540,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             dataProperty.getStorageMedium(), partitionInfo.getReplicaAllocation(entry.getValue()),
                             versionInfo, bfColumns, bfFpp, tabletIdSet, olapTable.getCopiedIndexes(), isInMemory,
                             storageFormat, partitionInfo.getTabletType(entry.getValue()), compressionType,
-                            olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
-                            idGeneratorBuffer, olapTable.disableAutoCompaction(),
+                            olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(),
+                            partionStoragePolicy, idGeneratorBuffer, olapTable.disableAutoCompaction(),
                             olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
                             olapTable.getCompactionPolicy(), olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                             olapTable.getTimeSeriesCompactionFileCountThreshold(),
@@ -2537,6 +2549,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             storeRowColumn, binlogConfigForTask,
                             dataProperty.isStorageMediumSpecified());
                     olapTable.addPartition(partition);
+                    olapTable.getPartitionInfo().getDataProperty(partition.getId())
+                            .setStoragePolicy(partionStoragePolicy);
                 }
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
@@ -3014,15 +3028,18 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 List<Column> oldSchema = copiedTbl.getFullSchema();
                 List<Column> newSchema = olapTable.getFullSchema();
-                oldSchema.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
-                newSchema.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
                 if (oldSchema.size() != newSchema.size()) {
                     LOG.warn("schema column size diff, old schema {}, new schema {}", oldSchema, newSchema);
                     metaChanged = true;
                 } else {
-                    for (int i = 0; i < oldSchema.size(); ++i) {
-                        if (!oldSchema.get(i).equals(newSchema.get(i))) {
-                            LOG.warn("schema diff, old schema {}, new schema {}", oldSchema.get(i), newSchema.get(i));
+                    List<Column> oldSchemaCopy = Lists.newArrayList(oldSchema);
+                    List<Column> newSchemaCopy = Lists.newArrayList(newSchema);
+                    oldSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                    newSchemaCopy.sort((Column a, Column b) -> a.getUniqueId() - b.getUniqueId());
+                    for (int i = 0; i < oldSchemaCopy.size(); ++i) {
+                        if (!oldSchemaCopy.get(i).equals(newSchemaCopy.get(i))) {
+                            LOG.warn("schema diff, old schema {}, new schema {}", oldSchemaCopy.get(i),
+                                    newSchemaCopy.get(i));
                             metaChanged = true;
                             break;
                         }
@@ -3038,8 +3055,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             truncateTableInternal(olapTable, newPartitions, truncateEntireTable);
 
             // write edit log
-            TruncateTableInfo info = new TruncateTableInfo(db.getId(), olapTable.getId(), newPartitions,
-                    truncateEntireTable);
+            TruncateTableInfo info =
+                    new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
+                            newPartitions,
+                            truncateEntireTable, truncateTableStmt.toSqlWithoutTable());
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } finally {
             olapTable.writeUnlock();
@@ -3079,24 +3098,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable());
 
-            if (!Env.isCheckpointThread()) {
-                // add tablet to inverted index
-                TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-                for (Partition partition : info.getPartitions()) {
-                    long partitionId = partition.getId();
-                    TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId)
-                            .getStorageMedium();
-                    for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                        long indexId = mIndex.getId();
-                        int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                        for (Tablet tablet : mIndex.getTablets()) {
-                            TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(), partitionId, indexId,
-                                    schemaHash, medium);
-                            long tabletId = tablet.getId();
-                            invertedIndex.addTablet(tabletId, tabletMeta);
-                            for (Replica replica : tablet.getReplicas()) {
-                                invertedIndex.addReplica(tabletId, replica);
-                            }
+            // add tablet to inverted index
+            TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+            for (Partition partition : info.getPartitions()) {
+                long partitionId = partition.getId();
+                TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId)
+                        .getStorageMedium();
+                for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                    long indexId = mIndex.getId();
+                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                    for (Tablet tablet : mIndex.getTablets()) {
+                        TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(), partitionId, indexId,
+                                schemaHash, medium);
+                        long tabletId = tablet.getId();
+                        invertedIndex.addTablet(tabletId, tabletMeta);
+                        for (Replica replica : tablet.getReplicas()) {
+                            invertedIndex.addReplica(tabletId, replica);
                         }
                     }
                 }
@@ -3170,6 +3187,21 @@ public class InternalCatalog implements CatalogIf<Database> {
             Database db = new Database();
             db.readFields(dis);
             newChecksum ^= db.getId();
+
+            Database dbPrev = fullNameToDb.get(db.getFullName());
+            if (dbPrev != null) {
+                String errMsg;
+                if (dbPrev.isMysqlCompatibleDatabase() || db.isMysqlCompatibleDatabase()) {
+                    errMsg = String.format(
+                        "Mysql compatibility problem, previous checkpoint already has a database with full name "
+                        + "%s. If its name is mysql, try to add mysqldb_replace_name=\"mysql_comp\" in fe.conf.",
+                        db.getFullName());
+                } else {
+                    errMsg = String.format("Logical error, duplicated database fullname: %s, id: %d %d.",
+                                    db.getFullName(), db.getId(), fullNameToDb.get(db.getFullName()).getId());
+                }
+                throw new IOException(errMsg);
+            }
             idToDb.put(db.getId(), db);
             fullNameToDb.put(db.getFullName(), db);
             Env.getCurrentGlobalTransactionMgr().addDatabaseTransactionMgr(db.getId());
@@ -3190,7 +3222,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     @Override
-    public Collection<DatabaseIf> getAllDbs() {
+    public Collection<DatabaseIf<? extends TableIf>> getAllDbs() {
         return new HashSet<>(idToDb.values());
     }
 

@@ -33,6 +33,8 @@
 #include <stdint.h>
 
 #include <atomic>
+
+#include "olap/wal_writer.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
@@ -254,7 +256,7 @@ public:
 
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
-    // @return: unfinished running channels.
+    // @return: 1 if running, 0 if finished.
     // @caller: VOlapTabletSink::_send_batch_process. it's a continual asynchronous process.
     int try_send_and_fetch_status(RuntimeState* state,
                                   std::unique_ptr<ThreadPoolToken>& thread_pool_token);
@@ -527,7 +529,7 @@ class VTabletWriter final : public AsyncResultWriter {
 public:
     VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    void init_properties(ObjectPool* pool, bool group_commit);
+    Status init_properties(ObjectPool* pool, bool group_commit);
 
     Status append_block(Block& block) override;
 
@@ -575,7 +577,14 @@ private:
 
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
 
-    void _group_commit_block(vectorized::Block* input_block, int64_t rows, int64_t filter_rows);
+    Status write_wal(OlapTableBlockConvertor* block_convertor, OlapTabletFinder* tablet_finder,
+                     vectorized::Block* block, RuntimeState* state, int64_t num_rows,
+                     int64_t filtered_rows);
+
+    void _group_commit_block(vectorized::Block* input_block, int64_t num_rows, int64_t filter_rows,
+                             RuntimeState* state, vectorized::Block* block,
+                             OlapTableBlockConvertor* block_convertor,
+                             OlapTabletFinder* tablet_finder);
 
     TDataSink _t_sink;
 
@@ -662,8 +671,11 @@ private:
     int32_t _send_batch_parallelism = 1;
     // Save the status of try_close() and close() method
     Status _close_status;
+    // if we called try_close(), for auto partition the periodic send thread should stop if it's still waiting for node channels first-time open.
     bool _try_close = false;
-    bool _prepare = false;
+    // for non-pipeline, if close() did something, close_wait() should wait it.
+    bool _close_wait = false;
+    bool _inited = false;
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
@@ -673,5 +685,9 @@ private:
     RuntimeState* _state = nullptr;     // not owned, set when open
     RuntimeProfile* _profile = nullptr; // not owned, set when open
     bool _group_commit = false;
+    std::shared_ptr<WalWriter> _wal_writer = nullptr;
+    int64_t _tb_id;
+    int64_t _db_id;
+    int64_t _wal_id;
 };
 } // namespace doris::vectorized

@@ -40,12 +40,12 @@ NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int
                                const TupleId& tuple_id, const std::string& query_string,
                                TOdbcTableType::type table_type, RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
-          _is_init(false),
           _jdbc_eos(false),
           _tuple_id(tuple_id),
           _query_string(query_string),
           _tuple_desc(nullptr),
           _table_type(table_type) {
+    _is_init = false;
     _load_jar_timer = ADD_TIMER(get_parent()->_scanner_profile, "LoadJarTime");
     _init_connector_timer = ADD_TIMER(get_parent()->_scanner_profile, "InitConnectorTime");
     _check_type_timer = ADD_TIMER(get_parent()->_scanner_profile, "CheckTypeTime");
@@ -56,6 +56,29 @@ NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int
             ADD_CHILD_TIMER(get_parent()->_scanner_profile, "ConvertBatchTime", "GetDataTime");
     _execte_read_timer = ADD_TIMER(get_parent()->_scanner_profile, "ExecteReadTime");
     _connector_close_timer = ADD_TIMER(get_parent()->_scanner_profile, "ConnectorCloseTime");
+}
+
+NewJdbcScanner::NewJdbcScanner(RuntimeState* state,
+                               doris::pipeline::JDBCScanLocalState* local_state, int64_t limit,
+                               const TupleId& tuple_id, const std::string& query_string,
+                               TOdbcTableType::type table_type, RuntimeProfile* profile)
+        : VScanner(state, local_state, limit, profile),
+          _jdbc_eos(false),
+          _tuple_id(tuple_id),
+          _query_string(query_string),
+          _tuple_desc(nullptr),
+          _table_type(table_type) {
+    _is_init = false;
+    _load_jar_timer = ADD_TIMER(local_state->_scanner_profile, "LoadJarTime");
+    _init_connector_timer = ADD_TIMER(local_state->_scanner_profile, "InitConnectorTime");
+    _check_type_timer = ADD_TIMER(local_state->_scanner_profile, "CheckTypeTime");
+    _get_data_timer = ADD_TIMER(local_state->_scanner_profile, "GetDataTime");
+    _call_jni_next_timer =
+            ADD_CHILD_TIMER(local_state->_scanner_profile, "CallJniNextTime", "GetDataTime");
+    _convert_batch_timer =
+            ADD_CHILD_TIMER(local_state->_scanner_profile, "ConvertBatchTime", "GetDataTime");
+    _execte_read_timer = ADD_TIMER(local_state->_scanner_profile, "ExecteReadTime");
+    _connector_close_timer = ADD_TIMER(local_state->_scanner_profile, "ConnectorCloseTime");
 }
 
 Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
@@ -93,10 +116,19 @@ Status NewJdbcScanner::prepare(RuntimeState* state, const VExprContextSPtrs& con
     _jdbc_param.query_string = std::move(_query_string);
     _jdbc_param.table_type = _table_type;
 
-    get_parent()->_scanner_profile->add_info_string("JdbcDriverClass", _jdbc_param.driver_class);
-    get_parent()->_scanner_profile->add_info_string("JdbcDriverUrl", _jdbc_param.driver_path);
-    get_parent()->_scanner_profile->add_info_string("JdbcUrl", _jdbc_param.jdbc_url);
-    get_parent()->_scanner_profile->add_info_string("QuerySql", _jdbc_param.query_string);
+    if (get_parent() != nullptr) {
+        get_parent()->_scanner_profile->add_info_string("JdbcDriverClass",
+                                                        _jdbc_param.driver_class);
+        get_parent()->_scanner_profile->add_info_string("JdbcDriverUrl", _jdbc_param.driver_path);
+        get_parent()->_scanner_profile->add_info_string("JdbcUrl", _jdbc_param.jdbc_url);
+        get_parent()->_scanner_profile->add_info_string("QuerySql", _jdbc_param.query_string);
+    } else { //pipelineX
+        _local_state->scanner_profile()->add_info_string("JdbcDriverClass",
+                                                         _jdbc_param.driver_class);
+        _local_state->scanner_profile()->add_info_string("JdbcDriverUrl", _jdbc_param.driver_path);
+        _local_state->scanner_profile()->add_info_string("JdbcUrl", _jdbc_param.jdbc_url);
+        _local_state->scanner_profile()->add_info_string("QuerySql", _jdbc_param.query_string);
+    }
 
     _jdbc_connector.reset(new (std::nothrow) JdbcConnector(_jdbc_param));
     if (_jdbc_connector == nullptr) {

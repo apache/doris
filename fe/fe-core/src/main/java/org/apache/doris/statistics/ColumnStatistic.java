@@ -177,10 +177,10 @@ public class ColumnStatistic {
                     columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
                 } catch (AnalysisException e) {
                     LOG.warn("Failed to deserialize column {} min value {}.", col, min, e);
-                    columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+                    columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
                 }
             } else {
-                columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+                columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
             }
             if (max != null && !max.equalsIgnoreCase("NULL")) {
                 try {
@@ -188,10 +188,10 @@ public class ColumnStatistic {
                     columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
                 } catch (AnalysisException e) {
                     LOG.warn("Failed to deserialize column {} max value {}.", col, max, e);
-                    columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
+                    columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
                 }
             } else {
-                columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
+                columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
             }
             columnStatisticBuilder.setUpdatedTime(row.get(13));
             return columnStatisticBuilder.build();

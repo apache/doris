@@ -32,7 +32,6 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.GaugeMetric;
@@ -127,7 +126,7 @@ public class TabletChecker extends MasterDaemon {
 
     public TabletChecker(Env env, SystemInfoService infoService, TabletScheduler tabletScheduler,
                          TabletSchedulerStat stat) {
-        super("tablet checker", FeConstants.tablet_checker_interval_ms);
+        super("tablet checker", Config.tablet_checker_interval_ms);
         this.env = env;
         this.infoService = infoService;
         this.tabletScheduler = tabletScheduler;

@@ -54,12 +54,12 @@ public class ColStatsData {
 
     public ColStatsData(ResultRow row) {
         this.statsId = new StatsId(row);
-        this.count = Long.parseLong(row.get(7));
-        this.ndv = Long.parseLong(row.getWithDefault(8, "0"));
-        this.nullCount = Long.parseLong(row.getWithDefault(9, "0"));
+        this.count = (long) Double.parseDouble(row.get(7));
+        this.ndv = (long) Double.parseDouble(row.getWithDefault(8, "0"));
+        this.nullCount = (long) Double.parseDouble(row.getWithDefault(9, "0"));
         this.minLit = row.get(10);
         this.maxLit = row.get(11);
-        this.dataSizeInBytes = Long.parseLong(row.getWithDefault(12, "0"));
+        this.dataSizeInBytes = (long) Double.parseDouble(row.getWithDefault(12, "0"));
         this.updateTime = row.get(13);
     }
 
@@ -73,8 +73,8 @@ public class ColStatsData {
         sj.add(String.valueOf(count));
         sj.add(String.valueOf(ndv));
         sj.add(String.valueOf(nullCount));
-        sj.add(StatisticsUtil.quote(minLit));
-        sj.add(StatisticsUtil.quote(maxLit));
+        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(minLit)));
+        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(maxLit)));
         sj.add(String.valueOf(dataSizeInBytes));
         sj.add(StatisticsUtil.quote(updateTime));
         return sj.toString();

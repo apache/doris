@@ -29,8 +29,10 @@ import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
 import org.apache.doris.analysis.AdminSetTableStatusStmt;
+import org.apache.doris.analysis.AlterCatalogCommentStmt;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
+import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.analysis.AlterColumnStatsStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
@@ -76,7 +78,6 @@ import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.CreateWorkloadGroupStmt;
 import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.DropDbStmt;
@@ -198,8 +199,6 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof ResumeJobStmt) {
             ResumeJobStmt stmt = (ResumeJobStmt) ddlStmt;
             env.getJobRegister().resumeJob(stmt.getDbFullName(), stmt.getName(), JobCategory.SQL);
-        } else if (ddlStmt instanceof DeleteStmt) {
-            env.getDeleteHandler().process((DeleteStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;
             env.getAuth().createUser(stmt);
@@ -319,6 +318,8 @@ public class DdlExecutor {
             env.getRefreshManager().handleRefreshDb((RefreshDbStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterResourceStmt) {
             env.getResourceMgr().alterResource((AlterResourceStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterColocateGroupStmt) {
+            env.getColocateTableIndex().alterColocateGroup((AlterColocateGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().alterWorkloadGroup((AlterWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreatePolicyStmt) {
@@ -333,6 +334,8 @@ public class DdlExecutor {
             env.getCatalogMgr().dropCatalog((DropCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterCatalogNameStmt) {
             env.getCatalogMgr().alterCatalogName((AlterCatalogNameStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterCatalogCommentStmt) {
+            env.getCatalogMgr().alterCatalogComment((AlterCatalogCommentStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterCatalogPropertyStmt) {
             env.getCatalogMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanLabelStmt) {

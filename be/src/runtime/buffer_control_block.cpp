@@ -101,7 +101,7 @@ BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size)
           _packet_num(0) {}
 
 BufferControlBlock::~BufferControlBlock() {
-    cancel();
+    static_cast<void>(cancel());
 }
 
 Status BufferControlBlock::init() {

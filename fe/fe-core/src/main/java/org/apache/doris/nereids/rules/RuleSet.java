@@ -84,6 +84,7 @@ import org.apache.doris.nereids.rules.rewrite.PushdownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushdownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughPartitionTopN;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughRepeat;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughSetOperation;
@@ -139,7 +140,8 @@ public class RuleSet {
             new MergeGenerates(),
             new MergeLimits(),
             new PushdownAliasThroughJoin(),
-            new PushdownFilterThroughWindow()
+            new PushdownFilterThroughWindow(),
+            new PushdownFilterThroughPartitionTopN()
     );
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
@@ -186,8 +188,6 @@ public class RuleSet {
 
     public static final List<Rule> BUSHY_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.BUSHY)
-            .add(InnerJoinLAsscom.INSTANCE)
-            .add(InnerJoinLAsscomProject.INSTANCE)
             .add(InnerJoinLeftAssociate.INSTANCE)
             .add(InnerJoinLeftAssociateProject.INSTANCE)
             .add(InnerJoinRightAssociate.INSTANCE)

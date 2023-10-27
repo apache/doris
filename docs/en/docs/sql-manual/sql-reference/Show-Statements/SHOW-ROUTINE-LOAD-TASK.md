@@ -57,7 +57,7 @@ DataSourceProperties: {"0":19}
 
 - `TaskId`: The unique ID of the subtask.
 - `TxnId`: The import transaction ID corresponding to the subtask.
-- `TxnStatus`: The import transaction status corresponding to the subtask. Usually UNKNOWN. No real meaning.
+- `TxnStatus`: The import transaction status corresponding to the subtask. When TxnStatus is null, it means that the subtask has not yet started scheduling.
 - `JobId`: The job ID corresponding to the subtask.
 - `CreateTime`: The creation time of the subtask.
 - `ExecuteStartTime`: The time when the subtask is scheduled to be executed, usually later than the creation time.

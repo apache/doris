@@ -23,7 +23,7 @@ import org.apache.doris.thrift.TUnit;
 public class Counter {
     private volatile long value;
     private volatile int type;
-    private volatile boolean remove = false;
+    private volatile long level;
 
     public long getValue() {
         return value;
@@ -42,6 +42,10 @@ public class Counter {
         return TUnit.findByValue(type);
     }
 
+    public void setLevel(long level) {
+        this.level = level;
+    }
+
     public void setType(TUnit type) {
         this.type = type.getValue();
     }
@@ -49,6 +53,13 @@ public class Counter {
     public Counter(TUnit type, long value) {
         this.value = value;
         this.type = type.getValue();
+        this.level = 2;
+    }
+
+    public Counter(TUnit type, long value, long level) {
+        this.value = value;
+        this.type = type.getValue();
+        this.level = level;
     }
 
     public void addValue(Counter other) {
@@ -56,6 +67,20 @@ public class Counter {
             return;
         }
         this.value += other.value;
+    }
+
+    public void minValue(Counter other) {
+        if (other == null) {
+            return;
+        }
+        this.value = Math.min(this.value, other.value);
+    }
+
+    public void maxValue(Counter other) {
+        if (other == null) {
+            return;
+        }
+        this.value = Math.max(this.value, other.value);
     }
 
     public void divValue(long div) {
@@ -70,11 +95,12 @@ public class Counter {
         return ttype == TUnit.TIME_MS || ttype == TUnit.TIME_NS || ttype == TUnit.TIME_S;
     }
 
-    public void setCanRemove() {
-        this.remove = true;
+    public long getLevel() {
+        return this.level;
     }
 
-    public boolean isRemove() {
-        return this.remove;
+    public String print() {
+        return RuntimeProfile.printCounter(value, getType());
     }
+
 }

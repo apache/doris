@@ -193,6 +193,14 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
   Stream load 导入可以开启两阶段事务提交模式：在Stream load过程中，数据写入完成即会返回信息给用户，此时数据不可见，事务状态为`PRECOMMITTED`，用户手动触发commit操作之后，数据才可见。
 
+- enclose
+  
+  包围符。当csv数据字段中含有行分隔符或列分隔符时，为防止意外截断，可指定单字节字符作为包围符起到保护作用。例如列分隔符为","，包围符为"'"，数据为"a,'b,c'",则"b,c"会被解析为一个字段。
+
+- escape
+
+  转义符。用于转义在csv字段中出现的与包围符相同的字符。例如数据为"a,'b,'c'"，包围符为"'"，希望"b,'c被作为一个字段解析，则需要指定单字节转义符，例如"\"，然后将数据修改为"a,'b,\'c'"。
+
   示例：
 
   1. 发起stream load预提交操作
@@ -220,6 +228,7 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
   2. 对事务触发commit操作
   注意1) 请求发往fe或be均可
   注意2) commit 的时候可以省略 url 中的 `{table}`
+  使用事务id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -227,9 +236,18 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
       "msg": "transaction [18036] commit successfully."
   }
   ```
+  使用label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] commit successfully."
+  }
+  ```
   3. 对事务触发abort操作
   注意1) 请求发往fe或be均可
   注意2) abort 的时候可以省略 url 中的 `{table}`
+  使用事务id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -237,7 +255,14 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
       "msg": "transaction [18037] abort successfully."
   }
   ```
-
+  使用label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] abort successfully."
+  }
+  ```
 - enable_profile
 
   <version since="1.2.7">当 `enable_profile` 为 true 时，Stream Load profile 将会被打印到 be.INFO 日志中。</version>
@@ -286,6 +311,12 @@ curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -
 curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from http_stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/_http_stream
 ```
 
+#### 相关参数
+
+1. label: 用户可以通过指定Label的方式来导入数据
+```
+curl -v --location-trusted -u root: -H "sql: insert into test.t1(c1, c2) WITH LABEL label1 select c1,c2 from http_stream(\"format\" = \"CSV\", \"column_separator\" = \",\")" -T example.csv http://127.0.0.1:8030/api/_http_stream
+```
 
 ### 返回结果
 

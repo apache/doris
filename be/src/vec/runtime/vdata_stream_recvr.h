@@ -106,9 +106,12 @@ public:
 
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.
-    void remove_sender(int sender_id, int be_number);
+    void remove_sender(int sender_id, int be_number, Status exec_status);
 
-    void cancel_stream();
+    void remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics,
+                       Status exec_status);
+
+    void cancel_stream(Status exec_status);
 
     void close();
 
@@ -209,7 +212,7 @@ public:
 
     void decrement_senders(int sender_id);
 
-    void cancel();
+    void cancel(Status cancel_status);
 
     void close();
 
@@ -233,6 +236,7 @@ protected:
     VDataStreamRecvr* _recvr;
     std::mutex _lock;
     bool _is_cancelled;
+    Status _cancel_status;
     int _num_remaining_senders;
     std::condition_variable _data_arrival_cv;
     std::condition_variable _data_removal_cv;

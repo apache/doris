@@ -22,6 +22,7 @@
 
 #include <string>
 
+#include "common/status.h"
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/define_primitive_type.h"
 #include "util/runtime_profile.h"
@@ -57,22 +58,23 @@ Status SchemaSchemaPrivilegesScanner::start(RuntimeState* state) {
 
 Status SchemaSchemaPrivilegesScanner::_get_new_table() {
     TGetTablesParams table_params;
-    if (nullptr != _param->wild) {
-        table_params.__set_pattern(*(_param->wild));
+    if (nullptr != _param->common_param->wild) {
+        table_params.__set_pattern(*(_param->common_param->wild));
     }
-    if (nullptr != _param->current_user_ident) {
-        table_params.__set_current_user_ident(*(_param->current_user_ident));
+    if (nullptr != _param->common_param->current_user_ident) {
+        table_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
     } else {
-        if (nullptr != _param->user) {
-            table_params.__set_user(*(_param->user));
+        if (nullptr != _param->common_param->user) {
+            table_params.__set_user(*(_param->common_param->user));
         }
-        if (nullptr != _param->user_ip) {
-            table_params.__set_user_ip(*(_param->user_ip));
+        if (nullptr != _param->common_param->user_ip) {
+            table_params.__set_user_ip(*(_param->common_param->user_ip));
         }
     }
 
-    if (nullptr != _param->ip && 0 != _param->port) {
-        RETURN_IF_ERROR(SchemaHelper::list_schema_privilege_status(*(_param->ip), _param->port,
+    if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
+        RETURN_IF_ERROR(SchemaHelper::list_schema_privilege_status(*(_param->common_param->ip),
+                                                                   _param->common_param->port,
                                                                    table_params, &_priv_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
@@ -108,7 +110,7 @@ Status SchemaSchemaPrivilegesScanner::_fill_block_impl(vectorized::Block* block)
             strs[i] = StringRef(priv_status.grantee.c_str(), priv_status.grantee.size());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 0, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
     }
     // catalog
     // This value is always def.
@@ -118,7 +120,7 @@ Status SchemaSchemaPrivilegesScanner::_fill_block_impl(vectorized::Block* block)
         for (int i = 0; i < privileges_num; ++i) {
             datas[i] = &str;
         }
-        fill_dest_column_for_range(block, 1, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // schema
     {
@@ -128,7 +130,7 @@ Status SchemaSchemaPrivilegesScanner::_fill_block_impl(vectorized::Block* block)
             strs[i] = StringRef(priv_status.schema.c_str(), priv_status.schema.size());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 2, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // privilege type
     {
@@ -139,7 +141,7 @@ Status SchemaSchemaPrivilegesScanner::_fill_block_impl(vectorized::Block* block)
                                 priv_status.privilege_type.size());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 3, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     // is grantable
     {
@@ -149,7 +151,7 @@ Status SchemaSchemaPrivilegesScanner::_fill_block_impl(vectorized::Block* block)
             strs[i] = StringRef(priv_status.is_grantable.c_str(), priv_status.is_grantable.size());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 4, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
     }
     return Status::OK();
 }

@@ -35,10 +35,10 @@ namespace doris {
 LoadStreamMgr::LoadStreamMgr(uint32_t segment_file_writer_thread_num,
                              FifoThreadPool* heavy_work_pool, FifoThreadPool* light_work_pool)
         : _heavy_work_pool(heavy_work_pool), _light_work_pool(light_work_pool) {
-    ThreadPoolBuilder("SegmentFileWriterThreadPool")
-            .set_min_threads(segment_file_writer_thread_num)
-            .set_max_threads(segment_file_writer_thread_num)
-            .build(&_file_writer_thread_pool);
+    static_cast<void>(ThreadPoolBuilder("SegmentFileWriterThreadPool")
+                              .set_min_threads(segment_file_writer_thread_num)
+                              .set_max_threads(segment_file_writer_thread_num)
+                              .build(&_file_writer_thread_pool));
 }
 
 LoadStreamMgr::~LoadStreamMgr() {
@@ -50,7 +50,7 @@ Status LoadStreamMgr::open_load_stream(const POpenStreamSinkRequest* request,
     UniqueId load_id(request->load_id());
 
     {
-        std::lock_guard l(_lock);
+        std::lock_guard<decltype(_lock)> l(_lock);
         auto it = _load_streams_map.find(load_id);
         if (it != _load_streams_map.end()) {
             load_stream = it->second;
@@ -66,7 +66,7 @@ Status LoadStreamMgr::open_load_stream(const POpenStreamSinkRequest* request,
 }
 
 void LoadStreamMgr::clear_load(UniqueId load_id) {
-    std::lock_guard l(_lock);
+    std::lock_guard<decltype(_lock)> l(_lock);
     _load_streams_map.erase(load_id);
 }
 

@@ -360,6 +360,7 @@ void PInternalServiceImpl::open_stream_sink(google::protobuf::RpcController* con
                                             POpenStreamSinkResponse* response,
                                             google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        signal::set_signal_task_id(request->load_id());
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         brpc::StreamOptions stream_options;
@@ -556,17 +557,19 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         TUniqueId tid;
         tid.__set_hi(request->finst_id().hi());
         tid.__set_lo(request->finst_id().lo());
-
+        signal::set_signal_task_id(tid);
         Status st = Status::OK();
-        if (request->has_cancel_reason()) {
-            LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
-                      << ", reason: " << PPlanFragmentCancelReason_Name(request->cancel_reason());
-            _exec_env->fragment_mgr()->cancel_instance(tid, request->cancel_reason());
-        } else {
-            LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
-            _exec_env->fragment_mgr()->cancel_instance(tid,
-                                                       PPlanFragmentCancelReason::INTERNAL_ERROR);
-        }
+
+        const bool has_cancel_reason = request->has_cancel_reason();
+        LOG(INFO) << fmt::format("Cancel instance {}, reason: {}", print_id(tid),
+                                 has_cancel_reason
+                                         ? PPlanFragmentCancelReason_Name(request->cancel_reason())
+                                         : "INTERNAL_ERROR");
+
+        _exec_env->fragment_mgr()->cancel_instance(
+                tid, has_cancel_reason ? request->cancel_reason()
+                                       : PPlanFragmentCancelReason::INTERNAL_ERROR);
+
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
     });
@@ -664,7 +667,8 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
+            static_cast<void>(
+                    ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader());
             break;
         }
         default:
@@ -680,14 +684,6 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
-        }
-        if (params.file_type == TFileType::FILE_STREAM) {
-            auto stream_load_ctx =
-                    ExecEnv::GetInstance()->new_load_stream_mgr()->get(params.load_id);
-            if (!stream_load_ctx) {
-                st = Status::InternalError("unknown stream load id: {}",
-                                           UniqueId(params.load_id).to_string());
-            }
         }
         result->set_column_nums(col_names.size());
         for (size_t idx = 0; idx < col_names.size(); ++idx) {
@@ -1065,7 +1061,7 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
             response->mutable_status()->set_status_code(1);
             response->mutable_status()->add_error_msgs("could not find stream load context");
         } else {
-            stream_load_ctx->pipe->finish();
+            static_cast<void>(stream_load_ctx->pipe->finish());
             response->mutable_status()->set_status_code(0);
         }
     });
@@ -1184,7 +1180,10 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cont
         if (!st.ok()) {
             LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
-                         << ", node=" << request->node_id();
+                         << ", node=" << request->node_id()
+                         << ", from sender_id: " << request->sender_id()
+                         << ", be_number: " << request->be_number()
+                         << ", packet_seq: " << request->packet_seq();
         }
     } else {
         st = extract_st;
@@ -1498,7 +1497,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                                     rowset_meta->tablet_id(), node_id, true);
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, closure_guard.release(), _heavy_work_pool);
         return;
     }
     Status::OK().to_protobuf(response->mutable_status());
@@ -1700,7 +1699,7 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                     .stats = &stats,
                     .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
             };
-            column_iterator->init(opt);
+            static_cast<void>(column_iterator->init(opt));
             std::vector<segment_v2::rowid_t> single_row_loc {
                     static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
             RETURN_IF_ERROR(column_iterator->read_by_rowids(single_row_loc.data(), 1, column));
@@ -1735,7 +1734,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
                                          const PMultiGetRequest* request,
                                          PMultiGetResponse* response,
                                          google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, response, done, this]() {
+    bool ret = _light_work_pool.try_offer([request, response, done, this]() {
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();

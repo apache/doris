@@ -36,7 +36,6 @@
 #include "common/status.h"
 #include "exec/decompressor.h"
 #include "exec/line_reader.h"
-#include "exec/text_converter.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/buffered_reader.h"
@@ -76,12 +75,12 @@ void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>
     const auto& column_sep_positions = _text_line_reader_ctx->column_sep_positions();
     size_t value_start_offset = 0;
     for (auto idx : column_sep_positions) {
-        process_value_func(data, value_start_offset, idx - value_start_offset, trimming_char,
+        process_value_func(data, value_start_offset, idx - value_start_offset, _trimming_char,
                            splitted_values);
-        value_start_offset = idx + value_sep_len;
+        value_start_offset = idx + _value_sep_len;
     }
     // process the last column
-    process_value_func(data, value_start_offset, line.size - value_start_offset, trimming_char,
+    process_value_func(data, value_start_offset, line.size - value_start_offset, _trimming_char,
                        splitted_values);
 }
 
@@ -92,11 +91,11 @@ void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
     size_t value_start = 0;
     for (size_t i = 0; i < size; ++i) {
         if (data[i] == _value_sep[0]) {
-            process_value_func(data, value_start, i - value_start, trimming_char, splitted_values);
-            value_start = i + value_sep_len;
+            process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
+            value_start = i + _value_sep_len;
         }
     }
-    process_value_func(data, value_start, size - value_start, trimming_char, splitted_values);
+    process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
 }
 
 void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
@@ -115,9 +114,9 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
     //      curpos     curpos
 
     //kmp
-    vector<int> next(value_sep_len);
+    vector<int> next(_value_sep_len);
     next[0] = -1;
-    for (int i = 1, j = -1; i < value_sep_len; i++) {
+    for (int i = 1, j = -1; i < _value_sep_len; i++) {
         while (j > -1 && _value_sep[i] != _value_sep[j + 1]) {
             j = next[j];
         }
@@ -136,8 +135,8 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
         if (line[i] == _value_sep[j + 1]) {
             j++;
         }
-        if (j == value_sep_len - 1) {
-            curpos = i - value_sep_len + 1;
+        if (j == _value_sep_len - 1) {
+            curpos = i - _value_sep_len + 1;
 
             /*
              * column_separator : "xx"
@@ -155,7 +154,7 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
              */
 
             if (curpos >= start) {
-                process_value_func(line.data, start, curpos - start, trimming_char,
+                process_value_func(line.data, start, curpos - start, _trimming_char,
                                    splitted_values);
                 start = i + 1;
             }
@@ -163,7 +162,7 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
             j = next[j];
         }
     }
-    process_value_func(line.data, start, line.size - start, trimming_char, splitted_values);
+    process_value_func(line.data, start, line.size - start, _trimming_char, splitted_values);
 }
 
 void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
@@ -294,7 +293,8 @@ Status CsvReader::init_reader(bool is_load) {
     }
 
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state));
+        RETURN_IF_ERROR(
+                FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state, false));
     } else {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         io::FileReaderOptions reader_options =
@@ -302,7 +302,7 @@ Status CsvReader::init_reader(bool is_load) {
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, reader_options, &_file_system,
                 &_file_reader, io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
-                io::PrefetchRange(_range.start_offset, _range.size)));
+                io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
@@ -352,6 +352,15 @@ Status CsvReader::init_reader(bool is_load) {
         }
     } else {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
+    }
+    _use_nullable_string_opt.resize(_file_slot_descs.size());
+    for (int i = 0; i < _file_slot_descs.size(); ++i) {
+        auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
+        if (data_type_ptr.get()->get_type_id() == TypeIndex::Nullable &&
+            ((DataTypeNullable*)data_type_ptr.get())->get_nested_type()->get_type_id() ==
+                    TypeIndex::String) {
+            _use_nullable_string_opt[i] = 1;
+        }
     }
 
     if (_params.file_attributes.__isset.trim_double_quotes) {
@@ -471,7 +480,6 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
             ++rows;
         }
-
         for (auto& col : block->mutate_columns()) {
             col->resize(rows);
         }
@@ -609,6 +617,28 @@ Status CsvReader::_create_decompressor() {
     return Status::OK();
 }
 
+template <bool from_json>
+Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    if (!(from_json && _options.converted_from_string && slice.trim_quote())) {
+        if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+            null_column.insert_data(nullptr, 0);
+            return Status::OK();
+        }
+    }
+    static DataTypeStringSerDe stringSerDe;
+    auto st = stringSerDe.deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
+                                                         _options, 1);
+    if (!st.ok()) {
+        // fill null if fail
+        null_column.insert_data(nullptr, 0); // 0 is meaningless here
+        return Status::OK();
+    }
+    // fill not null if success
+    null_column.get_null_map_data().push_back(0);
+    return Status::OK();
+}
+
 Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                                      std::vector<MutableColumnPtr>& columns, size_t* rows) {
     bool is_success = false;
@@ -626,28 +656,35 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                 col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
         Slice slice {value.data, value.size};
 
+        IColumn* col_ptr = columns[i];
         if (!_is_load) {
-            IColumn* col_ptr = const_cast<IColumn*>(
+            col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());
+        }
 
+        if (_use_nullable_string_opt[i]) {
+            // For load task, we always read "string" from file.
+            // So serdes[i] here must be DataTypeNullableSerDe, and DataTypeNullableSerDe -> nested_serde must be DataTypeStringSerDe.
+            // So we use deserialize_nullable_string and stringSerDe to reduce virtual function calls.
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options);
+                static_cast<void>(deserialize_nullable_string<true>(*col_ptr, slice));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options);
+                static_cast<void>(deserialize_nullable_string<false>(*col_ptr, slice));
                 break;
             default:
                 break;
             }
         } else {
-            // For load task, we always read "string" from file.
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_json(*columns[i], slice, _options);
+                static_cast<void>(
+                        _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
-                _serdes[i]->deserialize_one_cell_from_hive_text(*columns[i], slice, _options);
+                static_cast<void>(
+                        _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options));
                 break;
             default:
                 break;
@@ -665,10 +702,12 @@ Status CsvReader::_validate_line(const Slice& line, bool* success) {
             return Status::InternalError("Only support csv data in utf8 codec");
         } else {
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                    []() -> std::string { return "Unable to display"; },
-                    []() -> std::string {
+                    [&]() -> std::string { return std::string(line.data, line.size); },
+                    [&]() -> std::string {
                         fmt::memory_buffer error_msg;
-                        fmt::format_to(error_msg, "{}", "Unable to display");
+                        fmt::format_to(error_msg, "{}{}",
+                                       "Unable to display, only support csv data in utf8 codec",
+                                       ", please check the data encoding");
                         return fmt::to_string(error_msg);
                     },
                     &_line_reader_eof));
@@ -698,11 +737,21 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
                         fmt::format_to(error_msg, "{} {} {}",
                                        "actual column number in csv file is ", cmp_str,
                                        " schema column number.");
-                        fmt::format_to(error_msg, "actual number: {}, column separator: [{}], ",
-                                       _split_values.size(), _value_separator);
-                        fmt::format_to(error_msg,
-                                       "line delimiter: [{}], schema column number: {}; ",
-                                       _line_delimiter, _file_slot_descs.size());
+                        fmt::format_to(error_msg, "actual number: {}, schema column number: {}; ",
+                                       _split_values.size(), _file_slot_descs.size());
+                        fmt::format_to(error_msg, "line delimiter: [{}], column separator: [{}], ",
+                                       _line_delimiter, _value_separator);
+                        if (_enclose != 0) {
+                            fmt::format_to(error_msg, "enclose:[{}] ", _enclose);
+                        }
+                        if (_escape != 0) {
+                            fmt::format_to(error_msg, "escape:[{}] ", _escape);
+                        }
+                        fmt::memory_buffer values;
+                        for (const auto& value : _split_values) {
+                            fmt::format_to(values, "{}, ", value.to_string());
+                        }
+                        fmt::format_to(error_msg, "result values:[{}]", fmt::to_string(values));
                         return fmt::to_string(error_msg);
                     },
                     &_line_reader_eof));
@@ -787,7 +836,9 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     io::FileReaderOptions reader_options =
             FileFactory::get_reader_options(_state, _file_description);
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_params.load_id, &_file_reader, _state));
+        // Due to http_stream needs to pre read a portion of the data to parse column information, so it is set to true here
+        RETURN_IF_ERROR(
+                FileFactory::create_pipe_reader(_params.load_id, &_file_reader, _state, true));
     } else {
         RETURN_IF_ERROR(FileFactory::create_file_reader(_system_properties, _file_description,
                                                         reader_options, &_file_system,
@@ -921,7 +972,7 @@ void CsvReader::close() {
     }
 
     if (_file_reader) {
-        _file_reader->close();
+        static_cast<void>(_file_reader->close());
     }
 }
 

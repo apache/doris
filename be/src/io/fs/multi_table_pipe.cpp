@@ -214,12 +214,13 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
         }
 
         if constexpr (std::is_same_v<ExecParam, TExecPlanFragmentParams>) {
-            putPipe(plan.params.fragment_instance_id, _planned_pipes[plan.table_name]);
+            RETURN_IF_ERROR(
+                    putPipe(plan.params.fragment_instance_id, _planned_pipes[plan.table_name]));
             LOG(INFO) << "fragment_instance_id=" << plan.params.fragment_instance_id
                       << " table=" << plan.table_name;
         } else if constexpr (std::is_same_v<ExecParam, TPipelineFragmentParams>) {
             auto pipe_id = calculate_pipe_id(plan.query_id, plan.fragment_id);
-            putPipe(pipe_id, _planned_pipes[plan.table_name]);
+            RETURN_IF_ERROR(putPipe(pipe_id, _planned_pipes[plan.table_name]));
             LOG(INFO) << "pipe_id=" << pipe_id << "table=" << plan.table_name;
         } else {
             LOG(WARNING) << "illegal exec param type, need `TExecPlanFragmentParams` or "
@@ -227,52 +228,54 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
             CHECK(false);
         }
 
-        exec_env->fragment_mgr()->exec_plan_fragment(plan, [this](RuntimeState* state,
-                                                                  Status* status) {
-            {
-                std::lock_guard<std::mutex> l(_tablet_commit_infos_lock);
-                _tablet_commit_infos.insert(_tablet_commit_infos.end(),
-                                            state->tablet_commit_infos().begin(),
-                                            state->tablet_commit_infos().end());
-            }
-            _number_total_rows += state->num_rows_load_total();
-            _number_loaded_rows += state->num_rows_load_success();
-            _number_filtered_rows += state->num_rows_load_filtered();
-            _number_unselected_rows += state->num_rows_load_unselected();
+        RETURN_IF_ERROR(exec_env->fragment_mgr()->exec_plan_fragment(
+                plan, [this](RuntimeState* state, Status* status) {
+                    {
+                        std::lock_guard<std::mutex> l(_tablet_commit_infos_lock);
+                        _tablet_commit_infos.insert(_tablet_commit_infos.end(),
+                                                    state->tablet_commit_infos().begin(),
+                                                    state->tablet_commit_infos().end());
+                    }
+                    _number_total_rows += state->num_rows_load_total();
+                    _number_loaded_rows += state->num_rows_load_success();
+                    _number_filtered_rows += state->num_rows_load_filtered();
+                    _number_unselected_rows += state->num_rows_load_unselected();
 
-            // check filtered ratio for this plan fragment
-            int64_t num_selected_rows =
-                    state->num_rows_load_total() - state->num_rows_load_unselected();
-            if (num_selected_rows > 0 &&
-                (double)state->num_rows_load_filtered() / num_selected_rows >
-                        _ctx->max_filter_ratio) {
-                *status = Status::InternalError("too many filtered rows");
-            }
-            if (_number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
-                _ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-            }
+                    // check filtered ratio for this plan fragment
+                    int64_t num_selected_rows =
+                            state->num_rows_load_total() - state->num_rows_load_unselected();
+                    if (num_selected_rows > 0 &&
+                        (double)state->num_rows_load_filtered() / num_selected_rows >
+                                _ctx->max_filter_ratio) {
+                        *status = Status::InternalError("too many filtered rows");
+                    }
+                    if (_number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
+                        _ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
+                    }
 
-            // if any of the plan fragment exec failed, set the status to the first failed plan
-            if (!status->ok()) {
-                LOG(WARNING) << "plan fragment exec failed. errmsg=" << *status << _ctx->brief();
-                _status = *status;
-            }
+                    // if any of the plan fragment exec failed, set the status to the first failed plan
+                    if (!status->ok()) {
+                        LOG(WARNING)
+                                << "plan fragment exec failed. errmsg=" << *status << _ctx->brief();
+                        _status = *status;
+                    }
 
-            --_inflight_plan_cnt;
-            if (_inflight_plan_cnt == 0 && is_consume_finished()) {
-                _ctx->number_total_rows = _number_total_rows;
-                _ctx->number_loaded_rows = _number_loaded_rows;
-                _ctx->number_filtered_rows = _number_filtered_rows;
-                _ctx->number_unselected_rows = _number_unselected_rows;
-                _ctx->commit_infos = _tablet_commit_infos;
-                LOG(INFO) << "all plan for multi-table load complete. number_total_rows="
-                          << _ctx->number_total_rows
-                          << " number_loaded_rows=" << _ctx->number_loaded_rows
-                          << " number_filtered_rows=" << _ctx->number_filtered_rows
-                          << " number_unselected_rows=" << _ctx->number_unselected_rows;
-                _ctx->promise.set_value(_status); // when all done, finish the routine load task
-            }
-        });
+                    --_inflight_plan_cnt;
+                    if (_inflight_plan_cnt == 0 && is_consume_finished()) {
+                        _ctx->number_total_rows = _number_total_rows;
+                        _ctx->number_loaded_rows = _number_loaded_rows;
+                        _ctx->number_filtered_rows = _number_filtered_rows;
+                        _ctx->number_unselected_rows = _number_unselected_rows;
+                        _ctx->commit_infos = _tablet_commit_infos;
+                        LOG(INFO) << "all plan for multi-table load complete. number_total_rows="
+                                  << _ctx->number_total_rows
+                                  << " number_loaded_rows=" << _ctx->number_loaded_rows
+                                  << " number_filtered_rows=" << _ctx->number_filtered_rows
+                                  << " number_unselected_rows=" << _ctx->number_unselected_rows;
+                        _ctx->promise.set_value(
+                                _status); // when all done, finish the routine load task
+                    }
+                }));
     }
 
     return Status::OK();

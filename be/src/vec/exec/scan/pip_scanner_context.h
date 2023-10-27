@@ -31,29 +31,31 @@ class PipScannerContext : public vectorized::ScannerContext {
 public:
     PipScannerContext(RuntimeState* state, vectorized::VScanNode* parent,
                       const TupleDescriptor* output_tuple_desc,
-                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
+                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit_,
                       int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
                       const int num_parallel_instances)
-            : vectorized::ScannerContext(state, parent, output_tuple_desc, scanners, limit,
+            : vectorized::ScannerContext(state, parent, output_tuple_desc, scanners, limit_,
                                          max_bytes_in_blocks_queue, num_parallel_instances),
               _col_distribute_ids(col_distribute_ids),
               _need_colocate_distribute(!_col_distribute_ids.empty()) {}
 
     PipScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
                       const TupleDescriptor* output_tuple_desc,
-                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
+                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit_,
                       int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
                       const int num_parallel_instances)
-            : vectorized::ScannerContext(state, nullptr, output_tuple_desc, scanners, limit,
+            : vectorized::ScannerContext(state, nullptr, output_tuple_desc, scanners, limit_,
                                          max_bytes_in_blocks_queue, num_parallel_instances,
                                          local_state),
               _col_distribute_ids(col_distribute_ids),
               _need_colocate_distribute(!_col_distribute_ids.empty()) {}
 
     void set_dependency(std::shared_ptr<DataReadyDependency> dependency,
-                        std::shared_ptr<ScannerDoneDependency> scanner_done_dependency) override {
+                        std::shared_ptr<ScannerDoneDependency> scanner_done_dependency,
+                        std::shared_ptr<FinishDependency> finish_dependency) override {
         _data_dependency = dependency;
         _scanner_done_dependency = scanner_done_dependency;
+        _finish_dependency = finish_dependency;
     }
 
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
@@ -78,6 +80,8 @@ public:
                 *block = std::move(_blocks_queues[id].front());
                 _blocks_queues[id].pop_front();
 
+                RETURN_IF_ERROR(validate_block_schema((*block).get()));
+
                 if (_blocks_queues[id].empty() && _data_dependency) {
                     _data_dependency->block_reading();
                 }
@@ -99,7 +103,7 @@ public:
         int64_t local_bytes = 0;
 
         if (_need_colocate_distribute) {
-            std::vector<uint64_t> hash_vals;
+            std::vector<uint32_t> hash_vals;
             for (const auto& block : blocks) {
                 // vectorized calculate hash
                 int rows = block->rows();
@@ -111,9 +115,11 @@ public:
                 for (int j = 0; j < _col_distribute_ids.size(); ++j) {
                     block->get_by_position(_col_distribute_ids[j])
                             .column->update_crcs_with_value(
-                                    hash_vals, _output_tuple_desc->slots()[_col_distribute_ids[j]]
-                                                       ->type()
-                                                       .type);
+                                    hash_vals.data(),
+                                    _output_tuple_desc->slots()[_col_distribute_ids[j]]
+                                            ->type()
+                                            .type,
+                                    rows);
                 }
                 for (int i = 0; i < rows; i++) {
                     hashes[i] = hashes[i] % element_size;

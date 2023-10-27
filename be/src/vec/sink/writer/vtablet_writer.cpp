@@ -34,15 +34,18 @@
 #include <google/protobuf/stubs/common.h>
 #include <sys/param.h>
 
+#include <algorithm>
 #include <exception>
 #include <initializer_list>
 #include <memory>
 #include <mutex>
+#include <ranges>
 #include <sstream>
 #include <string>
 #include <unordered_map>
 #include <utility>
 
+#include "olap/wal_manager.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -54,9 +57,11 @@
 #endif
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "bvar/bvar.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/object_pool.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "runtime/client_cache.h"
@@ -96,6 +101,13 @@ namespace doris {
 class TExpr;
 
 namespace vectorized {
+
+bvar::Adder<int64_t> g_sink_write_bytes;
+bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte",
+                                                                    &g_sink_write_bytes, 60);
+bvar::Adder<int64_t> g_sink_write_rows;
+bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_rows_per_second("sink_throughput_row",
+                                                                   &g_sink_write_rows, 60);
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
     SCOPED_CONSUME_MEM_TRACKER(_index_channel_tracker.get());
@@ -570,11 +582,11 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
 
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
                                             std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
-    auto st = none_of({_cancelled, _send_finished});
-    if (!st.ok()) {
+    if (_cancelled || _send_finished) { // not run
         return 0;
     }
 
+    // set closure for sending block.
     if (!_add_block_closure->try_set_in_flight()) {
         // There is packet in flight, skip.
         return _send_finished ? 0 : 1;
@@ -582,16 +594,15 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
 
     // We are sure that try_send_batch is not running
     if (_pending_batches_num > 0) {
-        auto s = thread_pool_token->submit_func(
-                std::bind(&VNodeChannel::try_send_pending_block, this, state));
+        auto s = thread_pool_token->submit_func([this, state] { try_send_pending_block(state); });
         if (!s.ok()) {
             _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
-            // clear in flight
+            // sending finished. clear in flight
             _add_block_closure->clear_in_flight();
         }
         // in_flight is cleared in closure::Run
     } else {
-        // clear in flight
+        // sending finished. clear in flight
         _add_block_closure->clear_in_flight();
     }
     return _send_finished ? 0 : 1;
@@ -601,7 +612,7 @@ void VNodeChannel::_cancel_with_msg(const std::string& msg) {
     LOG(WARNING) << "cancel node channel " << channel_info() << ", error message: " << msg;
     {
         std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-        if (_cancel_msg == "") {
+        if (_cancel_msg.empty()) {
             _cancel_msg = msg;
         }
     }
@@ -628,6 +639,7 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     SCOPED_ATTACH_TASK(state);
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
+    signal::set_signal_task_id(_parent->_load_id);
     AddBlockReq send_block;
     {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
@@ -709,7 +721,7 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             }
         }
 
-        // eos request must be the last request
+        // eos request must be the last request. it's a signal makeing callback function to set _add_batch_finished true.
         _add_block_closure->end_mark();
         _send_finished = true;
         CHECK(_pending_batches_num == 0) << _pending_batches_num;
@@ -914,7 +926,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     }
 
     // waiting for finished, it may take a long time, so we couldn't set a timeout
-    // In pipeline, is_close_done() is false at this time, will not bock.
+    // In pipeline, is_close_done() is false at this time, will not block.
     while (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
         bthread_usleep(1000);
     }
@@ -950,7 +962,7 @@ void VNodeChannel::mark_close() {
     _cur_add_block_request.set_eos(true);
     {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
-        if (!_cur_mutable_block) {
+        if (!_cur_mutable_block) [[unlikely]] {
             // add a dummy block
             _cur_mutable_block = vectorized::MutableBlock::create_unique();
         }
@@ -969,11 +981,17 @@ void VNodeChannel::mark_close() {
 VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
         : AsyncResultWriter(output_exprs), _t_sink(t_sink) {
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
+    DCHECK(t_sink.__isset.olap_table_sink);
+    auto& table_sink = t_sink.olap_table_sink;
+    _db_id = table_sink.db_id;
+    _tb_id = table_sink.table_id;
+    _wal_id = table_sink.txn_id;
 }
 
-void VTabletWriter::init_properties(doris::ObjectPool* pool, bool group_commit) {
+Status VTabletWriter::init_properties(doris::ObjectPool* pool, bool group_commit) {
     _pool = pool;
     _group_commit = group_commit;
+    return Status::OK();
 }
 
 void VTabletWriter::_send_batch_process() {
@@ -981,28 +999,47 @@ void VTabletWriter::_send_batch_process() {
     SCOPED_ATTACH_TASK(_state);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
-    bool had_effect = false;
     while (true) {
         // incremental open will temporarily make channels into abnormal state. stop checking when this.
         std::unique_lock<std::mutex> l(_stop_check_channel);
 
         int running_channels_num = 0;
+        int opened_nodes = 0;
         for (const auto& index_channel : _channels) {
             index_channel->for_each_node_channel([&running_channels_num,
                                                   this](const std::shared_ptr<VNodeChannel>& ch) {
+                // if this channel all completed(cancelled), got 0. else 1.
                 running_channels_num +=
                         ch->try_send_and_fetch_status(_state, this->_send_batch_thread_pool_token);
             });
+            opened_nodes += index_channel->num_node_channels();
         }
 
-        // if there is no channel, maybe auto partition table. so check does there have had running channels ever.
-        if (running_channels_num == 0 && had_effect) {
-            LOG(INFO) << "all node channels are stopped(maybe finished/offending/cancelled), "
+        // auto partition table may have no node channel temporarily. wait to open.
+        if (opened_nodes != 0 && running_channels_num == 0) {
+            LOG(INFO) << "All node channels are stopped(maybe finished/offending/cancelled), "
                          "sender thread exit. "
                       << print_id(_load_id);
             return;
-        } else if (running_channels_num != 0) {
-            had_effect = true;
+        }
+
+        // for auto partition tables, there's a situation: we haven't open any node channel but decide to cancel the task.
+        // then the judge in front will never be true because opened_nodes won't increase. so we have to specially check wether we called close.
+        // we must RECHECK opened_nodes below, after got closed signal, because it may changed. Think of this:
+        //      checked opened_nodes = 0 ---> new block arrived ---> task finished, close() was called ---> we got _try_close here
+        // if we don't check again, we may lose the last package.
+        if (_try_close) {
+            opened_nodes = 0;
+            std::ranges::for_each(_channels,
+                                  [&opened_nodes](const std::shared_ptr<IndexChannel>& ich) {
+                                      opened_nodes += ich->num_node_channels();
+                                  });
+            if (opened_nodes == 0) {
+                LOG(INFO) << "No node channel have ever opened but now we have to close. sender "
+                             "thread exit. "
+                          << print_id(_load_id);
+                return;
+            }
         }
         bthread_usleep(config::olap_table_sink_send_interval_ms * 1000);
     }
@@ -1016,6 +1053,7 @@ static void* periodic_send_batch(void* writer) {
 
 Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* profile) {
     RETURN_IF_ERROR(_init(state, profile));
+    signal::set_signal_task_id(_load_id);
     SCOPED_TIMER(profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -1050,7 +1088,7 @@ Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* pr
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
 
-    // start to send batch continually
+    // start to send batch continually. this must be called after _init
     if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {
         return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
     }
@@ -1196,10 +1234,16 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     // prepare for auto partition functions
     if (_vpartition->is_auto_partition()) {
         auto [part_ctx, part_func] = _get_partition_function();
-        RETURN_IF_ERROR(part_func->prepare(_state, *_output_row_desc, part_ctx.get()));
+        RETURN_IF_ERROR(part_ctx->prepare(_state, *_output_row_desc));
+        RETURN_IF_ERROR(part_ctx->open(_state));
+    }
+    if (_group_commit) {
+        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_path(_db_id, _tb_id, _wal_id,
+                                                                    _state->import_label()));
+        RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->create_wal_writer(_wal_id, _wal_writer));
     }
 
-    _prepare = true;
+    _inited = true;
     return Status::OK();
 }
 
@@ -1323,7 +1367,7 @@ Status VTabletWriter::_single_partition_generate(RuntimeState* state, vectorized
     uint32_t tablet_index = 0;
     bool stop_processing = false;
     for (int32_t i = 0; i < num_rows; ++i) {
-        if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
+        if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_map()[i]) {
             continue;
         }
         bool is_continue = false;
@@ -1353,7 +1397,7 @@ Status VTabletWriter::_single_partition_generate(RuntimeState* state, vectorized
             auto& selector = channel_to_payload[j][channel.get()].first;
             auto& tablet_ids = channel_to_payload[j][channel.get()].second;
             for (int32_t i = 0; i < num_rows; ++i) {
-                if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
+                if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_map()[i]) {
                     continue;
                 }
                 selector->push_back(i);
@@ -1422,6 +1466,7 @@ void VTabletWriter::_cancel_all_channel(Status status) {
 Status VTabletWriter::try_close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
+    _try_close = true;
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
         // if status is not ok, this sink may not be prepared, so that _profile is null
@@ -1450,7 +1495,7 @@ Status VTabletWriter::try_close(RuntimeState* state, Status exec_status) {
     if (!status.ok()) {
         _cancel_all_channel(status);
         _close_status = status;
-        _try_close = true;
+        _close_wait = true;
     }
 
     return Status::OK();
@@ -1458,7 +1503,7 @@ Status VTabletWriter::try_close(RuntimeState* state, Status exec_status) {
 
 bool VTabletWriter::is_close_done() {
     // Only after try_close, need to wait rpc end.
-    if (!_try_close) {
+    if (!_close_wait) {
         return true;
     }
     bool close_done = true;
@@ -1472,7 +1517,7 @@ bool VTabletWriter::is_close_done() {
 }
 
 Status VTabletWriter::close(Status exec_status) {
-    if (!_prepare) {
+    if (!_inited) {
         DCHECK(!exec_status.ok());
         _cancel_all_channel(exec_status);
         _close_status = exec_status;
@@ -1482,7 +1527,8 @@ Status VTabletWriter::close(Status exec_status) {
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(_profile->total_time_counter());
 
-    try_close(_state, exec_status);
+    // will make the last batch of request. close_wait will wait this finished.
+    static_cast<void>(try_close(_state, exec_status));
 
     // If _close_status is not ok, all nodes have been canceled in try_close.
     if (_close_status.ok()) {
@@ -1619,6 +1665,9 @@ Status VTabletWriter::close(Status exec_status) {
                 [](const std::shared_ptr<VNodeChannel>& ch) { ch->clear_all_blocks(); });
     }
 
+    if (_wal_writer.get() != nullptr) {
+        static_cast<void>(_wal_writer->finalize());
+    }
     return _close_status;
 }
 
@@ -1659,6 +1708,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     _tablet_finder->clear_for_new_batch();
     _row_distribution_watch.start();
     auto num_rows = block->rows();
+    _tablet_finder->filter_bitmap().Reset(num_rows);
     size_t partition_num = _vpartition->get_partitions().size();
     if (!_vpartition->is_auto_partition() && partition_num == 1 &&
         _tablet_finder->is_find_tablet_every_sink()) {
@@ -1667,10 +1717,10 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     } else {
         // if there's projection of partition calc, we need to calc it first.
         auto [part_ctx, part_func] = _get_partition_function();
-        int result_idx;
+        int result_idx = -1;
         if (_vpartition->is_projection_partition()) {
             // calc the start value of missing partition ranges.
-            part_func->execute(part_ctx.get(), block.get(), &result_idx);
+            RETURN_IF_ERROR(part_func->execute(part_ctx.get(), block.get(), &result_idx));
             VLOG_DEBUG << "Partition-calculated block:" << block->dump_data();
             // change the column to compare to transformed.
             _vpartition->set_transformed_slots({(uint16_t)result_idx});
@@ -1688,7 +1738,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
 
             // try to find tablet and save missing value
             for (int i = 0; i < num_rows; ++i) {
-                if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
+                if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_map()[i]) {
                     continue;
                 }
                 const VOlapTablePartition* partition = nullptr;
@@ -1737,7 +1787,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
             }    // creating done
         } else { // not auto partition
             for (int i = 0; i < num_rows; ++i) {
-                if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
+                if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_map()[i]) {
                     continue;
                 }
                 const VOlapTablePartition* partition = nullptr;
@@ -1770,7 +1820,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
             vectorized::IColumn::Filter& filter_col =
                     static_cast<vectorized::ColumnUInt8*>(filter.get())->get_data();
             for (size_t i = 0; i < filter_col.size(); ++i) {
-                filter_data[i] = !_block_convertor->filter_bitmap().Get(i);
+                filter_data[i] = !_block_convertor->filter_map()[i];
             }
             RETURN_IF_CATCH_EXCEPTION(vectorized::Block::filter_block_internal(
                     block.get(), filter_col, block->columns()));
@@ -1778,9 +1828,10 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     }
 
     if (_group_commit) {
-        _group_commit_block(&input_block, rows,
+        _group_commit_block(&input_block, num_rows,
                             _block_convertor->num_filtered_rows() +
-                                    _tablet_finder->num_filtered_rows() - filtered_rows);
+                                    _tablet_finder->num_filtered_rows() - filtered_rows,
+                            _state, block.get(), _block_convertor.get(), _tablet_finder.get());
     }
     // TODO: Before load, we need to projection unuseful column
     // auto slots = _schema->tuple_desc()->slots();
@@ -1805,14 +1856,54 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     for (const auto& index_channel : _channels) {
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
     }
+
+    g_sink_write_bytes << bytes;
+    g_sink_write_rows << rows;
     return Status::OK();
 }
 
-void VTabletWriter::_group_commit_block(Block* input_block, int64_t rows, int64_t filter_rows) {
+Status VTabletWriter::write_wal(OlapTableBlockConvertor* block_convertor,
+                                OlapTabletFinder* tablet_finder, vectorized::Block* block,
+                                RuntimeState* state, int64_t num_rows, int64_t filtered_rows) {
+    PBlock pblock;
+    size_t uncompressed_bytes = 0, compressed_bytes = 0;
+    if (filtered_rows == 0) {
+        RETURN_IF_ERROR(block->serialize(state->be_exec_version(), &pblock, &uncompressed_bytes,
+                                         &compressed_bytes, segment_v2::CompressionTypePB::SNAPPY));
+        RETURN_IF_ERROR(_wal_writer->append_blocks(std::vector<PBlock*> {&pblock}));
+    } else {
+        auto cloneBlock = block->clone_without_columns();
+        auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+        for (int i = 0; i < num_rows; ++i) {
+            if (block_convertor->num_filtered_rows() > 0 && block_convertor->filter_map()[i]) {
+                continue;
+            }
+            if (tablet_finder->num_filtered_rows() > 0 && tablet_finder->filter_bitmap().Get(i)) {
+                continue;
+            }
+            res_block.add_row(block, i);
+        }
+        RETURN_IF_ERROR(res_block.to_block().serialize(state->be_exec_version(), &pblock,
+                                                       &uncompressed_bytes, &compressed_bytes,
+                                                       segment_v2::CompressionTypePB::SNAPPY));
+        RETURN_IF_ERROR(_wal_writer->append_blocks(std::vector<PBlock*> {&pblock}));
+    }
+    return Status::OK();
+}
+
+void VTabletWriter::_group_commit_block(vectorized::Block* input_block, int64_t num_rows,
+                                        int64_t filter_rows, RuntimeState* state,
+                                        vectorized::Block* block,
+                                        OlapTableBlockConvertor* block_convertor,
+                                        OlapTabletFinder* tablet_finder) {
+    static_cast<void>(
+            write_wal(block_convertor, tablet_finder, block, state, num_rows, filter_rows));
+#ifndef BE_TEST
     auto* future_block = assert_cast<FutureBlock*>(input_block);
     std::unique_lock<doris::Mutex> l(*(future_block->lock));
-    future_block->set_result(Status::OK(), rows, rows - filter_rows);
+    future_block->set_result(Status::OK(), num_rows, num_rows - filter_rows);
     future_block->cv->notify_all();
+#endif
 }
 
 } // namespace vectorized

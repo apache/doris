@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/status.h"
 #include "gutil/stringprintf.h"
 #include "gutil/strings/numbers.h"
@@ -53,6 +54,7 @@
 #include "util/string_parser.hpp"
 #include "util/types.h"
 #include "vec/common/arena.h"
+#include "vec/core/wide_integer.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -81,7 +83,7 @@ public:
 
     virtual void direct_copy(void* dest, const void* src) const = 0;
 
-    // Use only in zone map to cut data.
+    // Use only in zone map to cut data.StringParser::string_to_unsigned_int<uint32_t>
     virtual void direct_copy_may_cut(void* dest, const void* src) const = 0;
 
     virtual Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
@@ -690,6 +692,11 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I> {
     using UnsignedCppType = uint128_t;
 };
 template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256> {
+    using CppType = Int256;
+    using UnsignedCppType = wide::UInt256;
+};
+template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
     using CppType = uint24_t;
     using UnsignedCppType = uint24_t;
@@ -713,6 +720,16 @@ template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {
     using CppType = int64_t;
     using UnsignedCppType = uint64_t;
+};
+template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
+    using CppType = uint32_t;
+    using UnsignedCppType = uint32_t;
+};
+template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
+    using CppType = uint128_t;
+    using UnsignedCppType = uint128_t;
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
@@ -771,6 +788,8 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     static inline CppType get_cpp_type_value(const void* address) {
         if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT) {
             return get_int128_from_unalign(address);
+        } else if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_IPV6) {
+            return get_uint128_from_unalign(address);
         }
         return *reinterpret_cast<const CppType*>(address);
     }
@@ -958,6 +977,101 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
 };
 
 template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        uint32_t value = StringParser::string_to_unsigned_int<uint32_t>(scan_key.c_str(),
+                                                                        scan_key.size(), &result);
+
+        if (result == StringParser::PARSE_FAILURE) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "FieldTypeTraits<OLAP_FIELD_TYPE_IPV4>::from_string meet PARSE_FAILURE");
+        }
+        *reinterpret_cast<uint32_t*>(buf) = value;
+        return Status::OK();
+    }
+
+    static std::string to_string(const void* src) {
+        uint32_t value = *reinterpret_cast<const uint32_t*>(src);
+        std::stringstream ss;
+        ss << ((value >> 24) & 0xFF) << '.' << ((value >> 16) & 0xFF) << '.'
+           << ((value >> 8) & 0xFF) << '.' << (value & 0xFF);
+        return ss.str();
+    }
+};
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        std::istringstream iss(scan_key);
+        std::string token;
+        uint128_t result = 0;
+        int count = 0;
+
+        while (std::getline(iss, token, ':')) {
+            if (token.empty()) {
+                count += 8 - count;
+                break;
+            }
+
+            if (count > 8) {
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                        "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
+            }
+
+            uint16_t value = 0;
+            std::istringstream ss(token);
+            if (!(ss >> std::hex >> value)) {
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                        "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
+            }
+
+            result = (result << 16) | value;
+            count++;
+        }
+
+        if (count < 8) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
+        }
+
+        *reinterpret_cast<uint128_t*>(buf) = result;
+        return Status::OK();
+    }
+
+    static std::string to_string(const void* src) {
+        std::stringstream result;
+        uint128_t ipv6 = *reinterpret_cast<const uint128_t*>(src);
+
+        for (int i = 0; i < 8; i++) {
+            uint16_t part = static_cast<uint16_t>((ipv6 >> (112 - i * 16)) & 0xFFFF);
+            result << std::to_string(part);
+            if (i != 7) {
+                result << ":";
+            }
+        }
+
+        return result.str();
+    }
+
+    static void set_to_max(void* buf) {
+        *reinterpret_cast<PackedInt128*>(buf) =
+                static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+                static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
+    }
+
+    static void set_to_min(void* buf) {
+        *reinterpret_cast<PackedInt128*>(buf) =
+                -(static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+                  static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
+    }
+};
+
+template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>
         : public NumericFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT, true> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
@@ -1084,6 +1198,33 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>
 };
 
 template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256>
+        : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256> {
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        auto value = StringParser::string_to_decimal<TYPE_DECIMAL256>(
+                scan_key.c_str(), scan_key.size(), BeConsts::MAX_DECIMAL256_PRECISION, scale,
+                &result);
+        if (result == StringParser::PARSE_FAILURE) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL256>::from_string meet PARSE_FAILURE");
+        }
+        *reinterpret_cast<Int256*>(buf) = value;
+        return Status::OK();
+    }
+    static std::string to_string(const void* src) {
+        // TODO: support decimal256
+        DCHECK(false);
+        return "";
+        // auto value = reinterpret_cast<const wide::Int256*>(src);
+        // fmt::memory_buffer buffer;
+        // fmt::format_to(buffer, "{}", *value);
+        // return std::string(buffer.data(), buffer.size());
+    }
+};
+
+template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>
         : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
@@ -1129,15 +1270,15 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
                     ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
             *reinterpret_cast<CppType*>(buf) = value;
         } else {
-            *reinterpret_cast<CppType*>(buf) = doris::vectorized::MIN_DATE_V2;
+            *reinterpret_cast<CppType*>(buf) = MIN_DATE_V2;
         }
 
         return Status::OK();
     }
     static std::string to_string(const void* src) {
         CppType tmp = *reinterpret_cast<const CppType*>(src);
-        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> value = binary_cast<
-                CppType, doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>>(tmp);
+        DateV2Value<DateV2ValueType> value =
+                binary_cast<CppType, DateV2Value<DateV2ValueType>>(tmp);
         string format = "%Y-%m-%d";
         string res;
         res.resize(12);
@@ -1148,11 +1289,11 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
 
     static void set_to_max(void* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;
-        *reinterpret_cast<CppType*>(buf) = doris::vectorized::MAX_DATE_V2;
+        *reinterpret_cast<CppType*>(buf) = MAX_DATE_V2;
     }
     static void set_to_min(void* buf) {
         // min is 0 * 16 * 32 + 1 * 32 + 1;
-        *reinterpret_cast<CppType*>(buf) = doris::vectorized::MIN_DATE_V2;
+        *reinterpret_cast<CppType*>(buf) = MIN_DATE_V2;
     }
 };
 
@@ -1161,24 +1302,22 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
         : public BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
-        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetimev2_value;
+        DateV2Value<DateTimeV2ValueType> datetimev2_value;
         std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
 
         if (datetimev2_value.from_date_format_str(date_format.data(), date_format.size(),
                                                   scan_key.data(), scan_key.size())) {
             *reinterpret_cast<CppType*>(buf) = datetimev2_value.to_date_int_val();
         } else {
-            *reinterpret_cast<CppType*>(buf) = doris::vectorized::MIN_DATETIME_V2;
+            *reinterpret_cast<CppType*>(buf) = MIN_DATETIME_V2;
         }
 
         return Status::OK();
     }
     static std::string to_string(const void* src) {
         CppType tmp = *reinterpret_cast<const CppType*>(src);
-        doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> value =
-                binary_cast<CppType,
-                            doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>>(
-                        tmp);
+        DateV2Value<DateTimeV2ValueType> value =
+                binary_cast<CppType, DateV2Value<DateTimeV2ValueType>>(tmp);
         string format = "%Y-%m-%d %H:%i:%s.%f";
         string res;
         res.resize(30);
@@ -1189,11 +1328,11 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
 
     static void set_to_max(void* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;
-        *reinterpret_cast<CppType*>(buf) = doris::vectorized::MAX_DATETIME_V2;
+        *reinterpret_cast<CppType*>(buf) = MAX_DATETIME_V2;
     }
     static void set_to_min(void* buf) {
         // min is 0 * 16 * 32 + 1 * 32 + 1;
-        *reinterpret_cast<CppType*>(buf) = doris::vectorized::MIN_DATETIME_V2;
+        *reinterpret_cast<CppType*>(buf) = MIN_DATETIME_V2;
     }
 };
 

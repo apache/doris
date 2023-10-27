@@ -37,6 +37,7 @@
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/tablet_manager.h"
@@ -133,7 +134,7 @@ void construct_schema(OlapTableSchemaParam* schema) {
     tschema.indexes[1].id = NORMAL_INDEX_ID + 1;
     tschema.indexes[1].columns = {"c1", "c2", "c3"};
 
-    schema->init(tschema);
+    static_cast<void>(schema->init(tschema));
 }
 
 // copied from delta_writer_test.cpp
@@ -506,7 +507,7 @@ public:
         size_t hdr_len = header.ByteSizeLong();
         append_buf.append((char*)&hdr_len, sizeof(size_t));
         append_buf.append(header.SerializeAsString());
-        client.send(&append_buf);
+        static_cast<void>(client.send(&append_buf));
     }
 
     void write_one_tablet(MockSinkClient& client, UniqueId load_id, uint32_t sender_id,
@@ -531,7 +532,7 @@ public:
         append_buf.append((char*)&data_len, sizeof(size_t));
         append_buf.append(data);
         LOG(INFO) << "send " << header.DebugString() << data;
-        client.send(&append_buf);
+        static_cast<void>(client.send(&append_buf));
     }
 
     void write_abnormal_load(MockSinkClient& client) {
@@ -590,7 +591,7 @@ public:
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(zTestDir).ok());
 
-        k_engine->start_bg_threads();
+        static_cast<void>(k_engine->start_bg_threads());
 
         _load_stream_mgr = std::make_unique<LoadStreamMgr>(4, &_heavy_work_pool, &_light_work_pool);
         _stream_service = new StreamService(_load_stream_mgr.get());

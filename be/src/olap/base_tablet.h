@@ -17,131 +17,86 @@
 
 #pragma once
 
-#include <butil/macros.h>
-#include <gen_cpp/olap_file.pb.h>
-#include <stdint.h>
-
 #include <memory>
+#include <shared_mutex>
 #include <string>
 
 #include "common/status.h"
-#include "olap/olap_common.h"
+#include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
-#include "olap/tablet_schema.h"
 #include "util/metrics.h"
 
 namespace doris {
+struct RowSetSplits;
+struct RowsetWriterContext;
+class RowsetWriter;
 
-class DataDir;
-
-// Base class for all tablet classes, currently only olap/Tablet
-// The fields and methods in this class is not final, it will change as memory
-// storage engine evolves.
+// Base class for all tablet classes
 class BaseTablet {
 public:
-    BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
+    explicit BaseTablet(TabletMetaSharedPtr tablet_meta);
     virtual ~BaseTablet();
+    BaseTablet(const BaseTablet&) = delete;
+    BaseTablet& operator=(const BaseTablet&) = delete;
 
-    DataDir* data_dir() const;
-    const std::string& tablet_path() const;
-
-    TabletState tablet_state() const { return _state; }
+    const std::string& tablet_path() const { return _tablet_path; }
+    TabletState tablet_state() const { return _tablet_meta->tablet_state(); }
     Status set_tablet_state(TabletState state);
+    int64_t table_id() const { return _tablet_meta->table_id(); }
+    int64_t partition_id() const { return _tablet_meta->partition_id(); }
+    int64_t tablet_id() const { return _tablet_meta->tablet_id(); }
+    int32_t schema_hash() const { return _tablet_meta->schema_hash(); }
+    KeysType keys_type() const { return _tablet_meta->tablet_schema()->keys_type(); }
+    size_t num_key_columns() const { return _tablet_meta->tablet_schema()->num_key_columns(); }
+    bool enable_unique_key_merge_on_write() const {
+#ifdef BE_TEST
+        if (_tablet_meta == nullptr) {
+            return false;
+        }
+#endif
+        return _tablet_meta->enable_unique_key_merge_on_write();
+    }
 
     // Property encapsulated in TabletMeta
-    const TabletMetaSharedPtr& tablet_meta();
+    const TabletMetaSharedPtr& tablet_meta() { return _tablet_meta; }
 
-    TabletUid tablet_uid() const;
-    int64_t table_id() const;
-    // Returns a string can be used to uniquely identify a tablet.
-    // The result string will often be printed to the log.
-    const std::string full_name() const;
-    int64_t partition_id() const;
-    int64_t tablet_id() const;
-    int64_t replica_id() const;
-    int32_t schema_hash() const;
-    int16_t shard_id() const;
+    // FIXME(plat1ko): It is not appropriate to expose this lock
+    std::shared_mutex& get_header_lock() { return _meta_lock; }
 
-    int64_t storage_policy_id() const { return _tablet_meta->storage_policy_id(); }
+    void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
 
-    void set_storage_policy_id(int64_t id) { _tablet_meta->set_storage_policy_id(id); }
+    TabletSchemaSPtr tablet_schema() const {
+        std::shared_lock rlock(_meta_lock);
+        return _max_version_schema;
+    }
 
-    // properties encapsulated in TabletSchema
-    virtual TabletSchemaSPtr tablet_schema() const;
+    virtual bool exceed_version_limit(int32_t limit) const = 0;
 
-    bool set_tablet_schema_into_rowset_meta();
+    virtual Status create_rowset_writer(RowsetWriterContext& context,
+                                        std::unique_ptr<RowsetWriter>* rowset_writer) = 0;
 
-protected:
-    void _gen_tablet_path();
+    virtual Status capture_rs_readers(const Version& spec_version,
+                                      std::vector<RowSetSplits>* rs_splits) const = 0;
+
+    virtual size_t tablet_footprint() = 0;
 
 protected:
-    TabletState _state;
+    mutable std::shared_mutex _meta_lock;
     const TabletMetaSharedPtr _tablet_meta;
-    TabletSchemaSPtr _schema;
+    TabletSchemaSPtr _max_version_schema;
 
-    DataDir* _data_dir;
     std::string _tablet_path;
 
     // metrics of this tablet
-    std::shared_ptr<MetricEntity> _metric_entity = nullptr;
-
-    std::string _full_name;
+    std::shared_ptr<MetricEntity> _metric_entity;
 
 public:
     IntCounter* query_scan_bytes;
     IntCounter* query_scan_rows;
     IntCounter* query_scan_count;
-
-private:
-    DISALLOW_COPY_AND_ASSIGN(BaseTablet);
+    IntCounter* flush_bytes;
+    IntCounter* flush_finish_count;
+    std::atomic<int64_t> published_count = 0;
 };
-
-inline DataDir* BaseTablet::data_dir() const {
-    return _data_dir;
-}
-
-inline const std::string& BaseTablet::tablet_path() const {
-    return _tablet_path;
-}
-
-inline const TabletMetaSharedPtr& BaseTablet::tablet_meta() {
-    return _tablet_meta;
-}
-
-inline TabletUid BaseTablet::tablet_uid() const {
-    return _tablet_meta->tablet_uid();
-}
-
-inline int64_t BaseTablet::table_id() const {
-    return _tablet_meta->table_id();
-}
-
-inline const std::string BaseTablet::full_name() const {
-    return _full_name;
-}
-
-inline int64_t BaseTablet::partition_id() const {
-    return _tablet_meta->partition_id();
-}
-
-inline int64_t BaseTablet::tablet_id() const {
-    return _tablet_meta->tablet_id();
-}
-
-inline int64_t BaseTablet::replica_id() const {
-    return _tablet_meta->replica_id();
-}
-
-inline int32_t BaseTablet::schema_hash() const {
-    return _tablet_meta->schema_hash();
-}
-
-inline int16_t BaseTablet::shard_id() const {
-    return _tablet_meta->shard_id();
-}
-
-inline TabletSchemaSPtr BaseTablet::tablet_schema() const {
-    return _schema;
-}
 
 } /* namespace doris */

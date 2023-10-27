@@ -223,7 +223,8 @@ int64_t BackendService::get_trash_used_capacity() {
     int64_t result = 0;
 
     std::vector<DataDirInfo> data_dir_infos;
-    StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
+    static_cast<void>(StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos,
+                                                                       false /*do not update */));
 
     // uses excute sql `show trash`, then update backend trash capacity too.
     StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
@@ -237,7 +238,8 @@ int64_t BackendService::get_trash_used_capacity() {
 
 void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {
     std::vector<DataDirInfo> data_dir_infos;
-    StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
+    static_cast<void>(StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos,
+                                                                       false /*do not update */));
 
     // uses excute sql `show trash on <be>`, then update backend trash capacity too.
     StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
@@ -273,7 +275,7 @@ void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParam
     TStatus t_status;
     TUniqueId fragment_instance_id = generate_uuid();
     std::shared_ptr<ScanContext> p_context;
-    _exec_env->external_scan_context_mgr()->create_scan_context(&p_context);
+    static_cast<void>(_exec_env->external_scan_context_mgr()->create_scan_context(&p_context));
     p_context->fragment_instance_id = fragment_instance_id;
     p_context->offset = 0;
     p_context->last_access_time = time(nullptr);
@@ -381,8 +383,9 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
 }
 
 void BackendService::clean_trash() {
-    StorageEngine::instance()->start_trash_sweep(nullptr, true);
-    StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
+    static_cast<void>(StorageEngine::instance()->start_trash_sweep(nullptr, true));
+    static_cast<void>(StorageEngine::instance()->notify_listener(
+            TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE));
 }
 
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
@@ -475,7 +478,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     p_load_id.set_hi(load_id.hi);
     p_load_id.set_lo(load_id.lo);
     auto status = StorageEngine::instance()->txn_manager()->prepare_txn(
-            partition_id, local_tablet, txn_id, p_load_id, is_ingrest);
+            partition_id, *local_tablet, txn_id, p_load_id, is_ingrest);
     if (!status.ok()) {
         LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
                      << ", status=" << status.to_string();
@@ -587,7 +590,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     uint64_t total_size = std::accumulate(segment_file_sizes.begin(), segment_file_sizes.end(), 0);
     if (!local_tablet->can_add_binlog(total_size)) {
         LOG(WARNING) << "failed to add binlog, no enough space, total_size=" << total_size
-                     << ", tablet=" << local_tablet->full_name();
+                     << ", tablet=" << local_tablet->tablet_id();
         status = Status::InternalError("no enough space");
         status.to_thrift(&tstatus);
         return;
@@ -688,11 +691,10 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             }
         }
 
-        local_tablet->commit_phase_update_delete_bitmap(rowset, pre_rowset_ids, delete_bitmap,
-                                                        segments, txn_id,
-                                                        calc_delete_bitmap_token.get(), nullptr);
-        calc_delete_bitmap_token->wait();
-        calc_delete_bitmap_token->get_delete_bitmap(delete_bitmap);
+        static_cast<void>(local_tablet->commit_phase_update_delete_bitmap(
+                rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
+                calc_delete_bitmap_token.get(), nullptr));
+        static_cast<void>(calc_delete_bitmap_token->wait());
     }
 
     // Step 6.3: commit txn
@@ -714,7 +716,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     if (local_tablet->enable_unique_key_merge_on_write()) {
         StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
                 partition_id, txn_id, local_tablet_id, local_tablet->tablet_uid(), true,
-                delete_bitmap, pre_rowset_ids);
+                delete_bitmap, pre_rowset_ids, nullptr);
     }
 
     tstatus.__set_status_code(TStatusCode::OK);

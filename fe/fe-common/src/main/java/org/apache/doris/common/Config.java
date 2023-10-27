@@ -390,7 +390,7 @@ public class Config extends ConfigBase {
     @ConfField(description = {"FE MySQL server 的端口号", "The port of FE MySQL server"})
     public static int query_port = 9030;
 
-    @ConfField(description = {"FE Arrow-Flight-SQL server 的端口号", "The port of FE Arrow-Flight-SQ server"})
+    @ConfField(description = {"FE Arrow-Flight-SQL server 的端口号", "The port of FE Arrow-Flight-SQL server"})
     public static int arrow_flight_sql_port = -1;
 
     @ConfField(description = {"MySQL 服务的 IO 线程数", "The number of IO threads in MySQL service"})
@@ -457,6 +457,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"Delete 操作的最大超时时间，单位是秒。",
             "Maximal timeout for delete job, in seconds."})
     public static int delete_job_max_timeout_second = 300;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"Load 成功所需的最小写入副本数。",
+            "Minimal number of write successful replicas for load job."})
+    public static short min_load_replica_num = -1;
 
     @ConfField(description = {"load job 调度器的执行间隔，单位是秒。",
             "The interval of load job scheduler, in seconds."})
@@ -665,18 +669,6 @@ public class Config extends ConfigBase {
             "单个 broker scanner 的最大并发数。", "Maximal concurrency of broker scanners."})
     public static int max_broker_concurrency = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "导出作业的最大并发数。", "Limitation of the concurrency of running export jobs."})
-    public static int export_running_job_num_limit = 5;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "导出作业的默认超时时间。", "Default timeout of export jobs."})
-    public static int export_task_default_timeout_second = 2 * 3600; // 2h
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "每个导出作业的需要处理的 tablet 数量。", "Number of tablets need to be handled per export job."})
-    public static int export_tablet_num_per_task = 5;
-
     // TODO(cmy): Disable by default because current checksum logic has some bugs.
     @ConfField(mutable = true, masterOnly = true, description = {
             "一致性检查的开始时间。与 `consistency_check_end_time` 配合使用，决定一致性检查的起止时间。"
@@ -719,6 +711,10 @@ public class Config extends ConfigBase {
      *   Eventually the colocate plan cannot be used when querying.
      */
     @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"是否启用group间的均衡",
+            "is allow colocate balance between all groups"})
+    public static boolean disable_colocate_balance_between_groups = false;
 
     /**
      * The default user resource publishing timeout.
@@ -930,6 +926,18 @@ public class Config extends ConfigBase {
     public static long tablet_repair_delay_factor_second = 60;
 
     /**
+     * clone a tablet, further repair timeout.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long tablet_further_repair_timeout_second = 20 * 60;
+
+    /**
+     * clone a tablet, further repair max times.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int tablet_further_repair_max_times = 5;
+
+    /**
      * the default slot number per path for hdd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
@@ -950,6 +958,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int schedule_batch_size = 50;
 
+    /**
+     * tablet health check interval. Do not modify it in production environment.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static long tablet_checker_interval_ms = 20 * 1000;
+
+    /**
+     * tablet scheduled interval. Do not modify it in production environment.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static long tablet_schedule_interval_ms = 1000;
 
     /**
      * Deprecated after 0.10
@@ -1293,6 +1312,10 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_bdbje_debug_mode = false;
 
+    @ConfField(mutable = false, masterOnly = true, description = {"是否开启debug point模式，测试使用",
+            "is enable debug points, use in test."})
+    public static boolean enable_debug_points = false;
+
     /**
      * This config is used to try skip broker when access bos or other cloud storage via broker
      */
@@ -1571,6 +1594,14 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static int async_task_consumer_thread_num = 5;
+
+    /**
+     * When job is finished, it will be saved in job manager for a while.
+     * This configuration is used to control the max saved time.
+     * Default is 3 days.
+     */
+    @ConfField
+    public static int finish_job_max_saved_second = 60 * 60 * 24 * 3;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
@@ -1986,12 +2017,6 @@ public class Config extends ConfigBase {
     public static boolean enable_round_robin_create_tablet = false;
 
     /**
-     * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
-     */
-    @ConfField
-    public static boolean enable_stats = true;
-
-    /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
      * we may delete the DecimalV2 and DateV1 types in the future.
      * At this stage, we use ‘disable_decimalv2’ and ‘disable_datev1’
@@ -2077,15 +2102,6 @@ public class Config extends ConfigBase {
         "Hive行数估算分区采样数",
         "Sample size for hive row count estimation."})
     public static int hive_stats_partition_sample_size = 3000;
-
-    @ConfField
-    public static boolean enable_full_auto_analyze = true;
-
-    @ConfField
-    public static String full_auto_analyze_start_time = "00:00:00";
-
-    @ConfField
-    public static String full_auto_analyze_end_time = "02:00:00";
 
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
@@ -2183,10 +2199,10 @@ public class Config extends ConfigBase {
             + "statistics through sampling"})
     public static long huge_table_lower_bound_size_in_bytes = 5L * 1024 * 1024 * 1024;
 
-    @ConfField(description = {"定义开启开启大表自动sample后，对大表的采样行数",
-            "This defines the number of sample rows for large tables when automatic sampling for"
+    @ConfField(description = {"定义开启开启大表自动sample后，对大表的采样比例",
+            "This defines the number of sample percent for large tables when automatic sampling for"
                     + "large tables is enabled"})
-    public static int huge_table_default_sample_rows = 20_0000;
+    public static int huge_table_default_sample_rows = 4194304;
 
     @ConfField(description = {"是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集"
             + "统计信息", "Whether to enable automatic sampling for large tables, which, when enabled, automatically"
@@ -2197,6 +2213,61 @@ public class Config extends ConfigBase {
             "控制统计信息的自动触发作业执行记录的持久化行数",
             "Determine the persist number of automatic triggered analyze job execution status"
     })
-    public static long auto_analyze_job_record_count = 20000;
+    public static long analyze_record_limit = 20000;
 
+    @ConfField(description = {
+            "Auto Buckets中最小的buckets数目",
+            "min buckets of auto bucket"
+    })
+    public static int autobucket_min_buckets = 1;
+
+    @ConfField(description = {"Arrow Flight Server中所有用户token的缓存上限，超过后LRU淘汰，默认值为2000",
+            "The cache limit of all user tokens in Arrow Flight Server. which will be eliminated by"
+            + "LRU rules after exceeding the limit, the default value is 2000."})
+    public static int arrow_flight_token_cache_size = 2000;
+
+    @ConfField(description = {"Arrow Flight Server中用户token的存活时间，自上次写入后过期时间，单位分钟，默认值为4320，即3天",
+            "The alive time of the user token in Arrow Flight Server, expire after write, unit minutes,"
+            + "the default value is 4320, which is 3 days"})
+    public static int arrow_flight_token_alive_time = 4320;
+
+    @ConfField(mutable = true, description = {
+            "Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，"
+            + "请修改这个字段，为 doris 内置的 mysql database 更换一个名字",
+            "To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. "
+            + "If this database conflicts with a user's own database, please modify this field to replace "
+            + "the name of the Doris built-in MySQL database with a different name."})
+    public static String mysqldb_replace_name = "mysql";
+
+    @ConfField(description = {
+        "设置允许跨域访问的特定域名,默认允许任何域名跨域访问",
+        "Set the specific domain name that allows cross-domain access. "
+            + "By default, any domain name is allowed cross-domain access"
+    })
+    public static String access_control_allowed_origin_domain = "*";
+
+    @ConfField(description = {
+            "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
+                    + "默认为 false，如果 Image 文件中包含未知的模块，Doris 将会抛出异常。"
+                    + "该参数主要用于降级操作中，老版本可以兼容新版本的 Image 文件。",
+            "Whether to ignore unknown modules in Image file. "
+                    + "If true, metadata modules not in PersistMetaModules.MODULE_NAMES "
+                    + "will be ignored and skipped. Default is false, if Image file contains unknown modules, "
+                    + "Doris will throw exception. "
+                    + "This parameter is mainly used in downgrade operation, "
+                    + "old version can be compatible with new version Image file."
+    })
+    public static boolean ignore_unknown_metadata_module = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "FE扩容时，从主节点同步元数据的timeout时间，根据${meta_dir}/image文件夹下面的image文件大小和节点间的网络环境调整，"
+            + "单位为秒，默认值300",
+        "The timeout for new FE Follower/Observer synchronizing metadata from the FE Master, "
+            + "adjust by the size of image file in the ${meta_dir}/image and the network environment between nodes. "
+            + "The default values is 300s."
+    })
+    public static int sync_image_timeout_second = 300;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int publish_topic_info_interval_ms = 30000; // 30s
 }
