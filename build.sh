@@ -282,7 +282,9 @@ update_submodule() {
     git submodule update --init --recursive "${submodule_path}"
     exit_code=$?
     if [[ "${exit_code}" -eq 0 ]]; then
-        submodule_commit_id=$(git -C "${submodule_path}" rev-parse HEAD)
+        cd "${submodule_path}"
+        submodule_commit_id=$(git rev-parse HEAD)
+        cd -
         echo "Current commit ID of ${submodule_name} submodule: ${submodule_commit_id}"
     fi
     set -e
