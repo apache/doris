@@ -24,6 +24,9 @@ ENV JAVA_HOME="/usr/local/openjdk-8/"
 
 ADD output /opt/apache-doris/
 
+RUN  sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list
+RUN  apt-get clean
+
 RUN apt-get update && \
     apt-get install -y default-mysql-client python lsof tzdata && \
     ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
