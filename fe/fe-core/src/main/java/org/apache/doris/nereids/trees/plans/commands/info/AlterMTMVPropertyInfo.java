@@ -28,11 +28,8 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
 
     /**
      * constructor for alter MTMV
-     *
-     * @param mvName
-     * @param properties
      */
-    public AlterMTMVPropertyInfo(TableNameInfo mvName,Map<String, String> properties) {
+    public AlterMTMVPropertyInfo(TableNameInfo mvName, Map<String, String> properties) {
         super(mvName);
         this.properties = Objects.requireNonNull(properties, "require properties object");
     }

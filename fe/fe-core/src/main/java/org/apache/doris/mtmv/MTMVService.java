@@ -108,7 +108,7 @@ public class MTMVService {
         DatabaseIf database = table.getDatabase();
         BaseTableInfo baseTableInfo = new BaseTableInfo(database.getCatalog().getName(), database.getFullName(),
                 table.getName());
-        Set<MaterializedView> mtmvsByBaseTable = cacheManager.getMTMVSByBaseTable(baseTableInfo);
+        Set<MaterializedView> mtmvsByBaseTable = cacheManager.getMtmvsByBaseTable(baseTableInfo);
         for (MaterializedView materializedView : mtmvsByBaseTable) {
             TableNameInfo tableNameInfo = new TableNameInfo(materializedView.getQualifiedDbName(),
                     materializedView.getName());

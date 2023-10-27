@@ -100,7 +100,7 @@ public class MaterializedView extends OlapTable {
         if (getTableProperty().getProperties().containsKey(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) {
             return Long.parseLong(getTableProperty().getProperties().get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD));
         } else {
-            return 0l;
+            return 0L;
         }
     }
 

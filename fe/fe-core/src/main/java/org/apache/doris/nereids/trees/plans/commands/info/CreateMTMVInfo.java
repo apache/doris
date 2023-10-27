@@ -134,6 +134,9 @@ public class CreateMTMVInfo {
         }
     }
 
+    /**
+     * analyzeQuery
+     */
     public void analyzeQuery(ConnectContext ctx) {
         // create table as select
         // NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());

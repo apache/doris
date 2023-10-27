@@ -32,7 +32,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
-import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
 import org.apache.doris.qe.ConnectContext;
@@ -533,7 +532,6 @@ public class MetadataGenerator {
                 //          continue;
                 //      }
                 MaterializedView mv = (MaterializedView) table;
-                MTMVStatus status = mv.getStatus();
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setLongVal(mv.getId()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getName()));

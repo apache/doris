@@ -35,9 +35,6 @@ public class AlterMTMVRenameInfo extends AlterMTMVInfo {
 
     /**
      * constructor for alter MTMV
-     *
-     * @param mvName
-     * @param newName
      */
     public AlterMTMVRenameInfo(TableNameInfo mvName, String newName) {
         super(mvName);

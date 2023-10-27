@@ -32,11 +32,8 @@ public class AlterMTMVRefreshInfo extends AlterMTMVInfo {
 
     /**
      * constructor for alter MTMV
-     *
-     * @param mvName
-     * @param refreshInfo
      */
-    public AlterMTMVRefreshInfo(TableNameInfo mvName,MTMVRefreshInfo refreshInfo) {
+    public AlterMTMVRefreshInfo(TableNameInfo mvName, MTMVRefreshInfo refreshInfo) {
         super(mvName);
         this.refreshInfo = Objects.requireNonNull(refreshInfo, "require refreshInfo object");
     }
@@ -48,7 +45,7 @@ public class AlterMTMVRefreshInfo extends AlterMTMVInfo {
 
     @Override
     public void run() throws UserException {
-         Env.getCurrentEnv().alterMTMVRefreshInfo(this);
+        Env.getCurrentEnv().alterMTMVRefreshInfo(this);
     }
 
     public MTMVRefreshInfo getRefreshInfo() {

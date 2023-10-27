@@ -4047,8 +4047,8 @@ public class Env {
     }
 
     public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) throws UserException {
-         AlterMTMV alter = new AlterMTMV(mvName, status);
-         this.alter.processAlterMTMV(alter, false);
+        AlterMTMV alter = new AlterMTMV(mvName, status);
+        this.alter.processAlterMTMV(alter, false);
     }
 
     /*

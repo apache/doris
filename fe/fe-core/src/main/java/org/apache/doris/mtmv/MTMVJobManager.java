@@ -41,7 +41,7 @@ import java.util.List;
 import java.util.UUID;
 
 public class MTMVJobManager implements MTMVHookService {
-    public final static String MTMV_JOB_PREFIX = "mtmv_";
+    public static final String MTMV_JOB_PREFIX = "mtmv_";
 
     @Override
     public void createMTMV(MaterializedView materializedView) throws DdlException {

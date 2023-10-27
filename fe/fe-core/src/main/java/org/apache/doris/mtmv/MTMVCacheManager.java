@@ -44,7 +44,7 @@ public class MTMVCacheManager implements MTMVHookService {
     private Map<BaseTableInfo, Set<MaterializedView>> tableMTMVs = Maps.newConcurrentMap();
     private Map<MaterializedView, MTMVCache> mtmvCaches = Maps.newConcurrentMap();
 
-    public Set<MaterializedView> getMTMVSByBaseTable(BaseTableInfo table) {
+    public Set<MaterializedView> getMtmvsByBaseTable(BaseTableInfo table) {
         return tableMTMVs.get(table);
     }
 

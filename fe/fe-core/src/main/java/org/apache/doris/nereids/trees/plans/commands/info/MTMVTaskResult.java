@@ -19,6 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import com.google.gson.annotations.SerializedName;
 
+/**
+ * MTMVTaskResult
+ */
 public class MTMVTaskResult {
     @SerializedName("rem")
     private String refreshErrorMsg;
@@ -36,6 +39,9 @@ public class MTMVTaskResult {
     public MTMVTaskResult() {
     }
 
+    /**
+     * Constructor
+     */
     public MTMVTaskResult(String refreshErrorMsg, String executorSql, boolean refreshState, long refreshFinishedTime,
             long refreshStartTime, String refreshTaskId) {
         this.refreshErrorMsg = refreshErrorMsg;

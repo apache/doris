@@ -96,6 +96,7 @@ public class SqlJobExecutor implements JobExecutor {
                 + ctx.getState().getWarningRows() + ",infoMsg" + ctx.getState().getInfoMessage();
     }
 
-    protected void afterExecute(ExecutorResult result, long taskStartTime, long lastRefreshFinishedTime, String taskId) {
+    protected void afterExecute(ExecutorResult result, long taskStartTime, long lastRefreshFinishedTime,
+            String taskId) {
     }
 }

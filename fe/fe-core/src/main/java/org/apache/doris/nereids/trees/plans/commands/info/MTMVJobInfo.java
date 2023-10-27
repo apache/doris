@@ -19,6 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import com.google.gson.annotations.SerializedName;
 
+/**
+ * MTMVJobInfo
+ */
 public class MTMVJobInfo {
     @SerializedName("jn")
     private String jobName;

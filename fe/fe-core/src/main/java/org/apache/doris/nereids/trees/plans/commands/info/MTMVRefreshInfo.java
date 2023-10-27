@@ -77,6 +77,9 @@ public class MTMVRefreshInfo {
         this.refreshTriggerInfo = refreshTriggerInfo;
     }
 
+    /**
+     * update refreshInfo
+     */
     public MTMVRefreshInfo updateNotNull(MTMVRefreshInfo newRefreshInfo) {
         Objects.requireNonNull(newRefreshInfo);
         if (newRefreshInfo.buildMode != null) {

@@ -19,6 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import com.google.gson.annotations.SerializedName;
 
+/**
+ * EnvInfo
+ */
 public class EnvInfo {
     @SerializedName("cn")
     private String ctlName;

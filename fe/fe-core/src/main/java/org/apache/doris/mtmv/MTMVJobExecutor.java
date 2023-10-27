@@ -47,10 +47,13 @@ public class MTMVJobExecutor extends SqlJobExecutor {
     }
 
     @Override
-    protected void afterExecute(ExecutorResult result, long taskStartTime, long lastRefreshFinishedTime, String taskId) {
+    protected void afterExecute(ExecutorResult result, long taskStartTime, long lastRefreshFinishedTime,
+            String taskId) {
         try {
-            MTMVTaskResult taskResult = new MTMVTaskResult(result.getErrorMsg(), result.getExecutorSql(), result.isSuccess(),
+            MTMVTaskResult taskResult = new MTMVTaskResult(result.getErrorMsg(), result.getExecutorSql(),
+                    result.isSuccess(),
                     taskStartTime, lastRefreshFinishedTime, taskId);
+            System.out.println(taskResult);
             // Env.getCurrentEnv().alterMTMVStatus(new TableNameInfo(dbName, tableName), taskResult);
         } catch (Exception e) {
             e.printStackTrace();
