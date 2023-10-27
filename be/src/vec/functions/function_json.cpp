@@ -895,7 +895,7 @@ public:
     bool is_variadic() const override { return true; }
     bool use_default_implementation_for_constants() const override { return true; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
+        return make_nullable(std::make_shared<DataTypeString>());
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
