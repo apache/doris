@@ -222,17 +222,9 @@ bool TaskGroupTaskQueue::TaskGroupSchedEntityComparator::operator()(
 }
 
 TaskGroupTaskQueue::TaskGroupTaskQueue(size_t core_size)
-        : TaskQueue(core_size), _min_tg_entity(nullptr) {
-    _empty_pip_task->set_empty_task(true);
-    _empty_pip_task->set_task_queue(this);
-    _empty_pip_task->set_task_group_entity(_empty_group_entity);
-    _empty_group_entity->set_empty_group_entity(true);
-}
+        : TaskQueue(core_size), _min_tg_entity(nullptr) {}
 
-TaskGroupTaskQueue::~TaskGroupTaskQueue() {
-    delete _empty_group_entity;
-    delete _empty_pip_task;
-}
+TaskGroupTaskQueue::~TaskGroupTaskQueue() = default;
 
 void TaskGroupTaskQueue::close() {
     std::unique_lock<std::mutex> lock(_rs_mutex);
@@ -256,9 +248,6 @@ Status TaskGroupTaskQueue::_push_back(PipelineTask* task) {
     entity->task_queue()->emplace(task);
     if (_group_entities.find(entity) == _group_entities.end()) {
         _enqueue_task_group<from_executor>(entity);
-        if (_enable_cpu_hard_limit) {
-            reset_empty_group_entity();
-        }
     }
     _wait_task.notify_one();
     return Status::OK();
@@ -281,15 +270,9 @@ PipelineTask* TaskGroupTaskQueue::take(size_t core_id) {
             }
         }
     }
-    if (entity->is_empty_group_entity()) {
-        return _empty_pip_task;
-    }
     DCHECK(entity->task_size() > 0);
     if (entity->task_size() == 1) {
         _dequeue_task_group(entity);
-        if (_enable_cpu_hard_limit) {
-            reset_empty_group_entity();
-        }
     }
     auto task = entity->task_queue()->front();
     if (task) {
@@ -388,31 +371,6 @@ void TaskGroupTaskQueue::update_tg_cpu_share(const taskgroup::TaskGroupInfo& tas
     if (is_in_queue) {
         _group_entities.emplace(entity);
         _total_cpu_share += entity->cpu_share();
-    }
-}
-
-void TaskGroupTaskQueue::reset_empty_group_entity() {
-    int user_g_cpu_hard_limit = 0;
-    bool contains_empty_group = false;
-    for (auto* entity : _group_entities) {
-        if (!entity->is_empty_group_entity()) {
-            user_g_cpu_hard_limit += entity->cpu_share();
-        } else {
-            contains_empty_group = true;
-        }
-    }
-
-    // 0 <= user_g_cpu_hard_limit <= 100, bound by FE
-    // user_g_cpu_hard_limit = 0 means no group exists
-    int empty_group_cpu_share = 100 - user_g_cpu_hard_limit;
-    if (empty_group_cpu_share > 0 && empty_group_cpu_share < 100 && !contains_empty_group) {
-        _empty_group_entity->update_empty_cpu_share(empty_group_cpu_share);
-        _enqueue_task_group<true>(_empty_group_entity);
-    } else if ((empty_group_cpu_share == 0 || empty_group_cpu_share == 100) &&
-               contains_empty_group) {
-        // no need to update empty group here
-        // only update empty group's cpu share when exec enqueue
-        _dequeue_task_group(_empty_group_entity);
     }
 }
 

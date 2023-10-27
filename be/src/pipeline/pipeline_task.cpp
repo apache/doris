@@ -215,16 +215,6 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
     _task_queue = task_queue;
 }
 
-void PipelineTask::yield() {
-    int64_t time_spent = 0;
-    Defer defer {[&]() {
-        time_spent = time_spent * _core_num / _total_query_thread_num;
-        _task_queue->update_statistics(this, time_spent);
-    }};
-    SCOPED_RAW_TIMER(&time_spent);
-    usleep(THREAD_TIME_SLICE_US);
-}
-
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
@@ -232,12 +222,8 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
 
-    // todo(wb) use a more lightweight timer
-    RuntimeProfile::Counter tmp_timer(TUnit::TIME_NS);
-
     Defer defer {[&]() {
         if (_task_queue) {
-            time_spent = tmp_timer.value();
             _task_queue->update_statistics(this, time_spent);
         }
     }};
@@ -245,7 +231,7 @@ Status PipelineTask::execute(bool* eos) {
     *eos = false;
     if (!_opened) {
         {
-            SCOPED_CPU_TIMER(&tmp_timer);
+            SCOPED_RAW_TIMER(&time_spent);
             auto st = _open();
             if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_RF);
@@ -280,12 +266,12 @@ Status PipelineTask::execute(bool* eos) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
         }
-        if (tmp_timer.value() > THREAD_TIME_SLICE) {
+        if (time_spent > THREAD_TIME_SLICE) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
         // TODO llj: Pipeline entity should_yield
-        SCOPED_CPU_TIMER(&tmp_timer);
+        SCOPED_RAW_TIMER(&time_spent);
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
 
@@ -477,9 +463,6 @@ std::string PipelineTask::debug_string() {
 }
 
 taskgroup::TaskGroupPipelineTaskEntity* PipelineTask::get_task_group_entity() const {
-    if (_is_empty_task) {
-        return _empty_group_entity;
-    }
     return _fragment_context->get_task_group_entity();
 }
 

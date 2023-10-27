@@ -1110,7 +1110,6 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
 DEFINE_String(doris_cgroup_cpu_path, "");
-DEFINE_Bool(enable_cpu_hard_limit, "false");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
