@@ -105,13 +105,17 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     public AnalyzeTblStmt(AnalyzeProperties analyzeProperties, TableName tableName, List<String> columnNames, long dbId,
-            TableIf table) {
+            TableIf table) throws AnalysisException {
         super(analyzeProperties);
         this.tableName = tableName;
         this.columnNames = columnNames;
         this.dbId = dbId;
         this.table = table;
         this.isAllColumns = columnNames == null;
+        String catalogName = tableName.getCtl();
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(catalogName);
+        this.catalogId = catalog.getId();
     }
 
     @Override
