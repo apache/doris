@@ -415,6 +415,7 @@ GroupCommitMgr::GroupCommitMgr(ExecEnv* exec_env) : _exec_env(exec_env) {
                               .set_min_threads(1)
                               .set_max_threads(config::group_commit_insert_threads)
                               .build(&_thread_pool));
+    _all_block_queues_bytes = std::make_shared<std::atomic_size_t>(0);
 }
 
 GroupCommitMgr::~GroupCommitMgr() {
