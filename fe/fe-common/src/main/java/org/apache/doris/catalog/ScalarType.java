@@ -1014,7 +1014,7 @@ public class ScalarType extends Type {
             if (t1.type == PrimitiveType.STRING || t2.type == PrimitiveType.STRING) {
                 return createStringType();
             }
-            return createVarcharType(Math.max(t1.len, t2.len));
+            return createVarcharType(t1.isStringType() && t2.isStringType() ? Math.max(t1.len, t2.len) : -1);
         }
 
         if (((t1.isDecimalV3() || t1.isDecimalV2()) && (t2.isDateV2() || t2.isDate()))
