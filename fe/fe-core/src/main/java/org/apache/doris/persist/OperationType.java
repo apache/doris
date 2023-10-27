@@ -271,18 +271,6 @@ public class OperationType {
     @Deprecated
     public static final short OP_INIT_EXTERNAL_TABLE = 329;
 
-    // scheduler job and task 330-350
-    public static final short OP_CREATE_MTMV_JOB = 330;
-    public static final short OP_DROP_MTMV_JOB = 331;
-    public static final short OP_CHANGE_MTMV_JOB = 332;
-
-    public static final short OP_CREATE_MTMV_TASK = 340;
-    public static final short OP_DROP_MTMV_TASK = 341;
-    @Deprecated
-    public static final short OP_CHANGE_MTMV_TASK = 342;
-
-    public static final short OP_ALTER_MTMV_STMT = 345;
-
     public static final short OP_DROP_EXTERNAL_TABLE = 350;
     public static final short OP_DROP_EXTERNAL_DB = 351;
     public static final short OP_CREATE_EXTERNAL_TABLE = 352;

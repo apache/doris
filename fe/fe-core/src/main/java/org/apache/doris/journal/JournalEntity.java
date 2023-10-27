@@ -55,15 +55,9 @@ import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
-import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
-import org.apache.doris.mtmv.metadata.DropMTMVJob;
-import org.apache.doris.mtmv.metadata.DropMTMVTask;
-import org.apache.doris.mtmv.metadata.MTMVJob;
-import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
-import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
@@ -786,41 +780,6 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_CLEAN_LABEL: {
                 data = CleanLabelOperationLog.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_CREATE_MTMV_JOB: {
-                data = MTMVJob.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_DROP_MTMV_JOB: {
-                data = DropMTMVJob.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_CHANGE_MTMV_JOB: {
-                data = ChangeMTMVJob.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_CREATE_MTMV_TASK: {
-                data = MTMVTask.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_DROP_MTMV_TASK: {
-                data = DropMTMVTask.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_CHANGE_MTMV_TASK: {
-                Text.readString(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_ALTER_MTMV_STMT: {
-                data = AlterMultiMaterializedView.read(in);
                 isRead = true;
                 break;
             }
