@@ -49,8 +49,6 @@ import javax.servlet.http.HttpServletResponse;
 public class MetaService extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(MetaService.class);
 
-    private static final int TIMEOUT_SECOND = 10;
-
     private static final String VERSION = "version";
     private static final String HOST = "host";
     private static final String PORT = "port";
