@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -62,11 +63,12 @@ public class PushProjectIntoOneRowRelation extends OneRewriteRuleFactory {
                 }
             }
             ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
-            return p.child()
-                    .withProjects(newProjections.build().stream().map(expr -> expr instanceof Alias
+            return p.child().withProjects(newProjections.build().stream()
+                    .map(expr -> expr instanceof Alias && ((Alias) expr).child() instanceof Cast
                             ? (Alias) expr.withChildren(
                                     FoldConstantRule.INSTANCE.rewrite(expr.child(0), context))
-                            : expr).collect(Collectors.toList()));
+                            : expr)
+                    .collect(Collectors.toList()));
         }).toRule(RuleType.PUSH_PROJECT_INTO_ONE_ROW_RELATION);
     }
 }
