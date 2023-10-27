@@ -26,7 +26,9 @@
 
 #include "common/compiler_util.h"
 #include "common/config.h"
+#include "fmt/format.h"
 
+// more usage can see 'util/debug_points_test.cpp'
 #define DBUG_EXECUTE_IF(debug_point_name, code)                               \
     if (UNLIKELY(config::enable_debug_points)) {                              \
         auto dp = DebugPoints::instance()->get_debug_point(debug_point_name); \
@@ -44,7 +46,7 @@ struct DebugPoint {
 
     std::map<std::string, std::string> params;
 
-    template <typename T = int>
+    template <typename T>
     T param(const std::string& key, T default_value = T()) {
         auto it = params.find(key);
         if (it == params.end()) {
@@ -60,14 +62,12 @@ struct DebugPoint {
             return boost::lexical_cast<T>(it->second);
         } else if constexpr (std::is_arithmetic_v<T>) {
             return boost::lexical_cast<T>(it->second);
+        } else if constexpr (std::is_same_v<T, const char*>) {
+            return it->second.c_str();
         } else {
             static_assert(std::is_same_v<T, std::string>);
             return it->second;
         }
-    }
-
-    std::string param(const std::string& key, const char* default_value) {
-        return param<std::string>(key, std::string(default_value));
     }
 };
 
@@ -75,9 +75,36 @@ class DebugPoints {
 public:
     bool is_enable(const std::string& name);
     std::shared_ptr<DebugPoint> get_debug_point(const std::string& name);
-    void add(const std::string& name, std::shared_ptr<DebugPoint> debug_point);
     void remove(const std::string& name);
     void clear();
+
+    // if not enable debug point or its params not contains `key`, then return `default_value`
+    // url: /api/debug_point/add/name?k1=v1&k2=v2&...
+    template <typename T>
+    T get_debug_param_or_default(const std::string& name, const std::string& key,
+                                 const T& default_value) {
+        auto debug_point = get_debug_point(name);
+        return debug_point ? debug_point->param(key, default_value) : default_value;
+    }
+
+    // url: /api/debug_point/add/name?value=v
+    template <typename T>
+    T get_debug_param_or_default(const std::string& name, const T& default_value) {
+        return get_debug_param_or_default(name, "value", default_value);
+    }
+
+    void add(const std::string& name, std::shared_ptr<DebugPoint> debug_point);
+
+    // more 'add' functions for convenient use
+    void add(const std::string& name) { add(name, std::make_shared<DebugPoint>()); }
+    void add_with_params(const std::string& name,
+                         const std::map<std::string, std::string>& params) {
+        add(name, std::shared_ptr<DebugPoint>(new DebugPoint {.params = params}));
+    }
+    template <typename T>
+    void add_with_value(const std::string& name, const T& value) {
+        add_with_params(name, {{"value", fmt::format("{}", value)}});
+    }
 
     static DebugPoints* instance();
 

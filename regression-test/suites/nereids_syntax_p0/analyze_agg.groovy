@@ -43,7 +43,8 @@ suite("analyze_agg") {
             d VARCHAR(30),
             e VARCHAR(32),
             a VARCHAR(32),
-            f VARCHAR(32)
+            f VARCHAR(32),
+            g DECIMAL(9, 3)
         )ENGINE = OLAP
         UNIQUE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 30
@@ -73,4 +74,7 @@ suite("analyze_agg") {
         sql "select count(distinct t2.b), variance(distinct t2.c) from t2"
         exception "variance(DISTINCT c#2) can't support multi distinct."
     }
+
+    // should not bind g /g in group by again, otherwise will throw exception
+    sql "select g / g as nu, sum(c) from t2 group by nu"
 }

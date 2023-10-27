@@ -18,6 +18,7 @@
 import java.text.SimpleDateFormat
 
 suite("test_date_function") {
+    sql """ SET enable_profile = true """
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     def tableName = "test_date_function"
@@ -70,6 +71,7 @@ suite("test_date_function") {
             )
         """
     sql """ insert into ${tableScale6} values ("2019-08-01 13:21:03.000123"),("2019-08-01 13:21:03.123") """
+    qt_sql """ SELECT * from ${tableScale6} order by k1 """
     // convert_tz
     qt_sql """ SELECT k1, convert_tz(k1, 'Asia/Shanghai', 'America/Los_Angeles') result from ${tableScale6} order by k1 """
     qt_sql """ SELECT k1, convert_tz(k1, '+08:00', 'America/Los_Angeles') result from ${tableScale6} order by k1 """
@@ -595,23 +597,23 @@ suite("test_date_function") {
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
-                birth date,    
-                birth1 datev2, 
-                birth2 datetime, 
+                birth date,
+                birth1 datev2,
+                birth2 datetime,
                 birth3 datetimev2)
             UNIQUE KEY(birth, birth1, birth2, birth3)
-            DISTRIBUTED BY HASH (birth) BUCKETS 1 
+            DISTRIBUTED BY HASH (birth) BUCKETS 1
             PROPERTIES( "replication_allocation" = "tag.location.default: 1");
         """
     sql """
-        insert into ${tableName} values 
-        ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
-        ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
+        insert into ${tableName} values
+        ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'),
+        ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'),
         ('2022-02-27', '2022-02-27', '2022-02-27 00:00:00', '2022-02-27 00:00:00'),
         ('2022-02-28', '2022-02-28', '2022-02-28T23:59:59', '2022-02-28T23:59:59');"""
     qt_sql """
-        select last_day(birth), last_day(birth1), 
-                last_day(birth2), last_day(birth3) 
+        select last_day(birth), last_day(birth1),
+                last_day(birth2), last_day(birth3)
                 from ${tableName};
     """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
@@ -619,16 +621,16 @@ suite("test_date_function") {
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
-                birth date,    
+                birth date,
                 birth1 datetime)
             UNIQUE KEY(birth, birth1)
-            DISTRIBUTED BY HASH (birth) BUCKETS 1 
+            DISTRIBUTED BY HASH (birth) BUCKETS 1
             PROPERTIES( "replication_allocation" = "tag.location.default: 1");
         """
     sql """
-        insert into ${tableName} values 
-        ('2022-01-01', '2022-01-01 00:00:00'), 
-        ('2000-02-01', '2000-02-01 00:00:00'), 
+        insert into ${tableName} values
+        ('2022-01-01', '2022-01-01 00:00:00'),
+        ('2000-02-01', '2000-02-01 00:00:00'),
         ('2022-02-27', '2022-02-27 00:00:00'),
         ('2022-02-28', '2022-02-28 23:59:59');"""
     qt_sql """
@@ -640,24 +642,24 @@ suite("test_date_function") {
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
-                birth date,    
-                birth1 datev2, 
-                birth2 datetime, 
+                birth date,
+                birth1 datev2,
+                birth2 datetime,
                 birth3 datetimev2)
             UNIQUE KEY(birth, birth1, birth2, birth3)
-            DISTRIBUTED BY HASH (birth) BUCKETS 1 
+            DISTRIBUTED BY HASH (birth) BUCKETS 1
             PROPERTIES( "replication_allocation" = "tag.location.default: 1");
         """
     sql """
-        insert into ${tableName} values 
-        ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
-        ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
+        insert into ${tableName} values
+        ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'),
+        ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'),
         ('2022-02-27', '2022-02-27', '2022-02-27 00:00:00', '2022-02-27 00:00:00'),
         ('2022-02-28', '2022-02-28', '2022-02-28 23:59:59', '2022-02-28 23:59:59'),
         ('1970-01-02', '1970-01-02', '1970-01-02 01:02:03', '1970-01-02 02:03:04');"""
     qt_sql """
-        select to_monday(birth), to_monday(birth1), 
-                to_monday(birth2), to_monday(birth3) 
+        select to_monday(birth), to_monday(birth1),
+                to_monday(birth2), to_monday(birth3)
                 from ${tableName};
     """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
