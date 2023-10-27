@@ -963,6 +963,15 @@ public class EditLog {
                     env.getLoadManager().replayCleanLabel(log);
                     break;
                 }
+                case OperationType.OP_CREATE_MTMV_JOB:
+                case OperationType.OP_CHANGE_MTMV_JOB:
+                case OperationType.OP_DROP_MTMV_JOB:
+                case OperationType.OP_CREATE_MTMV_TASK:
+                case OperationType.OP_CHANGE_MTMV_TASK:
+                case OperationType.OP_DROP_MTMV_TASK:
+                case OperationType.OP_ALTER_MTMV_STMT: {
+                    break;
+                }
                 case OperationType.OP_ALTER_USER: {
                     final AlterUserOperationLog log = (AlterUserOperationLog) journal.getData();
                     env.getAuth().replayAlterUser(log);

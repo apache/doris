@@ -783,6 +783,17 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_CREATE_MTMV_JOB:
+            case OperationType.OP_CHANGE_MTMV_JOB:
+            case OperationType.OP_DROP_MTMV_JOB:
+            case OperationType.OP_CREATE_MTMV_TASK:
+            case OperationType.OP_CHANGE_MTMV_TASK:
+            case OperationType.OP_DROP_MTMV_TASK:
+            case OperationType.OP_ALTER_MTMV_STMT: {
+                Text.readString(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_ALTER_USER: {
                 data = AlterUserOperationLog.read(in);
                 isRead = true;
