@@ -48,7 +48,6 @@ public:
               schema_version(schema_version),
               _start_time(std::chrono::steady_clock::now()) {
         _mutex = std::make_shared<doris::Mutex>();
-        _cv = std::make_shared<doris::ConditionVariable>();
     };
 
     Status add_block(std::shared_ptr<vectorized::FutureBlock> block);
@@ -56,6 +55,8 @@ public:
     Status add_load_id(const UniqueId& load_id);
     void remove_load_id(const UniqueId& load_id);
     void cancel(const Status& st);
+    // memory consumption of one load block queue, used for back pressure.
+    size_t bytes();
 
     UniqueId load_instance_id;
     std::string label;
@@ -67,7 +68,8 @@ private:
     std::chrono::steady_clock::time_point _start_time;
 
     std::shared_ptr<doris::Mutex> _mutex;
-    std::shared_ptr<doris::ConditionVariable> _cv;
+    doris::ConditionVariable _put_cond;
+    doris::ConditionVariable _get_cond;
     // the set of load ids of all blocks in this queue
     std::set<UniqueId> _load_ids;
     std::list<std::shared_ptr<vectorized::FutureBlock>> _block_queue;
@@ -85,6 +87,8 @@ public:
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
     Status get_load_block_queue(const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
+    // memory consumption of load block queues, used for back pressure.
+    size_t load_block_queues_bytes();
 
 private:
     Status _create_group_commit_load(std::shared_ptr<LoadBlockQueue>& load_block_queue);
@@ -127,6 +131,8 @@ public:
     Status get_first_block_load_queue(int64_t db_id, int64_t table_id,
                                       std::shared_ptr<vectorized::FutureBlock> block,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
+    // memory consumption of all tables' load block queues, used for back pressure.
+    size_t all_block_queues_bytes();
 
 private:
     // used by insert into

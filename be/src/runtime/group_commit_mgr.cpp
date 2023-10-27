@@ -23,7 +23,11 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
 
+#include <memory>
+#include <numeric>
+
 #include "client_cache.h"
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "exec/data_sink.h"
 #include "io/fs/stream_load_pipe.h"
@@ -34,6 +38,7 @@
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/thrift_rpc_helper.h"
+#include "vec/core/future_block.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/sink/group_commit_block_sink.h"
 
@@ -45,10 +50,14 @@ Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::FutureBlock> block)
     DCHECK(block->get_schema_version() == schema_version);
     std::unique_lock l(*_mutex);
     RETURN_IF_ERROR(_status);
+    // TODO: change it.
+    while (bytes() > config::group_commit_max_queue_size) {
+        _put_cond.wait(l);
+    }
     if (block->rows() > 0) {
         _block_queue.push_back(block);
     }
-    _cv->notify_one();
+    _get_cond.notify_all();
     return Status::OK();
 }
 
@@ -79,9 +88,9 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
             }
         }
 #if !defined(USE_BTHREAD_SCANNER)
-        _cv->wait_for(l, std::chrono::milliseconds(left_milliseconds));
+        _get_cond.wait_for(l, std::chrono::milliseconds(left_milliseconds));
 #else
-        _cv->wait_for(l, left_milliseconds * 1000);
+        _get_cond.wait_for(l, left_milliseconds * 1000);
 #endif
     }
     if (!_block_queue.empty()) {
@@ -90,6 +99,7 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
         fblock->swap_future_block(future_block);
         *find_block = true;
         _block_queue.pop_front();
+        _put_cond.notify_all();
     }
     if (_block_queue.empty() && need_commit && _load_ids.empty()) {
         *eos = true;
@@ -103,7 +113,7 @@ void LoadBlockQueue::remove_load_id(const UniqueId& load_id) {
     std::unique_lock l(*_mutex);
     if (_load_ids.find(load_id) != _load_ids.end()) {
         _load_ids.erase(load_id);
-        _cv->notify_one();
+        _get_cond.notify_all();
     }
 }
 
@@ -130,6 +140,14 @@ void LoadBlockQueue::cancel(const Status& st) {
         }
         _block_queue.pop_front();
     }
+}
+
+size_t LoadBlockQueue::bytes() {
+    return std::accumulate(
+            _block_queue.begin(), _block_queue.end(), 0,
+            [](size_t block_queue_mem_size, std::shared_ptr<vectorized::FutureBlock> block) {
+                return block_queue_mem_size + block->bytes();
+            });
 }
 
 Status GroupCommitTable::get_first_block_load_queue(
@@ -389,6 +407,14 @@ Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,
     return Status::OK();
 }
 
+size_t GroupCommitTable::load_block_queues_bytes() {
+    return std::accumulate(
+            _load_block_queues.begin(), _load_block_queues.end(), 0,
+            [](size_t block_queues_size,
+               std::pair<const doris::UniqueId, std::shared_ptr<doris::LoadBlockQueue>>
+                       block_queues) { return block_queues_size + block_queues.second->bytes(); });
+}
+
 GroupCommitMgr::GroupCommitMgr(ExecEnv* exec_env) : _exec_env(exec_env) {
     static_cast<void>(ThreadPoolBuilder("InsertIntoGroupCommitThreadPool")
                               .set_min_threads(config::group_commit_insert_threads)
@@ -556,5 +582,8 @@ Status GroupCommitMgr::get_load_block_queue(int64_t table_id, const TUniqueId& i
         group_commit_table = it->second;
     }
     return group_commit_table->get_load_block_queue(instance_id, load_block_queue);
+}
+size_t GroupCommitMgr::all_block_queues_bytes() {
+    return std::accumulate(, , 0, )
 }
 } // namespace doris
