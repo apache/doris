@@ -209,4 +209,14 @@ public class SqlModeHelper {
         return combineModeSet;
     }
 
+    public static boolean hasNoBackSlashEscapes() {
+        return ((ConnectContext.get().getSessionVariable().getSqlMode() & MODE_ALLOWED_MASK)
+                & MODE_NO_BACKSLASH_ESCAPES) != 0;
+    }
+
+    public static boolean hasPipeAsConcat() {
+        return ((ConnectContext.get().getSessionVariable().getSqlMode() & MODE_ALLOWED_MASK)
+                & MODE_PIPES_AS_CONCAT) != 0;
+    }
+
 }
