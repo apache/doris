@@ -152,7 +152,8 @@ protected:
 
 class FinishDependency final : public Dependency {
 public:
-    FinishDependency(int id, std::string name) : Dependency(id, name), _ready_to_finish(true) {}
+    FinishDependency(int id, int node_id, std::string name)
+            : Dependency(id, name), _ready_to_finish(true), _node_id(node_id) {}
     ~FinishDependency() override = default;
 
     void start_finish_watcher() {
@@ -162,15 +163,15 @@ public:
         _finish_dependency_watcher.start();
     }
 
-    [[nodiscard]] virtual int64_t finish_watcher_elapse_time() {
+    [[nodiscard]] int64_t finish_watcher_elapse_time() {
         return _finish_dependency_watcher.elapsed_time();
     }
 
-    [[nodiscard]] virtual FinishDependency* finish_blocked_by() {
+    [[nodiscard]] FinishDependency* finish_blocked_by() {
         if (config::enable_fuzzy_mode && !_ready_to_finish &&
             _finish_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
+                         << _node_id;
         }
         return _ready_to_finish ? nullptr : this;
     }
@@ -190,6 +191,33 @@ public:
 protected:
     std::atomic<bool> _ready_to_finish;
     MonotonicStopWatch _finish_dependency_watcher;
+    const int _node_id;
+};
+
+class FilterDependency final : public Dependency {
+public:
+    FilterDependency(int id, int node_id, std::string name)
+            : Dependency(id, name),
+              _runtime_filters_are_ready_or_timeout(nullptr),
+              _node_id(node_id) {}
+
+    FilterDependency* filter_blocked_by() {
+        if (!_runtime_filters_are_ready_or_timeout) {
+            return nullptr;
+        }
+        if (!_runtime_filters_are_ready_or_timeout()) {
+            return this;
+        }
+        return nullptr;
+    }
+    void* shared_state() override { return nullptr; }
+    void set_filter_blocked_by_fn(std::function<bool()> call_fn) {
+        _runtime_filters_are_ready_or_timeout = call_fn;
+    }
+
+protected:
+    std::function<bool()> _runtime_filters_are_ready_or_timeout;
+    const int _node_id;
 };
 
 class AndDependency final : public WriteDependency {
@@ -812,11 +840,12 @@ private:
     bool is_set_probe {false};
 };
 
+using PartitionedBlock = std::pair<std::shared_ptr<vectorized::Block>,
+                                   std::tuple<std::shared_ptr<std::vector<int>>, size_t, size_t>>;
 struct LocalExchangeSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
-    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> data_queue;
-    int num_partitions = 0;
+    std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> data_queue;
     std::atomic<int> running_sink_operators = 0;
 };
 

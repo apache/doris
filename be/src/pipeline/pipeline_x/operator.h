@@ -99,11 +99,14 @@ public:
 
     virtual Dependency* dependency() { return nullptr; }
 
+    FinishDependency* finishdependency() { return _finish_dependency.get(); }
+    FilterDependency* filterdependency() { return _filter_dependency.get(); }
+
 protected:
     friend class OperatorXBase;
 
     ObjectPool* _pool;
-    int64_t _num_rows_returned;
+    int64_t _num_rows_returned {0};
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
@@ -130,6 +133,7 @@ protected:
     bool _closed = false;
     vectorized::Block _origin_block;
     std::shared_ptr<FinishDependency> _finish_dependency;
+    std::unique_ptr<FilterDependency> _filter_dependency;
 };
 
 class OperatorXBase : public OperatorBase {
@@ -151,7 +155,11 @@ public:
     }
 
     OperatorXBase(ObjectPool* pool, int node_id, int operator_id)
-            : OperatorBase(nullptr), _operator_id(operator_id), _node_id(node_id), _pool(pool) {};
+            : OperatorBase(nullptr),
+              _operator_id(operator_id),
+              _node_id(node_id),
+              _pool(pool),
+              _limit(-1) {}
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
     Status init(const TDataSink& tsink) override {
         LOG(FATAL) << "should not reach here!";
@@ -202,11 +210,7 @@ public:
         return true;
     }
 
-    virtual bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const { return true; }
-
     Status close(RuntimeState* state) override;
-
-    virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
 
     [[nodiscard]] virtual const RowDescriptor& intermediate_row_desc() const {
         return _row_descriptor;
@@ -368,6 +372,8 @@ public:
 
     virtual WriteDependency* dependency() { return nullptr; }
 
+    FinishDependency* finishdependency() { return _finish_dependency.get(); }
+
 protected:
     DataSinkOperatorXBase* _parent;
     RuntimeState* _state;
@@ -468,8 +474,6 @@ public:
         LOG(FATAL) << "should not reach here!";
         return false;
     }
-
-    virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
 
     [[nodiscard]] std::string debug_string() const override { return ""; }
 

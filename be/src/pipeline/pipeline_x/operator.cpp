@@ -175,6 +175,7 @@ void PipelineXLocalStateBase::clear_origin_block() {
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
                                      vectorized::Block* output_block) const {
     auto local_state = state->get_local_state(operator_id());
+    SCOPED_TIMER(local_state->profile()->total_time_counter());
     SCOPED_TIMER(local_state->_projection_timer);
     using namespace vectorized;
     vectorized::MutableBlock mutable_block =
@@ -303,7 +304,7 @@ PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* 
                                                          RuntimeState* state)
         : _parent(parent),
           _state(state),
-          _finish_dependency(new FinishDependency(parent->operator_id(),
+          _finish_dependency(new FinishDependency(parent->operator_id(), parent->node_id(),
                                                   parent->get_name() + "_FINISH_DEPENDENCY")) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
@@ -312,8 +313,11 @@ PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXB
           _peak_memory_usage_counter(nullptr),
           _parent(parent),
           _state(state),
-          _finish_dependency(new FinishDependency(parent->operator_id(),
-                                                  parent->get_name() + "_FINISH_DEPENDENCY")) {}
+          _finish_dependency(new FinishDependency(parent->operator_id(), parent->node_id(),
+                                                  parent->get_name() + "_FINISH_DEPENDENCY")) {
+    _filter_dependency = std::make_unique<FilterDependency>(
+            parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY");
+}
 
 template <typename DependencyType>
 Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalStateInfo& info) {

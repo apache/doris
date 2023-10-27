@@ -47,7 +47,6 @@ NewEsScanner::NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t l
                            const std::map<std::string, std::string>& docvalue_context,
                            bool doc_value_mode, RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
-          _is_init(false),
           _es_eof(false),
           _properties(properties),
           _line_eof(false),
@@ -57,7 +56,9 @@ NewEsScanner::NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t l
           _es_reader(nullptr),
           _es_scroll_parser(nullptr),
           _docvalue_context(docvalue_context),
-          _doc_value_mode(doc_value_mode) {}
+          _doc_value_mode(doc_value_mode) {
+    _is_init = false;
+}
 
 NewEsScanner::NewEsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
                            int64_t limit, TupleId tuple_id,
@@ -65,7 +66,6 @@ NewEsScanner::NewEsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* lo
                            const std::map<std::string, std::string>& docvalue_context,
                            bool doc_value_mode, RuntimeProfile* profile)
         : VScanner(state, local_state, limit, profile),
-          _is_init(false),
           _es_eof(false),
           _properties(properties),
           _line_eof(false),
@@ -75,7 +75,9 @@ NewEsScanner::NewEsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* lo
           _es_reader(nullptr),
           _es_scroll_parser(nullptr),
           _docvalue_context(docvalue_context),
-          _doc_value_mode(doc_value_mode) {}
+          _doc_value_mode(doc_value_mode) {
+    _is_init = false;
+}
 
 Status NewEsScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     VLOG_CRITICAL << NEW_SCANNER_TYPE << "::prepare";

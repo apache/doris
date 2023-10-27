@@ -473,9 +473,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                      _runtime_states[i].get()});
         }
     }
-    _build_side_pipelines.clear();
-    _union_child_pipelines.clear();
-    _set_child_pipelines.clear();
+    _pipeline_parent_map.clear();
     _dag.clear();
     _op_id_to_le_state.clear();
 
@@ -579,7 +577,6 @@ Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorX
 
     auto shared_state = LocalExchangeSharedState::create_shared();
     shared_state->data_queue.resize(_runtime_state->query_parallel_instance_num());
-    shared_state->num_partitions = _runtime_state->query_parallel_instance_num();
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
     return Status::OK();
 }
@@ -589,16 +586,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
                                                   const DescriptorTbl& descs, OperatorXPtr& op,
                                                   PipelinePtr& cur_pipe, int parent_idx,
                                                   int child_idx) {
-    if (_build_side_pipelines.find(parent_idx) != _build_side_pipelines.end() && child_idx > 0) {
-        cur_pipe = _build_side_pipelines[parent_idx];
-    }
-    if (_union_child_pipelines.find(parent_idx) != _union_child_pipelines.end()) {
-        cur_pipe = _union_child_pipelines[parent_idx][child_idx];
-    }
-    if (_set_child_pipelines.find(parent_idx) != _set_child_pipelines.end()) {
-        cur_pipe = _set_child_pipelines[parent_idx][child_idx];
-    }
-
+    _pipeline_parent_map.pop(cur_pipe, parent_idx, child_idx);
     std::stringstream error_msg;
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
@@ -704,7 +692,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
-        _build_side_pipelines.insert({sink->node_id(), build_side_pipe});
+        _pipeline_parent_map.push(op->node_id(), cur_pipe);
+        _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         break;
     }
     case TPlanNodeType::CROSS_JOIN_NODE: {
@@ -723,7 +712,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
-        _build_side_pipelines.insert({sink->node_id(), build_side_pipe});
+        _pipeline_parent_map.push(op->node_id(), cur_pipe);
+        _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         break;
     }
     case TPlanNodeType::UNION_NODE: {
@@ -735,7 +725,6 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         if (_dag.find(downstream_pipeline_id) == _dag.end()) {
             _dag.insert({downstream_pipeline_id, {}});
         }
-        int father_id = tnode.node_id;
         for (int i = 0; i < child_count; i++) {
             PipelinePtr build_side_pipe = add_pipeline();
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
@@ -745,13 +734,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
             RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
             // preset children pipelines. if any pipeline found this as its father, will use the prepared pipeline to build.
-            if (_union_child_pipelines.find(father_id) == _union_child_pipelines.end()) {
-                _union_child_pipelines.insert({father_id, {build_side_pipe}});
-            } else {
-                _union_child_pipelines[father_id].push_back(build_side_pipe);
-            }
+            _pipeline_parent_map.push(op->node_id(), build_side_pipe);
         }
-
         break;
     }
     case TPlanNodeType::SORT_NODE: {
@@ -877,8 +861,6 @@ Status PipelineXFragmentContext::_build_operators_for_set_operation_node(
         _dag.insert({downstream_pipeline_id, {}});
     }
 
-    int parent_id = tnode.node_id;
-
     for (int child_id = 0; child_id < tnode.num_children; child_id++) {
         PipelinePtr probe_side_pipe = add_pipeline();
         _dag[downstream_pipeline_id].push_back(probe_side_pipe->id());
@@ -895,12 +877,7 @@ Status PipelineXFragmentContext::_build_operators_for_set_operation_node(
         RETURN_IF_ERROR(probe_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(probe_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
         // prepare children pipelines. if any pipeline found this as its father, will use the prepared pipeline to build.
-        if (child_id == 0) {
-            DCHECK(_set_child_pipelines.find(parent_id) == _set_child_pipelines.end());
-            _set_child_pipelines.insert({parent_id, {probe_side_pipe}});
-        } else {
-            _set_child_pipelines[parent_id].push_back(probe_side_pipe);
-        }
+        _pipeline_parent_map.push(op->node_id(), probe_side_pipe);
     }
 
     return Status::OK();

@@ -134,7 +134,13 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
             }
             String id = idGenerator.getNextId().toString();
             constMap.put(id, expr);
-            Expr staleExpr = ExpressionTranslator.translate(expr, null);
+            Expr staleExpr;
+            try {
+                staleExpr = ExpressionTranslator.translate(expr, null);
+            } catch (Exception e) {
+                LOG.warn("expression {} translate to legacy expr failed. ", expr, e);
+                return;
+            }
             tExprMap.put(id, staleExpr.treeToThrift());
         } else {
             for (int i = 0; i < expr.children().size(); i++) {

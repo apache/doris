@@ -235,6 +235,14 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+std::string ExchangeSinkLocalState::id_name() {
+    std::string name = " (id=" + std::to_string(_parent->node_id());
+    auto& p = _parent->cast<ExchangeSinkOperatorX>();
+    name += ",dest_id=" + std::to_string(p._dest_node_id);
+    name += ")";
+    return name;
+}
+
 segment_v2::CompressionTypePB& ExchangeSinkLocalState::compression_type() {
     return _parent->cast<ExchangeSinkOperatorX>()._compression_type;
 }
@@ -508,11 +516,6 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     _sink_buffer->update_profile(profile());
     _sink_buffer->close();
     return PipelineXSinkLocalState<>::close(state, exec_status);
-}
-
-FinishDependency* ExchangeSinkOperatorX::finish_blocked_by(RuntimeState* state) const {
-    auto& local_state = state->get_sink_local_state(operator_id())->cast<ExchangeSinkLocalState>();
-    return local_state._finish_dependency->finish_blocked_by();
 }
 
 } // namespace doris::pipeline
