@@ -327,6 +327,11 @@ private:
         return 0;
     }
 
+    bool _is_all_invert_index_hit();
+    bool _read_default_with_all_hit_opt(uint32_t cid, vectorized::MutableColumnPtr& column,
+                                        size_t nrows_read);
+    bool check_all_index_hit_opt();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -431,6 +436,10 @@ private:
     bool _record_rowids = false;
     int32_t _tablet_id = 0;
     std::set<int32_t> _output_columns;
+
+    size_t _invert_index_hit_count = 0;
+    size_t _all_predicate_count_ = 0;
+    bool _is_all_index_hit_opt = false;
 };
 
 } // namespace segment_v2

@@ -35,6 +35,7 @@ class Schema;
 struct PredicateParams {
     std::string value;
     bool marked_by_runtime_filter = false;
+    bool skip_try = false;
 };
 
 enum class PredicateType {

@@ -482,6 +482,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             auto predicate_params = predicate->predicate_params();
             predicate_params->value = condition.condition_values[0];
             predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
+            predicate_params->skip_try =
+                    (read_params.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX);
             if (column.aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
                 _value_col_predicates.push_back(predicate);
             } else {
@@ -553,6 +555,8 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
             auto predicate_params = predicate->predicate_params();
             predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
             predicate_params->value = condition.condition_values[0];
+            predicate_params->skip_try =
+                    (read_params.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX);
             _col_preds_except_leafnode_of_andnode.push_back(predicate);
         }
     }

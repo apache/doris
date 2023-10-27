@@ -199,7 +199,8 @@ public:
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             roaring::Roaring index;
             RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
-                                                               num_rows, &index));
+                                                               num_rows, &index,
+                                                               _predicate_params->skip_try));
             indices |= index;
             iter->next();
         }

@@ -44,6 +44,7 @@ public:
         cloned->_cache_code_enabled = true;
         cloned->predicate_params()->marked_by_runtime_filter =
                 _predicate_params->marked_by_runtime_filter;
+        cloned->predicate_params()->skip_try = _predicate_params->skip_try;
         *to = cloned;
     }
 
@@ -111,8 +112,8 @@ public:
         roaring::Roaring roaring;
 
         auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(_value);
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
-                                                           num_rows, &roaring));
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(
+                column_name, &value, query_type, num_rows, &roaring, _predicate_params->skip_try));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE

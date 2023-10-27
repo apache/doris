@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
 #include <iterator>
 #include <memory>
 #include <numeric>
@@ -37,6 +38,7 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "io/io_common.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
@@ -317,6 +319,16 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
     }
+
+    // 1. all the conditions are inverted indices
+    // 2. all returned values are inverted indices
+    // in this way, we can get the count without needing to read the data.
+    {
+        _all_predicate_count_ =
+                _col_predicates.size() + _col_preds_except_leafnode_of_andnode.size();
+        _is_all_index_hit_opt = check_all_index_hit_opt();
+    }
+
     return Status::OK();
 }
 
@@ -834,6 +846,8 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         std::string pred_result_sign = _gen_predicate_result_sign(pred);
         _rowid_result_for_index.emplace(
                 std::make_pair(pred_result_sign, std::make_pair(true, bitmap)));
+
+        _invert_index_hit_count++;
     }
 
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
@@ -960,6 +974,8 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
             !pred->predicate_params()->marked_by_runtime_filter) {
             _need_read_data_indices[pred->column_id()] = false;
         }
+
+        _invert_index_hit_count++;
     }
     return Status::OK();
 }
@@ -1501,6 +1517,10 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         _schema_block_id_map[cid] = i;
     }
 
+    if (_is_all_invert_index_hit()) {
+        _remaining_conjunct_roots.clear();
+    }
+
     // Step2: extract columns that can execute expr context
     _is_common_expr_column.resize(_schema->columns().size(), false);
     if (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty()) {
@@ -1756,6 +1776,9 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
     for (auto cid : _first_read_column_ids) {
         auto& column = _current_return_columns[cid];
         if (_prune_column(cid, column, true, nrows_read)) {
+            continue;
+        }
+        if (_read_default_with_all_hit_opt(cid, column, nrows_read)) {
             continue;
         }
 
@@ -2420,6 +2443,140 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
             _column_predicate_info.reset(new ColumnPredicateInfo());
         }
     }
+}
+
+bool SegmentIterator::_is_all_invert_index_hit() {
+    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
+        return false;
+    }
+
+    if (_opts.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
+        return false;
+    }
+
+    if (_invert_index_hit_count == 0 || _all_predicate_count_ == 0) {
+        return false;
+    }
+
+    if (!_is_all_index_hit_opt) {
+        return false;
+    }
+
+    // The conditions all hit the inverted index
+    if (_invert_index_hit_count != _all_predicate_count_) {
+        return false;
+    }
+
+    return true;
+}
+
+bool SegmentIterator::_read_default_with_all_hit_opt(uint32_t cid,
+                                                     vectorized::MutableColumnPtr& column,
+                                                     size_t nrows_read) {
+    if (!_opts.tablet_schema->column(cid).is_key()) {
+        return false;
+    }
+
+    if (!_is_all_invert_index_hit()) {
+        return false;
+    }
+
+    if (column->is_nullable()) {
+        auto* nullable_col_ptr = reinterpret_cast<vectorized::ColumnNullable*>(column.get());
+        nullable_col_ptr->get_null_map_column().insert_many_defaults(nrows_read);
+        nullable_col_ptr->get_nested_column_ptr()->insert_many_defaults(nrows_read);
+    } else {
+        column->insert_many_defaults(nrows_read);
+    }
+
+    return true;
+}
+
+bool SegmentIterator::check_all_index_hit_opt() {
+    if (_column_iterators.empty()) {
+        return false;
+    }
+
+    if (_inverted_index_iterators.size() != _column_iterators.size()) {
+        return false;
+    }
+
+    auto check_all_iterators_null = [this]() {
+        return std::all_of(
+                _inverted_index_iterators.begin(), _inverted_index_iterators.end(),
+                [](const std::unique_ptr<InvertedIndexIterator>& ptr) { return ptr == nullptr; });
+    };
+
+    // The inverted index is all nullptr
+    if (check_all_iterators_null()) {
+        return false;
+    }
+
+    std::set<int32_t> pred_cids;
+    // The index is inverted except for the primary key
+    {
+        for (size_t cid = 0; cid < _inverted_index_iterators.size(); cid++) {
+            auto column = _opts.tablet_schema->column(cid);
+            if (column.is_key()) {
+                if (_column_iterators[cid] == nullptr) {
+                    return false;
+                }
+                pred_cids.insert(column.unique_id());
+                continue;
+            }
+            if (_column_iterators[cid] != nullptr && _inverted_index_iterators[cid] == nullptr) {
+                return false;
+            }
+        }
+    }
+
+    // Output column primary key or inverted index
+    {
+        for (auto& pred : _col_predicates) {
+            int32_t uid = _opts.tablet_schema->column(pred->column_id()).unique_id();
+            pred_cids.insert(uid);
+        }
+        for (auto& pred : _col_preds_except_leafnode_of_andnode) {
+            int32_t uid = _opts.tablet_schema->column(pred->column_id()).unique_id();
+            pred_cids.insert(uid);
+        }
+        for (auto uid : _output_columns) {
+            if (!pred_cids.contains(uid)) {
+                return false;
+            }
+        }
+    }
+
+    // Whether the primary key index is an exact query
+    {
+        auto get_max_datetime_string = []() {
+            auto max = type_limit<DateV2Value<DateTimeV2ValueType>>::max();
+            std::string res;
+            res.resize(30);
+            max.to_string(res.data());
+            return res;
+        };
+        auto datetime_max = get_max_datetime_string();
+        for (auto& key_range : _opts.key_ranges) {
+            auto lower_tuple = key_range.lower_key->to_tuple();
+            auto upper_tuple = key_range.upper_key->to_tuple();
+            for (size_t cid = 0; cid < lower_tuple.size(); cid++) {
+                const auto* field = key_range.upper_key->column_schema(cid);
+                if (field->type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2) {
+                    if (lower_tuple.is_null(cid) && !upper_tuple.is_null(cid)) {
+                        const auto& value = upper_tuple.get_value(cid);
+                        if (value == datetime_max) {
+                            return false;
+                        }
+                    }
+                } else {
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true;
 }
 
 } // namespace segment_v2
