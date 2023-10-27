@@ -34,7 +34,7 @@ import java.util.Map;
  * Select list items plus distinct clause.
  */
 public class SelectList {
-    private static final String SET_VAR_KEY = "set_var";
+    public static final String SET_VAR_KEY = "set_var";
 
     private boolean isDistinct;
     private boolean isExcept;

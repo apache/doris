@@ -124,6 +124,7 @@ public class NativeInsertStmt extends InsertStmt {
     private List<Long> targetPartitionIds;
     protected List<String> targetColumnNames;
     private QueryStmt queryStmt;
+    private Map<String, String> insertHints;
     private final List<String> planHints;
     private Boolean isRepartition;
 
@@ -192,6 +193,23 @@ public class NativeInsertStmt extends InsertStmt {
         this.targetPartitionNames = target.getPartitionNames();
         this.label = new LabelName(null, label);
         this.queryStmt = source.getQueryStmt();
+        this.insertHints = insertHints;
+        this.planHints = hints;
+        this.targetColumnNames = cols;
+        this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
+                && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
+    }
+
+    public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
+            Map<String, Map<String, String>> insertHints, List<String> hints) {
+        super(new LabelName(null, label), null, null);
+        this.tblName = target.getTblName();
+        this.targetPartitionNames = target.getPartitionNames();
+        this.label = new LabelName(null, label);
+        this.queryStmt = source.getQueryStmt();
+        if (insertHints != null) {
+            this.insertHints = insertHints.get(SelectList.SET_VAR_KEY);
+        }
         this.planHints = hints;
         this.targetColumnNames = cols;
         this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
@@ -199,8 +217,8 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     public NativeInsertStmt(long tableId, String label, List<String> cols, InsertSource source,
-            List<String> hints) {
-        this(new InsertTarget(new TableName(null, null, null), null), label, cols, source, hints);
+            Map<String, Map<String, String>> insertHints, List<String> hints) {
+        this(new InsertTarget(new TableName(null, null, null), null), label, cols, source, insertHints, hints);
         this.tableId = tableId;
     }
 
@@ -251,6 +269,10 @@ public class NativeInsertStmt extends InsertStmt {
 
     public String getTbl() {
         return tblName.getTbl();
+    }
+
+    public Map<String, String> getInsertHints() {
+        return insertHints;
     }
 
     public void getTables(Analyzer analyzer, Map<Long, TableIf> tableMap, Set<String> parentViewNameSet)

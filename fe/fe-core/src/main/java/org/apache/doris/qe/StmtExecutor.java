@@ -868,6 +868,17 @@ public class StmtExecutor {
                     VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
                 }
             }
+        } else if (statement instanceof NativeInsertStmt) {
+            NativeInsertStmt insertStmt = (NativeInsertStmt) statement;
+            if (insertStmt.getInsertHints() != null) {
+                Map<String, String> optHints = insertStmt.getInsertHints();
+                if (optHints != null) {
+                    sessionVariable.setIsSingleSetVar(true);
+                    for (String key : optHints.keySet()) {
+                        VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
+                    }
+                }
+            }
         }
     }
 
