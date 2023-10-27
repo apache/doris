@@ -120,21 +120,21 @@ CREATE CATALOG `paimon_hms` PROPERTIES (
 
 ## Column Type Mapping
 
-| Paimon Data Type                      | Doris Data Type           | Comment        |
-|---------------------------------------|---------------------------|----------------|
-| BooleanType                           | Boolean                   |                |
-| TinyIntType                           | TINYINT                   |                |
-| SmallIntType                          | SmallInt                  |                |
-| IntType                               | Int                       |                |
-| FloatType                             | Float                     |                |
-| BigIntType                            | BigInt                    |                |
-| DoubleType                            | Double                    |                |
-| VarCharType                           | VarChar                   |                |
-| CharType                              | Char                      |                |
-| DecimalType(precision, scale)         | DECIMAL(precision, scale) |                |
-| TimestampType,LocalZonedTimestampType | DATETIME                  |                |
-| DateType                              | DATE                      |                |
-| MapType                               | ARRAY                     |                |
-| ArrayType                             | MAP                       |                |
-| VarBinaryType, BinaryType             | BINARY                    |                |
+| Paimon Data Type                      | Doris Data Type           | Comment   |
+|---------------------------------------|---------------------------|-----------|
+| BooleanType                           | Boolean                   |           |
+| TinyIntType                           | TinyInt                   |           |
+| SmallIntType                          | SmallInt                  |           |
+| IntType                               | Int                       |           |
+| FloatType                             | Float                     |           |
+| BigIntType                            | BigInt                    |           |
+| DoubleType                            | Double                    |           |
+| VarCharType                           | VarChar                   |           |
+| CharType                              | Char                      |           |
+| DecimalType(precision, scale)         | Decimal(precision, scale) |           |
+| TimestampType,LocalZonedTimestampType | DateTime                  |           |
+| DateType                              | Date                      |           |
+| MapType                               | Map                       | Support Map nesting   |
+| ArrayType                             | Array                     | Support Array nesting |
+| VarBinaryType, BinaryType             | Binary                    |           |
 
