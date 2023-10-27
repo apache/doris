@@ -1821,8 +1821,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             auto cid = _schema->column_id(i);
             auto column_desc = _schema->column(cid);
             if (_is_pred_column[cid]) {
-                _current_return_columns[cid] =
-                        Schema::get_predicate_column_ptr(*column_desc, _opts.io_ctx.reader_type);
+                RETURN_IF_CATCH_EXCEPTION(_current_return_columns[cid] =
+                                                  Schema::get_predicate_column_ptr(
+                                                          *column_desc, _opts.io_ctx.reader_type));
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
