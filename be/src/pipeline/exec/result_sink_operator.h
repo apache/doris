@@ -80,6 +80,7 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
+    WriteDependency* dependency() override { return _result_sink_dependency.get(); }
 
 private:
     friend class ResultSinkOperatorX;
@@ -101,15 +102,13 @@ private:
 
 class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
 public:
-    ResultSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
-                        const TResultSink& sink);
+    ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+                        const std::vector<TExpr>& select_exprs, const TResultSink& sink);
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override;
 
 private:
     friend class ResultSinkLocalState;

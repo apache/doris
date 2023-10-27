@@ -55,14 +55,23 @@ private:
 
     std::vector<std::unique_ptr<TEsScanRange>> _scan_ranges;
     std::unique_ptr<RuntimeProfile> _es_profile;
+    // FIXME: non-static data member '_rows_read_counter' of 'EsScanLocalState' shadows member inherited from type 'ScanLocalStateBase'
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
     RuntimeProfile::Counter* _rows_read_counter;
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
     RuntimeProfile::Counter* _read_timer;
     RuntimeProfile::Counter* _materialize_timer;
 };
 
 class EsScanOperatorX final : public ScanOperatorX<EsScanLocalState> {
 public:
-    EsScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    EsScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                    const DescriptorTbl& descs);
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;

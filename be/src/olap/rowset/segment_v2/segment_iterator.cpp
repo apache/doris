@@ -532,8 +532,8 @@ Status SegmentIterator::_apply_bitmap_index() {
 
     std::vector<ColumnPredicate*> remaining_predicates;
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (static_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
-            static_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
+        if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
+            dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
             return true;
         }
 
@@ -1505,24 +1505,38 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
     }
 }
 
+bool SegmentIterator::_has_char_type(const Field& column_desc) {
+    switch (column_desc.type()) {
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+        return true;
+    case FieldType::OLAP_FIELD_TYPE_ARRAY:
+        return _has_char_type(*column_desc.get_sub_field(0));
+    case FieldType::OLAP_FIELD_TYPE_MAP:
+        return _has_char_type(*column_desc.get_sub_field(0)) ||
+               _has_char_type(*column_desc.get_sub_field(1));
+    case FieldType::OLAP_FIELD_TYPE_STRUCT:
+        for (int idx = 0; idx < column_desc.get_sub_field_count(); ++idx) {
+            if (_has_char_type(*column_desc.get_sub_field(idx))) {
+                return true;
+            }
+        }
+        return false;
+    default:
+        return false;
+    }
+};
+
 void SegmentIterator::_vec_init_char_column_id() {
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
-        auto column_desc = _schema->column(cid);
+        const Field* column_desc = _schema->column(cid);
 
-        do {
-            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                _char_type_idx.emplace_back(i);
-                if (i != 0) {
-                    _char_type_idx_no_0.emplace_back(i);
-                }
-                break;
-            } else if (column_desc->type() != FieldType::OLAP_FIELD_TYPE_ARRAY) {
-                break;
+        if (_has_char_type(*column_desc)) {
+            _char_type_idx.emplace_back(i);
+            if (i != 0) {
+                _char_type_idx_no_0.emplace_back(i);
             }
-            // for Array<Char> or Array<Array<Char>>
-            column_desc = column_desc->get_sub_field(0);
-        } while (column_desc != nullptr);
+        }
     }
 }
 
@@ -1807,8 +1821,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             auto cid = _schema->column_id(i);
             auto column_desc = _schema->column(cid);
             if (_is_pred_column[cid]) {
-                _current_return_columns[cid] =
-                        Schema::get_predicate_column_ptr(*column_desc, _opts.io_ctx.reader_type);
+                RETURN_IF_CATCH_EXCEPTION(_current_return_columns[cid] =
+                                                  Schema::get_predicate_column_ptr(
+                                                          *column_desc, _opts.io_ctx.reader_type));
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
                 _current_return_columns[cid]->reserve(_opts.block_row_max);

@@ -187,6 +187,14 @@ Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
     return Status::OK();
 }
 
+Status ExecNode::collect_query_statistics(QueryStatistics* statistics, int sender_id) {
+    DCHECK(statistics != nullptr);
+    for (auto child_node : _children) {
+        RETURN_IF_ERROR(child_node->collect_query_statistics(statistics, sender_id));
+    }
+    return Status::OK();
+}
+
 void ExecNode::release_resource(doris::RuntimeState* state) {
     if (!_is_resource_released) {
         if (_rows_returned_counter != nullptr) {
@@ -200,12 +208,13 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
 
 Status ExecNode::close(RuntimeState* state) {
     if (_is_closed) {
-        LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id())
+        LOG(INFO) << "query= " << print_id(state->query_id())
+                  << " fragment_instance_id=" << print_id(state->fragment_instance_id())
                   << " already closed";
         return Status::OK();
     }
-    LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id()) << ", "
-              << " id=" << _id << " type=" << print_plan_node_type(_type) << " closed";
+    LOG(INFO) << "query= " << print_id(state->query_id())
+              << " fragment_instance_id=" << print_id(state->fragment_instance_id()) << " closed";
     _is_closed = true;
 
     Status result;

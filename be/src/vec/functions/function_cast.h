@@ -74,6 +74,8 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -817,6 +819,9 @@ struct NameToDecimal128 {
 struct NameToDecimal128I {
     static constexpr auto name = "toDecimal128I";
 };
+struct NameToDecimal256 {
+    static constexpr auto name = "toDecimal256";
+};
 struct NameToUInt8 {
     static constexpr auto name = "toUInt8";
 };
@@ -850,6 +855,12 @@ struct NameToFloat32 {
 struct NameToFloat64 {
     static constexpr auto name = "toFloat64";
 };
+struct NameToIPv4 {
+    static constexpr auto name = "toIPv4";
+};
+struct NameToIPv6 {
+    static constexpr auto name = "toIPv6";
+};
 struct NameToDate {
     static constexpr auto name = "toDate";
 };
@@ -876,6 +887,14 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
     if constexpr (IsDateTimeV2Type<DataType>) {
         UInt32 scale = additions;
         return try_read_datetime_v2_text(x, rb, local_time_zone, scale);
+    }
+
+    if constexpr (IsIPv4Type<DataType>) {
+        return try_read_ipv4_text(x, rb);
+    }
+
+    if constexpr (IsIPv6Type<DataType>) {
+        return try_read_ipv6_text(x, rb);
     }
 
     if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
@@ -929,6 +948,12 @@ StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x
         UInt32 scale = ((PrecisionScaleArg)additions).scale;
         UInt32 precision = ((PrecisionScaleArg)additions).precision;
         return try_read_decimal_text<TYPE_DECIMAL128I>(x, rb, precision, scale);
+    }
+
+    if constexpr (IsDataTypeDecimal256<DataType>) {
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL256>(x, rb, precision, scale);
     }
 }
 
@@ -1094,9 +1119,6 @@ public:
     using Monotonic = MonotonicityImpl;
 
     static constexpr auto name = Name::name;
-    static constexpr bool to_decimal =
-            std::is_same_v<Name, NameToDecimal32> || std::is_same_v<Name, NameToDecimal64> ||
-            std::is_same_v<Name, NameToDecimal128> || std::is_same_v<Name, NameToDecimal128I>;
 
     static FunctionPtr create() { return std::make_shared<FunctionConvert>(); }
 
@@ -1203,6 +1225,10 @@ using FunctionToDecimal128 =
         FunctionConvert<DataTypeDecimal<Decimal128>, NameToDecimal128, UnknownMonotonicity>;
 using FunctionToDecimal128I =
         FunctionConvert<DataTypeDecimal<Decimal128I>, NameToDecimal128I, UnknownMonotonicity>;
+using FunctionToDecimal256 =
+        FunctionConvert<DataTypeDecimal<Decimal256>, NameToDecimal256, UnknownMonotonicity>;
+using FunctionToIPv4 = FunctionConvert<DataTypeIPv4, NameToIPv4, UnknownMonotonicity>;
+using FunctionToIPv6 = FunctionConvert<DataTypeIPv6, NameToIPv6, UnknownMonotonicity>;
 using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
 using FunctionToDateTime = FunctionConvert<DataTypeDateTime, NameToDateTime, UnknownMonotonicity>;
 using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate, UnknownMonotonicity>;
@@ -1271,6 +1297,18 @@ struct FunctionTo<DataTypeDecimal<Decimal128>> {
 template <>
 struct FunctionTo<DataTypeDecimal<Decimal128I>> {
     using Type = FunctionToDecimal128I;
+};
+template <>
+struct FunctionTo<DataTypeDecimal<Decimal256>> {
+    using Type = FunctionToDecimal256;
+};
+template <>
+struct FunctionTo<DataTypeIPv4> {
+    using Type = FunctionToIPv4;
+};
+template <>
+struct FunctionTo<DataTypeIPv6> {
+    using Type = FunctionToIPv6;
 };
 template <>
 struct FunctionTo<DataTypeDate> {
@@ -1430,6 +1468,15 @@ struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128>, Name>
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128I>, Name>
         : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128I>, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal256>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal256>, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeIPv4, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeIPv4, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeIPv6, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeIPv6, Name> {};
 
 template <typename ToDataType, typename Name>
 class FunctionConvertFromString : public IFunction {
@@ -2084,7 +2131,10 @@ private:
                           std::is_same_v<ToDataType, DataTypeDateTime> ||
                           std::is_same_v<ToDataType, DataTypeDateV2> ||
                           std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
-                          std::is_same_v<ToDataType, DataTypeTimeV2>) {
+                          std::is_same_v<ToDataType, DataTypeTimeV2> ||
+                          std::is_same_v<ToDataType, DataTypeTime> ||
+                          std::is_same_v<ToDataType, DataTypeIPv4> ||
+                          std::is_same_v<ToDataType, DataTypeIPv6>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
                                      requested_result_is_nullable);
                 return true;
@@ -2093,7 +2143,8 @@ private:
             if constexpr (std::is_same_v<ToDataType, DataTypeDecimal<Decimal32>> ||
                           std::is_same_v<ToDataType, DataTypeDecimal<Decimal64>> ||
                           std::is_same_v<ToDataType, DataTypeDecimal<Decimal128>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128I>>) {
+                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128I>> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal256>>) {
                 ret = create_decimal_wrapper(from_type,
                                              check_and_get_data_type<ToDataType>(to_type.get()));
                 return true;

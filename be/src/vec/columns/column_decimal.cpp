@@ -121,8 +121,9 @@ template <typename T>
 UInt64 ColumnDecimal<T>::get64(size_t n) const {
     if constexpr (sizeof(T) > sizeof(UInt64)) {
         LOG(FATAL) << "Method get64 is not supported for " << get_family_name();
+    } else {
+        return static_cast<typename T::NativeType>(data[n]);
     }
-    return static_cast<typename T::NativeType>(data[n]);
 }
 
 template <typename T>
@@ -502,6 +503,13 @@ Decimal128I ColumnDecimal<Decimal128I>::get_scale_multiplier() const {
     return common::exp10_i128(scale);
 }
 
+// duplicate with
+// Decimal256 DataTypeDecimal<Decimal256>::get_scale_multiplier(UInt32 scale) {
+template <>
+Decimal256 ColumnDecimal<Decimal256>::get_scale_multiplier() const {
+    return Decimal256(common::exp10_i256(scale));
+}
+
 template <typename T>
 ColumnPtr ColumnDecimal<T>::index(const IColumn& indexes, size_t limit) const {
     return select_index_impl(*this, indexes, limit);
@@ -511,4 +519,5 @@ template class ColumnDecimal<Decimal32>;
 template class ColumnDecimal<Decimal64>;
 template class ColumnDecimal<Decimal128>;
 template class ColumnDecimal<Decimal128I>;
+template class ColumnDecimal<Decimal256>;
 } // namespace doris::vectorized

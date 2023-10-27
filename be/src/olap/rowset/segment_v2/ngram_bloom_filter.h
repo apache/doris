@@ -48,7 +48,15 @@ public:
     bool is_ngram_bf() const override { return true; }
 
 private:
+// FIXME: non-static data member '_size' of 'NGramBloomFilter' shadows member inherited from type 'BloomFilter'
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
     size_t _size;
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
     size_t words;
     std::vector<uint64_t> filter;
 };

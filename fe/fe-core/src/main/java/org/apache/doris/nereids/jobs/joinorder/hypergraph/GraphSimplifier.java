@@ -25,6 +25,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.stats.JoinEstimation;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -41,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.PriorityQueue;
+import java.util.Set;
 import java.util.Stack;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -73,6 +75,8 @@ public class GraphSimplifier {
     private final Stack<SimplificationStep> appliedSteps = new Stack<>();
     private final Stack<SimplificationStep> unAppliedSteps = new Stack<>();
 
+    private final Set<Edge> validEdges;
+
     /**
      * Create a graph simplifier
      *
@@ -89,6 +93,23 @@ public class GraphSimplifier {
             cacheStats.put(node.getNodeMap(), node.getGroup().getStatistics());
             cacheCost.put(node.getNodeMap(), Cost.withRowCount(node.getRowCount()));
         }
+        validEdges = graph.getEdges().stream()
+                .filter(e -> {
+                    for (Slot slot : e.getJoin().getConditionSlot()) {
+                        boolean contains = false;
+                        for (int nodeIdx : LongBitmap.getIterator(e.getReferenceNodes())) {
+                            if (graph.getNode(nodeIdx).getOutput().contains(slot)) {
+                                contains = true;
+                                break;
+                            }
+                        }
+                        if (!contains) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .collect(Collectors.toSet());
         circleDetector = new CircleDetector(edgeSize);
 
         // init first simplification step
@@ -240,6 +261,13 @@ public class GraphSimplifier {
         }
     }
 
+    public @Nullable Pair<Long, Long> getLastAppliedSteps() {
+        if (appliedSteps.isEmpty()) {
+            return null;
+        }
+        return Pair.of(appliedSteps.peek().newLeft, appliedSteps.peek().newRight);
+    }
+
     /**
      * Process all neighbors and try to make simplification step
      * Note that when a given ordering is less advantageous and dropped out,
@@ -308,8 +336,10 @@ public class GraphSimplifier {
     private Optional<SimplificationStep> makeSimplificationStep(int edgeIndex1, int edgeIndex2) {
         Edge edge1 = graph.getEdge(edgeIndex1);
         Edge edge2 = graph.getEdge(edgeIndex2);
-        if (edge1.isSub(edge2) || edge2.isSub(edge1) || circleDetector.checkCircleWithEdge(edgeIndex1, edgeIndex2)
-                || circleDetector.checkCircleWithEdge(edgeIndex2, edgeIndex1)) {
+        if (edge1.isSub(edge2) || edge2.isSub(edge1)
+                || circleDetector.checkCircleWithEdge(edgeIndex1, edgeIndex2)
+                || circleDetector.checkCircleWithEdge(edgeIndex2, edgeIndex1)
+                || !validEdges.contains(edge1) || !validEdges.contains(edge2)) {
             return Optional.empty();
         }
         long left1 = edge1.getLeftExtendedNodes();
@@ -346,6 +376,7 @@ public class GraphSimplifier {
         } else {
             return Optional.empty();
         }
+
         // edge1 is not the neighborhood of edge2
         SimplificationStep simplificationStep = orderJoin(edge1Before2, edge2Before1, edgeIndex1, edgeIndex2);
         return Optional.of(simplificationStep);

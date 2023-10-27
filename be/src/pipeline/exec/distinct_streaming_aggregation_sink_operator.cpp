@@ -180,9 +180,10 @@ void DistinctStreamingAggSinkLocalState::_emplace_into_hash_table_to_distinct(
 }
 
 DistinctStreamingAggSinkOperatorX::DistinctStreamingAggSinkOperatorX(ObjectPool* pool,
+                                                                     int operator_id,
                                                                      const TPlanNode& tnode,
                                                                      const DescriptorTbl& descs)
-        : AggSinkOperatorX<DistinctStreamingAggSinkLocalState>(pool, tnode, descs) {}
+        : AggSinkOperatorX<DistinctStreamingAggSinkLocalState>(pool, operator_id, tnode, descs) {}
 
 Status DistinctStreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(AggSinkOperatorX<DistinctStreamingAggSinkLocalState>::init(tnode, state));
@@ -192,7 +193,7 @@ Status DistinctStreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeSt
 
 Status DistinctStreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                                SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();

@@ -2213,7 +2213,7 @@ public class Config extends ConfigBase {
             "控制统计信息的自动触发作业执行记录的持久化行数",
             "Determine the persist number of automatic triggered analyze job execution status"
     })
-    public static long auto_analyze_job_record_count = 20000;
+    public static long analyze_record_limit = 20000;
 
     @ConfField(description = {
             "Auto Buckets中最小的buckets数目",
@@ -2259,4 +2259,15 @@ public class Config extends ConfigBase {
     })
     public static boolean ignore_unknown_metadata_module = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "从主节点同步image文件的超时时间，用户可根据${meta_dir}/image文件夹下面的image文件大小和节点间的网络环境调整，"
+                    + "单位为秒，默认值300",
+            "The timeout for FE Follower/Observer synchronizing an image file from the FE Master, can be adjusted by "
+                    + "the user on the size of image file in the ${meta_dir}/image and the network environment between "
+                    + "nodes. The default values is 300."
+    })
+    public static int sync_image_timeout_second = 300;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int publish_topic_info_interval_ms = 30000; // 30s
 }

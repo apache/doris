@@ -103,7 +103,10 @@ public:
     M(TYPE_STRING)            \
     M(TYPE_DECIMAL32)         \
     M(TYPE_DECIMAL64)         \
-    M(TYPE_DECIMAL128I)
+    M(TYPE_DECIMAL128I)       \
+    M(TYPE_DECIMAL256)        \
+    M(TYPE_IPV4)              \
+    M(TYPE_IPV6)
 
 template <class Traits, size_t N = 0>
 typename Traits::BasePtr create_predicate_function(PrimitiveType type) {

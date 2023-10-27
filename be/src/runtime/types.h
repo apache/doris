@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/consts.h"
 #include "runtime/define_primitive_type.h"
 
 namespace doris {
@@ -49,15 +50,6 @@ struct TypeDescriptor {
     /// Only set if type == TYPE_DECIMAL
     int precision;
     int scale;
-
-    /// Must be kept in sync with FE's max precision/scale.
-    static constexpr int MAX_PRECISION = 38;
-    static constexpr int MAX_SCALE = MAX_PRECISION;
-
-    /// The maximum precision representable by a 4-byte decimal (Decimal4Value)
-    static constexpr int MAX_DECIMAL4_PRECISION = 9;
-    /// The maximum precision representable by a 8-byte decimal (Decimal8Value)
-    static constexpr int MAX_DECIMAL8_PRECISION = 18;
 
     std::vector<TypeDescriptor> children;
 
@@ -118,8 +110,8 @@ struct TypeDescriptor {
     }
 
     static TypeDescriptor create_decimalv2_type(int precision, int scale) {
-        DCHECK_LE(precision, MAX_PRECISION);
-        DCHECK_LE(scale, MAX_SCALE);
+        DCHECK_LE(precision, BeConsts::MAX_DECIMALV2_PRECISION);
+        DCHECK_LE(scale, BeConsts::MAX_DECIMALV2_SCALE);
         DCHECK_GE(precision, 0);
         DCHECK_LE(scale, precision);
         TypeDescriptor ret;
@@ -130,17 +122,19 @@ struct TypeDescriptor {
     }
 
     static TypeDescriptor create_decimalv3_type(int precision, int scale) {
-        DCHECK_LE(precision, MAX_PRECISION);
-        DCHECK_LE(scale, MAX_SCALE);
+        DCHECK_LE(precision, BeConsts::MAX_DECIMALV3_PRECISION);
+        DCHECK_LE(scale, BeConsts::MAX_DECIMALV3_SCALE);
         DCHECK_GE(precision, 0);
         DCHECK_LE(scale, precision);
         TypeDescriptor ret;
-        if (precision <= MAX_DECIMAL4_PRECISION) {
+        if (precision <= BeConsts::MAX_DECIMAL32_PRECISION) {
             ret.type = TYPE_DECIMAL32;
-        } else if (precision <= MAX_DECIMAL8_PRECISION) {
+        } else if (precision <= BeConsts::MAX_DECIMAL64_PRECISION) {
             ret.type = TYPE_DECIMAL64;
-        } else {
+        } else if (precision <= BeConsts::MAX_DECIMAL128_PRECISION) {
             ret.type = TYPE_DECIMAL128I;
+        } else {
+            ret.type = TYPE_DECIMAL256;
         }
         ret.precision = precision;
         ret.scale = scale;
@@ -216,7 +210,8 @@ struct TypeDescriptor {
     bool is_decimal_v2_type() const { return type == TYPE_DECIMALV2; }
 
     bool is_decimal_v3_type() const {
-        return (type == TYPE_DECIMAL32) || (type == TYPE_DECIMAL64) || (type == TYPE_DECIMAL128I);
+        return (type == TYPE_DECIMAL32) || (type == TYPE_DECIMAL64) || (type == TYPE_DECIMAL128I) ||
+               (type == TYPE_DECIMAL256);
     }
 
     bool is_datetime_type() const { return type == TYPE_DATETIME; }
@@ -244,13 +239,16 @@ struct TypeDescriptor {
 
     static inline int get_decimal_byte_size(int precision) {
         DCHECK_GT(precision, 0);
-        if (precision <= MAX_DECIMAL4_PRECISION) {
+        if (precision <= BeConsts::MAX_DECIMAL32_PRECISION) {
             return 4;
         }
-        if (precision <= MAX_DECIMAL8_PRECISION) {
+        if (precision <= BeConsts::MAX_DECIMAL64_PRECISION) {
             return 8;
         }
-        return 16;
+        if (precision <= BeConsts::MAX_DECIMAL128_PRECISION) {
+            return 16;
+        }
+        return 32;
     }
 
     std::string debug_string() const;
