@@ -284,6 +284,8 @@ message PTabletKeyLookupRequest {
     optional bytes output_expr = 5;
     // return binary mysql row format if true
     optional bool is_binary_row = 6;
+    // output expr tuple id
+    optional int64 output_tuple_id = 7;
 }
 
 message PTabletKeyLookupResponse {

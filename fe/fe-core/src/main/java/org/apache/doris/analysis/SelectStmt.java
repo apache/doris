@@ -751,7 +751,7 @@ public class SelectStmt extends QueryStmt {
             return false;
         }
         // ignore short circuit query
-        if (isPointQueryShortCircuit()) {
+        if (isPointQueryShortCircuit) {
             return false;
         }
         // ignore insert into select
@@ -2599,13 +2599,9 @@ public class SelectStmt extends QueryStmt {
         return eqPredicates;
     }
 
-    public boolean isPointQueryShortCircuit() {
-        return isPointQuery;
-    }
-
     // Check if it is a point query and set EQUAL predicates
     public boolean checkAndSetPointQuery() {
-        if (isPointQuery) {
+        if (isPointQueryShortCircuit) {
             return true;
         }
         eqPredicates = new TreeMap<SlotRef, Expr>(
@@ -2663,7 +2659,7 @@ public class SelectStmt extends QueryStmt {
                 return false;
             }
         }
-        isPointQuery = true;
+        isPointQueryShortCircuit = true;
         return true;
     }
 
@@ -2678,7 +2674,7 @@ public class SelectStmt extends QueryStmt {
 
     // extract all the expected binary predicate in `expr`
     // @param expected : the expected binary op type you need to collect in origin expr
-    private static Map<SlotRef, Expr> getExpectedBinaryPredicates(
+    public static Map<SlotRef, Expr> getExpectedBinaryPredicates(
             Map<SlotRef, Expr> result, Expr expr, TExprOpcode expected) {
         if (expr == null) {
             return null;

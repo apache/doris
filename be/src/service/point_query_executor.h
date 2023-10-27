@@ -72,7 +72,7 @@ public:
     }
 
     Status init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
-                size_t block_size = 1);
+                int tuple_id, size_t block_size = 1);
 
     std::unique_ptr<vectorized::Block> get_block();
 
@@ -87,7 +87,7 @@ public:
     // do not touch block after returned
     void return_block(std::unique_ptr<vectorized::Block>& block);
 
-    TupleDescriptor* tuple_desc() { return _desc_tbl->get_tuple_descriptor(0); }
+    TupleDescriptor* tuple_desc() { return _tuple_desc; }
 
     const vectorized::VExprContextSPtrs& output_exprs() { return _output_exprs_ctxs; }
 
@@ -96,7 +96,8 @@ public:
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
-    DescriptorTbl* _desc_tbl;
+    DescriptorTbl* _desc_tbl = nullptr;
+    TupleDescriptor* _tuple_desc = nullptr;
     std::mutex _block_mutex;
     // prevent from allocte too many tmp blocks
     std::vector<std::unique_ptr<vectorized::Block>> _block_pool;

@@ -58,6 +58,8 @@ public abstract class StatementBase implements ParseNode {
 
     private boolean isPrepared = false;
 
+    protected boolean isPointQueryShortCircuit = false;
+
     // select * from tbl where a = ? and b = ?
     // `?` is the placeholder
     private ArrayList<PlaceHolderExpr> placeholders = new ArrayList<>();
@@ -113,6 +115,14 @@ public abstract class StatementBase implements ParseNode {
 
     public void setPlaceHolders(ArrayList<PlaceHolderExpr> placeholders) {
         this.placeholders = new ArrayList<PlaceHolderExpr>(placeholders);
+    }
+
+    public void setPointQueryShortCircuit(boolean isPointQueryShortCircuit) {
+        this.isPointQueryShortCircuit = isPointQueryShortCircuit;
+    }
+
+    public boolean isPointQueryShortCircuit() {
+        return this.isPointQueryShortCircuit;
     }
 
     public ArrayList<PlaceHolderExpr> getPlaceHolders() {

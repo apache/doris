@@ -23,10 +23,13 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -53,9 +56,11 @@ import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -69,7 +74,7 @@ public class PointQueryExec implements CoordInterface {
     // ByteString serialized for prepared statement
     private ByteString serializedDescTable;
     private ByteString serializedOutputExpr;
-    private ArrayList<Expr> outputExprs;
+    private List<Expr> outputExprs;
     private DescriptorTable descriptorTable;
     private long tabletID = 0;
     private long timeoutMs = Config.point_query_timeout_ms; // default 10s
@@ -79,7 +84,8 @@ public class PointQueryExec implements CoordInterface {
 
     private List<Backend> candidateBackends;
     Planner planner;
-
+    // tuple id for output expr
+    TupleId tupleId;
     // For parepared statement cached structure,
     // there are some pre caculated structure in Backend TabletFetch service
     // using this ID to find for this prepared statement
@@ -89,7 +95,8 @@ public class PointQueryExec implements CoordInterface {
         List<PlanFragment> fragments = planner.getFragments();
         PlanFragment fragment = fragments.get(0);
         LOG.debug("execPointGet fragment {}", fragment);
-        OlapScanNode planRoot = (OlapScanNode) fragment.getPlanRoot();
+        OlapScanNode planRoot = fragment.getPlanRoot() instanceof OlapScanNode ? (OlapScanNode) fragment.getPlanRoot()
+                        :  (OlapScanNode)  ((ExchangeNode) fragment.getPlanRoot()).getChild(0);
         Preconditions.checkNotNull(planRoot);
         return planRoot;
     }
@@ -100,9 +107,36 @@ public class PointQueryExec implements CoordInterface {
         List<PlanFragment> fragments = planner.getFragments();
         PlanFragment fragment = fragments.get(0);
         OlapScanNode planRoot = getPlanRoot();
-        this.equalPredicats = planRoot.getPointQueryEqualPredicates();
-        this.descriptorTable = planRoot.getDescTable();
-        this.outputExprs = fragment.getOutputExprs();
+        equalPredicats = planRoot.getPointQueryEqualPredicates();
+        if (equalPredicats == null) {
+            equalPredicats = new TreeMap<SlotRef, Expr>(
+                    new Comparator<SlotRef>() {
+                        @Override
+                        public int compare(SlotRef o1, SlotRef o2) {
+                            // order by unique id
+                            return Integer.compare(o1.getColumn().getUniqueId(), o2.getColumn().getUniqueId());
+                        }
+                    }
+            );
+            for (Expr expr : planRoot.getConjuncts()) {
+                SlotRef col = (SlotRef) expr.getChild(0);
+                // ignore delete sign in key
+                if (col.getColumnName().equals(Column.DELETE_SIGN)) {
+                    continue;
+                }
+                equalPredicats.put(col, expr.getChild(1));
+            }
+        }
+        this.descriptorTable = planner.getDescTable();
+        if (planRoot.getProjectList() != null) {
+            // Use projection list for nereids
+            this.outputExprs = planRoot.getProjectList();
+            this.tupleId = planRoot.getTupleId();
+        } else {
+            // Old planner
+            this.outputExprs = fragment.getOutputExprs();
+            this.tupleId = new TupleId(0);
+        }
 
         PrepareStmt prepareStmt = analyzer == null ? null : analyzer.getPrepareStmt();
         if (prepareStmt != null && prepareStmt.getPreparedType() == PrepareStmt.PreparedType.FULL_PREPARED) {
@@ -235,7 +269,8 @@ public class PointQueryExec implements CoordInterface {
                             .setTabletId(tabletID)
                             .setDescTbl(serializedDescTable)
                             .setOutputExpr(serializedOutputExpr)
-                            .setIsBinaryRow(isBinaryProtocol);
+                            .setIsBinaryRow(isBinaryProtocol)
+                            .setOutputTupleId(tupleId.asInt());
             if (cacheID != null) {
                 InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
                 uuidBuilder.setUuidHigh(cacheID.getMostSignificantBits());

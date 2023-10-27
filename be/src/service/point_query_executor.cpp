@@ -26,6 +26,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/global_types.h"
 #include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_tuple.h"
@@ -50,10 +51,12 @@ namespace doris {
 Reusable::~Reusable() {}
 constexpr static int s_preallocted_blocks_num = 64;
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
-                      size_t block_size) {
+                      int tuple_id, size_t block_size) {
     SCOPED_MEM_COUNT(&_mem_size);
     _runtime_state = RuntimeState::create_unique();
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
+    // Use the tuple with max tuple id, since expression is attched with this tuple
+    _tuple_desc = _desc_tbl->get_tuple_descriptor(tuple_id);
     _runtime_state->set_desc_tbl(_desc_tbl);
     _block_pool.resize(block_size);
     for (int i = 0; i < _block_pool.size(); ++i) {
@@ -183,11 +186,13 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         _reusable = reusable_ptr;
         if (uuid != 0) {
             // could be reused by requests after, pre allocte more blocks
-            RETURN_IF_ERROR(
-                    reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, s_preallocted_blocks_num));
+            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs,
+                                               request->output_tuple_id(),
+                                               s_preallocted_blocks_num));
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
         } else {
-            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 1));
+            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs,
+                                               request->output_tuple_id(), 1));
         }
     }
     _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request->tablet_id());
