@@ -101,11 +101,10 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     DCHECK(status.ok());
 }
 
-RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
-                           const TUniqueId& query_id, int32_t fragment_id,
-                           const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env)
-        : _profile("Fragment " + print_id(pipeline_params.fragment_instance_id)),
+RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id,
+                           int32_t fragment_id, const TQueryOptions& query_options,
+                           const TQueryGlobals& query_globals, ExecEnv* exec_env)
+        : _profile("Fragment " + print_id(instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _runtime_filter_mgr(new RuntimeFilterMgr(query_id, this)),
@@ -125,12 +124,7 @@ RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file(nullptr) {
-    if (pipeline_params.__isset.runtime_filter_params) {
-        _runtime_filter_mgr->set_runtime_filter_params(pipeline_params.runtime_filter_params);
-    }
-    Status status =
-            init(pipeline_params.fragment_instance_id, query_options, query_globals, exec_env);
-    DCHECK(status.ok());
+    DCHECK(init(instance_id, query_options, query_globals, exec_env).ok());
 }
 
 RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
@@ -271,6 +265,11 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     _import_label = print_id(fragment_instance_id);
 
     return Status::OK();
+}
+
+void RuntimeState::set_runtime_filter_params(
+        const TRuntimeFilterParams& runtime_filter_params) const {
+    _runtime_filter_mgr->set_runtime_filter_params(runtime_filter_params);
 }
 
 void RuntimeState::init_mem_trackers(const TUniqueId& id, const std::string& name) {
