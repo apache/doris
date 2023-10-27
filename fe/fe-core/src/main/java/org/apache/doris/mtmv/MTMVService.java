@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 
 import com.google.common.collect.Maps;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.Map;
 import java.util.Objects;
@@ -109,6 +110,9 @@ public class MTMVService {
         BaseTableInfo baseTableInfo = new BaseTableInfo(database.getCatalog().getName(), database.getFullName(),
                 table.getName());
         Set<MaterializedView> mtmvsByBaseTable = cacheManager.getMtmvsByBaseTable(baseTableInfo);
+        if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
+            return;
+        }
         for (MaterializedView materializedView : mtmvsByBaseTable) {
             TableNameInfo tableNameInfo = new TableNameInfo(materializedView.getQualifiedDbName(),
                     materializedView.getName());

@@ -175,6 +175,7 @@ import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -4042,12 +4043,19 @@ public class Env {
     }
 
     public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) throws UserException {
-        AlterMTMV alter = new AlterMTMV(info.getMvName(), info.getRefreshInfo(), true);
+        AlterMTMV alter = new AlterMTMV(info.getMvName(), info.getRefreshInfo());
+        this.alter.processAlterMTMV(alter, false);
+    }
+
+    public void alterMTMVProperty(AlterMTMVPropertyInfo info) throws UserException {
+        AlterMTMV alter = new AlterMTMV(info.getMvName());
+        alter.setMvProperties(info.getProperties());
         this.alter.processAlterMTMV(alter, false);
     }
 
     public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) throws UserException {
-        AlterMTMV alter = new AlterMTMV(mvName, status);
+        AlterMTMV alter = new AlterMTMV(mvName);
+        alter.setStatus(status);
         this.alter.processAlterMTMV(alter, false);
     }
 

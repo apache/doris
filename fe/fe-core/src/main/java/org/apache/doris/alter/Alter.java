@@ -906,8 +906,9 @@ public class Alter {
                 mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
             } else if (alterMTMV.getStatus() != null) {
                 mtmv.alterStatus(alterMTMV.getStatus());
+            } else if (alterMTMV.getMvProperties() != null) {
+                mtmv.alterMvProperties(alterMTMV.getMvProperties());
             }
-
             // 4. log it and replay it in the follower
             if (!isReplay) {
                 Env.getCurrentEnv().getMtmvService().alterMTMV(mtmv, alterMTMV);

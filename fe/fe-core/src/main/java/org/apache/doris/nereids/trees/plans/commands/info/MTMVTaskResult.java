@@ -23,17 +23,17 @@ import com.google.gson.annotations.SerializedName;
  * MTMVTaskResult
  */
 public class MTMVTaskResult {
-    @SerializedName("rem")
+    @SerializedName("refreshErrorMsg")
     private String refreshErrorMsg;
-    @SerializedName("es")
+    @SerializedName("executorSql")
     private String executorSql;
-    @SerializedName("rs")
+    @SerializedName("refreshState")
     private boolean refreshState;
-    @SerializedName("rft")
+    @SerializedName("refreshFinishedTime")
     private long refreshFinishedTime;
-    @SerializedName("rst")
+    @SerializedName("refreshStartTime")
     private long refreshStartTime;
-    @SerializedName("rti")
+    @SerializedName("refreshTaskId")
     private String refreshTaskId;
 
     public MTMVTaskResult() {

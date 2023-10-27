@@ -23,9 +23,9 @@ import com.google.gson.annotations.SerializedName;
  * MTMVJobInfo
  */
 public class MTMVJobInfo {
-    @SerializedName("jn")
+    @SerializedName("jobName")
     private String jobName;
-    @SerializedName("ltr")
+    @SerializedName("lastTaskResult")
     private MTMVTaskResult lastTaskResult;
 
     public MTMVJobInfo(String jobName) {

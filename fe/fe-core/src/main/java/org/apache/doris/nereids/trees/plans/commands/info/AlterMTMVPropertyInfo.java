@@ -17,6 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.qe.ConnectContext;
+
 import java.util.Map;
 import java.util.Objects;
 
@@ -34,8 +40,34 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
         this.properties = Objects.requireNonNull(properties, "require properties object");
     }
 
+    public void analyze(ConnectContext ctx) throws AnalysisException {
+        super.analyze(ctx);
+        analyzeProperties();
+    }
+
+    private void analyzeProperties() {
+        for (String key : properties.keySet()) {
+            if (PropertyAnalyzer.PROPERTIES_GRACE_PERIOD.equals(key)) {
+                String gracePeriod = properties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD);
+                try {
+                    Long.parseLong(gracePeriod);
+                } catch (NumberFormatException e) {
+                    throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                            "valid grace_period: " + properties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD));
+                }
+            } else {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException("illegal key:" + key);
+            }
+        }
+
+    }
+
     @Override
-    public void run() {
-        // Env.getCurrentEnv().alterMTMV(this);
+    public void run() throws UserException {
+        Env.getCurrentEnv().alterMTMVProperty(this);
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
     }
 }

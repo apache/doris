@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshInfo;
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Map;
 
 public class OlapTableFactory {
 
@@ -47,6 +48,7 @@ public class OlapTableFactory {
         public MTMVRefreshInfo refreshInfo;
         public EnvInfo envInfo;
         public String querySql;
+        public Map<String, String> mvProperties;
     }
 
     private BuildParams params;
@@ -136,6 +138,14 @@ public class OlapTableFactory {
         return this;
     }
 
+    public OlapTableFactory withMvProperties(Map<String, String> mvProperties) {
+        Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
+                + params.getClass().getSimpleName());
+        MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
+        materializedViewParams.mvProperties = mvProperties;
+        return this;
+    }
+
     private OlapTableFactory withRefreshInfo(MTMVRefreshInfo refreshInfo) {
         Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
                 + params.getClass().getSimpleName());
@@ -161,6 +171,7 @@ public class OlapTableFactory {
             CreateMultiTableMaterializedViewStmt createMVStmt = (CreateMultiTableMaterializedViewStmt) stmt;
             return withRefreshInfo(createMVStmt.getRefreshInfo())
                     .withQuerySql(createMVStmt.getQuerySql())
+                    .withMvProperties(createMVStmt.getMvProperties())
                     .withEnvInfo(createMVStmt.getEnvInfo());
         }
     }

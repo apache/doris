@@ -58,6 +58,7 @@ public class CreateMTMVInfo {
     private final String comment;
     private final DistributionDescriptor distribution;
     private Map<String, String> properties;
+    private Map<String, String> mvProperties = Maps.newHashMap();
 
     private final LogicalPlan logicalQuery;
     private final String querySql;
@@ -120,17 +121,21 @@ public class CreateMTMVInfo {
         distribution.updateCols(columns.get(0).getName());
         distribution.validate(columnMap, KeysType.DUP_KEYS);
         refreshInfo.validate();
+
+        analyzeProperties();
     }
 
     private void analyzeProperties() {
-        if (properties != null && properties.containsKey(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) {
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) {
+            String gracePeriod = properties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD);
             try {
-                Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD));
+                Long.parseLong(gracePeriod);
             } catch (NumberFormatException e) {
                 throw new AnalysisException(
                         "valid grace_period: " + properties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD));
             }
-
+            mvProperties.put(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD, gracePeriod);
+            properties.remove(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD);
         }
     }
 
@@ -195,6 +200,6 @@ public class CreateMTMVInfo {
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
         return new CreateMultiTableMaterializedViewStmt(ifNotExists, tableName, catalogColumns, refreshInfo, keysDesc,
-                distribution.translateToCatalogStyle(), properties, querySql, comment, envInfo);
+                distribution.translateToCatalogStyle(), properties, mvProperties, querySql, comment, envInfo);
     }
 }

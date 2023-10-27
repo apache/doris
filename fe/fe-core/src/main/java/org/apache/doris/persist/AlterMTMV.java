@@ -29,6 +29,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Map;
 import java.util.Objects;
 
 public class AlterMTMV implements Writable {
@@ -40,16 +41,17 @@ public class AlterMTMV implements Writable {
     private MTMVStatus status;
     @SerializedName("nrj")
     private boolean needRebuildJob = false;
+    @SerializedName("mp")
+    private Map<String, String> mvProperties;
 
-    public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo, boolean needRebuildJob) {
+    public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
         this.refreshInfo = Objects.requireNonNull(refreshInfo, "require refreshInfo object");
-        this.needRebuildJob = needRebuildJob;
+        this.needRebuildJob = true;
     }
 
-    public AlterMTMV(TableNameInfo mvName, MTMVStatus status) {
+    public AlterMTMV(TableNameInfo mvName) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
-        this.status = Objects.requireNonNull(status, "require status object");
     }
 
     public TableNameInfo getMvName() {
@@ -66,6 +68,26 @@ public class AlterMTMV implements Writable {
 
     public MTMVRefreshInfo getRefreshInfo() {
         return refreshInfo;
+    }
+
+    public void setMvName(TableNameInfo mvName) {
+        this.mvName = mvName;
+    }
+
+    public void setRefreshInfo(MTMVRefreshInfo refreshInfo) {
+        this.refreshInfo = refreshInfo;
+    }
+
+    public void setStatus(MTMVStatus status) {
+        this.status = status;
+    }
+
+    public void setMvProperties(Map<String, String> mvProperties) {
+        this.mvProperties = mvProperties;
+    }
+
+    public Map<String, String> getMvProperties() {
+        return mvProperties;
     }
 
     @Override

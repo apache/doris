@@ -93,4 +93,17 @@ public class MTMVRefreshInfo {
         }
         return this;
     }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("BUILD ");
+        builder.append(buildMode);
+        builder.append(" REFRESH ");
+        builder.append(refreshMethod);
+        builder.append(" ");
+        builder.append(refreshTriggerInfo);
+        return builder.toString();
+    }
+
 }

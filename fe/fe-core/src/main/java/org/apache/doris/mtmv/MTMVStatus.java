@@ -26,11 +26,11 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.Objects;
 
 public class MTMVStatus {
-    @SerializedName("s")
+    @SerializedName("state")
     private MTMVState state;
-    @SerializedName("scd")
+    @SerializedName("schemaChangeDetail")
     private String schemaChangeDetail;
-    @SerializedName("rs")
+    @SerializedName("refreshState")
     private MTMVRefreshState refreshState;
 
     public MTMVStatus() {

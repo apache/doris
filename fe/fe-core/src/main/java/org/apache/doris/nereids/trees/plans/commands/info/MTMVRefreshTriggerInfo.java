@@ -81,6 +81,7 @@ public class MTMVRefreshTriggerInfo {
         StringBuilder builder = new StringBuilder("ON ");
         builder.append(refreshTrigger);
         if (intervalTrigger != null) {
+            builder.append(" ");
             builder.append(intervalTrigger);
         }
         return builder.toString();

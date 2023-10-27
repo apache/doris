@@ -32,6 +32,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Map;
 
 
 public class MaterializedView extends OlapTable {
@@ -45,6 +46,8 @@ public class MaterializedView extends OlapTable {
     private EnvInfo envInfo;
     @SerializedName("ji")
     private MTMVJobInfo jobInfo;
+    @SerializedName("mp")
+    private Map<String, String> mvProperties;
 
     // For deserialization
     public MaterializedView() {
@@ -66,6 +69,7 @@ public class MaterializedView extends OlapTable {
         this.envInfo = params.envInfo;
         this.status = new MTMVStatus();
         this.jobInfo = new MTMVJobInfo(MTMVJobManager.MTMV_JOB_PREFIX + params.tableId);
+        this.mvProperties = params.mvProperties;
     }
 
     public MTMVRefreshInfo getRefreshInfo() {
@@ -96,19 +100,27 @@ public class MaterializedView extends OlapTable {
         return status.updateNotNull(status);
     }
 
+    public Map<String, String> alterMvProperties(Map<String, String> mvProperties) {
+        this.mvProperties.putAll(mvProperties);
+        return this.mvProperties;
+    }
+
     public long getGracePeriod() {
-        if (getTableProperty().getProperties().containsKey(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) {
-            return Long.parseLong(getTableProperty().getProperties().get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD));
+        if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) {
+            return Long.parseLong(mvProperties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD));
         } else {
             return 0L;
         }
     }
 
     public String toSql() {
-        // TODO: 2023/9/21 zd
         StringBuilder builder = new StringBuilder();
         builder.append("CREATE MATERIALIZED VIEW ");
         builder.append(name);
+        builder.append(" ");
+        builder.append(refreshInfo);
+        builder.append(" PROPERTIES ");
+        builder.append(mvProperties.toString().replace("{", "(").replace("}", ")"));
         builder.append(" AS ");
         builder.append(querySql);
         return builder.toString();
@@ -129,6 +141,7 @@ public class MaterializedView extends OlapTable {
         status = materializedView.status;
         envInfo = materializedView.envInfo;
         jobInfo = materializedView.jobInfo;
+        mvProperties = materializedView.mvProperties;
         Env.getCurrentEnv().getMtmvService().registerMTMV(this);
     }
 

@@ -30,15 +30,18 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
     private final MTMVRefreshInfo refreshInfo;
     private final String querySql;
     private final EnvInfo envInfo;
+    private Map<String, String> mvProperties;
 
     public CreateMultiTableMaterializedViewStmt(boolean ifNotExists, TableName mvName, List<Column> columns,
             MTMVRefreshInfo refreshInfo, KeysDesc keyDesc, DistributionDesc distributionDesc,
-            Map<String, String> properties, String querySql, String comment, EnvInfo envInfo) {
+            Map<String, String> properties, Map<String, String> mvProperties, String querySql, String comment,
+            EnvInfo envInfo) {
         super(ifNotExists, false, mvName, columns, new ArrayList<Index>(), DEFAULT_ENGINE_NAME, keyDesc, null,
                 distributionDesc, properties, null, comment, null, null);
         this.refreshInfo = refreshInfo;
         this.querySql = querySql;
         this.envInfo = envInfo;
+        this.mvProperties = mvProperties;
     }
 
     public MTMVRefreshInfo getRefreshInfo() {
@@ -51,5 +54,9 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
 
     public EnvInfo getEnvInfo() {
         return envInfo;
+    }
+
+    public Map<String, String> getMvProperties() {
+        return mvProperties;
     }
 }
