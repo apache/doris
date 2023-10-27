@@ -55,8 +55,8 @@ Or you can use the following methods for batch insert operations:
 
 ```sql
 INSERT INTO example_tbl VALUES
-(1000, "baidu1", 3.25)
-(2000, "baidu2", 4.25)
+(1000, "baidu1", 3.25),
+(2000, "baidu2", 4.25),
 (3000, "baidu3", 5.25);
 ````
 
