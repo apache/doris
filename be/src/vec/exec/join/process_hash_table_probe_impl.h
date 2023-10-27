@@ -134,7 +134,7 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
         _parent->_ready_probe = true;
         hash_table_ctx.reset();
         hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map);
-        init_bucket_num(hash_table_ctx,probe_rows, null_map);
+        init_bucket_num(hash_table_ctx, probe_rows, null_map);
     }
     return typename HashTableType::State(_parent->_probe_columns);
 }
@@ -188,9 +188,15 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
     }
 
     output_block->swap(mutable_block.to_block());
-
     if constexpr (with_other_conjuncts) {
-        return do_other_join_conjuncts(output_block, is_mark_join, is_the_last_sub_block);
+        return do_other_join_conjuncts(output_block, is_mark_join, is_the_last_sub_block,
+                                       hash_table_ctx.hash_table->get_visited());
+    } else if constexpr (JoinOpType == TJoinOp::FULL_OUTER_JOIN ||
+                         JoinOpType == TJoinOp::RIGHT_OUTER_JOIN) {
+        auto& visited = hash_table_ctx.hash_table->get_visited();
+        for (int i = 0; i < current_offset; ++i) {
+            visited[_build_indexs[i]] = 1;
+        }
     }
 
     return Status::OK();
@@ -198,7 +204,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
 
 template <int JoinOpType, typename Parent>
 Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
-        Block* output_block, bool is_mark_join, bool is_the_last_sub_block) {
+        Block* output_block, bool is_mark_join, bool is_the_last_sub_block,
+        std::vector<uint8_t>& visited) {
     // dispose the other join conjunct exec
     auto row_count = output_block->rows();
     if (!row_count) {
@@ -225,10 +232,6 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
                     ->get_data()
                     .data();
 
-    auto same_with_prev = [this](size_t index) {
-        return index && _probe_indexs[index] == _probe_indexs[index - 1];
-    };
-
     if constexpr (JoinOpType == TJoinOp::LEFT_OUTER_JOIN ||
                   JoinOpType == TJoinOp::FULL_OUTER_JOIN) {
         auto new_filter_column = ColumnVector<UInt8>::create(row_count);
@@ -237,10 +240,9 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         auto null_map_column = ColumnVector<UInt8>::create(row_count, 0);
         auto* __restrict null_map_data = null_map_column->get_data().data();
 
-        int end_idx = row_count;
         // process equal-conjuncts-matched tuples that are newly generated
         // in this run if there are any.
-        for (int i = 0; i < end_idx; ++i) {
+        for (int i = 0; i < row_count; ++i) {
             auto join_hit = _build_indexs[i];
             auto other_hit = filter_column_ptr[i];
 
@@ -255,24 +257,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
             }
             null_map_data[i] = !join_hit || !other_hit;
 
-            // For cases where one probe row matches multiple build rows for equal conjuncts,
-            // all the other-conjuncts-matched tuples should be output.
-            //
-            // Other-conjuncts-NOT-matched tuples fall into two categories:
-            //    1. The beginning consecutive one(s).
-            //       For these tuples, only the last one is marked to output;
-            //       If there are any following other-conjuncts-matched tuples,
-            //       the last tuple is also marked NOT to output.
-            //    2. All the remaining other-conjuncts-NOT-matched tuples.
-            //       All these tuples are marked not to output.
             if (join_hit) {
-                filter_map[i] = other_hit || !same_with_prev(i) ||
-                                (!filter_column_ptr[i] && filter_map[i - 1]);
-                // Here to keep only hit join conjunct and other join conjunt is true need to be output.
-                // if not, only some key must keep one row will output will null right table column
-                if (same_with_prev(i) && filter_map[i] && !filter_column_ptr[i - 1]) {
-                    filter_map[i - 1] = false;
-                }
+                filter_map[i] = other_hit;
             } else {
                 filter_map[i] = true;
             }
@@ -281,24 +267,21 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         for (size_t i = 0; i < row_count; ++i) {
             if (filter_map[i]) {
                 _tuple_is_null_right_flags->emplace_back(null_map_data[i]);
+                if constexpr (JoinOpType == TJoinOp::FULL_OUTER_JOIN ||
+                              JoinOpType == TJoinOp::RIGHT_OUTER_JOIN) {
+                    visited[_build_indexs[i]] = 1;
+                }
             }
         }
         output_block->get_by_position(result_column_id).column = std::move(new_filter_column);
     } else if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
-        // TODO: resize in advance
-        auto new_filter_column = ColumnVector<UInt8>::create();
+        auto new_filter_column = ColumnVector<UInt8>::create(row_count);
         auto& filter_map = new_filter_column->get_data();
 
         size_t start_row_idx = 1;
         filter_map.emplace_back(filter_column_ptr[0]);
         for (size_t i = start_row_idx; i < row_count; ++i) {
-            if (filter_column_ptr[i] || (same_with_prev(i) && filter_map[i - 1])) {
-                // Only last same element is true, output last one
-                filter_map.push_back(true);
-                filter_map[i - 1] = !same_with_prev(i) && filter_map[i - 1];
-            } else {
-                filter_map.push_back(false);
-            }
+            filter_map[i] = filter_column_ptr[i];
         }
 
         /// FIXME: incorrect result of semi mark join with other conjuncts(null value missed).
@@ -309,14 +292,9 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
 
             // For mark join, we only filter rows which have duplicate join keys.
             // And then, we set matched_map to the join result to do the mark join's filtering.
-            for (size_t i = 1; i < row_count; ++i) {
-                if (!same_with_prev(i)) {
-                    helper.insert_value(filter_map[i - 1]);
-                    filter_map[i - 1] = true;
-                }
+            for (size_t i = 0; i < row_count; ++i) {
+                helper.insert_value(filter_map[i]);
             }
-            helper.insert_value(filter_map[filter_map.size() - 1]);
-            filter_map[filter_map.size() - 1] = true;
         }
 
         output_block->get_by_position(result_column_id).column = std::move(new_filter_column);
@@ -339,15 +317,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         filter_map[0] = filter_column_ptr[0] && _build_indexs[0];
 
         for (size_t i = start_row_idx; i < row_count; ++i) {
-            if ((_build_indexs[i] && filter_column_ptr[i]) ||
-                (same_with_prev(i) && filter_map[i - 1])) {
-                // When either of two conditions is meet:
-                // 1. Both equal conjuncts and other conjuncts are true or same_to_prev
-                // 2. This row is joined from the same build side row as the previous row
-                // Set filter_map[i] to true and filter_map[i - 1] to false if same_to_prev[i]
-                // is true.
-                filter_map[i] = true;
-                filter_map[i - 1] = !same_with_prev(i) && filter_map[i - 1];
+            if (_build_indexs[i] && filter_column_ptr[i]) {
+                filter_map[i] = _build_indexs[i] && filter_column_ptr[i];
             } else {
                 filter_map[i] = false;
             }
@@ -358,28 +329,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
                                         *(output_block->get_by_position(orig_columns - 1)
                                                   .column->assume_mutable()))
                                         .get_data();
-            for (int i = 1; i < row_count; ++i) {
-                if (!same_with_prev(i)) {
-                    matched_map.push_back(!filter_map[i - 1]);
-                    filter_map[i - 1] = true;
-                }
-            }
-            matched_map.push_back(!filter_map[row_count - 1]);
-            filter_map[row_count - 1] = true;
-        } else {
-            int end_row_idx = 0;
-
-            end_row_idx = row_count;
-
-            // Same to the semi join, but change the last value to opposite value
-            for (int i = 1; i < end_row_idx; ++i) {
-                if (!same_with_prev(i)) {
-                    filter_map[i - 1] = !filter_map[i - 1];
-                }
-            }
-            auto non_sub_blocks_matched_row_count = row_count;
-            if (non_sub_blocks_matched_row_count > 0) {
-                filter_map[end_row_idx - 1] = !filter_map[end_row_idx - 1];
+            for (int i = 0; i < row_count; ++i) {
+                matched_map.push_back(!filter_map[i]);
             }
         }
 

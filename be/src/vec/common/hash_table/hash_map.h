@@ -220,7 +220,7 @@ public:
     void prepare_build(size_t num_elem, int batch_size) {
         max_batch_size = batch_size;
         bucket_size = calc_bucket_size(num_elem + 1);
-        first.resize(bucket_size + 1, 0);
+        first.resize(bucket_size + 1);
         next.resize(num_elem);
 
         if constexpr (JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
@@ -264,8 +264,6 @@ public:
         return std::pair {0, 0};
     }
 
-    size_t get_bucket_mask() { return bucket_size - 1; }
-
     template <int JoinOpType>
     bool iterate_map(std::vector<uint32_t>& build_idxs) const {
         const auto batch_size = max_batch_size;
@@ -287,6 +285,10 @@ public:
         build_idxs.resize(count);
         return iter_idx >= elem_num;
     }
+
+    size_t get_bucket_mask() const { return bucket_size - 1; }
+
+    std::vector<uint8_t>& get_visited() { return visited; }
 
 private:
     auto _find_batch_right_semi_anti(const Key* __restrict keys,
@@ -346,10 +348,6 @@ private:
                 if (keys[probe_idx] == build_keys[build_idx]) {
                     probe_idxs[matched_cnt] = probe_idx;
                     build_idxs[matched_cnt] = build_idx;
-                    if constexpr (JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN ||
-                                  JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
-                        visited[build_idx] = 1;
-                    }
                     matched_cnt++;
                 }
                 build_idx = next[build_idx];
@@ -371,7 +369,6 @@ private:
         if (probe_idx == current_probe_idx) {
             current_probe_idx = -1;
             build_idx = current_build_idx;
-            current_build_idx = 0;
             do_the_probe();
         }
         while (LIKELY(probe_idx < probe_rows && matched_cnt < batch_size)) {

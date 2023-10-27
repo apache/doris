@@ -68,7 +68,7 @@ struct ProcessHashTableProbe {
     // and output block may be different
     // The output result is determined by the other join conjunct result and same_to_prev struct
     Status do_other_join_conjuncts(Block* output_block, bool is_mark_join,
-                                   bool is_the_last_sub_block);
+                                   bool is_the_last_sub_block, std::vector<uint8_t>& visited);
 
     template <typename HashTableType>
     typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
