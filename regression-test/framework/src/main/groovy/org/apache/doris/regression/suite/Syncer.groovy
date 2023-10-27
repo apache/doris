@@ -352,10 +352,50 @@ class Syncer {
 
     Boolean checkSnapshotFinish() {
         String checkSQL = "SHOW BACKUP FROM " + context.db
-        List<Object> row = suite.sql(checkSQL)[0]
-        logger.info("Now row is ${row}")
+        def records = suite.sql(checkSQL)
+        for (row in records) {
+            logger.info("BACKUP row is ${row}")
+            String state = (row[3] as String);
+            if (state != "FINISHED" && state != "CANCELLED") {
+                return false
+            }
+        }
+        true
+    }
 
-        return (row[3] as String) == "FINISHED"
+    String getSnapshotTimestamp(String repoName, String snapshotName) {
+        def filterShowSnapshot = { records, name ->
+            for (row in records) {
+                logger.info("Snapshot row is ${row}")
+                if (row[0] == name && row[1] != "null") {
+                    return row
+                }
+            }
+            null
+        }
+
+        for (int i = 0; i < 3; ++i) {
+            def result = suite.sql "SHOW SNAPSHOT ON ${repoName}"
+            def snapshot = filterShowSnapshot(result, snapshotName)
+            if (snapshot != null) {
+                return snapshot[1].split('\n').last()
+            }
+            Thread.sleep(3000);
+        }
+        null
+    }
+
+    Boolean checkAllRestoreFinish() {
+        String checkSQL = "SHOW RESTORE FROM ${context.db}"
+        def records = suite.sql(checkSQL)
+        for (row in records) {
+            logger.info("Restore row is ${row}")
+            String state = row[4]
+            if (state != "FINISHED" && state != "CANCELLED") {
+                return false
+            }
+        }
+        true
     }
 
     Boolean checkRestoreFinish() {
@@ -741,5 +781,54 @@ class Syncer {
         FrontendClientImpl clientImpl = context.getTargetFrontClient()
         TCommitTxnResult result = SyncerUtils.commitTxn(clientImpl, context)
         return checkCommitTxn(result)
+    }
+
+    String externalStoragePrefix() {
+        String feAddr = "${context.config.feTargetThriftNetworkAddress}"
+        int code = feAddr.hashCode();
+        ((code < 0) ? -code : code).toString()
+    }
+
+    void createS3Repository(String name, boolean readOnly = false) {
+        String ak = suite.getS3AK()
+        String sk = suite.getS3SK()
+        String endpoint = suite.getS3Endpoint()
+        String region = suite.getS3Region()
+        String bucket = suite.getS3BucketName()
+        String prefix = externalStoragePrefix()
+
+        suite.try_sql "DROP REPOSITORY `${name}`"
+        suite.sql """
+        CREATE ${readOnly ? "READ ONLY" : ""} REPOSITORY `${name}`
+        WITH S3
+        ON LOCATION "s3://${bucket}/${prefix}/${name}"
+        PROPERTIES
+        (
+            "s3.endpoint" = "http://${endpoint}",
+            "s3.region" = "${region}",
+            "s3.access_key" = "${ak}",
+            "s3.secret_key" = "${sk}",
+            "delete_if_exists" = "true"
+        )
+            """
+    }
+
+    void createHdfsRepository(String name, boolean readOnly = false) {
+        String hdfsFs = suite.getHdfsFs()
+        String hdfsUser = suite.getHdfsUser()
+        String dataDir = suite.getHdfsDataDir()
+        String prefix = externalStoragePrefix()
+
+        suite.try_sql "DROP REPOSITORY `${name}`"
+        suite.sql """
+        CREATE REPOSITORY `${name}`
+        WITH hdfs
+        ON LOCATION "${dataDir}/${prefix}/${name}"
+        PROPERTIES
+        (
+            "fs.defaultFS" = "${hdfsFs}",
+            "hadoop.username" = "${hdfsUser}"
+        )
+        """
     }
 }

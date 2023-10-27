@@ -26,7 +26,7 @@ suite("test_create_and_drop_repository", "backup_restore") {
     String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
-    def filter_show_repo_result = { result, name ->
+    def filterShowRepoResult = { result, name ->
         for (record in result) {
             if (record[1] == name)
                 return record
@@ -49,13 +49,13 @@ suite("test_create_and_drop_repository", "backup_restore") {
         """
 
     def result = sql """ SHOW REPOSITORIES """
-    def repo = filter_show_repo_result(result, repoName)
+    def repo = filterShowRepoResult(result, repoName)
     assertTrue(repo != null)
 
     sql "DROP REPOSITORY `${repoName}`"
 
     result = sql """ SHOW REPOSITORIES """
-    repo = filter_show_repo_result(result, repoName)
+    repo = filterShowRepoResult(result, repoName)
     assertTrue(repo == null)
 
     // case 2. S3 read only repo
@@ -73,12 +73,62 @@ suite("test_create_and_drop_repository", "backup_restore") {
         """
 
     result = sql """ SHOW REPOSITORIES """
-    repo = filter_show_repo_result(result, repoName)
+    repo = filterShowRepoResult(result, repoName)
     assertTrue(repo != null)
 
     sql "DROP REPOSITORY `${repoName}`"
 
     result = sql """ SHOW REPOSITORIES """
-    repo = filter_show_repo_result(result, repoName)
+    repo = filterShowRepoResult(result, repoName)
     assertTrue(repo == null)
+
+    if (enableHdfs()) {
+        // case 3. hdfs repo
+        String hdfsFs = getHdfsFs()
+        String hdfsUser = getHdfsUser()
+        String dataDir = getHdfsDataDir()
+
+        sql """
+        CREATE REPOSITORY `${repoName}`
+        WITH hdfs
+        ON LOCATION "${dataDir}${repoName}"
+        PROPERTIES
+        (
+            "fs.defaultFS" = "${hdfsFs}",
+            "hadoop.username" = "${hdfsUser}"
+        )
+        """
+
+        result = sql """ SHOW REPOSITORIES """
+        repo = filterShowRepoResult(result, repoName)
+        assertTrue(repo != null)
+
+        sql "DROP REPOSITORY `${repoName}`"
+
+        result = sql """ SHOW REPOSITORIES """
+        repo = filterShowRepoResult(result, repoName)
+        assertTrue(repo == null)
+
+        // case 4. hdfs read only repo
+        sql """
+        CREATE READ ONLY REPOSITORY `${repoName}`
+        WITH hdfs
+        ON LOCATION "${dataDir}${repoName}"
+        PROPERTIES
+        (
+            "fs.defaultFS" = "${hdfsFs}",
+            "hadoop.username" = "${hdfsUser}"
+        )
+        """
+
+        result = sql """ SHOW REPOSITORIES """
+        repo = filterShowRepoResult(result, repoName)
+        assertTrue(repo != null)
+
+        sql "DROP REPOSITORY `${repoName}`"
+
+        result = sql """ SHOW REPOSITORIES """
+        repo = filterShowRepoResult(result, repoName)
+        assertTrue(repo == null)
+    }
 }
