@@ -324,6 +324,17 @@ public class HyperGraphBuilder {
         return hyperGraph;
     }
 
+    public static HyperGraph buildHyperGraphFromPlan(Plan plan) {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
+                plan);
+        JoinOrderJob joinOrderJob = new JoinOrderJob(cascadesContext.getMemo().getRoot(),
+                cascadesContext.getCurrentJobContext());
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        HyperGraph hyperGraph = new HyperGraph();
+        joinOrderJob.buildGraph(cascadesContext.getMemo().getRoot(), hyperGraph);
+        return hyperGraph;
+    }
+
     private void injectRowcount(Group group) {
         if (!group.isValidJoinGroup()) {
             LogicalOlapScan scanPlan = (LogicalOlapScan) group.getLogicalExpression().getPlan();

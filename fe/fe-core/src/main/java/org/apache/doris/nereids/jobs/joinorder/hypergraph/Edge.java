@@ -73,7 +73,7 @@ public class Edge {
         this.subTreeNodes = subTreeNodes;
     }
 
-    public LogicalJoin getJoin() {
+    public LogicalJoin<? extends Plan, ? extends Plan> getJoin() {
         return join;
     }
 
