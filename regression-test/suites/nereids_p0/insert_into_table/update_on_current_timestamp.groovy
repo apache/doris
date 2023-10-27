@@ -49,8 +49,9 @@ suite("nereids_update_on_current_timestamp") {
             (2, "doris2", 2000, 223, 1),
             (1, "doris", 1000, 123, 1);"""
     qt_sql "select id,name,score,test,dft from ${t1} order by id;"
-    qt_sql "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
-    qt_sql "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
+    qt_1 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
+    qt_1 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
+    sql "select sleep(1);"
 
 
     // set enable_unique_key_partial_update=true, it's a partial update
@@ -64,18 +65,30 @@ suite("nereids_update_on_current_timestamp") {
             (1, 1999),
             (3, 3999),
             (4, 4999);"""
-    qt_sql "select id,name,score,test,dft from ${t1} order by id;"
-    qt_sql "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
-    qt_sql "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
+    qt_2 "select id,name,score,test,dft from ${t1} order by id;"
+    qt_2 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
+    qt_2 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
+    sql "select sleep(1);"
 
     // when user specify that column, it will be filled with the input value
     sql """ insert into ${t1}(id, update_time) values
             (1, "2000-01-01 00:00:01"),
             (2, "2000-01-02 00:00:01");"""
-    qt_sql "select id,name,score,test,dft from ${t1} order by id;"
-    qt_sql "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
-    qt_sql "select count(distinct update_time) from ${t1};"
+    qt_3 "select id,name,score,test,dft from ${t1} order by id;"
+    qt_3 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
+    qt_3 "select count(distinct update_time) from ${t1};"
+    qt_3 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
+    sql "select sleep(1);"
 
+    // test update statement
+    sql """ update ${t1} set score = score * 2 where id < 3;"""
+    qt_4 "select id,name,score,test,dft from ${t1} order by id;"
+    qt_4 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
+    qt_4 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
+    sql """ update ${t1} set update_time = "2023-10-02 00:00:00" where id > 3;"""
+    qt_5 "select id,name,score,test,dft from ${t1} order by id;"
+    qt_5 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
+    qt_5 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
 
     // illegal case 1: the default value is not current_timestamp
     def illegal_t1 = "nereids_update_on_current_timestamp_illegal_1"
