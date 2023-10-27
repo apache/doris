@@ -251,7 +251,16 @@ import org.apache.doris.task.PriorityMasterTaskExecutor;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TFrontendInfo;
+import org.apache.doris.thrift.TGetMetaDBMeta;
+import org.apache.doris.thrift.TGetMetaIndexMeta;
+import org.apache.doris.thrift.TGetMetaPartitionMeta;
+import org.apache.doris.thrift.TGetMetaReplicaMeta;
+import org.apache.doris.thrift.TGetMetaResult;
+import org.apache.doris.thrift.TGetMetaTableMeta;
+import org.apache.doris.thrift.TGetMetaTabletMeta;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -5623,6 +5632,89 @@ public class Env {
 
     public static boolean isTableNamesCaseInsensitive() {
         return GlobalVariable.lowerCaseTableNames == 2;
+    }
+
+    private static void getTableMeta(OlapTable olapTable, TGetMetaDBMeta dbMeta) {
+        LOG.debug("get table meta. table: {}", olapTable.getName());
+
+        TGetMetaTableMeta tableMeta = new TGetMetaTableMeta();
+        olapTable.readLock();
+        try {
+            tableMeta.setId(olapTable.getId());
+            tableMeta.setName(olapTable.getName());
+
+            PartitionInfo tblPartitionInfo = olapTable.getPartitionInfo();
+
+            Collection<Partition> partitions = olapTable.getAllPartitions();
+            for (Partition partition : partitions) {
+                TGetMetaPartitionMeta partitionMeta = new TGetMetaPartitionMeta();
+                long partitionId = partition.getId();
+                partitionMeta.setId(partitionId);
+                partitionMeta.setName(partition.getName());
+                String partitionRange = "";
+                if (tblPartitionInfo.getType() == PartitionType.RANGE
+                        || tblPartitionInfo.getType() == PartitionType.LIST) {
+                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
+                }
+                partitionMeta.setRange(partitionRange);
+                partitionMeta.setVisibleVersion(partition.getVisibleVersion());
+                // partitionMeta.setTemp（partition.isTemp());
+
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                    TGetMetaIndexMeta indexMeta = new TGetMetaIndexMeta();
+                    indexMeta.setId(index.getId());
+                    indexMeta.setName(olapTable.getIndexNameById(index.getId()));
+
+                    for (Tablet tablet : index.getTablets()) {
+                        TGetMetaTabletMeta tabletMeta = new TGetMetaTabletMeta();
+                        tabletMeta.setId(tablet.getId());
+
+                        for (Replica replica : tablet.getReplicas()) {
+                            TGetMetaReplicaMeta replicaMeta = new TGetMetaReplicaMeta();
+                            replicaMeta.setId(replica.getId());
+                            replicaMeta.setBackendId(replica.getBackendId());
+                            replicaMeta.setVersion(replica.getVersion());
+                            tabletMeta.addToReplicas(replicaMeta);
+                        }
+
+                        indexMeta.addToTablets(tabletMeta);
+                    }
+
+                    partitionMeta.addToIndexes(indexMeta);
+                }
+                tableMeta.addToPartitions(partitionMeta);
+            }
+            dbMeta.addToTables(tableMeta);
+        } finally {
+            olapTable.readUnlock();
+        }
+    }
+
+    public static TGetMetaResult getMeta(Database db, List<Table> tables) throws MetaNotFoundException {
+        TGetMetaResult result = new TGetMetaResult();
+        result.setStatus(new TStatus(TStatusCode.OK));
+
+        TGetMetaDBMeta dbMeta = new TGetMetaDBMeta();
+        dbMeta.setId(db.getId());
+        dbMeta.setName(db.getFullName());
+
+        if (tables == null) {
+            db.readLock();
+            tables = db.getTables();
+            db.readUnlock();
+        }
+
+        for (Table table : tables) {
+            if (table.getType() != TableType.OLAP) {
+                continue;
+            }
+
+            OlapTable olapTable = (OlapTable) table;
+            getTableMeta(olapTable, dbMeta);
+        }
+
+        result.setDbMeta(dbMeta);
+        return result;
     }
 
     public void compactTable(AdminCompactTableStmt stmt) throws DdlException {
