@@ -131,7 +131,7 @@ suite("nereids_update_on_current_timestamp") {
         exception "The precision of the default value of column[update_time] should be the same with the precision in 'ON UPDATE CURRENT_TIMESTAMP'."
     }
 
-    // illegal case 4: use 'update on current_timestamp' on 
+    // illegal case 4: use 'update on current_timestamp' on incorrect table models
     def illegal_t4 = "nereids_update_on_current_timestamp_illegal_4"
     test {
         sql """ DROP TABLE IF EXISTS ${illegal_t4} """

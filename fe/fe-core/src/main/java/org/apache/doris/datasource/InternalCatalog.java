@@ -2168,7 +2168,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check `update on current_timestamp`
         if (!enableUniqueKeyMergeOnWrite) {
-            for (Column column: baseSchema) {
+            for (Column column : baseSchema) {
                 if (column.hasOnUpdateDefaultValue()) {
                     throw new DdlException("'ON UPDATE CURRENT_TIMESTAMP' is only supportted"
                             + " in unique table with merge-on-write enabled.");
