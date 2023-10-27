@@ -40,6 +40,7 @@ suite("query75", "p0,external,hive,external_docker,external_docker_hive") {
         sql 'set forbid_unknown_col_stats=true'
         sql 'set broadcast_row_count_limit = 30000000'
         sql 'set enable_nereids_timeout = false'
+        sql 'set enable_pipeline_engine = true'
 
         qt_ds_shape_75 '''
     explain shape plan
