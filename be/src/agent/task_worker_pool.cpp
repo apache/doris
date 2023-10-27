@@ -1943,9 +1943,10 @@ void StorageMediumMigrateTaskPool::_storage_medium_migrate_worker_thread_callbac
         // check request and get info
         TabletSharedPtr tablet;
         DataDir* dest_store = nullptr;
-
-        auto status = _check_migrate_request(storage_medium_migrate_req, tablet, &dest_store);
-        if (status.ok()) {
+        
+        bool need_deal = true;
+        auto status = _check_migrate_request(storage_medium_migrate_req, tablet, &dest_store, &need_deal);
+        if (status.ok() && need_deal) {
             EngineStorageMigrationTask engine_task(tablet, dest_store);
             status = StorageEngine::instance()->execute_task(&engine_task);
         }
@@ -1973,7 +1974,8 @@ void StorageMediumMigrateTaskPool::_storage_medium_migrate_worker_thread_callbac
 
 Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMediumMigrateReq& req,
                                                             TabletSharedPtr& tablet,
-                                                            DataDir** dest_store) {
+                                                            DataDir** dest_store,
+                                                            bool* need_deal) {
     int64_t tablet_id = req.tablet_id;
     tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
@@ -2011,8 +2013,10 @@ Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMedium
         *dest_store = stores[0];
     }
     if (tablet->data_dir()->path() == (*dest_store)->path()) {
-        return Status::InternalError("tablet is already on specified path {}",
-                                     tablet->data_dir()->path());
+        LOG_WARNING("tablet is already on specified path")
+                .tag("path", tablet->data_dir()->path());
+        *need_deal = false;
+        return Status::OK();
     }
 
     // check local disk capacity
@@ -2021,7 +2025,7 @@ Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMedium
         return Status::InternalError("reach the capacity limit of path {}, tablet_size={}",
                                      (*dest_store)->path(), tablet_size);
     }
-
+    *need_deal = true;
     return Status::OK();
 }
 

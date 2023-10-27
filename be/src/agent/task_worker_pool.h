@@ -323,7 +323,7 @@ class StorageMediumMigrateTaskPool : public TaskWorkerPool {
 public:
     StorageMediumMigrateTaskPool(ExecEnv* env, ThreadModel thread_model);
     Status _check_migrate_request(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
-                                  DataDir** dest_store);
+                                  DataDir** dest_store, bool* need_deal);
     void _storage_medium_migrate_worker_thread_callback();
 
     DISALLOW_COPY_AND_ASSIGN(StorageMediumMigrateTaskPool);
