@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -150,7 +151,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                 for (AggregateFunction distinctAggFunc : distinctAggFuncs) {
                     List<Expression> newChildren = Lists.newArrayList();
                     for (Expression child : distinctAggFunc.children()) {
-                        if (child instanceof SlotReference) {
+                        if (child instanceof SlotReference || child instanceof Literal) {
                             newChildren.add(child);
                         } else {
                             NamedExpression alias;
