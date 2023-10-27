@@ -131,7 +131,7 @@ distribution_desc
         ```
   * `on update current_timestamp`
 
-        是否在该行有列更新时将该列的值更新为当前时间(`current_timestamp`)。开启了该特性的列必须声明默认值，且默认值必须为`current_timestamp`。如果此处声明了时间戳的精度，则该列默认值中的时间戳精度必须与该处的时间戳精度相同。
+        是否在该行有列更新时将该列的值更新为当前时间(`current_timestamp`)。该特性只能在开启了merge-on-write的unique表上使用，开启了这个特性的列必须声明默认值，且默认值必须为`current_timestamp`。如果此处声明了时间戳的精度，则该列默认值中的时间戳精度必须与该处的时间戳精度相同。
 
       
   示例：

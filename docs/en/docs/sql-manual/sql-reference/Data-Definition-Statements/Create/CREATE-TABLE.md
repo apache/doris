@@ -144,7 +144,7 @@ Column definition list:
 
     * `on update current_timestamp`
 
-        To indicate that whether the value of this column should be updated to the current timestamp (`current_timestamp`) when there is an update on the row. Columns with this feature enabled must declare a default value, and the default value must be `current_timestamp`. If the precision of the timestamp is declared here, the timestamp precision in the default value of the column must be the same as the precision declared here."
+        To indicate that whether the value of this column should be updated to the current timestamp (`current_timestamp`) when there is an update on the row. The feature is only available on unique table with merge-on-write enabled. Columns with this feature enabled must declare a default value, and the default value must be `current_timestamp`. If the precision of the timestamp is declared here, the timestamp precision in the default value of the column must be the same as the precision declared here."
 
     Example:
 

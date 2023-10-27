@@ -130,4 +130,45 @@ suite("nereids_update_on_current_timestamp") {
                     "enable_unique_key_merge_on_write" = "true");"""
         exception "The precision of the default value of column[update_time] should be the same with the precision in 'ON UPDATE CURRENT_TIMESTAMP'."
     }
+
+    // illegal case 4: use 'update on current_timestamp' on 
+    def illegal_t4 = "nereids_update_on_current_timestamp_illegal_4"
+    test {
+        sql """ DROP TABLE IF EXISTS ${illegal_t4} """
+        sql """ CREATE TABLE ${illegal_t4} (
+                    `id` int(11) NOT NULL COMMENT "用户 ID",
+                    `name` varchar(65533) DEFAULT "unknown" COMMENT "用户姓名",
+                    `score` int(11) NOT NULL COMMENT "用户得分",
+                    `test` int(11) NULL COMMENT "null test",
+                    `dft` int(11) DEFAULT "4321",
+                    `update_time` datetime(6) default current_timestamp(3) on update current_timestamp(3))
+                UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+                PROPERTIES(
+                    "replication_num" = "1",
+                    "enable_unique_key_merge_on_write" = "false");"""
+        exception "'ON UPDATE CURRENT_TIMESTAMP' is only supportted in unique table with merge-on-write enabled."
+    }
+
+    test {
+        sql """ DROP TABLE IF EXISTS ${illegal_t4} """
+        sql """ CREATE TABLE ${illegal_t4} (
+                    `id` int(11) NOT NULL COMMENT "用户 ID",
+                    `name` varchar(65533) DEFAULT "unknown" COMMENT "用户姓名",
+                    `score` int(11) NOT NULL COMMENT "用户得分",
+                    `test` int(11) NULL COMMENT "null test",
+                    `dft` int(11) DEFAULT "4321",
+                    `update_time` datetime default current_timestamp on update current_timestamp)
+                DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+                PROPERTIES("replication_num" = "1");"""
+        exception "'ON UPDATE CURRENT_TIMESTAMP' is only supportted in unique table with merge-on-write enabled."
+    }
+
+    test {
+        sql """ DROP TABLE IF EXISTS ${illegal_t4} """
+        sql """ CREATE TABLE IF NOT EXISTS ${illegal_t4} (
+                k int,
+                `update_time` datetime(6) default current_timestamp(4) on update current_timestamp(3)) replace,
+            ) AGGREGATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1");"""
+        exception "Syntax error"
+    }
 }
