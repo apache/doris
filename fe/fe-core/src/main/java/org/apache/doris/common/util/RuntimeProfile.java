@@ -819,7 +819,7 @@ public class RuntimeProfile {
         this.profileLevel = profileLevel;
     }
 
-    public void setPlaner(Planner planner) {
+    public void setFragmentPlanInfo(Planner planner) {
         if (planner != null) {
             this.planNodeMap = planner.getExplainStringMap();
         }
