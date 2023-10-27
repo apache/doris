@@ -209,7 +209,9 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
         ptr = doris::vectorized::PredicateColumnType<TYPE_IPV6>::create();
         break;
     default:
-        LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << int(field.type());
+        throw Exception(ErrorCode::SCHEMA_SCHEMA_FIELD_INVALID,
+                        fmt::format("Unexpected type when choosing predicate column, type={}",
+                                    int(field.type())));
     }
 
     if (field.is_nullable()) {
