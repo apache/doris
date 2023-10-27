@@ -30,7 +30,14 @@
 #include <roaring/roaring.hh>
 #include <vector>
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #include "common/config.h"
 #include "olap/field.h"
 #include "olap/inverted_index_parser.h"
@@ -621,6 +628,12 @@ Status InvertedIndexColumnWriter::create(const Field* field,
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
         *res = std::make_unique<
                 InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>>(
+                field_name, segment_file_name, dir, fs, index_meta);
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
+        *res = std::make_unique<
+                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL256>>(
                 field_name, segment_file_name, dir, fs, index_meta);
         break;
     }

@@ -414,11 +414,7 @@ protected:
 template <typename LocalStateType>
 class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
-    bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const override;
-
     Status try_close(RuntimeState* state) override;
-
-    FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override { return OperatorXBase::prepare(state); }
@@ -436,6 +432,7 @@ public:
     int64_t get_push_down_count() const { return _push_down_count; }
     using OperatorX<LocalStateType>::id;
     using OperatorX<LocalStateType>::operator_id;
+    using OperatorX<LocalStateType>::get_local_state;
 
 protected:
     using LocalState = LocalStateType;

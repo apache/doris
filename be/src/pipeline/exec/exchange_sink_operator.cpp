@@ -210,12 +210,14 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     }
     if (p._part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = channels.size();
-        _partitioner.reset(new vectorized::HashPartitioner(channels.size()));
+        _partitioner.reset(
+                new vectorized::XXHashPartitioner<vectorized::ShuffleChannelIds>(channels.size()));
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
     } else if (p._part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = channel_shared_ptrs.size();
-        _partitioner.reset(new vectorized::BucketHashPartitioner(channel_shared_ptrs.size()));
+        _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
+                channel_shared_ptrs.size()));
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
     }
@@ -231,6 +233,14 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(_partitioner->open(state));
     }
     return Status::OK();
+}
+
+std::string ExchangeSinkLocalState::id_name() {
+    std::string name = " (id=" + std::to_string(_parent->node_id());
+    auto& p = _parent->cast<ExchangeSinkOperatorX>();
+    name += ",dest_id=" + std::to_string(p._dest_node_id);
+    name += ")";
+    return name;
 }
 
 segment_v2::CompressionTypePB& ExchangeSinkLocalState::compression_type() {
@@ -288,7 +298,7 @@ void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrT
 
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                    SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     local_state._peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
@@ -388,12 +398,12 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(state, local_state.channels,
                                              local_state._partition_count,
-                                             (uint64_t*)local_state._partitioner->get_hash_values(),
+                                             (uint64_t*)local_state._partitioner->get_channel_ids(),
                                              rows, block, source_state == SourceState::FINISHED));
         } else {
             RETURN_IF_ERROR(channel_add_rows(state, local_state.channel_shared_ptrs,
                                              local_state._partition_count,
-                                             (uint32_t*)local_state._partitioner->get_hash_values(),
+                                             (uint32_t*)local_state._partitioner->get_channel_ids(),
                                              rows, block, source_state == SourceState::FINISHED));
         }
     } else {
@@ -475,7 +485,7 @@ Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& ch
 }
 
 Status ExchangeSinkOperatorX::try_close(RuntimeState* state, Status exec_status) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     local_state._serializer.reset_block();
     Status final_st = Status::OK();
     Status final_status = exec_status;
@@ -506,11 +516,6 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     _sink_buffer->update_profile(profile());
     _sink_buffer->close();
     return PipelineXSinkLocalState<>::close(state, exec_status);
-}
-
-FinishDependency* ExchangeSinkOperatorX::finish_blocked_by(RuntimeState* state) const {
-    auto& local_state = state->get_sink_local_state(operator_id())->cast<ExchangeSinkLocalState>();
-    return local_state._finish_dependency->finish_blocked_by();
 }
 
 } // namespace doris::pipeline

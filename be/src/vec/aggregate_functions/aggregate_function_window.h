@@ -389,9 +389,9 @@ template <typename Data>
 class WindowFunctionData final
         : public IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>> {
 public:
-    WindowFunctionData(const DataTypes& argument_types)
-            : IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>>(argument_types),
-              _argument_type(argument_types[0]) {}
+    WindowFunctionData(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>>(argument_types_),
+              _argument_type(argument_types_[0]) {}
 
     String get_name() const override { return Data::name(); }
 

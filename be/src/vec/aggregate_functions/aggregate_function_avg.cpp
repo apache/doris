@@ -35,7 +35,18 @@ struct Avg {
 template <typename T>
 using AggregateFuncAvg = typename Avg<T>::Function;
 
+template <typename T>
+struct AvgDecimal256 {
+    using FieldType = typename AvgNearestFieldTypeTrait256<T>::Type;
+    using Function = AggregateFunctionAvg<T, AggregateFunctionAvgData<FieldType>>;
+};
+
+template <typename T>
+using AggregateFuncAvgDecimal256 = typename AvgDecimal256<T>::Function;
+
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("avg", creator_with_type::creator<AggregateFuncAvg>);
+    factory.register_function_both("avg_decimal256",
+                                   creator_with_type::creator<AggregateFuncAvgDecimal256>);
 }
 } // namespace doris::vectorized

@@ -279,6 +279,8 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("intersect", new Integer(SqlParserSymbols.KW_INTERSECT));
         keywordMap.put("interval", new Integer(SqlParserSymbols.KW_INTERVAL));
         keywordMap.put("into", new Integer(SqlParserSymbols.KW_INTO));
+        keywordMap.put("ipv4", new Integer(SqlParserSymbols.KW_IPV4));
+        keywordMap.put("ipv6", new Integer(SqlParserSymbols.KW_IPV6));
         keywordMap.put("is", new Integer(SqlParserSymbols.KW_IS));
         keywordMap.put("isnull", new Integer(SqlParserSymbols.KW_ISNULL));
         keywordMap.put("isolation", new Integer(SqlParserSymbols.KW_ISOLATION));

@@ -116,7 +116,13 @@ std::unique_ptr<orc::ColumnVectorBatch> VOrcTransformer::_create_row_batch(size_
 }
 
 int64_t VOrcTransformer::written_len() {
-    return _output_stream->getLength();
+    // written_len() will be called in VFileResultWriter::_close_file_writer
+    // but _output_stream may be nullptr
+    // because the failure built by _schema in open()
+    if (_output_stream) {
+        return _output_stream->getLength();
+    }
+    return 0;
 }
 
 Status VOrcTransformer::close() {
@@ -126,6 +132,9 @@ Status VOrcTransformer::close() {
         } catch (const std::exception& e) {
             return Status::IOError(e.what());
         }
+    }
+    if (_output_stream) {
+        _output_stream->close();
     }
     return Status::OK();
 }

@@ -57,15 +57,10 @@ Status JdbcTableSinkOperatorX::open(RuntimeState* state) {
 
 Status JdbcTableSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                     SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     RETURN_IF_ERROR(local_state.sink(state, block, source_state));
     return Status::OK();
-}
-
-FinishDependency* JdbcTableSinkOperatorX::finish_blocked_by(RuntimeState* state) const {
-    auto& local_state = state->get_sink_local_state(operator_id())->cast<JdbcTableSinkLocalState>();
-    return local_state._finish_dependency->finish_blocked_by();
 }
 
 } // namespace doris::pipeline

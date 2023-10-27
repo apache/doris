@@ -195,9 +195,9 @@ template <typename Data>
 class ReaderFunctionData final
         : public IAggregateFunctionDataHelper<Data, ReaderFunctionData<Data>> {
 public:
-    ReaderFunctionData(const DataTypes& argument_types)
-            : IAggregateFunctionDataHelper<Data, ReaderFunctionData<Data>>(argument_types),
-              _argument_type(argument_types[0]) {}
+    ReaderFunctionData(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, ReaderFunctionData<Data>>(argument_types_),
+              _argument_type(argument_types_[0]) {}
 
     String get_name() const override { return Data::name(); }
 

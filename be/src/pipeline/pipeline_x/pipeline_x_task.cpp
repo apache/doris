@@ -44,14 +44,18 @@ class RuntimeState;
 
 namespace doris::pipeline {
 
-PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
+PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                              PipelineFragmentContext* fragment_context,
-                             RuntimeProfile* parent_profile)
-        : PipelineTask(pipeline, index, state, fragment_context, parent_profile),
+                             RuntimeProfile* parent_profile,
+                             std::shared_ptr<LocalExchangeSharedState> local_exchange_state,
+                             int task_idx)
+        : PipelineTask(pipeline, task_id, state, fragment_context, parent_profile),
           _operators(pipeline->operator_xs()),
           _source(_operators.front()),
           _root(_operators.back()),
-          _sink(pipeline->sink_shared_pointer()) {
+          _sink(pipeline->sink_shared_pointer()),
+          _local_exchange_state(local_exchange_state),
+          _task_idx(task_idx) {
     _pipeline_task_watcher.start();
     _sink->get_dependency(_downstream_dependency);
 }
@@ -82,7 +86,7 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
                 op_idx == _operators.size() - 1
                         ? _parent_profile
                         : state->get_local_state(_operators[op_idx + 1]->operator_id())->profile(),
-                scan_ranges, deps};
+                scan_ranges, deps, _local_exchange_state, _task_idx};
         RETURN_IF_ERROR(_operators[op_idx]->setup_local_state(state, info));
     }
 
@@ -96,16 +100,35 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
 
 Status PipelineXTask::extract_dependencies() {
     for (auto op : _operators) {
-        auto* local_state = _state->get_local_state(op->operator_id());
+        auto result = _state->get_local_state_result(op->operator_id());
+        if (!result) {
+            return result.error();
+        }
+        auto* local_state = result.value();
         auto* dep = local_state->dependency();
         DCHECK(dep != nullptr);
         _read_dependencies.push_back(dep);
+        auto* fin_dep = local_state->finishdependency();
+        _finish_dependencies.push_back(fin_dep);
     }
     {
-        auto* local_state = _state->get_sink_local_state(_sink->operator_id());
+        auto result = _state->get_sink_local_state_result(_sink->operator_id());
+        if (!result) {
+            return result.error();
+        }
+        auto* local_state = result.value();
         auto* dep = local_state->dependency();
         DCHECK(dep != nullptr);
         _write_dependencies = dep;
+        auto* fin_dep = local_state->finishdependency();
+        _finish_dependencies.push_back(fin_dep);
+    }
+    {
+        auto result = _state->get_local_state_result(_source->operator_id());
+        if (!result) {
+            return result.error();
+        }
+        _filter_dependency = result.value()->filterdependency();
     }
     return Status::OK();
 }

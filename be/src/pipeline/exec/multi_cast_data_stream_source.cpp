@@ -145,13 +145,16 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     }
     // init profile for runtime filter
     RuntimeFilterConsumer::_init_profile(profile());
+    _filter_dependency->set_filter_blocked_by_fn(
+            [this]() { return this->runtime_filters_are_ready_or_timeout(); });
     return Status::OK();
 }
 
 Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
                                                        vectorized::Block* block,
                                                        SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    //auto& local_state = get_local_state(state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     bool eos = false;
     vectorized::Block tmp_block;
