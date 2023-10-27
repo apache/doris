@@ -131,7 +131,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     _filter_dependency->set_filter_blocked_by_fn(
             [this]() { return this->runtime_filters_are_ready_or_timeout(); });
     auto& p = _parent->cast<typename Derived::Parent>();
-    set_scan_ranges(info.scan_ranges);
+    set_scan_ranges(state, info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
     for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); i++) {
         RETURN_IF_ERROR(
