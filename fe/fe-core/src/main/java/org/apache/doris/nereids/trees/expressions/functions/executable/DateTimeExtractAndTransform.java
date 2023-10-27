@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -446,9 +447,9 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: from_unixtime
      */
-    @ExecFunction(name = "from_unixtime", argTypes = {"INT"}, returnType = "VARCHAR")
-    public static Expression fromUnixTime(IntegerLiteral second) {
-        if (second.getValue() < 0 || second.getValue() >= 253402271999L) {
+    @ExecFunction(name = "from_unixtime", argTypes = {"BIGINT"}, returnType = "VARCHAR")
+    public static Expression fromUnixTime(BigIntLiteral second) {
+        if (second.getValue() < 0 || second.getValue() > 32536771199L) {
             return null;
         }
         return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s"));
@@ -457,8 +458,8 @@ public class DateTimeExtractAndTransform {
     /**
      * date transformation function: from_unixtime
      */
-    @ExecFunction(name = "from_unixtime", argTypes = {"INT", "VARCHAR"}, returnType = "VARCHAR")
-    public static Expression fromUnixTime(IntegerLiteral second, VarcharLiteral format) {
+    @ExecFunction(name = "from_unixtime", argTypes = {"BIGINT", "VARCHAR"}, returnType = "VARCHAR")
+    public static Expression fromUnixTime(BigIntLiteral second, VarcharLiteral format) {
         if (second.getValue() < 0) {
             return null;
         }
