@@ -124,5 +124,17 @@ suite("test_subquery_in_project") {
         select sum(distinct age + (select sum(age) from test_sql)) from test_sql;
     """
 
+    qt_sql17 """
+        select sum(age + (select sum(age) from test_sql)) over() from test_sql;
+    """
+
+    qt_sql18 """
+        select sum(age + (select sum(age) from test_sql)) over() from test_sql group by dt, age;
+    """
+
+    qt_sql20 """
+        select sum(age + (select sum(age) from test_sql)) from test_sql group by dt, age;
+    """
+
     sql """drop table if exists test_sql;"""
 }
