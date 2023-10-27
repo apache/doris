@@ -1170,7 +1170,7 @@ public class Config extends ConfigBase {
      *
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int decommission_tablet_wait_time_seconds = 20 * 60;
+    public static int decommission_tablet_wait_time_seconds = 3600;
 
     /**
      * Define thrift server's server model, default is TThreadPoolServer model
