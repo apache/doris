@@ -341,7 +341,14 @@ public class SlotRef extends Expr {
         if (desc != null) {
             return desc.getId().hashCode();
         }
-        return Objects.hashCode((tblName == null ? "" : tblName.toSql() + "." + label).toLowerCase());
+        if (subColLables == null || subColLables.isEmpty()) {
+            return Objects.hashCode((tblName == null ? "" : tblName.toSql() + "." + label).toLowerCase());
+        }
+        int result = Objects.hashCode((tblName == null ? "" : tblName.toSql() + "." + label).toLowerCase());
+        for (String sublabel : subColLables) {
+            result = 31 * result + Objects.hashCode(sublabel);
+        }
+        return result;
     }
 
     @Override
