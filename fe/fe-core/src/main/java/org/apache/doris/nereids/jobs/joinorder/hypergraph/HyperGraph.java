@@ -271,10 +271,11 @@ public class HyperGraph {
     }
 
     public BitSet getEdgesInOperator(long left, long right) {
-        BitSet opertorEdgesMap = getEdgesInTree(LongBitmap.or(left, right));
-        opertorEdgesMap.andNot(getEdgesInTree(left));
-        opertorEdgesMap.andNot(getEdgesInTree(left));
-        return opertorEdgesMap;
+        BitSet operatorEdgesMap = new BitSet();
+        operatorEdgesMap.or(getEdgesInTree(LongBitmap.or(left, right)));
+        operatorEdgesMap.andNot(getEdgesInTree(left));
+        operatorEdgesMap.andNot(getEdgesInTree(right));
+        return operatorEdgesMap;
     }
 
     /**

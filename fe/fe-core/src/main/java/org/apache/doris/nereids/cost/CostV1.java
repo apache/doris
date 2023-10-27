@@ -45,13 +45,6 @@ class CostV1 implements Cost {
                 + costWeight.networkWeight * networkCost;
     }
 
-    public CostV1(double cost) {
-        this.cost = cost;
-        this.cpuCost = 0;
-        this.networkCost = 0;
-        this.memoryCost = 0;
-    }
-
     public static CostV1 infinite() {
         return INFINITE;
     }

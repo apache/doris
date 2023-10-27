@@ -18,9 +18,6 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.PlanContext;
-import org.apache.doris.nereids.cost.Cost;
-import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.stats.JoinEstimation;
@@ -28,13 +25,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -72,7 +66,7 @@ public class GraphSimplifier {
     // because it's just used for simulating join. In fact, the graph simplifier
     // just generate the partial order of join operator.
     private final HashMap<Long, Statistics> cacheStats = new HashMap<>();
-    private final HashMap<Long, Cost> cacheCost = new HashMap<>();
+    private final HashMap<Long, Double> cacheCost = new HashMap<>();
     private final Deque<SimplificationStep> appliedSteps = new ArrayDeque<>();
     private final Deque<SimplificationStep> unAppliedSteps = new ArrayDeque<>();
 
@@ -92,7 +86,7 @@ public class GraphSimplifier {
         }
         for (Node node : graph.getNodes()) {
             cacheStats.put(node.getNodeMap(), node.getGroup().getStatistics());
-            cacheCost.put(node.getNodeMap(), Cost.withRowCount(node.getRowCount()));
+            cacheCost.put(node.getNodeMap(), node.getRowCount());
         }
         validEdges = graph.getEdges().stream()
                 .filter(e -> {
@@ -440,42 +434,21 @@ public class GraphSimplifier {
         cacheStats.put(bitmap, joinStats);
     }
 
-    private Cost calCost(Edge edge, long leftBitmap, long rightBitmap) {
+    private double calCost(Edge edge, long leftBitmap, long rightBitmap) {
         long bitmap = LongBitmap.newBitmapUnion(leftBitmap, rightBitmap);
         Preconditions.checkArgument(cacheStats.containsKey(leftBitmap) && cacheStats.containsKey(rightBitmap)
                         && cacheStats.containsKey(bitmap),
                 "graph simplifier meet an edge %s that have not been derived stats", edge);
         LogicalJoin<? extends Plan, ? extends Plan> join = edge.getJoin();
-        Statistics leftStats = cacheStats.get(leftBitmap);
-        Statistics rightStats = cacheStats.get(rightBitmap);
         Statistics stats = cacheStats.get(bitmap);
-        PlanContext planContext = new PlanContext(stats, ImmutableList.of(leftStats, rightStats));
-        Cost cost;
+        double cost;
         if (JoinUtils.shouldNestedLoopJoin(join)) {
-            PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin = new PhysicalNestedLoopJoin<>(
-                    join.getJoinType(),
-                    join.getHashJoinConjuncts(),
-                    join.getOtherJoinConjuncts(),
-                    join.getMarkJoinSlotReference(),
-                    join.getLogicalProperties(),
-                    join.left(),
-                    join.right());
-            cost = CostCalculator.calculateCost(nestedLoopJoin, planContext);
-            cost = CostCalculator.addChildCost(nestedLoopJoin, cost, cacheCost.get(leftBitmap), 0);
-            cost = CostCalculator.addChildCost(nestedLoopJoin, cost, cacheCost.get(rightBitmap), 1);
+            cost = cacheCost.get(leftBitmap) * cacheCost.get(rightBitmap) + stats.getRowCount();
         } else {
-            PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin = new PhysicalHashJoin<>(
-                    join.getJoinType(),
-                    join.getHashJoinConjuncts(),
-                    join.getOtherJoinConjuncts(),
-                    join.getHint(),
-                    join.getMarkJoinSlotReference(),
-                    join.getLogicalProperties(),
-                    join.left(),
-                    join.right());
-            cost = CostCalculator.calculateCost(hashJoin, planContext);
-            cost = CostCalculator.addChildCost(hashJoin, cost, cacheCost.get(leftBitmap), 0);
-            cost = CostCalculator.addChildCost(hashJoin, cost, cacheCost.get(rightBitmap), 1);
+            cost = cacheCost.get(leftBitmap) + cacheCost.get(rightBitmap) * 1.2 + stats.getRowCount();
+        }
+        if (!cacheCost.containsKey(bitmap) || cacheCost.get(bitmap) > cost) {
+            cacheCost.put(bitmap, cost);
         }
         return cost;
     }
@@ -496,11 +469,8 @@ public class GraphSimplifier {
         deriveStats(edge1, bitmap1, bitmap2);
         deriveStats(newEdge, newLeft, bitmap3);
 
-        Cost cost = calCost(edge1, bitmap1, bitmap2);
-        long fullKey = LongBitmap.newBitmapUnion(bitmap1, bitmap2);
-        if (!cacheCost.containsKey(fullKey) || cacheCost.get(fullKey).getValue() > cost.getValue()) {
-            cacheCost.put(fullKey, cost);
-        }
+        calCost(edge1, bitmap1, bitmap2);
+
         return newEdge;
     }
 
@@ -517,26 +487,22 @@ public class GraphSimplifier {
         deriveStats(edge2, bitmap2, bitmap3);
         deriveStats(newEdge, bitmap1, newRight);
 
-        Cost cost = calCost(edge1, bitmap2, bitmap3);
-        long fullKey = LongBitmap.newBitmapUnion(bitmap2, bitmap3);
-        if (!cacheCost.containsKey(fullKey) || cacheCost.get(fullKey).getValue() > cost.getValue()) {
-            cacheCost.put(fullKey, cost);
-        }
+        calCost(edge1, bitmap2, bitmap3);
         return newEdge;
     }
 
     private SimplificationStep orderJoin(Edge edge1Before2,
             Edge edge2Before1, int edgeIndex1, int edgeIndex2) {
-        Cost cost1Before2 = calCost(edge1Before2,
+        double cost1Before2 = calCost(edge1Before2,
                 edge1Before2.getLeftExtendedNodes(), edge1Before2.getRightExtendedNodes());
-        Cost cost2Before1 = calCost(edge2Before1,
+        double cost2Before1 = calCost(edge2Before1,
                 edge2Before1.getLeftExtendedNodes(), edge2Before1.getRightExtendedNodes());
         double benefit = Double.MAX_VALUE;
         SimplificationStep step;
         // Choose the plan with smaller cost and make the simplification step to replace the old edge by it.
-        if (cost1Before2.getValue() < cost2Before1.getValue()) {
-            if (cost1Before2.getValue() != 0) {
-                benefit = cost2Before1.getValue() / cost1Before2.getValue();
+        if (cost1Before2 < cost2Before1) {
+            if (cost1Before2 != 0) {
+                benefit = cost2Before1 / cost1Before2;
             }
             // choose edge1Before2
             step = new SimplificationStep(benefit, edgeIndex1, edgeIndex2,
@@ -544,16 +510,14 @@ public class GraphSimplifier {
                     edge1Before2.getRightExtendedNodes(),
                     graph.getEdge(edgeIndex2).getLeftExtendedNodes(),
                     graph.getEdge(edgeIndex2).getRightExtendedNodes());
-            cacheCost.put(edge1Before2.getReferenceNodes(), cost1Before2);
         } else {
-            if (cost2Before1.getValue() != 0) {
-                benefit = cost1Before2.getValue() / cost2Before1.getValue();
+            if (cost2Before1 != 0) {
+                benefit = cost1Before2 / cost2Before1;
             }
             // choose edge2Before1
             step = new SimplificationStep(benefit, edgeIndex2, edgeIndex1, edge2Before1.getLeftExtendedNodes(),
                     edge2Before1.getRightExtendedNodes(), graph.getEdge(edgeIndex1).getLeftExtendedNodes(),
                     graph.getEdge(edgeIndex1).getRightExtendedNodes());
-            cacheCost.put(edge2Before1.getReferenceNodes(), cost2Before1);
         }
         return step;
     }
