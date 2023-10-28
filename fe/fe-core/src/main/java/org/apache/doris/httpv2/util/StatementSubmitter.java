@@ -25,6 +25,7 @@ import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
@@ -73,6 +74,8 @@ public class StatementSubmitter {
     private static final String JDBC_DRIVER = "org.mariadb.jdbc.Driver";
     private static final String DB_URL_PATTERN = "jdbc:mariadb://127.0.0.1:%d/%s";
 
+    private static final String DB_URL_WITHOUT_DB_PATTERN = "jdbc:mariadb://127.0.0.1:%d";
+
     private final ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPool(2, "SQL submitter", true);
 
     public Future<ExecutionResultSet> submit(StmtContext queryCtx) {
@@ -95,7 +98,12 @@ public class StatementSubmitter {
 
             Connection conn = null;
             Statement stmt = null;
-            String dbUrl = String.format(DB_URL_PATTERN, Config.query_port, ctx.getDatabase());
+            String dbUrl;
+            if (ClusterNamespace.extract(ctx.getDatabase(), 1).equals("undefined")) {
+                dbUrl = String.format(DB_URL_WITHOUT_DB_PATTERN, Config.query_port);
+            } else {
+                dbUrl = String.format(DB_URL_PATTERN, Config.query_port, ctx.getDatabase());
+            }
             try {
                 Class.forName(JDBC_DRIVER);
                 conn = DriverManager.getConnection(dbUrl, queryCtx.user, queryCtx.passwd);
@@ -236,13 +244,13 @@ public class StatementSubmitter {
     }
 
     public static class StmtContext {
-        public String stmt;
-        public String user;
-        public String passwd;
-        public long limit; // limit the number of rows returned by the stmt
+        public final String stmt;
+        public final String user;
+        public final String passwd;
+        public final long limit; // limit the number of rows returned by the stmt
         // used for stream Work
-        public boolean isStream;
-        public HttpServletResponse response;
+        public final boolean isStream;
+        public final HttpServletResponse response;
 
         public StmtContext(String stmt, String user, String passwd, long limit,
                             boolean isStream, HttpServletResponse response) {

@@ -56,7 +56,7 @@ public class ClusterNamespace {
             return false;
         }
         final String[] ele = str.split(CLUSTER_DELIMITER);
-        return (ele.length > 1) ? true : false;
+        return ele.length > 1;
     }
 
     private static String linkString(String cluster, String name) {
@@ -72,7 +72,7 @@ public class ClusterNamespace {
         return sb.toString();
     }
 
-    private static String extract(String fullName, int index) {
+    public static String extract(String fullName, int index) {
         final String[] ele = fullName.split(CLUSTER_DELIMITER);
         return ele[index];
     }
