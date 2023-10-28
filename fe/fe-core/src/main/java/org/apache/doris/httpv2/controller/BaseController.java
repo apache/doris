@@ -104,7 +104,7 @@ public class BaseController {
     protected void addSession(HttpServletRequest request, HttpServletResponse response, SessionValue value) {
         String key = UUID.randomUUID().toString();
         Cookie cookie = new Cookie(PALO_SESSION_ID, key);
-        cookie.setSecure(false);
+        cookie.setSecure(true);
         cookie.setMaxAge(PALO_SESSION_EXPIRED_TIME);
         cookie.setPath("/");
         cookie.setHttpOnly(true);
@@ -172,6 +172,8 @@ public class BaseController {
             if (cookie.getName() != null && cookie.getName().equals(cookieName)) {
                 cookie.setMaxAge(age);
                 cookie.setPath("/");
+                cookie.setHttpOnly(true);
+                cookie.setSecure(true);
                 response.addCookie(cookie);
             }
         }
