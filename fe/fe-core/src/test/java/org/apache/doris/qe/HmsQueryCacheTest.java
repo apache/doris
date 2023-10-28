@@ -165,7 +165,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
         Deencapsulation.setField(tbl2, "objectCreated", true);
         Deencapsulation.setField(tbl2, "rwLock", new ReentrantReadWriteLock(true));
-        Deencapsulation.setField(tbl, "schemaUpdateTime", System.currentTimeMillis());
+        Deencapsulation.setField(tbl2, "schemaUpdateTime", NOW);
 
         new Expectations(tbl2) {
             {
