@@ -53,6 +53,7 @@ public:
               _start_time(std::chrono::steady_clock::now()),
               _all_block_queues_bytes(all_block_queues_bytes) {
         _mutex = std::make_shared<doris::Mutex>();
+        _single_block_queue_bytes = std::make_shared<std::atomic_size_t>(0);
     };
 
     Status add_block(std::shared_ptr<vectorized::FutureBlock> block);
@@ -80,6 +81,8 @@ private:
     Status _status = Status::OK();
     // memory consumption of all tables' load block queues, used for back pressure.
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
+    // memory consumption of one load block queue, used for correctness check.
+    std::shared_ptr<std::atomic_size_t> _single_block_queue_bytes;
 };
 
 class GroupCommitTable {

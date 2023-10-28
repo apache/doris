@@ -57,6 +57,7 @@ Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::FutureBlock> block)
     if (block->rows() > 0) {
         _block_queue.push_back(block);
         *_all_block_queues_bytes += block->bytes();
+        *_single_block_queue_bytes += block->bytes();
     }
     _get_cond.notify_all();
     return Status::OK();
@@ -77,7 +78,7 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
     }
     while (_status.ok() && _block_queue.empty() &&
            (!need_commit || (need_commit && !_load_ids.empty()))) {
-        CHECK(*_all_block_queues_bytes == 0);
+        CHECK(*_single_block_queue_bytes == 0);
         auto left_milliseconds = config::group_commit_interval_ms;
         if (!need_commit) {
             left_milliseconds = config::group_commit_interval_ms -
@@ -102,11 +103,11 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
         *find_block = true;
         _block_queue.pop_front();
         *_all_block_queues_bytes -= fblock->bytes();
-        CHECK(*_all_block_queues_bytes >= 0);
+        *_single_block_queue_bytes -= block->bytes();
         _put_cond.notify_all();
     }
     if (_block_queue.empty() && need_commit && _load_ids.empty()) {
-        CHECK(*_all_block_queues_bytes == 0);
+        CHECK(*_single_block_queue_bytes == 0);
         *eos = true;
     } else {
         *eos = false;
@@ -142,7 +143,7 @@ void LoadBlockQueue::cancel(const Status& st) {
             std::unique_lock<doris::Mutex> l0(*(future_block->lock));
             future_block->set_result(st, future_block->rows(), 0);
             *_all_block_queues_bytes -= future_block->bytes();
-            CHECK(*_all_block_queues_bytes >= 0);
+            *_single_block_queue_bytes -= future_block->bytes();
             future_block->cv->notify_all();
         }
         _block_queue.pop_front();
