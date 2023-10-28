@@ -203,7 +203,7 @@ DEFINE_Int32(sleep_one_second, "1");
 DEFINE_String(sys_log_dir, "${DORIS_HOME}/log");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
 // INFO, WARNING, ERROR, FATAL
-DEFINE_String(sys_log_level, "INFO");
+DEFINE_mString(sys_log_level, "INFO");
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
 DEFINE_String(sys_log_roll_mode, "SIZE-MB-1024");
 // log roll num
@@ -1500,6 +1500,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         if (PERSIST) {                                                                             \
             RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                     \
         }                                                                                          \
+        update_config(std::string((FIELD).name), VALUE);                                           \
         return Status::OK();                                                                       \
     }
 
@@ -1547,6 +1548,13 @@ Status set_config(const std::string& field, const std::string& value, bool need_
     // The other types are not thread safe to change dynamically.
     return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(
             "'{}' is type of '{}' which is not support to modify", field, it->second.type);
+}
+
+void update_config(const std::string& field, const std::string& value) {
+    if("sys_log_level" == field) {
+        // update log level
+        update_logging(field, value);
+    }
 }
 
 Status set_fuzzy_config(const std::string& field, const std::string& value) {
