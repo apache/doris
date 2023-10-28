@@ -450,7 +450,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
          * and JoinProbeOperator2.
          */
 
-        // First, set up the parent profile, 
+        // First, set up the parent profile,
         // then prepare the task profile and add it to operator_id_to_task_profile.
         std::vector<RuntimeProfile*> operator_id_to_task_profile(
                 max_operator_id(), _runtime_states[i]->runtime_profile());
