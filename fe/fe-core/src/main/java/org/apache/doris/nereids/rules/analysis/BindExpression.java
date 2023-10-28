@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Properties;
@@ -72,12 +73,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitors.InferPlanOutputAlias;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -564,10 +567,16 @@ public class BindExpression implements AnalysisRuleFactory {
             ),
             RuleType.BINDING_RESULT_SINK.build(
                 unboundResultSink().then(sink -> {
-                    List<NamedExpression> outputExprs = sink.child().getOutput().stream()
-                            .map(NamedExpression.class::cast)
-                            .collect(ImmutableList.toImmutableList());
-                    return new LogicalResultSink<>(outputExprs, sink.child());
+
+                    final ImmutableListMultimap.Builder<ExprId, Integer> exprIdToIndexMapBuilder =
+                            ImmutableListMultimap.builder();
+                    List<Slot> childOutput = sink.child().getOutput();
+                    for (int index = 0; index < childOutput.size(); index++) {
+                        exprIdToIndexMapBuilder.put(childOutput.get(index).getExprId(), index);
+                    }
+                    InferPlanOutputAlias aliasInfer = new InferPlanOutputAlias(childOutput);
+                    sink.child().accept(aliasInfer, exprIdToIndexMapBuilder.build());
+                    return new LogicalResultSink<>(aliasInfer.getOutputs(), sink.child());
                 })
             )
         ).stream().map(ruleCondition).collect(ImmutableList.toImmutableList());
