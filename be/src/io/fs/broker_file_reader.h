@@ -32,15 +32,14 @@
 #include "runtime/client_cache.h"
 #include "util/slice.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
 struct IOContext;
 
 class BrokerFileReader : public FileReader {
 public:
-    BrokerFileReader(const TNetworkAddress& broker_addr, const Path& path, size_t file_size,
-                     TBrokerFD fd, std::shared_ptr<BrokerFileSystem> fs);
+    BrokerFileReader(const TNetworkAddress& broker_addr, Path path, size_t file_size, TBrokerFD fd,
+                     std::shared_ptr<BrokerFileSystem> fs);
 
     ~BrokerFileReader() override;
 
@@ -68,5 +67,4 @@ private:
     std::shared_ptr<BrokerFileSystem> _fs;
     std::atomic<bool> _closed = false;
 };
-} // namespace io
-} // namespace doris
+} // namespace doris::io

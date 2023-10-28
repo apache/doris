@@ -35,14 +35,12 @@
 #include "io/fs/broker_file_system.h"
 #include "util/doris_metrics.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 struct IOContext;
 
-BrokerFileReader::BrokerFileReader(const TNetworkAddress& broker_addr, const Path& path,
-                                   size_t file_size, TBrokerFD fd,
-                                   std::shared_ptr<BrokerFileSystem> fs)
-        : _path(path),
+BrokerFileReader::BrokerFileReader(const TNetworkAddress& broker_addr, Path path, size_t file_size,
+                                   TBrokerFD fd, std::shared_ptr<BrokerFileSystem> fs)
+        : _path(std::move(path)),
           _file_size(file_size),
           _broker_addr(broker_addr),
           _fd(fd),
@@ -82,5 +80,4 @@ Status BrokerFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes
     return Status::OK();
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

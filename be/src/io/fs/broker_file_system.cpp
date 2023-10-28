@@ -90,8 +90,8 @@ BrokerFileSystem::BrokerFileSystem(const TNetworkAddress& broker_addr,
 
 Status BrokerFileSystem::connect_impl() {
     Status status = Status::OK();
-    _connection.reset(new BrokerServiceConnection(client_cache(), _broker_addr,
-                                                  config::thrift_rpc_timeout_ms, &status));
+    _connection = std::make_unique<BrokerServiceConnection>(client_cache(), _broker_addr,
+                                                            config::thrift_rpc_timeout_ms, &status);
     return status;
 }
 
@@ -498,13 +498,15 @@ Status BrokerFileSystem::read_file(const TBrokerFD& fd, size_t offset, size_t by
     if (response.opStatus.statusCode == TBrokerOperationStatusCode::END_OF_FILE) {
         // read the end of broker's file
         return Status::OK();
-    } else if (response.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
+    }
+    if (response.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
         std::stringstream ss;
         ss << "Open broker reader failed, broker:" << _broker_addr
            << " failed:" << response.opStatus.message;
         return Status::InternalError(ss.str());
     }
     *data = std::move(response.data);
+    return Status::OK();
 }
 
 Status BrokerFileSystem::close_file(const TBrokerFD& fd) const {
@@ -533,6 +535,7 @@ Status BrokerFileSystem::close_file(const TBrokerFD& fd) const {
         ss << "close broker file failed, broker:" << _broker_addr << " failed:" << response.message;
         return Status::InternalError(ss.str());
     }
+    return Status::OK();
 }
 
 std::string BrokerFileSystem::error_msg(const std::string& err) const {
