@@ -694,7 +694,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
         ((HMSExternalTable) table).unsetObjectCreated();
-        ((HMSExternalTable) table).setHmsUpdateTime(updateTime);
+        ((HMSExternalTable) table).setEventUpdateTime(updateTime);
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
@@ -760,7 +760,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
         if (table instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
-            ((HMSExternalTable) table).setHmsUpdateTime(log.getLastUpdateTime());
+            ((HMSExternalTable) table).setEventUpdateTime(log.getLastUpdateTime());
         }
     }
 
@@ -1013,7 +1013,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         HMSExternalTable hmsTable = (HMSExternalTable) table;
         Env.getCurrentEnv().getExtMetaCacheMgr().addPartitionsCache(catalog.getId(), hmsTable, partitionNames);
-        hmsTable.setHmsUpdateTime(updateTime);
+        hmsTable.setEventUpdateTime(updateTime);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());
@@ -1050,7 +1050,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         try {
             Env.getCurrentEnv().getExtMetaCacheMgr()
                         .addPartitionsCache(catalog.getId(), hmsTable, log.getPartitionNames());
-            hmsTable.setHmsUpdateTime(log.getLastUpdateTime());
+            hmsTable.setEventUpdateTime(log.getLastUpdateTime());
         } catch (HMSClientException e) {
             LOG.warn("Network problem occurs or hms table has been deleted, fallback to invalidate table cache", e);
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(),
@@ -1119,7 +1119,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         HMSExternalTable hmsTable = (HMSExternalTable) table;
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .dropPartitionsCache(catalog.getId(), hmsTable, log.getPartitionNames());
-        hmsTable.setHmsUpdateTime(log.getLastUpdateTime());
+        hmsTable.setEventUpdateTime(log.getLastUpdateTime());
     }
 
     public void refreshExternalPartitions(String catalogName, String dbName, String tableName,
@@ -1186,7 +1186,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidatePartitionsCache(catalog.getId(), db.getFullName(), table.getName(),
                         log.getPartitionNames());
-        ((HMSExternalTable) table).setHmsUpdateTime(log.getLastUpdateTime());
+        ((HMSExternalTable) table).setEventUpdateTime(log.getLastUpdateTime());
     }
 
     public void registerCatalogRefreshListener(Env env) {
