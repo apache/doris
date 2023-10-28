@@ -154,7 +154,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 minTimes = 0;
                 result = DLAType.HIVE;
 
-                tbl2.initSchemaAndUpdateTime();
+                tbl.initSchemaAndUpdateTime();
                 minTimes = 0;
 
                 tbl.getUpdateTime();
@@ -165,7 +165,6 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
         Deencapsulation.setField(tbl2, "objectCreated", true);
         Deencapsulation.setField(tbl2, "rwLock", new ReentrantReadWriteLock(true));
-        Deencapsulation.setField(tbl2, "schemaUpdateTime", NOW);
 
         new Expectations(tbl2) {
             {
@@ -204,7 +203,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 tbl2.initSchemaAndUpdateTime();
                 minTimes = 0;
 
-                tbl2.getUpdateTime();
+                tbl2.getSchemaUpdateTime();
                 minTimes = 0;
                 result = NOW;
             }
@@ -377,10 +376,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
         SqlCache sqlCache1 = (SqlCache) ca.getCache();
 
-        // latestTime is equals to the schema update time if not set partition update time
+        // latestTime is equals to the schema update time if not set event update time
         Assert.assertEquals(sqlCache1.getLatestTime(), tbl2.getSchemaUpdateTime());
 
-        // wait a second and set partition update time
+        // wait a second and set event update time
         try {
             Thread.sleep(1000);
         } catch (Throwable throwable) {
@@ -394,7 +393,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         SqlCache sqlCache2 = (SqlCache) ca.getCache();
         Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
 
-        // the latest time will be changed and is equals to the partition update time
+        // the latest time will be changed and is equals to the event update time
         Assert.assertEquals(later, sqlCache2.getLatestTime());
         Assert.assertTrue(sqlCache2.getLatestTime() > sqlCache1.getLatestTime());
     }
@@ -425,7 +424,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         // latestTime is equals to the schema update time if event update time is not set
         Assert.assertEquals(sqlCache1.getLatestTime(), tbl2.getSchemaUpdateTime());
 
-        // wait a second and set partition update time
+        // wait a second and set event update time
         try {
             Thread.sleep(1000);
         } catch (Throwable throwable) {
@@ -439,7 +438,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         SqlCache sqlCache2 = (SqlCache) ca.getCache();
         Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
 
-        // the latest time will be changed and is equals to the partition update time
+        // the latest time will be changed and is equals to the event update time
         Assert.assertEquals(later, sqlCache2.getLatestTime());
         Assert.assertTrue(sqlCache2.getLatestTime() > sqlCache1.getLatestTime());
     }
