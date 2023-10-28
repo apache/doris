@@ -249,6 +249,9 @@ public:
 
     TUniqueId instance_id() const { return _state->fragment_instance_id(); }
 
+
+    void set_parent_profile(RuntimeProfile* profile) { _parent_profile = profile; }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
