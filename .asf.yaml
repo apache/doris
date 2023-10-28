@@ -89,7 +89,6 @@ github:
           - Clang Formatter
           - CheckStyle
           - P0 Regression (Doris Regression)
-          - P0 Regression PipelineX (Doris Regression)
           - P1 Regression (Doris Regression)
           - External Regression (Doris External Regression)
           - FE UT (Doris FE UT)
