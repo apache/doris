@@ -136,6 +136,7 @@ Status GroupCommitTable::get_first_block_load_queue(
         int64_t table_id, std::shared_ptr<vectorized::FutureBlock> block,
         std::shared_ptr<LoadBlockQueue>& load_block_queue) {
     DCHECK(table_id == _table_id);
+    // just for test.
     auto base_schema_version = block->get_schema_version();
     {
         std::unique_lock l(_lock);
