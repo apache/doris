@@ -116,7 +116,7 @@ public class HMSExternalTable extends ExternalTable {
     private long estimatedRowCount = -1;
 
     // record the update time when enable hms event listener
-    protected volatile long hmsUpdateTime;
+    protected volatile long eventUpdateTime;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG, DELTALAKE
@@ -651,15 +651,15 @@ public class HMSExternalTable extends ExternalTable {
         }
     }
 
-    public void setHmsUpdateTime(long updateTime) {
-        this.hmsUpdateTime = updateTime;
+    public void setEventUpdateTime(long updateTime) {
+        this.eventUpdateTime = updateTime;
     }
 
     @Override
-    // get the max value of `schemaUpdateTime` and `hmsUpdateTime`
-    // hmsUpdateTime will be refreshed after processing some hms events with hms event listener enabled
+    // get the max value of `schemaUpdateTime` and `eventUpdateTime`
+    // eventUpdateTime will be refreshed after processing some kinds of hms events with hms event listener enabled
     public long getUpdateTime() {
-        return Math.max(this.schemaUpdateTime, this.hmsUpdateTime);
+        return Math.max(this.schemaUpdateTime, this.eventUpdateTime);
     }
 
     @Override
