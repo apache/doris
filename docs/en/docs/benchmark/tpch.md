@@ -226,7 +226,7 @@ Execute the above test SQL or execute the following command
 >1. At present, the query optimizer and statistics functions of Doris are not so perfect, so we rewrite some queries in TPC-H to adapt to the execution framework of Doris, but it does not affect the correctness of the results
 >
 >2. Doris' new query optimizer will be released in future versions
->3. Set `set mem_exec_limit=8G` before executing the query
+>3. Set `set exec_mem_limit=8G` before executing the query
 
 #### 7.6.2 Single SQL Execution
 
