@@ -52,6 +52,7 @@ public class MysqlSslContext {
     private static final String trustStoreFile = Config.mysql_ssl_default_ca_certificate;
     private static final String caCertificatePassword = Config.mysql_ssl_default_ca_certificate_password;
     private static final String serverCertificatePassword = Config.mysql_ssl_default_server_certificate_password;
+    private static final String trustStoreType = Config.ssl_trust_store_type;
     private ByteBuffer serverNetData;
     private ByteBuffer clientAppData;
     private ByteBuffer clientNetData;
@@ -67,8 +68,8 @@ public class MysqlSslContext {
 
     private void initSslContext() {
         try {
-            KeyStore ks = KeyStore.getInstance("PKCS12");
-            KeyStore ts = KeyStore.getInstance("PKCS12");
+            KeyStore ks = KeyStore.getInstance(trustStoreType);
+            KeyStore ts = KeyStore.getInstance(trustStoreType);
 
             char[] serverPassword = serverCertificatePassword.toCharArray();
             char[] caPassword = caCertificatePassword.toCharArray();
