@@ -154,6 +154,9 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 minTimes = 0;
                 result = DLAType.HIVE;
 
+                tbl2.initSchemaAndUpdateTime();
+                minTimes = 0;
+
                 tbl.getUpdateTime();
                 minTimes = 0;
                 result = NOW;
@@ -162,6 +165,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
         Deencapsulation.setField(tbl2, "objectCreated", true);
         Deencapsulation.setField(tbl2, "rwLock", new ReentrantReadWriteLock(true));
+        Deencapsulation.setField(tbl, "schemaUpdateTime", System.currentTimeMillis());
 
         new Expectations(tbl2) {
             {
@@ -197,9 +201,12 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 minTimes = 0;
                 result = DLAType.HIVE;
 
-                // mock init schema and do nothing
-                tbl2.initSchema();
+                tbl2.initSchemaAndUpdateTime();
                 minTimes = 0;
+
+                tbl2.getUpdateTime();
+                minTimes = 0;
+                result = NOW;
             }
         };
 
@@ -365,9 +372,6 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         StatementBase parseStmt = parseAndAnalyzeStmt("select * from hms_ctl.hms_db.hms_tbl2", connectContext);
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode4);
 
-        // invoke initSchemaAndUpdateTime first and init schemaUpdateTime
-        tbl2.initSchemaAndUpdateTime();
-
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
         Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
@@ -413,15 +417,12 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         StatementBase parseStmt = analyzeAndGetStmtByNereids("select * from hms_ctl.hms_db.hms_tbl2", connectContext);
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode4);
 
-        // invoke initSchemaAndUpdateTime first and init schemaUpdateTime
-        tbl2.initSchemaAndUpdateTime();
-
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
         Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
         SqlCache sqlCache1 = (SqlCache) ca.getCache();
 
-        // latestTime is equals to the schema update time if not set partition update time
+        // latestTime is equals to the schema update time if event update time is not set
         Assert.assertEquals(sqlCache1.getLatestTime(), tbl2.getSchemaUpdateTime());
 
         // wait a second and set partition update time
