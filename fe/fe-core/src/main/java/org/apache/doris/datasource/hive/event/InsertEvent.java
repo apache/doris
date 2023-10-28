@@ -78,12 +78,10 @@ public class InsertEvent extends MetastoreTableEvent {
             /**
              *  Only when we use hive client to execute a `INSERT INTO TBL SELECT * ...` or `INSERT INTO TBL ...` sql
              *  to a non-partitioned table then the hms will generate an insert event, and there is not
-             *  any partition event occurs, but the file cache may has been changed, so we need handle this.
-             *  Currently {@link org.apache.doris.datasource.CatalogMgr#refreshExternalTable} do not invalidate
-             *  the file cache of this table,
-             *  but <a href="https://github.com/apache/doris/pull/17932">this PR</a> has fixed it.
+             *  any partition event occurs, but the file cache may have been changed, so we need handle this.
              */
-            Env.getCurrentEnv().getCatalogMgr().refreshExternalTable(dbName, tblName, catalogName, true);
+            Env.getCurrentEnv().getCatalogMgr().refreshExternalTableFromEvent(dbName, tblName,
+                        catalogName, eventTime, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);

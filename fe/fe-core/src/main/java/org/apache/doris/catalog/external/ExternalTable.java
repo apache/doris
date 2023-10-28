@@ -77,7 +77,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected String dbName;
     // this field will be refreshed after reloading schema
     protected volatile long schemaUpdateTime;
-
     protected long dbId;
     protected boolean objectCreated;
     protected ExternalCatalog catalog;

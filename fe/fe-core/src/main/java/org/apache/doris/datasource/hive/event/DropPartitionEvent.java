@@ -103,7 +103,8 @@ public class DropPartitionEvent extends MetastorePartitionEvent {
                 return;
             }
             Env.getCurrentEnv().getCatalogMgr()
-                    .dropExternalPartitions(catalogName, dbName, hmsTbl.getTableName(), partitionNames, true);
+                    .dropExternalPartitions(catalogName, dbName, hmsTbl.getTableName(),
+                                partitionNames, eventTime, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);
@@ -123,7 +124,7 @@ public class DropPartitionEvent extends MetastorePartitionEvent {
             return false;
         }
 
-        // `that` event can be batched if this event's partitions contains all of the partitions which `that` event has
+        // `that` event can be batched if this event's partitions contains all the partitions which `that` event has
         // else just remove `that` event's relevant partitions
         for (String partitionName : getAllPartitionNames()) {
             if (thatPartitionEvent instanceof AddPartitionEvent) {

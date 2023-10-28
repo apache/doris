@@ -148,13 +148,14 @@ public class AlterTableEvent extends MetastoreTableEvent {
             }
             if (isView) {
                 // if this table is a view, `viewExpandedText/viewOriginalText` of this table may be changed,
-                // so we need to recreate the table to make sure `remoteTable` will be rebuild
+                // so we need to recreate the table to make sure `remoteTable` will be rebuilt
                 processRecreateTable();
                 return;
             }
             //The scope of refresh can be narrowed in the future
             Env.getCurrentEnv().getCatalogMgr()
-                    .refreshExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                    .refreshExternalTableFromEvent(tableBefore.getDbName(), tableBefore.getTableName(),
+                                catalogName, eventTime, true);
         } catch (Exception e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);

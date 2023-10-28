@@ -383,7 +383,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
             // do nothing
         }
         long later = System.currentTimeMillis();
-        tbl2.setPartitionUpdateTime(later);
+        tbl2.setHmsUpdateTime(later);
 
         // check cache mode again
         ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
@@ -431,7 +431,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
             // do nothing
         }
         long later = System.currentTimeMillis();
-        tbl2.setPartitionUpdateTime(later);
+        tbl2.setHmsUpdateTime(later);
 
         // check cache mode again
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
