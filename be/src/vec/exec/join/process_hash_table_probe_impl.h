@@ -143,8 +143,8 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
     if (!_parent->_ready_probe) {
         _parent->_ready_probe = true;
         hash_table_ctx.reset();
-        hash_table_ctx.init_serialized_keys_join(_parent->_probe_columns, probe_rows, null_map,
-                                                 hash_table_ctx.hash_table->get_bucket_size());
+        hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map, true,
+                                            false);
     }
     return typename HashTableType::State(_parent->_probe_columns);
 }
@@ -234,8 +234,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
     {
         SCOPED_TIMER(_search_hashtable_timer);
         auto [new_probe_idx, new_current_offset] = hash_table_ctx.hash_table->find_batch(
-                hash_table_ctx.keys, hash_table_ctx.join_hash_values.data(), probe_index,
-                probe_rows, _probe_indexs.data(), _build_indexs.data());
+                hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), probe_index, probe_rows,
+                _probe_indexs.data(), _build_indexs.data());
         probe_index = new_probe_idx;
         current_offset = new_current_offset;
         probe_size = probe_index - last_probe_index;

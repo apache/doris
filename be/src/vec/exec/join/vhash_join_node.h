@@ -134,19 +134,20 @@ struct ProcessHashTableBuild {
 
         SCOPED_TIMER(_parent->_build_table_insert_timer);
         hash_table_ctx.hash_table->prepare_build(_rows, _state->batch_size());
-        hash_table_ctx.init_serialized_keys_join(_build_raw_ptrs, _rows,
-                                                 null_map ? null_map->data() : nullptr,
-                                                 hash_table_ctx.hash_table->get_bucket_size());
-        hash_table_ctx.hash_table->build(hash_table_ctx.keys,
-                                         hash_table_ctx.join_hash_values.data(), _rows);
-        hash_table_ctx.join_hash_values.resize(_state->batch_size());
-        hash_table_ctx.join_hash_values.shrink_to_fit();
+        hash_table_ctx.set_bucket_size(hash_table_ctx.hash_table->get_bucket_size());
+
+        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
+                                            null_map ? null_map->data() : nullptr, true, true);
+        hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
+                                         _rows);
+        hash_table_ctx.bucket_nums.resize(_state->batch_size());
+        hash_table_ctx.bucket_nums.shrink_to_fit();
 
         return Status::OK();
     }
 
 private:
-    const int _rows;
+    const uint32_t _rows;
     Block& _acquired_block;
     ColumnRawPtrs& _build_raw_ptrs;
     Parent* _parent;
