@@ -40,8 +40,9 @@ namespace doris::vectorized {
 
 class VCSVTransformer final : public VFileFormatTransformer {
 public:
-    VCSVTransformer(doris::io::FileWriter* file_writer, const VExprContextSPtrs& output_vexpr_ctxs,
-                    bool output_object_data, std::string_view header_type, std::string_view header,
+    VCSVTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
+                    const VExprContextSPtrs& output_vexpr_ctxs, bool output_object_data,
+                    std::string_view header_type, std::string_view header,
                     std::string_view column_separator, std::string_view line_delimiter);
 
     ~VCSVTransformer() = default;
