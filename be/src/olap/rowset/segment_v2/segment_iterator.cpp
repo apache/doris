@@ -1044,48 +1044,50 @@ Status SegmentIterator::_apply_inverted_index() {
         }
     }
 
-    // delete from _common_expr_ctxs_push_down if MATCH predicate will be removed from _col_predicates
-    // since it's not necessary to eval it any more to avoid index miss
+    // delete from _common_expr_ctxs_push_down if a MATCH predicate will be removed from _col_predicates
+    // since it's not necessary to eval it any more to avoid index miss, which is added in _normalize_predicate
     for (auto pred : _col_predicates) {
         if (pred->type() == PredicateType::MATCH &&
             std::find(remaining_predicates.begin(), remaining_predicates.end(), pred) ==
-                remaining_predicates.end()) {
+                    remaining_predicates.end()) {
             MatchPredicate* match_pred = dynamic_cast<MatchPredicate*>(pred);
             for (auto it = _common_expr_ctxs_push_down.begin();
-                 it != _common_expr_ctxs_push_down.end(); ) {
-                if (*it) {
-                    auto expr = (*it)->root().get();
-                    if (expr->node_type() == TExprNodeType::MATCH_PRED && expr->children().size() == 2 &&
-                        expr->get_child(0)->is_slot_ref() && expr->get_child(1)->is_constant()) {
-                        auto slot_ref =
-                            dynamic_cast<vectorized::VSlotRef*>(expr->get_child(0).get());
-                        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
-                        if (expr->get_child(1)->get_const_col((*it).get(), &const_col_wrapper)) {
-                            if (const vectorized::ColumnConst* const_column =
-                                    check_and_get_column<vectorized::ColumnConst>(
-                                        const_col_wrapper->column_ptr)) {
-                                if (match_pred->column_id() == slot_ref->slot_id() &&
-                                    StringRef(match_pred->get_value()) == const_column->get_data_at(0)) {
-                                    // delete the expr from _common_expr_ctxs_push_down
-                                    VLOG_DEBUG << "delete expr from _common_expr_ctxs_push_down "
-                                               << expr->debug_string();
-                                    it = _common_expr_ctxs_push_down.erase(it);
-                                    for (auto it1 = _remaining_conjunct_roots.begin();
-                                         it1 != _remaining_conjunct_roots.end(); it1++) {
-                                        if (it1->get() == expr) {
-                                            VLOG_DEBUG << "delete expr from _remaining_conjunct_roots "
-                                                       << expr->debug_string();
-                                            _remaining_conjunct_roots.erase(it1);
-                                            break;
-                                        }
+                 it != _common_expr_ctxs_push_down.end(); it++) {
+                auto expr = (*it)->root().get();
+                // check expr type and child is the same as match predicate
+                if (expr->node_type() == TExprNodeType::MATCH_PRED &&
+                    expr->children().size() == 2 && expr->get_child(0)->is_slot_ref() &&
+                    expr->get_child(1)->is_constant()) {
+                    auto slot_ref = dynamic_cast<vectorized::VSlotRef*>(expr->get_child(0).get());
+                    std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+                    auto res = expr->get_child(1)->get_const_col((*it).get(), &const_col_wrapper);
+                    if (res.ok() && const_col_wrapper) {
+                        const auto const_column = check_and_get_column<vectorized::ColumnConst>(
+                                const_col_wrapper->column_ptr);
+                        if (const_column) {
+                            // check column id and predicate value is the same
+                            if ((match_pred->column_id() ==
+                                 _schema->column_id(slot_ref->column_id())) &&
+                                (StringRef(match_pred->get_value()) ==
+                                 const_column->get_data_at(0))) {
+                                // delete the expr from _remaining_conjunct_roots and _common_expr_ctxs_push_down
+                                for (auto it1 = _remaining_conjunct_roots.begin();
+                                     it1 != _remaining_conjunct_roots.end(); it1++) {
+                                    if (it1->get() == expr) {
+                                        VLOG_DEBUG << "delete expr from _remaining_conjunct_roots "
+                                                   << expr->debug_string();
+                                        _remaining_conjunct_roots.erase(it1);
+                                        break;
                                     }
-                                    break;
                                 }
+                                VLOG_DEBUG << "delete expr from _common_expr_ctxs_push_down "
+                                           << expr->debug_string();
+                                _common_expr_ctxs_push_down.erase(it);
+                                break;
                             }
                         }
                     }
                 }
-                it++;
             }
         }
     }
@@ -1159,8 +1161,9 @@ Status SegmentIterator::_init_inverted_index_iterators() {
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_inverted_index_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
-                    _opts.tablet_schema->column(cid), _opts.tablet_schema->get_inverted_index(cid),
-                    _opts, &_inverted_index_iterators[unique_id]));
+                    _opts.tablet_schema->column(cid),
+                    _opts.tablet_schema->get_inverted_index(unique_id), _opts,
+                    &_inverted_index_iterators[unique_id]));
         }
     }
     return Status::OK();
