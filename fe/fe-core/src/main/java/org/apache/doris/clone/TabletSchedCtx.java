@@ -324,6 +324,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.lastVisitedTime = lastVisitedTime;
     }
 
+    public long getLastVisitedTime() {
+        return lastVisitedTime;
+    }
+
     public void setFinishedTime(long finishedTime) {
         this.finishedTime = finishedTime;
     }
@@ -422,6 +426,14 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public void setErrMsg(String errMsg) {
         this.errMsg = errMsg;
+    }
+
+    public String getErrMsg() {
+        return errMsg;
+    }
+
+    public SubCode getSchedFailedCode() {
+        return schedFailedCode;
     }
 
     public CloneTask getCloneTask() {
@@ -935,13 +947,13 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     public CloneTask createCloneReplicaAndTask() throws SchedException {
         Backend srcBe = infoService.getBackend(srcReplica.getBackendId());
         if (srcBe == null) {
-            throw new SchedException(Status.SCHEDULE_FAILED,
+            throw new SchedException(Status.SCHEDULE_FAILED, SubCode.BACKEND_NOT_EXISTS,
                 "src backend " + srcReplica.getBackendId() + " does not exist");
         }
 
         Backend destBe = infoService.getBackend(destBackendId);
         if (destBe == null) {
-            throw new SchedException(Status.SCHEDULE_FAILED,
+            throw new SchedException(Status.SCHEDULE_FAILED, SubCode.BACKEND_NOT_EXISTS,
                 "dest backend " + destBackendId + " does not exist");
         }
 

@@ -31,6 +31,7 @@ public class SchedException extends Exception {
         NONE,
         WAITING_DECOMMISSION,
         WAITING_SLOT,
+        BACKEND_NOT_EXISTS,
     }
 
     private Status status;
