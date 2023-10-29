@@ -326,4 +326,12 @@ Status HashJoinDependency::extract_join_column(vectorized::Block& block,
     return Status::OK();
 }
 
+void FilterDependency::call_timeout_or_ready() {
+    std::unique_lock<std::mutex> lc(_lock);
+    if (_has_call) {
+        return;
+    }
+    _has_call = true;
+    _parent->sub_filters();
+}
 } // namespace doris::pipeline

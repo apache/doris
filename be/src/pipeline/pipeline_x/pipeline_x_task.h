@@ -166,7 +166,7 @@ private:
     std::vector<Dependency*> _read_dependencies;
     WriteDependency* _write_dependencies;
     std::vector<FinishDependency*> _finish_dependencies;
-    FilterDependency* _filter_dependency;
+    RuntimeFilterDependency* _filter_dependency;
 
     DependencyMap _upstream_dependency;
 

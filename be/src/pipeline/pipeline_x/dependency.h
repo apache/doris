@@ -19,11 +19,16 @@
 
 #include <sqltypes.h>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <thread>
+#include <utility>
 
+#include "common/logging.h"
 #include "concurrentqueue.h"
+#include "gutil/integral_types.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "vec/common/hash_table/hash_map_context_creator.h"
@@ -194,30 +199,133 @@ protected:
     const int _node_id;
 };
 
-class FilterDependency final : public Dependency {
-public:
-    FilterDependency(int id, int node_id, std::string name)
-            : Dependency(id, name),
-              _runtime_filters_are_ready_or_timeout(nullptr),
-              _node_id(node_id) {}
+struct RuntimeFilterTimerQueue {
+    constexpr static int64_t interval = 10;
+    ~RuntimeFilterTimerQueue() { _thread.detach(); }
+    RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
+    void start() {
+        while (true) {
+            std::unique_lock<std::mutex> lk(cv_m);
 
-    FilterDependency* filter_blocked_by() {
+            cv.wait(lk, [this] { return !_que.empty(); });
+
+            std::list<std::unique_ptr<TimerItem>> new_que;
+            for (auto& it : _que) {
+                if (!it->_has_ready) {
+                    int64_t ms_since_registration = MonotonicMillis() - it->_registration_time;
+                    if (ms_since_registration > it->_wait_times_ms) {
+                        it->_call_back();
+                    } else {
+                        new_que.push_back(std::move(it));
+                    }
+                }
+            }
+            new_que.swap(_que);
+            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
+        }
+    }
+
+    static std::atomic_bool* push_filter_timer(int64_t registration_time, int64_t wait_times_ms,
+                                               std::function<void()> call_back) {
+        static RuntimeFilterTimerQueue que;
+
+        return que.push(registration_time, wait_times_ms, call_back);
+    }
+    std::atomic_bool* push(int64_t registration_time, int64_t wait_times_ms,
+                           std::function<void()> call_back) {
+        std::unique_ptr<TimerItem> item =
+                std::make_unique<TimerItem>(call_back, registration_time, wait_times_ms);
+        auto* ready_ptr = &item->_has_ready;
+        std::unique_lock<std::mutex> lc(cv_m);
+        _que.push_back(std::move(item));
+        cv.notify_all();
+        return ready_ptr;
+    }
+    std::thread _thread;
+    std::condition_variable cv;
+    std::mutex cv_m;
+
+    struct TimerItem {
+        TimerItem(std::function<void()> call_back, int64_t registration_time, int64_t wait_times_ms)
+                : _call_back(std::move(call_back)),
+                  _has_ready(false),
+                  _registration_time(registration_time),
+                  _wait_times_ms(wait_times_ms) {}
+        std::function<void()> _call_back;
+        std::atomic_bool _has_ready;
+        const int64_t _registration_time;
+        const int64_t _wait_times_ms;
+    };
+
+    std::list<std::unique_ptr<TimerItem>> _que;
+};
+class RuntimeFilterDependency;
+class FilterDependency {
+public:
+    FilterDependency(int64_t registration_time, int32_t wait_time_ms,
+                     RuntimeFilterDependency* parent)
+            : _parent(parent) {
+        auto call_back = [&]() { call_timeout_or_ready(); };
+
+        _hash_ready = RuntimeFilterTimerQueue::push_filter_timer(registration_time, wait_time_ms,
+                                                                 call_back);
+    }
+
+    void set_filter_ready() {
+        *_hash_ready = true;
+        call_timeout_or_ready();
+    }
+
+    void call_timeout_or_ready();
+
+private:
+    std::atomic_bool* _hash_ready;
+    bool _has_call {};
+    RuntimeFilterDependency* _parent;
+    std::mutex _lock;
+};
+class RuntimeFilterDependency final : public Dependency {
+public:
+    RuntimeFilterDependency(int id, int node_id, std::string name)
+            : Dependency(id, name), _node_id(node_id) {}
+
+    RuntimeFilterDependency* filter_blocked_by() {
         if (!_runtime_filters_are_ready_or_timeout) {
             return nullptr;
         }
-        if (!_runtime_filters_are_ready_or_timeout()) {
-            return this;
+        if (_filters == 0) {
+            return nullptr;
         }
-        return nullptr;
+        return this;
     }
     void* shared_state() override { return nullptr; }
-    void set_filter_blocked_by_fn(std::function<bool()> call_fn) {
-        _runtime_filters_are_ready_or_timeout = call_fn;
+    void add_filters(IRuntimeFilter* runtime_filter) {
+        _filters++;
+        int64_t registration_time = runtime_filter->registration_time();
+        int32 wait_time_ms = runtime_filter->wait_time_ms();
+        auto filter = std::make_unique<FilterDependency>(registration_time, wait_time_ms, this);
+        runtime_filter->set_dependency(filter.get());
+        _filters_need_ready.push_back(std::move(filter));
+    }
+    void sub_filters() {
+        _filters--;
+        if (_filters == 0) {
+            call_task_ready();
+        }
+        _runtime_filters_are_ready_or_timeout();
+    }
+    void call_task_ready() {
+        /// TODO:
+    }
+    void set_runtime_filters_are_ready_or_timeout(std::function<void()> call_back) {
+        _runtime_filters_are_ready_or_timeout = call_back;
     }
 
 protected:
-    std::function<bool()> _runtime_filters_are_ready_or_timeout;
     const int _node_id;
+    std::atomic_int _filters;
+    std::vector<std::unique_ptr<FilterDependency>> _filters_need_ready;
+    std::function<void()> _runtime_filters_are_ready_or_timeout;
 };
 
 class AndDependency final : public WriteDependency {

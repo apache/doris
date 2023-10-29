@@ -19,6 +19,7 @@
 
 #include "exec/exec_node.h"
 #include "exprs/runtime_filter.h"
+#include "pipeline/pipeline_x/dependency.h"
 
 namespace doris::vectorized {
 
@@ -36,6 +37,8 @@ public:
     Status try_append_late_arrival_runtime_filter(int* arrived_rf_num);
 
     bool runtime_filters_are_ready_or_timeout();
+
+    void init_runtime_filter_dependency(doris::pipeline::RuntimeFilterDependency*);
 
 protected:
     // Register and get all runtime filters at Init phase.

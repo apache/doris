@@ -85,6 +85,16 @@ bool RuntimeFilterConsumer::runtime_filters_are_ready_or_timeout() {
     return true;
 }
 
+void RuntimeFilterConsumer::init_runtime_filter_dependency(
+        doris::pipeline::RuntimeFilterDependency* _runtime_filter_dependency) {
+    for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
+        IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
+        _runtime_filter_dependency->add_filters(runtime_filter);
+    }
+    _runtime_filter_dependency->set_runtime_filters_are_ready_or_timeout(
+            [this]() { runtime_filters_are_ready_or_timeout(); });
+}
+
 Status RuntimeFilterConsumer::_acquire_runtime_filter() {
     SCOPED_TIMER(_acquire_runtime_filter_timer);
     VExprSPtrs vexprs;

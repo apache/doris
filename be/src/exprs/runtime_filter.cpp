@@ -62,7 +62,7 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/runtime/shared_hash_table_controller.h"
-
+#include "pipeline/pipeline_x/dependency.h"
 namespace doris {
 
 // PrimitiveType-> PColumnType
@@ -1235,6 +1235,9 @@ void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
     if (_enable_pipeline_exec) {
         _rf_state_atomic.store(RuntimeFilterState::READY);
+        if (_dependency) {
+            _dependency->set_filter_ready();
+        }
     } else {
         std::unique_lock lock(_inner_mutex);
         _rf_state = RuntimeFilterState::READY;
@@ -1253,6 +1256,10 @@ void IRuntimeFilter::signal() {
         _profile->add_info_string("BloomFilterSize",
                                   std::to_string(_wrapper->get_bloom_filter_size()));
     }
+}
+
+void IRuntimeFilter::set_dependency(pipeline::FilterDependency* dependency) {
+    _dependency = dependency;
 }
 
 BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
