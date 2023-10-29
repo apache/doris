@@ -82,6 +82,11 @@ public:
         LOG(FATAL) << "insert_indices_from not supported in ColumnDictionary";
     }
 
+    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override {
+        LOG(FATAL) << "insert_indices_from_join not supported in ColumnDictionary";
+    }
+
     void pop_back(size_t n) override { LOG(FATAL) << "pop_back not supported in ColumnDictionary"; }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {

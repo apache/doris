@@ -132,6 +132,18 @@ public:
         }
     }
 
+    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override {
+        auto origin_size = size();
+        auto new_size = indices_end - indices_begin;
+        data.resize(origin_size + new_size);
+        const T* __restrict src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
+
+        for (uint32_t i = 0; i < new_size; ++i) {
+            data[origin_size + i] = src_data[indices_begin[i]];
+        }
+    }
+
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
 
     void insert_many_raw_data(const char* pos, size_t num) override {

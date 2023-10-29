@@ -804,6 +804,17 @@ void ColumnArray::insert_indices_from(const IColumn& src, const int* indices_beg
     }
 }
 
+void ColumnArray::insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                           const uint32_t* indices_end) {
+    for (auto x = indices_begin; x != indices_end; ++x) {
+        if (*x == 0) {
+            ColumnArray::insert_default();
+        } else {
+            ColumnArray::insert_from(src, *x);
+        }
+    }
+}
+
 ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) const {
     if (replicate_offsets.empty()) return clone_empty();
 

@@ -72,8 +72,8 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
         for (int i = 0; i < _right_col_len; i++) {
             const auto& column = *_build_block->get_by_position(i).column;
             if (output_slot_flags[i]) {
-                mcol[i + _right_col_idx]->insert_indices_from(column, _build_block_rows.data(),
-                                                              _build_block_rows.data() + size);
+                mcol[i + _right_col_idx]->insert_indices_from_join(column, _build_indexs.data(),
+                                                                   _build_indexs.data() + size);
             } else {
                 mcol[i + _right_col_idx]->insert_many_defaults(size);
             }
@@ -85,7 +85,7 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
         _tuple_is_null_right_flags->resize(size);
         auto* __restrict null_data = _tuple_is_null_right_flags->data();
         for (int i = 0; i < size; ++i) {
-            null_data[i] = _build_block_rows[i] == -1;
+            null_data[i] = _build_indexs[i] == 0;
         }
     }
 }
@@ -128,7 +128,7 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
     _right_col_len = _parent->right_table_data_types().size();
     _row_count_from_last_probe = 0;
 
-    _build_block_rows.clear();
+    _build_indexs.clear();
     _probe_indexs.clear();
     if (with_other_join_conjuncts) {
         // use in right join to change visited state after exec the vother join conjunct
@@ -138,12 +138,13 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
         _same_to_prev.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
     }
     _probe_indexs.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
-    _build_block_rows.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
+    _build_indexs.reserve(_batch_size * PROBE_SIDE_EXPLODE_RATE);
 
     if (!_parent->_ready_probe) {
         _parent->_ready_probe = true;
         hash_table_ctx.reset();
-        hash_table_ctx.init_serialized_keys_join(_parent->_probe_columns, probe_rows, null_map);
+        hash_table_ctx.init_serialized_keys_join(_parent->_probe_columns, probe_rows, null_map,
+                                                 hash_table_ctx.hash_table->get_bucket_size());
     }
     return typename HashTableType::State(_parent->_probe_columns);
 }
@@ -179,7 +180,7 @@ ForwardIterator<Mapped>& ProcessHashTableProbe<JoinOpType, Parent>::_probe_row_m
 template <int JoinOpType, typename Parent>
 void ProcessHashTableProbe<JoinOpType, Parent>::_emplace_element(int32_t block_row,
                                                                  int& current_offset) {
-    _build_block_rows.emplace_back(block_row);
+    _build_indexs.emplace_back(block_row);
     current_offset++;
 }
 
@@ -233,8 +234,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
     {
         SCOPED_TIMER(_search_hashtable_timer);
         auto [new_probe_idx, new_current_offset] = hash_table_ctx.hash_table->find_batch(
-                hash_table_ctx.keys, hash_table_ctx.join_hash_values.data(), probe_index, probe_rows,
-                _probe_indexs.data(), _build_block_rows.data());
+                hash_table_ctx.keys, hash_table_ctx.join_hash_values.data(), probe_index,
+                probe_rows, _probe_indexs.data(), _build_indexs.data());
         probe_index = new_probe_idx;
         current_offset = new_current_offset;
         probe_size = probe_index - last_probe_index;
@@ -704,16 +705,15 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
         _build_blocks_locs.resize(block_size);
 
         const auto size = _build_blocks_locs.size();
-        _build_block_rows.resize(_build_blocks_locs.size());
+        _build_indexs.resize(_build_blocks_locs.size());
         for (int i = 0; i < size; i++) {
-            _build_block_rows[i] = _build_blocks_locs[i];
+            _build_indexs[i] = _build_blocks_locs[i];
         }
 
         for (size_t j = 0; j < right_col_len; ++j) {
             const auto& column = *_build_block->get_by_position(j).column;
-            mcol[j + right_col_idx]->insert_indices_from(
-                    column, _build_block_rows.data(),
-                    _build_block_rows.data() + _build_block_rows.size());
+            mcol[j + right_col_idx]->insert_indices_from_join(
+                    column, _build_indexs.data(), _build_indexs.data() + _build_indexs.size());
         }
 
         // just resize the left table column in case with other conjunct to make block size is not zero

@@ -72,32 +72,31 @@ struct MethodBase {
     virtual void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                                       const uint8_t* null_map = nullptr) = 0;
 
-    virtual void init_serialized_keys_join(const ColumnRawPtrs& key_columns, size_t num_rows,
-                                      const uint8_t* null_map = nullptr) {
-    }
+    virtual void init_serialized_keys_join(const ColumnRawPtrs& key_columns, uint32_t num_rows,
+                                           const uint8_t* null_map = nullptr,
+                                           uint32_t bucket_size = 0) {}
 
-    void init_hash_values_join(size_t num_rows, const uint8_t* null_map) {
+    void init_hash_values_join(uint32_t num_rows, uint32_t bucket_size, const uint8_t* null_map) {
         if (null_map == nullptr) {
-            init_hash_values_join(num_rows);
+            init_hash_values_join(num_rows, bucket_size);
             return;
         }
         join_hash_values.resize(num_rows);
-        for (size_t k = 0; k < num_rows; ++k) {
+        for (uint32_t k = 0; k < num_rows; ++k) {
             if (null_map[k]) {
                 continue;
             }
 
-            join_hash_values[k] = hash_table->hash(keys[k]);
+            join_hash_values[k] = hash_table->hash(keys[k]) & (bucket_size - 1);
         }
     }
 
-    void init_hash_values_join(size_t num_rows) {
+    void init_hash_values_join(uint32_t num_rows, uint32_t bucket_size) {
         join_hash_values.resize(num_rows);
-        for (size_t k = 0; k < num_rows; ++k) {
-            join_hash_values[k] = hash_table->hash(keys[k]);
+        for (uint32_t k = 0; k < num_rows; ++k) {
+            join_hash_values[k] = hash_table->hash(keys[k]) & (bucket_size - 1);
         }
     }
-
 
     void init_hash_values(size_t num_rows, const uint8_t* null_map) {
         if (null_map == nullptr) {
@@ -295,15 +294,16 @@ struct MethodOneNumber : public MethodBase<TData> {
         Base::init_hash_values(num_rows, null_map);
     }
 
-    void init_serialized_keys_join(const ColumnRawPtrs& key_columns, size_t num_rows,
-                                           const uint8_t* null_map = nullptr) override {
+    void init_serialized_keys_join(const ColumnRawPtrs& key_columns, uint32_t num_rows,
+                                   const uint8_t* null_map = nullptr,
+                                   uint32_t bucket_size = 0) override {
         Base::keys = (FieldType*)(key_columns[0]->is_nullable()
-                                  ? assert_cast<const ColumnNullable*>(key_columns[0])
-                                          ->get_nested_column_ptr()
-                                  : key_columns[0])
-                ->get_raw_data()
-                .data;
-        Base::init_hash_values_join(num_rows, null_map);
+                                          ? assert_cast<const ColumnNullable*>(key_columns[0])
+                                                    ->get_nested_column_ptr()
+                                          : key_columns[0])
+                             ->get_raw_data()
+                             .data;
+        Base::init_hash_values_join(num_rows, bucket_size, null_map);
     }
 
     void insert_keys_into_columns(std::vector<typename Base::Key>& keys,

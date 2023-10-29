@@ -131,11 +131,17 @@ struct ProcessHashTableBuild {
         if (!_parent->runtime_filter_descs().empty()) {
             _parent->_inserted_blocks.insert(&_acquired_block);
         }
-        hash_table_ctx.init_serialized_keys_join(_build_raw_ptrs, _rows,
-                                            null_map ? null_map->data() : nullptr);
+
         SCOPED_TIMER(_parent->_build_table_insert_timer);
-        hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.join_hash_values.data(),
-                                         _rows, _state->batch_size());
+        hash_table_ctx.hash_table->prepare_build(_rows, _state->batch_size());
+        hash_table_ctx.init_serialized_keys_join(_build_raw_ptrs, _rows,
+                                                 null_map ? null_map->data() : nullptr,
+                                                 hash_table_ctx.hash_table->get_bucket_size());
+        hash_table_ctx.hash_table->build(hash_table_ctx.keys,
+                                         hash_table_ctx.join_hash_values.data(), _rows);
+        hash_table_ctx.join_hash_values.resize(_state->batch_size());
+        hash_table_ctx.join_hash_values.shrink_to_fit();
+
         return Status::OK();
     }
 
