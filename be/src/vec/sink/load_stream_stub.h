@@ -145,7 +145,7 @@ public:
 #endif
             ~LoadStreamStub();
 
-    // open_stream_sink
+    // open_load_stream
     Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
                 const std::vector<PTabletID>& tablets_for_schema, bool enable_profile);
