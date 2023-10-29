@@ -170,9 +170,9 @@ public class DiagnoseClusterBalanceProcDir extends SubProcDir {
                             .collect(Collectors.toList());
                     if (!lowBEs.isEmpty() || !highBEs.isEmpty()) {
                         baseBalance.status = DiagnoseStatus.ERROR;
-                        baseBalance.content = String.format("backend load not balance for tag %s, "
+                        baseBalance.content = String.format("backend load not balance for tag %s, storage medium %s, "
                                 + "low load backends %s, high load backends %s",
-                                stat.getTag(), lowBEs, highBEs);
+                                stat.getTag(), storageMedium.name().toUpperCase(), lowBEs, highBEs);
                         baseBalance.detailCmd = String.format("show proc \"/cluster_balance/cluster_load_stat/%s/%s\"",
                                 stat.getTag().toKey(), storageMedium.name().toUpperCase());
                         break OUTER1;
