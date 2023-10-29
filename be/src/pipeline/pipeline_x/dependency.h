@@ -303,8 +303,9 @@ public:
         _filters++;
         int64_t registration_time = runtime_filter->registration_time();
         int32 wait_time_ms = runtime_filter->wait_time_ms();
-        auto filter = std::make_shared<FilterDependency>(registration_time, wait_time_ms,
-                                                         shared_from_this());
+        auto filter = std::make_shared<FilterDependency>(
+                registration_time, wait_time_ms,
+                std::dynamic_pointer_cast<RuntimeFilterDependency>(shared_from_this()));
         runtime_filter->set_dependency(filter);
     }
     void sub_filters() {
