@@ -81,8 +81,6 @@ header:
     - "docker/thirdparties/docker-compose/hive/scripts/create_preinstalled_table.hql"
     - "docker/thirdparties/docker-compose/hive/scripts/create_tpch1_orc.hql"
     - "docker/thirdparties/docker-compose/hive/scripts/create_tpch1_parquet.hql"
-    - "docker/thirdparties/docker-compose/hive/scripts/create_tpcds100_orc.hql"
-    - "docker/thirdparties/docker-compose/hive/scripts/create_tpcds100_parquet.hql"
     - "docker/thirdparties/docker-compose/hive/scripts/preinstalled_data/"
     - "docker/thirdparties/docker-compose/iceberg/spark-defaults.conf.tpl"
     - "conf/mysql_ssl_default_certificate/*"
