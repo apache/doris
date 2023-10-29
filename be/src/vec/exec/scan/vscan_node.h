@@ -116,7 +116,8 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {}
+    virtual void set_scan_ranges(RuntimeState* state,
+                                 const std::vector<TScanRangeParams>& scan_ranges) {}
 
     void set_shared_scan(RuntimeState* state, bool shared_scan) {
         _shared_scan_opt = shared_scan;

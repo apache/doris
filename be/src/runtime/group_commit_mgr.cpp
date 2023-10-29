@@ -464,7 +464,7 @@ Status GroupCommitMgr::group_commit_insert(int64_t table_id, const TPlan& plan,
         RETURN_IF_ERROR(file_scan_node.prepare(runtime_state.get()));
         std::vector<TScanRangeParams> params_vector;
         params_vector.emplace_back(scan_range_params);
-        file_scan_node.set_scan_ranges(params_vector);
+        file_scan_node.set_scan_ranges(runtime_state.get(), params_vector);
         RETURN_IF_ERROR(file_scan_node.open(runtime_state.get()));
 
         // 3. Put the block into block queue.

@@ -293,7 +293,8 @@ TOlapScanNode& OlapScanLocalState::olap_scan_node() {
     return _parent->cast<OlapScanOperatorX>()._olap_scan_node;
 }
 
-void OlapScanLocalState::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
+                                         const std::vector<TScanRangeParams>& scan_ranges) {
     for (auto& scan_range : scan_ranges) {
         DCHECK(scan_range.scan_range.__isset.palo_scan_range);
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
