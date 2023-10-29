@@ -107,8 +107,8 @@ public class SystemHandler extends AlterHandler {
     @Override
     // add synchronized to avoid process 2 or more stmts at same time
     public synchronized void process(String rawSql, List<AlterClause> alterClauses, String clusterName,
-                                     Database dummyDb,
-                                     OlapTable dummyTbl) throws UserException {
+            Database dummyDb,
+            OlapTable dummyTbl) throws UserException {
         Preconditions.checkArgument(alterClauses.size() == 1);
         AlterClause alterClause = alterClauses.get(0);
 
@@ -263,31 +263,48 @@ public class SystemHandler extends AlterHandler {
         CancelAlterSystemStmt cancelAlterSystemStmt = (CancelAlterSystemStmt) stmt;
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         // check if backends is under decommission
-        List<Backend> backends = Lists.newArrayList();
         List<HostInfo> hostInfos = cancelAlterSystemStmt.getHostInfos();
-        for (HostInfo hostInfo : hostInfos) {
-            // check if exist
-            Backend backend = infoService.getBackendWithHeartbeatPort(hostInfo.getHost(),
-                    hostInfo.getPort());
-            if (backend == null) {
-                throw new DdlException("Backend does not exist["
-                        + NetUtils.getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
+        if (hostInfos.isEmpty()) {
+            List<String> ids = cancelAlterSystemStmt.getIds();
+            for (String id : ids) {
+                Backend backend = infoService.getBackend(Long.parseLong(id));
+                if (backend == null) {
+                    throw new DdlException("Backend does not exist["
+                            + id + "]");
+                }
+                if (!backend.isDecommissioned()) {
+                    // it's ok. just log
+                    LOG.info("backend is not decommissioned[{}]", backend.getId());
+                    continue;
+                }
+                if (backend.setDecommissioned(false)) {
+                    Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
+                } else {
+                    LOG.info("backend is not decommissioned[{}]", backend.getHost());
+                }
             }
 
-            if (!backend.isDecommissioned()) {
-                // it's ok. just log
-                LOG.info("backend is not decommissioned[{}]", backend.getId());
-                continue;
-            }
+        } else {
+            for (HostInfo hostInfo : hostInfos) {
+                // check if exist
+                Backend backend = infoService.getBackendWithHeartbeatPort(hostInfo.getHost(),
+                        hostInfo.getPort());
+                if (backend == null) {
+                    throw new DdlException("Backend does not exist["
+                            + NetUtils.getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
+                }
 
-            backends.add(backend);
-        }
+                if (!backend.isDecommissioned()) {
+                    // it's ok. just log
+                    LOG.info("backend is not decommissioned[{}]", backend.getId());
+                    continue;
+                }
 
-        for (Backend backend : backends) {
-            if (backend.setDecommissioned(false)) {
-                Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
-            } else {
-                LOG.info("backend is not decommissioned[{}]", backend.getHost());
+                if (backend.setDecommissioned(false)) {
+                    Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
+                } else {
+                    LOG.info("backend is not decommissioned[{}]", backend.getHost());
+                }
             }
         }
     }

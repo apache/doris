@@ -56,10 +56,6 @@ namespace segment_v2 {
 class SegmentWriter;
 } // namespace segment_v2
 
-namespace vectorized::schema_util {
-class LocalSchemaChangeRecorder;
-}
-
 class LoadStreamStub;
 
 class BetaRowsetWriterV2 : public RowsetWriter {

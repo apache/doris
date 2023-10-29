@@ -426,6 +426,8 @@ terminal String
     KW_INTERSECT,
     KW_INTERVAL,
     KW_INTO,
+    KW_IPV4,
+    KW_IPV6,
     KW_IS,
     KW_ISNULL,
     KW_ISOLATION,
@@ -6370,6 +6372,10 @@ type ::=
   {: RESULT = ScalarType.createDatetimeV2Type(precision.intValue()); :}
   | KW_DATETIMEV2
   {: RESULT = ScalarType.createDatetimeV2Type(0); :}
+  | KW_IPV4
+  {: RESULT = Type.IPV4; :}
+  | KW_IPV6
+  {: RESULT = Type.IPV6; :}
   | KW_BITMAP
   {: RESULT = Type.BITMAP; :}
   | KW_QUANTILE_STATE

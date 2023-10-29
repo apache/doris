@@ -630,10 +630,14 @@ public class ScalarType extends Type {
                 return "smallint(6)";
             case INT:
                 return "int(11)";
+            case IPV4:
+                return "ipv4";
             case BIGINT:
                 return "bigint(20)";
             case LARGEINT:
                 return "largeint(40)";
+            case IPV6:
+                return "ipv6";
             case FLOAT:
             case DOUBLE:
             case DATE:

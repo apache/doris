@@ -34,6 +34,8 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/large_int_value.h"
 #include "util/mysql_global.h"
+#include "vec/runtime/ipv4_value.h"
+#include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h" // IWYU pragma: keep
 
 namespace doris {
@@ -522,6 +524,18 @@ int MysqlRowBuffer<is_binary_format>::push_decimal(const DecimalV2Value& data, i
 
     _pos = add_decimal(data, round_scale, _pos, _dynamic_mode);
     return 0;
+}
+
+template <bool is_binary_format>
+int MysqlRowBuffer<is_binary_format>::push_ipv4(const IPv4Value& ipv4_val) {
+    auto ipv4_str = ipv4_val.to_string();
+    return push_string(ipv4_str.c_str(), ipv4_str.length());
+}
+
+template <bool is_binary_format>
+int MysqlRowBuffer<is_binary_format>::push_ipv6(const IPv6Value& ipv6_val) {
+    auto ipv6_str = ipv6_val.to_string();
+    return push_string(ipv6_str.c_str(), ipv6_str.length());
 }
 
 template <bool is_binary_format>

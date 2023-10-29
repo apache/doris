@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 
+#include "concurrentqueue.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "vec/common/hash_table/hash_map_context_creator.h"
@@ -151,7 +152,8 @@ protected:
 
 class FinishDependency final : public Dependency {
 public:
-    FinishDependency(int id, std::string name) : Dependency(id, name), _ready_to_finish(true) {}
+    FinishDependency(int id, int node_id, std::string name)
+            : Dependency(id, name), _ready_to_finish(true), _node_id(node_id) {}
     ~FinishDependency() override = default;
 
     void start_finish_watcher() {
@@ -161,15 +163,15 @@ public:
         _finish_dependency_watcher.start();
     }
 
-    [[nodiscard]] virtual int64_t finish_watcher_elapse_time() {
+    [[nodiscard]] int64_t finish_watcher_elapse_time() {
         return _finish_dependency_watcher.elapsed_time();
     }
 
-    [[nodiscard]] virtual FinishDependency* finish_blocked_by() {
+    [[nodiscard]] FinishDependency* finish_blocked_by() {
         if (config::enable_fuzzy_mode && !_ready_to_finish &&
             _finish_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
+                         << _node_id;
         }
         return _ready_to_finish ? nullptr : this;
     }
@@ -189,6 +191,33 @@ public:
 protected:
     std::atomic<bool> _ready_to_finish;
     MonotonicStopWatch _finish_dependency_watcher;
+    const int _node_id;
+};
+
+class FilterDependency final : public Dependency {
+public:
+    FilterDependency(int id, int node_id, std::string name)
+            : Dependency(id, name),
+              _runtime_filters_are_ready_or_timeout(nullptr),
+              _node_id(node_id) {}
+
+    FilterDependency* filter_blocked_by() {
+        if (!_runtime_filters_are_ready_or_timeout) {
+            return nullptr;
+        }
+        if (!_runtime_filters_are_ready_or_timeout()) {
+            return this;
+        }
+        return nullptr;
+    }
+    void* shared_state() override { return nullptr; }
+    void set_filter_blocked_by_fn(std::function<bool()> call_fn) {
+        _runtime_filters_are_ready_or_timeout = call_fn;
+    }
+
+protected:
+    std::function<bool()> _runtime_filters_are_ready_or_timeout;
+    const int _node_id;
 };
 
 class AndDependency final : public WriteDependency {
@@ -809,6 +838,50 @@ private:
     std::shared_ptr<SetSharedState> _set_state;
     int _cur_child_id;
     bool is_set_probe {false};
+};
+
+using PartitionedBlock = std::pair<std::shared_ptr<vectorized::Block>,
+                                   std::tuple<std::shared_ptr<std::vector<int>>, size_t, size_t>>;
+struct LocalExchangeSharedState {
+public:
+    ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
+    std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> data_queue;
+    std::atomic<int> running_sink_operators = 0;
+};
+
+struct LocalExchangeDependency final : public WriteDependency {
+public:
+    using SharedState = LocalExchangeSharedState;
+    LocalExchangeDependency(int id)
+            : WriteDependency(id, "LocalExchangeDependency"),
+              _local_exchange_shared_state(nullptr) {}
+    ~LocalExchangeDependency() override = default;
+    void* shared_state() override { return _local_exchange_shared_state.get(); }
+    void set_shared_state(std::shared_ptr<LocalExchangeSharedState> state) {
+        DCHECK(_local_exchange_shared_state == nullptr);
+        _local_exchange_shared_state = state;
+    }
+
+    void set_channel_id(int channel_id) { _channel_id = channel_id; }
+
+    Dependency* read_blocked_by() override {
+        if (config::enable_fuzzy_mode && !_should_run() &&
+            _read_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                         << id();
+        }
+        return _should_run() ? nullptr : this;
+    }
+
+private:
+    bool _should_run() const {
+        DCHECK(_local_exchange_shared_state != nullptr);
+        return _local_exchange_shared_state->data_queue[_channel_id].size_approx() > 0 ||
+               _local_exchange_shared_state->running_sink_operators == 0;
+    }
+
+    std::shared_ptr<LocalExchangeSharedState> _local_exchange_shared_state;
+    int _channel_id;
 };
 
 } // namespace pipeline

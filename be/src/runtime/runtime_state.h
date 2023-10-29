@@ -181,7 +181,7 @@ public:
         // Create a error status, so that we could print error stack, and
         // we could know which path call cancel.
         LOG(WARNING) << "Task is cancelled, instance: "
-                     << PrintInstanceStandardInfo(_query_id, _fragment_id, _fragment_instance_id)
+                     << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
                      << " st = " << Status::Error<ErrorCode::CANCELLED>(msg);
     }
 
@@ -328,6 +328,9 @@ public:
     bool enable_pipeline_exec() const {
         return _query_options.__isset.enable_pipeline_engine &&
                _query_options.enable_pipeline_engine;
+    }
+    bool enable_local_shuffle() const {
+        return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
     }
 
     bool trim_tailing_spaces_for_external_table_query() const {
