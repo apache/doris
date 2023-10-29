@@ -89,7 +89,7 @@ public:
 // a wrapper of parquet output stream
 class VParquetTransformer final : public VFileFormatTransformer {
 public:
-    VParquetTransformer(doris::io::FileWriter* file_writer,
+    VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                         const VExprContextSPtrs& output_vexpr_ctxs,
                         const std::vector<TParquetSchema>& parquet_schemas,
                         const TParquetCompressionType::type& compression_type,

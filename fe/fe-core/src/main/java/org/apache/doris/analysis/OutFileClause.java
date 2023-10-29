@@ -295,10 +295,12 @@ public class OutFileClause {
                 }
                 orcType = "string";
                 break;
+            case DATETIMEV2:
+                orcType = "timestamp";
+                break;
             case LARGEINT:
             case DATE:
             case DATETIME:
-            case DATETIMEV2:
             case DATEV2:
             case CHAR:
             case VARCHAR:
@@ -421,10 +423,16 @@ public class OutFileClause {
                                 + " but the type of column " + i + " is " + schema.second);
                     }
                     break;
+                case DATETIMEV2:
+                    if (!schema.second.equals("timestamp")) {
+                        throw new AnalysisException("project field type is " + resultType.getPrimitiveType().toString()
+                                + ", should use timestamp, but the definition type of column " + i + " is "
+                                + schema.second);
+                    }
+                    break;
                 case LARGEINT:
                 case DATE:
                 case DATETIME:
-                case DATETIMEV2:
                 case DATEV2:
                 case CHAR:
                 case VARCHAR:
