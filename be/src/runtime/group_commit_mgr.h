@@ -55,7 +55,6 @@ public:
         _mutex = std::make_shared<doris::Mutex>();
         _single_block_queue_bytes = std::make_shared<std::atomic_size_t>(0);
     };
-    static const size_t MAX_BLOCK_QUEUE_ADD_WAIT_TIME = 1000;
 
     Status add_block(std::shared_ptr<vectorized::FutureBlock> block);
     Status get_block(vectorized::Block* block, bool* find_block, bool* eos);
@@ -63,6 +62,7 @@ public:
     void remove_load_id(const UniqueId& load_id);
     void cancel(const Status& st);
 
+    static const size_t MAX_BLOCK_QUEUE_ADD_WAIT_TIME = 1000;
     UniqueId load_instance_id;
     std::string label;
     int64_t txn_id;

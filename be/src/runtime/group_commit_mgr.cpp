@@ -51,7 +51,8 @@ Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::FutureBlock> block)
     std::unique_lock l(*_mutex);
     RETURN_IF_ERROR(_status);
     while (*_all_block_queues_bytes > config::group_commit_max_queue_size) {
-        _put_cond.wait_for(l, std::chrono::milliseconds(MAX_BLOCK_QUEUE_ADD_WAIT_TIME));
+        _put_cond.wait_for(
+                l, std::chrono::milliseconds(LoadBlockQueue::MAX_BLOCK_QUEUE_ADD_WAIT_TIME));
     }
     if (block->rows() > 0) {
         _block_queue.push_back(block);
