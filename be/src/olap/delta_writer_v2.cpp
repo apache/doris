@@ -66,26 +66,26 @@ using namespace ErrorCode;
 
 Status DeltaWriterV2::open(WriteRequest* req,
                            const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                           DeltaWriterV2** writer, RuntimeProfile* profile) {
-    *writer = new DeltaWriterV2(req, streams, StorageEngine::instance(), profile);
+                           DeltaWriterV2** writer) {
+    *writer = new DeltaWriterV2(req, streams, StorageEngine::instance());
     return Status::OK();
 }
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
                              const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                             StorageEngine* storage_engine, RuntimeProfile* profile)
+                             StorageEngine* storage_engine)
         : _req(*req),
           _tablet_schema(new TabletSchema),
-          _profile(profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true,
-                                         true)),
           _memtable_writer(new MemTableWriter(*req)),
           _streams(streams) {
-    _init_profile(profile);
 }
 
-void DeltaWriterV2::_init_profile(RuntimeProfile* profile) {
-    _write_memtable_timer = ADD_TIMER(_profile, "WriteMemTableTime");
-    _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
+void DeltaWriterV2::_update_profile(RuntimeProfile* profile) {
+    auto child = profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true, true);
+    auto write_memtable_timer = ADD_TIMER(child, "WriteMemTableTime");
+    auto close_wait_timer = ADD_TIMER(child, "CloseWaitTime");
+    COUNTER_SET(write_memtable_timer, _write_memtable_time);
+    COUNTER_SET(close_wait_timer, _close_wait_time);
 }
 
 DeltaWriterV2::~DeltaWriterV2() {
@@ -149,7 +149,7 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<in
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
-    SCOPED_TIMER(_write_memtable_timer);
+    SCOPED_RAW_TIMER(&_write_memtable_time);
     return _memtable_writer->write(block, row_idxs, is_append);
 }
 
@@ -168,13 +168,16 @@ Status DeltaWriterV2::close() {
     return _memtable_writer->close();
 }
 
-Status DeltaWriterV2::close_wait() {
-    SCOPED_TIMER(_close_wait_timer);
+Status DeltaWriterV2::close_wait(RuntimeProfile* profile) {
+    SCOPED_RAW_TIMER(&_close_wait_time);
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
-
-    RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
+    
+    if (profile != nullptr) {
+        _update_profile(profile);
+    }
+    RETURN_IF_ERROR(_memtable_writer->close_wait(profile));
 
     _delta_written_success = true;
     return Status::OK();
