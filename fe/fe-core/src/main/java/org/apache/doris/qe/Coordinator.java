@@ -255,6 +255,8 @@ public class Coordinator implements CoordInterface {
     private boolean enablePipelineXEngine = false;
     private boolean fasterFloatConvert = false;
 
+    private boolean dryRunFe = false;
+
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
     public TUniqueId runtimeFilterMergeInstanceId;
@@ -320,6 +322,8 @@ public class Coordinator implements CoordInterface {
 
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
+        this.enablePipelineEngine = context.getSessionVariable().enablePipelineEngine;
+        this.dryRunFe = context.getSessionVariable().dryRunFe;
         // Only enable pipeline query engine in query, not load
         this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
                 && (fragments.size() > 0);
@@ -606,6 +610,9 @@ public class Coordinator implements CoordInterface {
     // A call to Exec() must precede all other member function calls.
     @Override
     public void exec() throws Exception {
+        if (dryRunFe) {
+            return;
+        }
         if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
                     DebugUtil.printId(queryId), scanNodes.get(0).treeToThrift());
