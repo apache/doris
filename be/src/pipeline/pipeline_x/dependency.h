@@ -303,9 +303,9 @@ public:
         _filters++;
         int64_t registration_time = runtime_filter->registration_time();
         int32 wait_time_ms = runtime_filter->wait_time_ms();
-        auto filter = std::make_unique<FilterDependency>(registration_time, wait_time_ms, this);
-        runtime_filter->set_dependency(filter.get());
-        _filters_need_ready.push_back(std::move(filter));
+        auto filter = std::make_shared<FilterDependency>(registration_time, wait_time_ms, this);
+        runtime_filter->set_dependency(filter);
+        _filters_need_ready.push_back(filter);
     }
     void sub_filters() {
         _filters--;
@@ -324,7 +324,7 @@ public:
 protected:
     const int _node_id;
     std::atomic_int _filters;
-    std::vector<std::unique_ptr<FilterDependency>> _filters_need_ready;
+    std::vector<std::shared_ptr<FilterDependency>> _filters_need_ready;
     std::function<void()> _runtime_filters_are_ready_or_timeout;
 };
 

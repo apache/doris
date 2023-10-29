@@ -397,7 +397,7 @@ public:
 
     int64_t registration_time() const { return registration_time_; }
 
-    void set_dependency(pipeline::FilterDependency* dependency);
+    void set_dependency(std::shared_ptr<pipeline::FilterDependency>);
 
 protected:
     // serialize _wrapper to protobuf
@@ -490,7 +490,7 @@ protected:
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
     bool _opt_remote_rf;
-    pipeline::FilterDependency* _dependency;
+    std::shared_ptr<pipeline::FilterDependency> _dependency;
 };
 
 // avoid expose RuntimePredicateWrapper

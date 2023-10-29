@@ -42,6 +42,7 @@
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
 #include "gutil/strings/substitute.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
@@ -62,7 +63,6 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/runtime/shared_hash_table_controller.h"
-#include "pipeline/pipeline_x/dependency.h"
 namespace doris {
 
 // PrimitiveType-> PColumnType
@@ -1258,7 +1258,7 @@ void IRuntimeFilter::signal() {
     }
 }
 
-void IRuntimeFilter::set_dependency(pipeline::FilterDependency* dependency) {
+void IRuntimeFilter::set_dependency(std::shared_ptr<pipeline::FilterDependency> dependency) {
     _dependency = dependency;
 }
 
