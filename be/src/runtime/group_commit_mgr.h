@@ -62,7 +62,7 @@ public:
     void remove_load_id(const UniqueId& load_id);
     void cancel(const Status& st);
 
-    static const size_t MAX_BLOCK_QUEUE_ADD_WAIT_TIME = 1000;
+    static constexpr size_t MAX_BLOCK_QUEUE_ADD_WAIT_TIME = 1000;
     UniqueId load_instance_id;
     std::string label;
     int64_t txn_id;
