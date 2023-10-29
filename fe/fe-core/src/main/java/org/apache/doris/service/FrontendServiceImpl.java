@@ -2061,7 +2061,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
             ctx.setExecutor(executor);
-            executor.getStreamLoadPlan(ctx.queryId(), request.isGroupCommit());
+            executor.getStreamLoadPlan(ctx.queryId());
 
             Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
             Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
@@ -2107,6 +2107,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
 
         ctx.setBackendId(request.getBackendId());
+        ctx.getSessionVariable().enableInsertGroupCommit = request.isGroupCommit();
 
         try {
             TExecPlanFragmentParams plan = initHttpStreamPlan(request, ctx);
