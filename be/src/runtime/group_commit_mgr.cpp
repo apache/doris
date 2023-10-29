@@ -50,9 +50,8 @@ Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::FutureBlock> block)
     DCHECK(block->get_schema_version() == schema_version);
     std::unique_lock l(*_mutex);
     RETURN_IF_ERROR(_status);
-    // TODO: change it.
     while (*_all_block_queues_bytes > config::group_commit_max_queue_size) {
-        _put_cond.wait(l);
+        _put_cond.wait_for(l, std::chrono::milliseconds(MAX_BLOCK_QUEUE_ADD_WAIT_TIME));
     }
     if (block->rows() > 0) {
         _block_queue.push_back(block);
@@ -104,7 +103,6 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
         _block_queue.pop_front();
         *_all_block_queues_bytes -= fblock->bytes();
         *_single_block_queue_bytes -= block->bytes();
-        _put_cond.notify_all();
     }
     if (_block_queue.empty() && need_commit && _load_ids.empty()) {
         CHECK(*_single_block_queue_bytes == 0);
@@ -112,6 +110,7 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
     } else {
         *eos = false;
     }
+    _put_cond.notify_all();
     return Status::OK();
 }
 

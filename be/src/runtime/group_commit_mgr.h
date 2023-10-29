@@ -55,6 +55,7 @@ public:
         _mutex = std::make_shared<doris::Mutex>();
         _single_block_queue_bytes = std::make_shared<std::atomic_size_t>(0);
     };
+    static const size_t MAX_BLOCK_QUEUE_ADD_WAIT_TIME = 1000;
 
     Status add_block(std::shared_ptr<vectorized::FutureBlock> block);
     Status get_block(vectorized::Block* block, bool* find_block, bool* eos);
