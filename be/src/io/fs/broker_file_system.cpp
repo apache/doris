@@ -45,8 +45,7 @@
 #include "runtime/exec_env.h"
 #include "util/slice.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
 #ifdef BE_TEST
 inline BrokerServiceClientCache* client_cache() {
@@ -70,7 +69,7 @@ inline const std::string& client_id(const TNetworkAddress& addr) {
 
 #ifndef CHECK_BROKER_CLIENT
 #define CHECK_BROKER_CLIENT(client)                         \
-    if (!client) {                                          \
+    if (!client || !client->is_alive()) {                   \
         return Status::IOError("connect to broker failed"); \
     }
 #endif
@@ -542,5 +541,4 @@ std::string BrokerFileSystem::error_msg(const std::string& err) const {
     return fmt::format("({}:{}), {}", _broker_addr.hostname, _broker_addr.port, err);
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io
