@@ -315,7 +315,7 @@ PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXB
           _state(state),
           _finish_dependency(new FinishDependency(parent->operator_id(), parent->node_id(),
                                                   parent->get_name() + "_FINISH_DEPENDENCY")) {
-    _filter_dependency = std::make_unique<RuntimeFilterDependency>(
+    _filter_dependency = std::make_shared<RuntimeFilterDependency>(
             parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY");
 }
 

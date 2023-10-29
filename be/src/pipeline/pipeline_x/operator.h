@@ -133,7 +133,7 @@ protected:
     bool _closed = false;
     vectorized::Block _origin_block;
     std::shared_ptr<FinishDependency> _finish_dependency;
-    std::unique_ptr<RuntimeFilterDependency> _filter_dependency;
+    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
 };
 
 class OperatorXBase : public OperatorBase {
