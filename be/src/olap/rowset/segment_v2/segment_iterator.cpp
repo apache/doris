@@ -532,8 +532,8 @@ Status SegmentIterator::_apply_bitmap_index() {
 
     std::vector<ColumnPredicate*> remaining_predicates;
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (static_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
-            static_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
+        if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
+            dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
             return true;
         }
 

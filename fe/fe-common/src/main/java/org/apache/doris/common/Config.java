@@ -1919,6 +1919,12 @@ public class Config extends ConfigBase {
     public static boolean ssl_force_client_auth = false;
 
     /**
+     * ssl connection needs to authenticate client's certificate store type.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String ssl_trust_store_type = "PKCS12";
+
+    /**
      * Default CA certificate file location for mysql ssl connection.
      */
     @ConfField(mutable = false, masterOnly = false)
