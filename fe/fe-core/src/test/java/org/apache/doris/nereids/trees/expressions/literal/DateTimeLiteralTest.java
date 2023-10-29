@@ -137,7 +137,7 @@ class DateTimeLiteralTest {
         };
         DateTimeV2Literal dateTimeV2Literal;
         dateTimeV2Literal = new DateTimeV2Literal("2022-08-01 00:00:00Europe/London"); // +01:00
-        assertHour.accept(dateTimeV2Literal, 7L);
+        assertHour.accept(dateTimeV2Literal, 8L);
         dateTimeV2Literal = new DateTimeV2Literal("2022-08-01 00:00:00America/New_York"); // -04:00
         assertHour.accept(dateTimeV2Literal, 12L);
         dateTimeV2Literal = new DateTimeV2Literal("2022-08-01 00:00:00Asia/Shanghai");
