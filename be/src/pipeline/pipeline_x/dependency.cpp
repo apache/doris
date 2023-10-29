@@ -332,6 +332,8 @@ void FilterDependency::call_timeout_or_ready() {
         return;
     }
     _has_call = true;
-    _parent->sub_filters();
+    if (_parent) {
+        _parent->sub_filters();
+    }
 }
 } // namespace doris::pipeline

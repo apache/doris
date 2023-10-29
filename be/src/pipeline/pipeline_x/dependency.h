@@ -263,7 +263,7 @@ class RuntimeFilterDependency;
 class FilterDependency {
 public:
     FilterDependency(int64_t registration_time, int32_t wait_time_ms,
-                     RuntimeFilterDependency* parent)
+                     std::shared_ptr<RuntimeFilterDependency> parent)
             : _parent(parent) {
         auto call_back = [&]() { call_timeout_or_ready(); };
 
@@ -281,7 +281,7 @@ public:
 private:
     std::atomic_bool* _hash_ready;
     bool _has_call {};
-    RuntimeFilterDependency* _parent;
+    std::shared_ptr<RuntimeFilterDependency> _parent;
     std::mutex _lock;
 };
 class RuntimeFilterDependency final : public Dependency {
@@ -303,9 +303,9 @@ public:
         _filters++;
         int64_t registration_time = runtime_filter->registration_time();
         int32 wait_time_ms = runtime_filter->wait_time_ms();
-        auto filter = std::make_shared<FilterDependency>(registration_time, wait_time_ms, this);
+        auto filter = std::make_shared<FilterDependency>(registration_time, wait_time_ms,
+                                                         shared_from_this());
         runtime_filter->set_dependency(filter);
-        _filters_need_ready.push_back(filter);
     }
     void sub_filters() {
         _filters--;
@@ -324,7 +324,6 @@ public:
 protected:
     const int _node_id;
     std::atomic_int _filters;
-    std::vector<std::shared_ptr<FilterDependency>> _filters_need_ready;
     std::function<void()> _runtime_filters_are_ready_or_timeout;
 };
 
