@@ -50,23 +50,14 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.GroupCommitOlapTableSink;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
-import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.planner.external.jdbc.JdbcTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.tablefunction.GroupCommitTableValuedFunction;
-import org.apache.doris.task.StreamLoadTask;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TFileCompressType;
-import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TMergeType;
-import org.apache.doris.thrift.TPlan;
-import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TQueryOptions;
-import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
@@ -87,7 +78,6 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -1098,34 +1088,14 @@ public class NativeInsertStmt extends InsertStmt {
         if (targetColumnNames != null) {
             streamLoadPutRequest.setColumns(String.join(",", targetColumnNames));
         }
-        streamLoadPutRequest.setDb(db.getFullName()).setMaxFilterRatio(1)
-                .setTbl(getTbl())
-                .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
-                .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(queryId)
-                .setGroupCommit(true);
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(streamLoadPutRequest);
-        StreamLoadPlanner planner = new StreamLoadPlanner((Database) getDbObj(), olapTable, streamLoadTask);
-        // Will using load id as query id in fragment
-        TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-        DescriptorTable descTable = planner.getDescTable();
-        TPlanFragment fragment = tRequest.getFragment();
-        TPlan plan = fragment.getPlan();
-        for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
-            for (TScanRangeParams scanRangeParams : entry.getValue()) {
-                scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
-                        TFileFormatType.FORMAT_PROTO);
-                scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
-                        TFileCompressType.PLAIN);
-            }
-        }
-        List<TScanRangeParams> scanRangeParams = tRequest.params.per_node_scan_ranges.values().stream()
-                .flatMap(Collection::stream).collect(Collectors.toList());
-        Preconditions.checkState(scanRangeParams.size() == 1);
+
+        GroupCommitPlanner groupCommitPlanner = new GroupCommitPlanner((Database) db, olapTable, queryId);
+
         // save plan message to be reused for prepare stmt
         loadId = queryId;
-        planBytes = ByteString.copyFrom(new TSerializer().serialize(plan));
-        tableBytes = ByteString.copyFrom(new TSerializer().serialize(descTable.toThrift()));
-        rangeBytes = ByteString.copyFrom(new TSerializer().serialize(scanRangeParams.get(0)));
+        planBytes = ByteString.copyFrom(new TSerializer().serialize(groupCommitPlanner.getPlan()));
+        tableBytes = ByteString.copyFrom(new TSerializer().serialize(groupCommitPlanner.getDescTable().toThrift()));
+        rangeBytes = ByteString.copyFrom(new TSerializer().serialize(groupCommitPlanner.getScanRangeParam()));
         baseSchemaVersion = olapTable.getBaseSchemaVersion();
     }
 

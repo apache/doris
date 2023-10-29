@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.TableName;
@@ -29,6 +30,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.datasource.InternalCatalog;
@@ -44,12 +46,23 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.txn.Transaction;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.UnionNode;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
+import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.RpcException;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -57,8 +70,10 @@ import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,6 +81,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 /**
  * insert into select command implementation
@@ -140,7 +157,15 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         }
 
         OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
-
+        if (ctx.getSessionVariable().enableInsertGroupCommit) {
+            // group commit
+            if (!analyzeGroupCommit(sink, physicalOlapTableSink)) {
+                throw new AnalysisException("Nereids does not support group_commit "
+                        + "for this SQL statement, query id: " + ctx.queryId());
+            }
+            handleGroupCommit(ctx, sink, physicalOlapTableSink);
+            return;
+        }
         Preconditions.checkArgument(!isTxnBegin, "an insert command cannot create more than one txn");
         Transaction txn = new Transaction(ctx,
                 physicalOlapTableSink.getDatabase(),
@@ -330,6 +355,68 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             LOG.warn("IOT drop partitions error", ex);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
         }
+    }
+
+    private void handleGroupCommit(ConnectContext ctx, OlapTableSink sink,
+                PhysicalOlapTableSink<?> physicalOlapTableSink)
+                throws UserException, RpcException, TException, ExecutionException, InterruptedException {
+        Backend backend = ctx.getInsertGroupCommit(physicalOlapTableSink.getTargetTable().getId());
+        if (backend == null || !backend.isAlive()) {
+            List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+            if (allBackendIds.isEmpty()) {
+                throw new DdlException("No alive backend");
+            }
+            Collections.shuffle(allBackendIds);
+            backend = Env.getCurrentSystemInfo().getBackend(allBackendIds.get(0));
+            ctx.setInsertGroupCommit(physicalOlapTableSink.getTargetTable().getId(), backend);
+        }
+        // TODO `select constant` and `union` or `union all`
+        // Currently, only `inert into values` are processed
+        List<InternalService.PDataRow> rows = new ArrayList<>();
+        List<List<Expr>> materializedConstExprLists = ((UnionNode) sink.getFragment().getPlanRoot())
+                    .getMaterializedConstExprLists();
+        for (List<Expr> list : materializedConstExprLists) {
+            rows.add(StmtExecutor.getRowStringValue(list));
+        }
+
+        GroupCommitPlanner groupCommitPlanner = new GroupCommitPlanner(physicalOlapTableSink.getDatabase(),
+                physicalOlapTableSink.getTargetTable(), ctx.queryId());
+        PGroupCommitInsertRequest request = groupCommitPlanner.createPGroupCommitInsertRequest(rows);
+        Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
+                .groupCommitInsert(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
+        PGroupCommitInsertResponse response = future.get();
+        TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
+        if (code == TStatusCode.DATA_QUALITY_ERROR) {
+            LOG.info("group commit insert failed. query id: {}, backend id: {}, status: {}, "
+                    + "schema version: {}", ctx.queryId(),
+                    backend.getId(), response.getStatus(),
+                    physicalOlapTableSink.getTargetTable().getBaseSchemaVersion());
+        } else if (code != TStatusCode.OK) {
+            String errMsg = "group commit insert failed. backend id: " + backend.getId() + ", status: "
+                    + response.getStatus();
+            ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
+        }
+        TransactionStatus txnStatus = TransactionStatus.PREPARE;
+        StringBuilder sb = new StringBuilder();
+        sb.append("{'label':'").append(response.getLabel()).append("', 'status':'").append(txnStatus.name());
+        sb.append("', 'txnId':'").append(response.getTxnId()).append("'");
+        sb.append("', 'optimizer':'").append("nereids").append("'");
+        sb.append("}");
+
+        ctx.getState().setOk(response.getLoadedRows(), (int) response.getFilteredRows(), sb.toString());
+        ctx.setOrUpdateInsertResult(response.getTxnId(), response.getLabel(),
+                physicalOlapTableSink.getDatabase().getFullName(), physicalOlapTableSink.getTargetTable().getName(),
+                txnStatus, response.getLoadedRows(), (int) response.getFilteredRows());
+        // update it, so that user can get loaded rows in fe.audit.log
+        ctx.updateReturnRows((int) response.getLoadedRows());
+    }
+
+    private boolean analyzeGroupCommit(OlapTableSink sink, PhysicalOlapTableSink<?> physicalOlapTableSink) {
+        return ConnectContext.get().getSessionVariable().enableInsertGroupCommit
+            && physicalOlapTableSink.getTargetTable() instanceof OlapTable
+            && !ConnectContext.get().isTxnModel()
+            && sink.getFragment().getPlanRoot() instanceof UnionNode
+            && physicalOlapTableSink.getPartitionIds().isEmpty();
     }
 
     @Override
