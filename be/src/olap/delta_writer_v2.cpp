@@ -77,8 +77,7 @@ DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
         : _req(*req),
           _tablet_schema(new TabletSchema),
           _memtable_writer(new MemTableWriter(*req)),
-          _streams(streams) {
-}
+          _streams(streams) {}
 
 void DeltaWriterV2::_update_profile(RuntimeProfile* profile) {
     auto child = profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true, true);
@@ -173,7 +172,7 @@ Status DeltaWriterV2::close_wait(RuntimeProfile* profile) {
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
-    
+
     if (profile != nullptr) {
         _update_profile(profile);
     }
