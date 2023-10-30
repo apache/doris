@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.info;
+package org.apache.doris.mtmv;
 
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;

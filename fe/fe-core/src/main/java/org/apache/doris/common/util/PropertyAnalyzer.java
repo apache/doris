@@ -157,6 +157,7 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
             "enable_duplicate_without_keys_by_default";
+    public static final String PROPERTIES_GRACE_PERIOD = "grace_period";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
     // which can avoid the merging cost in read stage, and accelerate the aggregation

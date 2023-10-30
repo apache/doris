@@ -427,6 +427,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
+    public static final String ENABLE_EXTERNAL_MV_REWRITE = "enable_external_mv_rewrite";
+    public static final String ENABLE_MV_REWRITE = "enable_mv_rewrite";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -739,6 +742,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
     public boolean trimTailingSpacesForExternalTableQuery = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_EXTERNAL_MV_REWRITE, needForward = true)
+    public boolean enableExternalMvRewrite = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_MV_REWRITE, needForward = true)
+    public boolean enableMvRewrite = false;
 
     // the maximum size in bytes for a table that will be broadcast to all be nodes
     // when performing a join, By setting this value to -1 broadcasting can be disabled.
@@ -2305,6 +2313,22 @@ public class SessionVariable implements Serializable, Writable {
                 maxTableCountUseCascadesJoinReorder < MIN_JOIN_REORDER_TABLE_COUNT
                         ? MIN_JOIN_REORDER_TABLE_COUNT
                         : maxTableCountUseCascadesJoinReorder;
+    }
+
+    public boolean isEnableExternalMvRewrite() {
+        return enableExternalMvRewrite;
+    }
+
+    public void setEnableExternalMvRewrite(boolean enableExternalMvRewrite) {
+        this.enableExternalMvRewrite = enableExternalMvRewrite;
+    }
+
+    public boolean isEnableMvRewrite() {
+        return enableMvRewrite;
+    }
+
+    public void setEnableMvRewrite(boolean enableMvRewrite) {
+        this.enableMvRewrite = enableMvRewrite;
     }
 
     public boolean isShowUserDefaultRole() {

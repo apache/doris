@@ -17,13 +17,14 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
+import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVStatus;
-import org.apache.doris.nereids.trees.plans.commands.info.EnvInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -49,11 +50,11 @@ public class MTMV extends OlapTable {
     private Map<String, String> mvProperties;
 
     // For deserialization
-    public MaterializedView() {
+    public MTMV() {
         type = TableType.MATERIALIZED_VIEW;
     }
 
-    MaterializedView(MaterializedViewParams params) {
+    MTMV(MTMVParams params) {
         super(
                 params.tableId,
                 params.tableName,
@@ -134,7 +135,7 @@ public class MTMV extends OlapTable {
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        MaterializedView materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
+        MTMV materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
         refreshInfo = materializedView.refreshInfo;
         querySql = materializedView.querySql;
         status = materializedView.status;

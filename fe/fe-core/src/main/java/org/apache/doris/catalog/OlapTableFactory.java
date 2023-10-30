@@ -21,8 +21,8 @@ import org.apache.doris.analysis.CreateMTMVStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.nereids.trees.plans.commands.info.EnvInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshInfo;
+import org.apache.doris.mtmv.EnvInfo;
+import org.apache.doris.mtmv.MTMVRefreshInfo;
 
 import com.google.common.base.Preconditions;
 

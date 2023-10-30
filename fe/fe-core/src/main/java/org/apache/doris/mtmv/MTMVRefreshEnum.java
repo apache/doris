@@ -15,29 +15,52 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.info;
-
-import com.google.gson.annotations.SerializedName;
+package org.apache.doris.mtmv;
 
 /**
- * EnvInfo
+ * refresh enum
  */
-public class EnvInfo {
-    @SerializedName("cn")
-    private String ctlName;
-    @SerializedName("dn")
-    private String dbName;
+public class MTMVRefreshEnum {
 
-    public EnvInfo(String ctlName, String dbName) {
-        this.ctlName = ctlName;
-        this.dbName = dbName;
+    /**
+     * RefreshMethod
+     */
+    public enum RefreshMethod {
+        COMPLETE //complete
     }
 
-    public String getCtlName() {
-        return ctlName;
+    /**
+     * BuildMode
+     */
+    public enum BuildMode {
+        IMMEDIATE, //right now
+        DEFERRED // deferred
     }
 
-    public String getDbName() {
-        return dbName;
+    /**
+     * RefreshTrigger
+     */
+    public enum RefreshTrigger {
+        MANUAL, //manual
+        SCHEDULE // schedule
+    }
+
+    /**
+     * MTMVState
+     */
+    public enum MTMVState {
+        INIT,
+        NORMAL,
+        SCHEMA_CHANGE
+    }
+
+    /**
+     * MTMVRefreshState
+     */
+    public enum MTMVRefreshState {
+        INIT,
+        REFRESHING,
+        FAIL,
+        SUCCESS
     }
 }

@@ -19,8 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
-import org.apache.doris.nereids.trees.plans.commands.info.EnvInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshInfo;
+import org.apache.doris.mtmv.EnvInfo;
+import org.apache.doris.mtmv.MTMVRefreshInfo;
 
 import java.util.ArrayList;
 import java.util.List;

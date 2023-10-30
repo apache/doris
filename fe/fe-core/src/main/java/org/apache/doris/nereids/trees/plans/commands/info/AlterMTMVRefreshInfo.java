@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Objects;

@@ -172,6 +172,7 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -499,6 +500,8 @@ public class Env {
 
     private TopicPublisherThread topicPublisherThread;
 
+    private MTMVService mtmvService;
+
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
 
@@ -730,6 +733,7 @@ public class Env {
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
+        this.mtmvService = new MTMVService();
     }
 
     public static void destroyCheckpoint() {
@@ -783,6 +787,10 @@ public class Env {
 
     public AccessControllerManager getAccessManager() {
         return accessManager;
+    }
+
+    public MTMVService getMtmvService() {
+        return mtmvService;
     }
 
     public TabletScheduler getTabletScheduler() {
@@ -2950,6 +2958,12 @@ public class Env {
             }
             sb.append(" AS ").append(view.getInlineViewDef());
             createTableStmt.add(sb + ";");
+            return;
+        }
+
+        if (table.getType() == TableType.MATERIALIZED_VIEW) {
+            MTMV mtmv = (MTMV) table;
+            createTableStmt.add(mtmv.toSql() + ";");
             return;
         }
 

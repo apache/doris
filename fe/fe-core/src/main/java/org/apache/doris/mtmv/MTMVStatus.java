@@ -17,8 +17,8 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshEnum.MTMVRefreshState;
-import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshEnum.MTMVState;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;

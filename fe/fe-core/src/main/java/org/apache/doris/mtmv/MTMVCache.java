@@ -15,52 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.info;
+package org.apache.doris.mtmv;
 
-/**
- * refresh enum
- */
-public class MTMVRefreshEnum {
+import org.apache.doris.catalog.BaseTableInfo;
 
-    /**
-     * RefreshMethod
-     */
-    public enum RefreshMethod {
-        COMPLETE //complete
+import java.util.Set;
+
+public class MTMVCache {
+    private Set<BaseTableInfo> baseTables;
+    private Set<BaseTableInfo> baseViews;
+
+    public MTMVCache(Set<BaseTableInfo> baseTables, Set<BaseTableInfo> baseViews) {
+        this.baseTables = baseTables;
+        this.baseViews = baseViews;
     }
 
-    /**
-     * BuildMode
-     */
-    public enum BuildMode {
-        IMMEDIATE, //right now
-        DEFERRED // deferred
+    public Set<BaseTableInfo> getBaseTables() {
+        return baseTables;
     }
 
-    /**
-     * RefreshTrigger
-     */
-    public enum RefreshTrigger {
-        MANUAL, //manual
-        SCHEDULE // schedule
-    }
-
-    /**
-     * MTMVState
-     */
-    public enum MTMVState {
-        INIT,
-        NORMAL,
-        SCHEMA_CHANGE
-    }
-
-    /**
-     * MTMVRefreshState
-     */
-    public enum MTMVRefreshState {
-        INIT,
-        REFRESHING,
-        FAIL,
-        SUCCESS
+    public Set<BaseTableInfo> getBaseViews() {
+        return baseViews;
     }
 }
