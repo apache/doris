@@ -31,7 +31,7 @@ public class SchedException extends Exception {
         NONE,
         WAITING_DECOMMISSION,
         WAITING_SLOT,
-        BACKEND_NOT_EXISTS,
+        DIAGNOSE_IGNORE,  // proc '/diagnose/cluster_balance' will ignore this error
     }
 
     private Status status;

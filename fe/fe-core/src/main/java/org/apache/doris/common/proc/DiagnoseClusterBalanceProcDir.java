@@ -287,6 +287,7 @@ public class DiagnoseClusterBalanceProcDir extends SubProcDir {
                     .filter(tablet -> tablet.getLastVisitedTime() >= now - 1800 * 1000L
                             && tablet.getSchedFailedCode() != SubCode.WAITING_SLOT
                             && tablet.getSchedFailedCode() != SubCode.WAITING_DECOMMISSION
+                            && tablet.getSchedFailedCode() != SubCode.DIAGNOSE_IGNORE
                             && (tablet.getState() == TabletSchedCtx.State.CANCELLED
                                     || tablet.getState() == TabletSchedCtx.State.UNEXPECTED))
                     .sorted(Comparator.comparing(TabletSchedCtx::getLastVisitedTime).reversed())
