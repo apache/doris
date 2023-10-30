@@ -908,11 +908,6 @@ bool ColumnObject::is_finalized() const {
                        [](const auto& entry) { return entry->data.is_finalized(); });
 }
 
-static bool check_if_valid_column_name(const PathInData& path) {
-    static const std::regex COLUMN_NAME_REGEX("^[_a-zA-Z@0-9][.a-zA-Z0-9_+-/><?@#$%^&*]{0,255}$");
-    return std::regex_match(path.get_path(), COLUMN_NAME_REGEX);
-}
-
 void ColumnObject::Subcolumn::wrapp_array_nullable() {
     // Wrap array with nullable, treat empty array as null to elimate conflict at present
     auto& result_column = get_finalized_column_ptr();
