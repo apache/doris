@@ -336,8 +336,10 @@ struct MethodKeysFixed : public MethodBase<TData> {
     using State = ColumnsHashing::HashMethodKeysFixed<typename Base::Value, Key, Mapped,
                                                       has_nullable_keys>;
 
+    // need keep until the hash probe end. use only in join
+    std::vector<Key> build_stored_keys;
+    // refresh each time probe hash table
     std::vector<Key> stored_keys;
-    std::vector<Key> stored_build_keys;
     Sizes key_sizes;
 
     MethodKeysFixed(Sizes key_sizes_) : key_sizes(std::move(key_sizes_)) {}
@@ -426,8 +428,8 @@ struct MethodKeysFixed : public MethodBase<TData> {
         }
 
         if (is_build) {
-            stored_build_keys = pack_fixeds<Key>(num_rows, actual_columns, null_maps);
-            Base::keys = stored_build_keys.data();
+            build_stored_keys = pack_fixeds<Key>(num_rows, actual_columns, null_maps);
+            Base::keys = build_stored_keys.data();
         } else {
             stored_keys = pack_fixeds<Key>(num_rows, actual_columns, null_maps);
             Base::keys = stored_keys.data();

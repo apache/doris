@@ -115,7 +115,7 @@ struct ProcessHashTableBuild {
               _state(state),
               _build_side_compute_hash_timer(parent->_build_side_compute_hash_timer) {}
 
-    template <bool ignore_null, bool short_circuit_for_null>
+    template <int JoinOpType, bool ignore_null, bool short_circuit_for_null>
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
         if (short_circuit_for_null || ignore_null) {
             for (int i = 0; i < _rows; i++) {
@@ -133,7 +133,7 @@ struct ProcessHashTableBuild {
         }
 
         SCOPED_TIMER(_parent->_build_table_insert_timer);
-        hash_table_ctx.hash_table->prepare_build(_rows, _state->batch_size());
+        hash_table_ctx.hash_table->template prepare_build<JoinOpType>(_rows, _state->batch_size());
         hash_table_ctx.set_bucket_size(hash_table_ctx.hash_table->get_bucket_size());
 
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
