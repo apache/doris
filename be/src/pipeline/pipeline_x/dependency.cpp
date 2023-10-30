@@ -365,6 +365,11 @@ void RuntimeFilterTimer::call_has_ready() {
     }
 }
 
+void RuntimeFilterTimer::call_has_release() {
+    // When the use count is equal to 1, only the timer queue still holds ownership,
+    // so there is no need to take any action.
+}
+
 struct RuntimeFilterTimerQueue {
     constexpr static int64_t interval = 50;
     void start() {
@@ -376,7 +381,9 @@ struct RuntimeFilterTimerQueue {
                 std::unique_lock<std::mutex> lc(_que_lock);
                 std::list<std::shared_ptr<RuntimeFilterTimer>> new_que;
                 for (auto& it : _que) {
-                    if (it.use_count() == 1 || it->has_ready()) {
+                    if (it.use_count() == 1) {
+                        it->call_has_release();
+                    } else if (it->has_ready()) {
                         it->call_has_ready();
                     } else {
                         int64_t ms_since_registration = MonotonicMillis() - it->registration_time();

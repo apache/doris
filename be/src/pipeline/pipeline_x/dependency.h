@@ -216,6 +216,8 @@ public:
 
     void call_has_ready();
 
+    void call_has_release();
+
     bool has_ready();
 
     int64_t registration_time() const { return _registration_time; }
