@@ -1286,6 +1286,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
             case "DATEV2":
                 return new DateV2Literal(value);
+            case "DATEV1":
+                return new DateLiteral(value);
             default:
                 throw new ParseException("Unsupported data type : " + type, ctx);
         }
