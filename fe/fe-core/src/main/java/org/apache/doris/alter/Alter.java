@@ -25,12 +25,10 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropPartitionFromIndexClause;
 import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.ModifyEngineClause;
@@ -38,7 +36,6 @@ import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.ModifyTableCommentClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
-import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.ReplaceTableClause;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -48,7 +45,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.MaterializedView;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
@@ -66,9 +62,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.mtmv.MTMVJobFactory;
-import org.apache.doris.mtmv.metadata.MTMVJob;
-import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
@@ -126,11 +119,6 @@ public class Alter {
         ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
     }
 
-    public void processCreateMultiTableMaterializedView(CreateMultiTableMaterializedViewStmt stmt)
-            throws UserException {
-        ((MaterializedViewHandler) materializedViewHandler).processCreateMultiTablesMaterializedView(stmt);
-    }
-
     public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
         if (!stmt.isForMTMV() && stmt.getTableName() == null) {
             throw new DdlException("Drop materialized view without table name is unsupported : " + stmt.toSql());
@@ -152,16 +140,6 @@ public class Alter {
             dropTableStmt.setMaterializedView(true);
             Env.getCurrentInternalCatalog().dropTable(dropTableStmt);
         }
-    }
-
-    public void processRefreshMaterializedView(RefreshMaterializedViewStmt stmt)
-            throws DdlException, MetaNotFoundException {
-        if (stmt.getRefreshMethod() != RefreshMethod.COMPLETE) {
-            throw new DdlException("Now only support REFRESH COMPLETE.");
-        }
-        String db = stmt.getMvName().getDb();
-        String tbl = stmt.getMvName().getTbl();
-        Env.getCurrentEnv().getMTMVJobManager().refreshMTMV(db, tbl);
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
@@ -533,41 +511,6 @@ public class Alter {
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
-            }
-        }
-    }
-
-    public void processAlterMaterializedView(AlterMultiMaterializedView alterView, boolean isReplay)
-            throws UserException {
-        TableName tbl = alterView.getMvName();
-        MaterializedView olapTable = null;
-        try {
-            // 1. check mv exist
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
-            olapTable = (MaterializedView) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
-
-            // 2. drop old job and kill the associated tasks
-            Env.getCurrentEnv().getMTMVJobManager().dropJobByName(tbl.getDb(), tbl.getTbl(), isReplay);
-
-            // 3. overwrite the refresh info in the memory of fe.
-            olapTable.writeLock();
-            olapTable.setRefreshInfo(alterView.getInfo());
-
-            // 4. log it and replay it in the follower
-            if (!isReplay) {
-                Env.getCurrentEnv().getEditLog().logAlterMTMV(alterView);
-                // 5. master node generate new jobs
-                if (MTMVJobFactory.isGenerateJob(olapTable)) {
-                    List<MTMVJob> jobs = MTMVJobFactory.buildJob(olapTable, db.getFullName());
-                    for (MTMVJob job : jobs) {
-                        Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);
-                    }
-                    LOG.info("Alter mv success with new mv job created.");
-                }
-            }
-        } finally {
-            if (olapTable != null) {
-                olapTable.writeUnlock();
             }
         }
     }
