@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+
 #include <span>
 
 #include "vec/common/hash_table/hash.h"
@@ -231,6 +233,8 @@ public:
     }
 
     uint32_t get_bucket_size() const { return bucket_size; }
+
+    size_t size() const { return next.size(); }
 
     void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
                size_t num_elem) {
