@@ -199,90 +199,52 @@ protected:
     const int _node_id;
 };
 
+class FilterDependency;
 struct RuntimeFilterTimerQueue {
     constexpr static int64_t interval = 10;
     ~RuntimeFilterTimerQueue() { _thread.detach(); }
     RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
-    void start() {
-        while (true) {
-            std::unique_lock<std::mutex> lk(cv_m);
+    void start();
 
-            cv.wait(lk, [this] { return !_que.empty(); });
-
-            std::list<std::unique_ptr<TimerItem>> new_que;
-            for (auto& it : _que) {
-                if (!it->_has_ready) {
-                    int64_t ms_since_registration = MonotonicMillis() - it->_registration_time;
-                    if (ms_since_registration > it->_wait_times_ms) {
-                        it->_call_back();
-                    } else {
-                        new_que.push_back(std::move(it));
-                    }
-                }
-            }
-            new_que.swap(_que);
-            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
-        }
-    }
-
-    static std::atomic_bool* push_filter_timer(int64_t registration_time, int64_t wait_times_ms,
-                                               std::function<void()> call_back) {
+    static void push_filter_timer(std::shared_ptr<FilterDependency> filter) {
         static RuntimeFilterTimerQueue que;
 
-        return que.push(registration_time, wait_times_ms, call_back);
+        que.push(filter);
     }
-    std::atomic_bool* push(int64_t registration_time, int64_t wait_times_ms,
-                           std::function<void()> call_back) {
-        std::unique_ptr<TimerItem> item =
-                std::make_unique<TimerItem>(call_back, registration_time, wait_times_ms);
-        auto* ready_ptr = &item->_has_ready;
-        std::unique_lock<std::mutex> lc(cv_m);
-        _que.push_back(std::move(item));
-        cv.notify_all();
-        return ready_ptr;
-    }
+    void push(std::shared_ptr<FilterDependency> filter) { _que.push_back(filter); }
     std::thread _thread;
     std::condition_variable cv;
     std::mutex cv_m;
 
-    struct TimerItem {
-        TimerItem(std::function<void()> call_back, int64_t registration_time, int64_t wait_times_ms)
-                : _call_back(std::move(call_back)),
-                  _has_ready(false),
-                  _registration_time(registration_time),
-                  _wait_times_ms(wait_times_ms) {}
-        std::function<void()> _call_back;
-        std::atomic_bool _has_ready;
-        const int64_t _registration_time;
-        const int64_t _wait_times_ms;
-    };
-
-    std::list<std::unique_ptr<TimerItem>> _que;
+    std::list<std::shared_ptr<FilterDependency>> _que;
 };
 class RuntimeFilterDependency;
 class FilterDependency {
 public:
     FilterDependency(int64_t registration_time, int32_t wait_time_ms,
                      std::shared_ptr<RuntimeFilterDependency> parent)
-            : _parent(parent) {
-        auto call_back = [&]() { call_timeout_or_ready(); };
-
-        _hash_ready = RuntimeFilterTimerQueue::push_filter_timer(registration_time, wait_time_ms,
-                                                                 call_back);
-    }
-
+            : _parent(std::move(parent)),
+              _registration_time(registration_time),
+              _wait_time_ms(wait_time_ms) {}
     void set_filter_ready() {
-        *_hash_ready = true;
+        _hash_ready = true;
         call_timeout_or_ready();
     }
 
     void call_timeout_or_ready();
 
+    bool hash_ready() const { return _hash_ready; }
+
+    int64_t registration_time() const { return _registration_time; }
+    int32_t wait_time_ms() const { return _wait_time_ms; }
+
 private:
-    std::atomic_bool* _hash_ready;
+    std::atomic_bool _hash_ready;
     bool _has_call {};
     std::shared_ptr<RuntimeFilterDependency> _parent;
     std::mutex _lock;
+    const int64_t _registration_time;
+    const int32_t _wait_time_ms;
 };
 class RuntimeFilterDependency final : public Dependency {
 public:
@@ -307,6 +269,7 @@ public:
                 registration_time, wait_time_ms,
                 std::dynamic_pointer_cast<RuntimeFilterDependency>(shared_from_this()));
         runtime_filter->set_dependency(filter);
+        RuntimeFilterTimerQueue::push_filter_timer(filter);
     }
     void sub_filters() {
         _filters--;

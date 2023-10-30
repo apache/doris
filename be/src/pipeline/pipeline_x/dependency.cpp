@@ -336,4 +336,26 @@ void FilterDependency::call_timeout_or_ready() {
         _parent->sub_filters();
     }
 }
+
+void RuntimeFilterTimerQueue::start() {
+    while (true) {
+        std::unique_lock<std::mutex> lk(cv_m);
+
+        cv.wait(lk, [this] { return !_que.empty(); });
+
+        std::list<std::shared_ptr<FilterDependency>> new_que;
+        for (auto& it : _que) {
+            if (!it->hash_ready()) {
+                int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
+                if (ms_since_registration > it->wait_time_ms()) {
+                    it->call_timeout_or_ready();
+                } else {
+                    new_que.push_back(std::move(it));
+                }
+            }
+        }
+        new_que.swap(_que);
+        std::this_thread::sleep_for(std::chrono::milliseconds(interval));
+    }
+}
 } // namespace doris::pipeline
