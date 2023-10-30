@@ -1796,7 +1796,8 @@ visible_functions = {
         [['json_valid'], 'INT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_contains'], 'BOOLEAN', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_unquote'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['json_extract'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
+        [['json_extract'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], 'ALWAYS_NULLABLE'],
+        [['json_extract'], 'STRING', ['STRING', 'STRING', '...'], 'ALWAYS_NULLABLE'],
         [['json_insert'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
         [['json_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
         [['json_set'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], '']
