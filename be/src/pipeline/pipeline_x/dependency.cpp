@@ -376,7 +376,7 @@ struct RuntimeFilterTimerQueue {
                 std::unique_lock<std::mutex> lc(_que_lock);
                 std::list<std::shared_ptr<RuntimeFilterTimer>> new_que;
                 for (auto& it : _que) {
-                    if (it->has_ready()) {
+                    if (it.use_count() == 1 || it->has_ready()) {
                         it->call_has_ready();
                     } else {
                         int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
@@ -421,7 +421,7 @@ void RuntimeFilterDependency::add_filters(IRuntimeFilter* runtime_filter) {
     auto filter_timer = std::make_shared<RuntimeFilterTimer>(
             registration_time, wait_time_ms,
             std::dynamic_pointer_cast<RuntimeFilterDependency>(shared_from_this()), runtime_filter);
-    runtime_filter->set_dependency(filter_timer);
+    runtime_filter->set_filter_timer(filter_timer);
     RuntimeFilterTimerQueue::push_filter_timer(filter_timer);
 }
 
