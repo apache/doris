@@ -475,6 +475,19 @@ public class OriginalPlanner extends Planner {
         }
     }
 
+    private void processExpr(Expr expr, Set<Integer> outputColumnUniqueIds) {
+        if (expr instanceof SlotRef) {
+            SlotRef slotRef = (SlotRef) expr;
+            if (slotRef.getColumn() != null) {
+                outputColumnUniqueIds.add(slotRef.getColumn().getUniqueId());
+            }
+        }
+        ArrayList<Expr> children = expr.getChildren();
+        for (Expr child : children) {
+            processExpr(child, outputColumnUniqueIds);  // Recursive call for each child
+        }
+    }
+
     /**
      * outputColumnUniqueIds contain columns in OrderByExprs and outputExprs,
      * push output column unique id set to olap scan.
@@ -494,11 +507,7 @@ public class OriginalPlanner extends Planner {
         if (ConnectContext.get().getSessionVariable().enableIndexDataReadOptOnOrigPlanner) {
             ArrayList<Expr> outputExprs = rootFragment.getOutputExprs();
             for (Expr expr : outputExprs) {
-                if (expr instanceof SlotRef) {
-                    if (((SlotRef) expr).getColumn() != null) {
-                        outputColumnUniqueIds.add(((SlotRef) expr).getColumn().getUniqueId());
-                    }
-                }
+                processExpr(expr, outputColumnUniqueIds);
             }
             for (PlanFragment fragment : fragments) {
                 PlanNode node = fragment.getPlanRoot();
@@ -524,11 +533,7 @@ public class OriginalPlanner extends Planner {
                     List<Expr> orderingExprs = sortNode.getSortInfo().getOrigOrderingExprs();
                     if (orderingExprs != null) {
                         for (Expr expr : orderingExprs) {
-                            if (expr instanceof SlotRef) {
-                                if (((SlotRef) expr).getColumn() != null) {
-                                    outputColumnUniqueIds.add(((SlotRef) expr).getColumn().getUniqueId());
-                                }
-                            }
+                            processExpr(expr, outputColumnUniqueIds);
                         }
                     }
                 }
