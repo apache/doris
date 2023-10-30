@@ -50,6 +50,8 @@ public class HyperGraph {
     private final List<Node> nodes = new ArrayList<>();
     private final HashSet<Group> nodeSet = new HashSet<>();
     private final HashMap<Slot, Long> slotToNodeMap = new HashMap<>();
+    // record all edges that can be placed on the subgraph
+    private final Map<Long, BitSet> treeEdgesCache = new HashMap<>();
 
     // Record the complex project expression for some subgraph
     // e.g. project (a + b)
@@ -266,6 +268,30 @@ public class HyperGraph {
             return calculateEnds(allNodes, rlEdgesNodes, rrEdgesNodes);
         }
         return Pair.of(left, right);
+    }
+
+    public BitSet getEdgesInOperator(long left, long right) {
+        BitSet operatorEdgesMap = new BitSet();
+        operatorEdgesMap.or(getEdgesInTree(LongBitmap.or(left, right)));
+        operatorEdgesMap.andNot(getEdgesInTree(left));
+        operatorEdgesMap.andNot(getEdgesInTree(right));
+        return operatorEdgesMap;
+    }
+
+    /**
+     * Returns all edges in the tree
+     */
+    public BitSet getEdgesInTree(long treeNodesMap) {
+        if (!treeEdgesCache.containsKey(treeNodesMap)) {
+            BitSet edgesMap = new BitSet();
+            for (Edge edge : edges) {
+                if (LongBitmap.isSubset(edge.getReferenceNodes(), treeNodesMap)) {
+                    edgesMap.set(edge.getIndex());
+                }
+            }
+            treeEdgesCache.put(treeNodesMap, edgesMap);
+        }
+        return treeEdgesCache.get(treeNodesMap);
     }
 
     private long calNodeMap(Set<Slot> slots) {

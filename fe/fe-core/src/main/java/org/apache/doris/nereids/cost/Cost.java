@@ -28,16 +28,6 @@ public interface Cost {
     double getValue();
 
     /**
-     * This is for calculating the cost in simplifier
-     */
-    static Cost withRowCount(double rowCount) {
-        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
-            return new CostV2(0, rowCount, 0);
-        }
-        return new CostV1(rowCount);
-    }
-
-    /**
      * return zero cost
      */
     static Cost zero() {

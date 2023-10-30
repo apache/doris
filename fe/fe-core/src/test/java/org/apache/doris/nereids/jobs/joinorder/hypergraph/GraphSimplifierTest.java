@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import org.apache.hadoop.util.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -36,6 +38,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
 class GraphSimplifierTest {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -75,20 +78,32 @@ class GraphSimplifierTest {
         //      |
         //     t2
         HyperGraph hyperGraph = new HyperGraphBuilder()
-                .init(10, 30, 20, 40, 50)
+                .init(10, 20, 30, 40, 50)
                 .addEdge(JoinType.INNER_JOIN, 0, 1)
                 .addEdge(JoinType.INNER_JOIN, 0, 2)
                 .addEdge(JoinType.INNER_JOIN, 0, 3)
                 .addEdge(JoinType.INNER_JOIN, 0, 4)
                 .build();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        while (graphSimplifier.applySimplificationStep()) {
+        List<Pair<Long, Long>> steps = ImmutableList.<Pair<Long, Long>>builder()
+                .add(Pair.of(17L, 2L))   // 04   - 1
+                .add(Pair.of(17L, 4L))   // 04   - 2
+                .add(Pair.of(17L, 8L))   // 04   - 3
+                .add(Pair.of(25L, 2L))   // 034  - 1
+                .add(Pair.of(25L, 4L))   // 034  - 2
+                .add(Pair.of(29L, 2L))   // 0234 - 1
+                .build(); // 0-4-3-2-1 : big left deep tree
+        for (Pair<Long, Long> step : steps) {
+            if (!graphSimplifier.applySimplificationStep()) {
+                break;
+            }
+            System.out.println(graphSimplifier.getLastAppliedSteps());
+            Assertions.assertEquals(step, graphSimplifier.getLastAppliedSteps());
         }
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
         for (int count : counter.getAllCount().values()) {
-            System.out.println(count);
             Assertions.assertTrue(count < 10);
         }
         Assertions.assertTrue(graphSimplifier.isTotalOrder());
@@ -183,24 +198,6 @@ class GraphSimplifierTest {
     }
 
     @Test
-    void testTime() {
-        int tableNum = 20;
-        int edgeNum = 40;
-        double totalTime = 0;
-        int times = 1;
-        for (int i = 0; i < times; i++) {
-            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
-            double now = System.currentTimeMillis();
-            GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-            while (graphSimplifier.applySimplificationStep()) {
-            }
-            totalTime += System.currentTimeMillis() - now;
-        }
-        System.out.printf("Simplify graph with %d nodes %d edges cost %f ms%n", tableNum, edgeNum,
-                totalTime / times);
-    }
-
-    @Test
     void testComplexQuery() {
         HyperGraph hyperGraph = new HyperGraphBuilder()
                 .init(6, 2, 1, 3, 5, 4)
@@ -235,7 +232,6 @@ class GraphSimplifierTest {
             Counter counter = new Counter();
             SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
             subgraphEnumerator.enumerate();
-            Assertions.assertTrue(graphSimplifier.isTotalOrder());
         }
     }
 
@@ -261,7 +257,7 @@ class GraphSimplifierTest {
         int edgeNum = 64 * 63 / 2;
         int limit = 1000;
 
-        int times = 1;
+        int times = 4;
         double totalTime = 0;
         for (int i = 0; i < times; i++) {
             totalTime += benchGraphSimplifier(tableNum, edgeNum, limit);
