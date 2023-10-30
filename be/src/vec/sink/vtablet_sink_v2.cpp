@@ -38,6 +38,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/object_pool.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/delta_writer_v2.h"
@@ -156,6 +157,7 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    signal::set_signal_task_id(_load_id);
 
     if (config::share_delta_writers) {
         _delta_writer_for_tablet =

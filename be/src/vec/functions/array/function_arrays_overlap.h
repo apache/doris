@@ -139,10 +139,10 @@ public:
         ColumnArrayExecutionData left_exec_data;
         ColumnArrayExecutionData right_exec_data;
 
-        Status ret = Status::RuntimeError(
-                fmt::format("execute failed, unsupported types for function {}({}, {})", get_name(),
-                            block.get_by_position(arguments[0]).type->get_name(),
-                            block.get_by_position(arguments[1]).type->get_name()));
+        Status ret = Status::InvalidArgument(
+                "execute failed, unsupported types for function {}({}, {})", get_name(),
+                block.get_by_position(arguments[0]).type->get_name(),
+                block.get_by_position(arguments[1]).type->get_name());
 
         // extract array column
         if (!extract_column_array_info(*left_column, left_exec_data) ||
@@ -223,6 +223,10 @@ public:
                                                        dst_nested_col->get_data().data());
         } else if (left_which_type.is_decimal128()) {
             ret = _execute_internal<ColumnDecimal128>(left_exec_data, right_exec_data,
+                                                      dst_null_map_data,
+                                                      dst_nested_col->get_data().data());
+        } else if (left_which_type.is_decimal256()) {
+            ret = _execute_internal<ColumnDecimal256>(left_exec_data, right_exec_data,
                                                       dst_null_map_data,
                                                       dst_nested_col->get_data().data());
         }

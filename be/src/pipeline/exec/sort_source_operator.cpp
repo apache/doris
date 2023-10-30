@@ -28,13 +28,13 @@ OPERATOR_CODE_GENERATOR(SortSourceOperator, SourceOperator)
 SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<SortDependency>(state, parent) {}
 
-SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                          const DescriptorTbl& descs)
-        : OperatorX<SortLocalState>(pool, tnode, descs) {}
+        : OperatorX<SortLocalState>(pool, tnode, operator_id, descs) {}
 
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     bool eos = false;
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -44,11 +44,6 @@ Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
     }
     local_state.reached_limit(block, source_state);
     return Status::OK();
-}
-
-Dependency* SortSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->read_blocked_by();
 }
 
 } // namespace doris::pipeline

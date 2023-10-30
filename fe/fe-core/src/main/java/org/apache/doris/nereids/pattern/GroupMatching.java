@@ -22,85 +22,36 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import com.google.common.collect.Iterators;
-
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.Objects;
 
 /**
  * Get all pattern matching subtree in query plan from a group.
  */
-public class GroupMatching implements Iterable<Plan> {
-    private final Pattern pattern;
-    private final Group group;
-
-    public GroupMatching(Pattern pattern, Group group) {
-        this.pattern = Objects.requireNonNull(pattern);
-        this.group = Objects.requireNonNull(group);
-    }
-
-    public final Iterator<Plan> iterator() {
-        return new GroupIterator(pattern, group);
-    }
-
+public class GroupMatching {
     /**
-     * Iterator to get all subtrees from a group.
+     * Get all pattern matching subtree in query plan from a group.
      */
-    public static class GroupIterator implements Iterator<Plan> {
-        private final List<Iterator<Plan>> iterator;
-        private int iteratorIndex = 0;
-
-        /**
-         * Constructor.
-         *
-         * @param pattern pattern to match
-         * @param group group to be matched
-         */
-        public GroupIterator(Pattern<? extends Plan> pattern, Group group) {
-            this.iterator = new ArrayList<>();
-
-            if (pattern.isGroup() || pattern.isMultiGroup()) {
-                GroupPlan groupPlan = new GroupPlan(group);
-                if (((Pattern<Plan>) pattern).matchPredicates(groupPlan)) {
-                    this.iterator.add(Iterators.singletonIterator(groupPlan));
-                }
-            } else {
-                for (GroupExpression groupExpression : group.getLogicalExpressions()) {
-                    GroupExpressionMatching.GroupExpressionIterator groupExpressionIterator =
-                            new GroupExpressionMatching(pattern, groupExpression).iterator();
-                    if (groupExpressionIterator.hasNext()) {
-                        this.iterator.add(groupExpressionIterator);
-                    }
-                }
-                for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
-                    GroupExpressionMatching.GroupExpressionIterator groupExpressionIterator =
-                            new GroupExpressionMatching(pattern, groupExpression).iterator();
-                    if (groupExpressionIterator.hasNext()) {
-                        this.iterator.add(groupExpressionIterator);
-                    }
+    public static List<Plan> getAllMatchingPlans(Pattern pattern, Group group) {
+        List<Plan> matchingPlans = new ArrayList<>();
+        if (pattern.isGroup() || pattern.isMultiGroup()) {
+            GroupPlan groupPlan = new GroupPlan(group);
+            if (((Pattern<Plan>) pattern).matchPredicates(groupPlan)) {
+                matchingPlans.add(groupPlan);
+            }
+        } else {
+            for (GroupExpression groupExpression : group.getLogicalExpressions()) {
+                for (Plan plan : new GroupExpressionMatching(pattern, groupExpression)) {
+                    matchingPlans.add(plan);
                 }
             }
+            // Jackwener: We don't need to match physical expressions.
+            // for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
+            //     for (Plan plan : new GroupExpressionMatching(pattern, groupExpression)) {
+            //         matchingPlans.add(plan);
+            //     }
+            // }
         }
-
-        @Override
-        public final boolean hasNext() {
-            return iteratorIndex < iterator.size();
-        }
-
-        @Override
-        public final Plan next() {
-            if (!hasNext()) {
-                throw new NoSuchElementException();
-            }
-
-            Plan result = iterator.get(iteratorIndex).next();
-            if (!iterator.get(iteratorIndex).hasNext()) {
-                iteratorIndex++;
-            }
-            return result;
-        }
+        return matchingPlans;
     }
 }

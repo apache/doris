@@ -72,7 +72,8 @@ private:
 class SchemaScanOperatorX final : public OperatorX<SchemaScanLocalState> {
 public:
     using Base = OperatorX<SchemaScanLocalState>;
-    SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                        const DescriptorTbl& descs);
     ~SchemaScanOperatorX() override = default;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;

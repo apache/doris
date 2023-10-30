@@ -65,12 +65,12 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
             state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
             state->execution_timeout()));
-    _result_sink_dependency = OrDependency::create_shared(_parent->id());
-    _buffer_dependency = ResultBufferDependency::create_shared(_parent->id());
-    _cancel_dependency = CancelDependency::create_shared(_parent->id());
+    _result_sink_dependency = OrDependency::create_shared(_parent->operator_id());
+    _buffer_dependency = ResultBufferDependency::create_shared(_parent->operator_id());
+    _cancel_dependency = CancelDependency::create_shared(_parent->operator_id());
     _result_sink_dependency->add_child(_cancel_dependency);
     _result_sink_dependency->add_child(_buffer_dependency);
-    _queue_dependency = ResultQueueDependency::create_shared(_parent->id());
+    _queue_dependency = ResultQueueDependency::create_shared(_parent->operator_id());
     _result_sink_dependency->add_child(_queue_dependency);
 
     ((PipBufferControlBlock*)_sender.get())
@@ -101,10 +101,10 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-ResultSinkOperatorX::ResultSinkOperatorX(const RowDescriptor& row_desc,
+ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                          const std::vector<TExpr>& t_output_expr,
                                          const TResultSink& sink)
-        : DataSinkOperatorX(0), _row_desc(row_desc), _t_output_expr(t_output_expr) {
+        : DataSinkOperatorX(operator_id, 0), _row_desc(row_desc), _t_output_expr(t_output_expr) {
     if (!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCAL) {
         _sink_type = TResultSinkType::MYSQL_PROTOCAL;
     } else {
@@ -138,7 +138,7 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
 
 Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                  SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
@@ -204,11 +204,6 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
             state->fragment_instance_id()));
     RETURN_IF_ERROR(PipelineXSinkLocalState<>::close(state, exec_status));
     return final_status;
-}
-
-WriteDependency* ResultSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._result_sink_dependency->write_blocked_by();
 }
 
 } // namespace doris::pipeline

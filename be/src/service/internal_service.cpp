@@ -355,16 +355,17 @@ void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcControl
     }
 }
 
-void PInternalServiceImpl::open_stream_sink(google::protobuf::RpcController* controller,
+void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* controller,
                                             const POpenStreamSinkRequest* request,
                                             POpenStreamSinkResponse* response,
                                             google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        signal::set_signal_task_id(request->load_id());
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         brpc::StreamOptions stream_options;
 
-        LOG(INFO) << "open stream sink, load_id = " << request->load_id()
+        LOG(INFO) << "open load stream, load_id = " << request->load_id()
                   << ", src_id = " << request->src_id();
 
         for (const auto& req : request->tablets()) {

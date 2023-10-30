@@ -24,8 +24,8 @@ OperatorPtr AssertNumRowsOperatorBuilder::build_operator() {
 }
 
 AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                               const DescriptorTbl& descs)
-        : StreamingOperatorX<AssertNumRowsLocalState>(pool, tnode, descs),
+                                               int operator_id, const DescriptorTbl& descs)
+        : StreamingOperatorX<AssertNumRowsLocalState>(pool, tnode, operator_id, descs),
           _desired_num_rows(tnode.assert_num_rows_node.desired_num_rows),
           _subquery_string(tnode.assert_num_rows_node.subquery_string) {
     if (tnode.assert_num_rows_node.__isset.assertion) {
@@ -37,7 +37,7 @@ AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode
 
 Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Block* block,
                                     SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     local_state.add_num_rows_returned(block->rows());
     int64_t num_rows_returned = local_state.num_rows_returned();

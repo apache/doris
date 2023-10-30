@@ -19,6 +19,7 @@
 
 #include "runtime/decimalv2_value.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/wide_integer.h"
 
 namespace doris {
 
@@ -68,6 +69,13 @@ struct type_limit<vectorized::Decimal128> {
                 static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
     }
     static vectorized::Decimal128 min() { return -max(); }
+};
+static Int256 MAX_DECIMAL256_INT({18446744073709551615ul, 8607968719199866879ul,
+                                  532749306367912313ul, 1593091911132452277ul});
+template <>
+struct type_limit<vectorized::Decimal256> {
+    static vectorized::Decimal256 max() { return vectorized::Decimal256(MAX_DECIMAL256_INT); }
+    static vectorized::Decimal256 min() { return vectorized::Decimal256(-MAX_DECIMAL256_INT); }
 };
 
 template <>

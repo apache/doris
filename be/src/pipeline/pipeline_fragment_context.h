@@ -71,7 +71,7 @@ public:
 
     PipelinePtr add_pipeline();
 
-    TUniqueId get_fragment_instance_id() { return _fragment_instance_id; }
+    TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
 
     virtual RuntimeState* get_runtime_state(UniqueId /*fragment_instance_id*/) {
         return _runtime_state.get();
@@ -215,6 +215,8 @@ protected:
 
     // profile reporting-related
     report_status_callback _report_status_cb;
+
+    DescriptorTbl* _desc_tbl;
 
 private:
     static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);

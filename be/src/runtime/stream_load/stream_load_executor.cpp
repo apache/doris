@@ -190,7 +190,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 #else
         result = k_stream_load_begin_result;
 #endif
-        status = Status::create(result.status);
+        status = Status::create<false>(result.status);
     }
     g_stream_load_begin_txn_latency << duration_ns / 1000;
     if (!status.ok()) {
