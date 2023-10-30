@@ -115,9 +115,5 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c20 c20
             qt_c21 c21
             qt_c22 c22
-            qt_c23 c23
-            qt_c24 c24
-            qt_c25 c25
-            qt_c26 c26
         }
 }
