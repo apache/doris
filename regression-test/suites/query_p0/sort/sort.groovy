@@ -146,7 +146,7 @@ suite("sort") {
     StringBuilder sb = new StringBuilder("""INSERT INTO ${tblName} values """)
     for (int i = 1; i <= 1024; i++) {
         sb.append("""
-            ('2023-03-21 08:00:00', ${i}.${i},${i}),
+            ('${i+2000}-03-21 08:00:00', ${i}.${i},${i}),
         """)
     }
     sb.append("""('2023-03-21 08:00:00', 1.1,1)""")
