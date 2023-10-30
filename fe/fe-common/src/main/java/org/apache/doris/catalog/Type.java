@@ -2074,6 +2074,17 @@ public abstract class Type {
                     return false;
                 }
                 return matchExactType(((ArrayType) type2).getItemType(), ((ArrayType) type1).getItemType());
+            } else if (type2.isMapType()) {
+                // For types array, we also need to check contains null for case like
+                // cast(array<not_null(int)> as array<int>)
+                if (!((MapType) type2).getIsKeyContainsNull() == ((MapType) type1).getIsKeyContainsNull()) {
+                    return false;
+                }
+                if (!((MapType) type2).getIsValueContainsNull() == ((MapType) type1).getIsValueContainsNull()) {
+                    return false;
+                }
+                return matchExactType(((MapType) type2).getKeyType(), ((MapType) type1).getKeyType())
+                    && matchExactType(((MapType) type2).getValueType(), ((MapType) type1).getValueType());
             } else {
                 return true;
             }
