@@ -80,7 +80,7 @@ private:
 
     // True means all runtime filters are applied to scanners
     bool _is_all_rf_applied = true;
-    bool _blocked_by_rf = false;
+    std::shared_ptr<std::atomic_bool> _blocked_by_rf;
 
     RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
 };

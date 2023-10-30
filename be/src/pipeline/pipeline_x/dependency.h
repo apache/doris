@@ -238,7 +238,7 @@ public:
             : Dependency(id, name), _node_id(node_id) {}
 
     RuntimeFilterDependency* filter_blocked_by() {
-        if (!_runtime_filters_are_ready_or_timeout) {
+        if (!_blocked_by_rf) {
             return nullptr;
         }
         if (_filters == 0) {
@@ -252,14 +252,14 @@ public:
     void call_task_ready() {
         /// TODO:
     }
-    void set_runtime_filters_are_ready_or_timeout(std::function<void()> call_back) {
-        _runtime_filters_are_ready_or_timeout = call_back;
+    void set_blocked_by_rf(std::shared_ptr<std::atomic_bool> blocked_by_rf) {
+        _blocked_by_rf = blocked_by_rf;
     }
 
 protected:
     const int _node_id;
     std::atomic_int _filters;
-    std::function<void()> _runtime_filters_are_ready_or_timeout;
+    std::shared_ptr<std::atomic_bool> _blocked_by_rf;
 };
 
 class AndDependency final : public WriteDependency {
