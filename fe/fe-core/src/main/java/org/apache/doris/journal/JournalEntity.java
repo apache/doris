@@ -844,6 +844,12 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_UPDATE_TABLE_STATS:
+            case OperationType.OP_PERSIST_AUTO_JOB:
+            case OperationType.OP_DELETE_TABLE_STATS: {
+                isRead = true;
+                break;
+            }
             default: {
                 IOException e = new IOException();
                 LOG.error("UNKNOWN Operation Type {}", opCode, e);
