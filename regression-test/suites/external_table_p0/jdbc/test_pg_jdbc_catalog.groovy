@@ -17,14 +17,20 @@
 
 suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "pg_jdbc_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_schema_name = "doris_test";
         String ex_schema_name2 = "catalog_pg_test";
         String pg_port = context.config.otherConfigs.get("pg_14_port");
-        String inDorisTable = "doris_in_tb";
+        String inDorisTable = "test_pg_jdbc_doris_in_tb";
         String test_insert = "test_insert";
+
+        sql """create database if not exists ${internal_db_name}; """
 
         sql """drop catalog if exists ${catalog_name} """
 
@@ -32,14 +38,14 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
             "type"="jdbc",
             "user"="postgres",
             "password"="123456",
-            "jdbc_url" = "jdbc:postgresql://127.0.0.1:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
-            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
+            "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
+            "driver_url" = "${driver_url}",
             "driver_class" = "org.postgresql.Driver"
         );"""
-
-        sql  """ drop table if exists ${inDorisTable} """
+        sql """use ${internal_db_name}"""
+        sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
-              CREATE TABLE ${inDorisTable} (
+              CREATE TABLE ${internal_db_name}.${inDorisTable} (
                 `id` INT NULL COMMENT "主键id",
                 `name` string NULL COMMENT "名字"
                 ) DISTRIBUTED BY HASH(id) BUCKETS 10
@@ -106,8 +112,8 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
             "type"="jdbc",
             "user"="postgres",
             "password"="123456",
-            "jdbc_url" = "jdbc:postgresql://127.0.0.1:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
-            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
+            "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
+            "driver_url" = "${driver_url}",
             "driver_class" = "org.postgresql.Driver",
             "only_specified_database" = "true"
         );"""
@@ -121,8 +127,8 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
             "type"="jdbc",
             "user"="postgres",
             "password"="123456",
-            "jdbc_url" = "jdbc:postgresql://127.0.0.1:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
-            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
+            "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
+            "driver_url" = "${driver_url}",
             "driver_class" = "org.postgresql.Driver",
             "only_specified_database" = "true",
             "include_database_list" = "doris_test"
@@ -137,8 +143,8 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
             "type"="jdbc",
             "user"="postgres",
             "password"="123456",
-            "jdbc_url" = "jdbc:postgresql://127.0.0.1:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
-            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
+            "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
+            "driver_url" = "${driver_url}",
             "driver_class" = "org.postgresql.Driver",
             "only_specified_database" = "true",
             "exclude_database_list" = "doris_test"
@@ -153,8 +159,8 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
             "type"="jdbc",
             "user"="postgres",
             "password"="123456",
-            "jdbc_url" = "jdbc:postgresql://127.0.0.1:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
-            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
+            "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
+            "driver_url" = "${driver_url}",
             "driver_class" = "org.postgresql.Driver",
             "only_specified_database" = "true",
             "include_database_list" = "doris_test",
@@ -169,8 +175,8 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
             "type"="jdbc",
             "jdbc.user"="postgres",
             "jdbc.password"="123456",
-            "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:${pg_port}/postgres?useSSL=false&currentSchema=doris_test",
-            "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
+            "jdbc.jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/postgres?useSSL=false&currentSchema=doris_test",
+            "jdbc.driver_url" = "${driver_url}",
             "jdbc.driver_class" = "org.postgresql.Driver");
         """
 

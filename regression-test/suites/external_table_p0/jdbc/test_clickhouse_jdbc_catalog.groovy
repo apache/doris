@@ -27,7 +27,9 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/clickhouse-jdbc-0.4.2-all.jar"
 
-        String inDorisTable = "doris_in_tb";
+        String inDorisTable = "test_clickhouse_jdbc_doris_in_tb";
+
+        sql """create database if not exists ${internal_db_name}; """
 
         sql """ drop catalog if exists ${catalog_name} """
 
@@ -39,10 +41,10 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
         );"""
-
-        sql  """ drop table if exists ${inDorisTable} """
+        sql """use ${internal_db_name}"""
+        sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
-              CREATE TABLE ${inDorisTable} (
+              CREATE TABLE ${internal_db_name}.${inDorisTable} (
                 `id` INT NULL COMMENT "主键id",
                 `name` string NULL COMMENT "名字",
                 `age` INT NULL COMMENT "年龄"
