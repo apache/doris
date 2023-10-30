@@ -297,6 +297,16 @@ std::shared_ptr<FileBuffer> FileBufferBuilder::build() {
     return nullptr;
 }
 
+void S3FileBufferPool::reclaim(Slice buf) {
+    {
+        std::unique_lock<std::mutex> lck {_lock};
+        _free_raw_buffers.emplace_back(buf);
+        // only works when not set file cache
+        _cv.notify_all();
+    }
+    s3_file_buffer_allocated << -1;
+}
+
 void S3FileBufferPool::init(int32_t s3_write_buffer_whole_size, int32_t s3_write_buffer_size,
                             ThreadPool* thread_pool) {
     // the nums could be one configuration
