@@ -128,6 +128,7 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
@@ -503,6 +504,33 @@ public class StmtExecutor {
         }
     }
 
+    private boolean isEnableSqlCache() {
+        if (!(parsedStmt instanceof Queriable)) {
+            return false;
+        }
+
+        boolean res = false;
+        if (Config.cache_enable_sql_mode) {
+            if (context.getSessionVariable().isEnableSqlCache()) {
+                res = true;
+            }
+        }
+        if (Config.cache_enable_partition_mode) {
+            if (context.getSessionVariable().isEnablePartitionCache()) {
+                res = true;
+            }
+        }
+
+        if (res && !((Queriable) parsedStmt).hasOutFileClause()
+                && context.getSessionVariable().getSqlSelectLimit() < 0
+                && context.getSessionVariable().getDefaultOrderByLimit() < 0) {
+            if (parsedStmt instanceof QueryStmt || parsedStmt instanceof LogicalPlanAdapter) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void executeByNereids(TUniqueId queryId) throws Exception {
         LOG.debug("Nereids start to execute query:\n {}", originStmt.originStmt);
         context.setQueryId(queryId);
@@ -556,17 +584,26 @@ public class StmtExecutor {
             if (context.getSessionVariable().enableProfile) {
                 ConnectContext.get().setStatsErrorEstimator(new StatsErrorEstimator());
             }
-            // create plan
-            planner = new NereidsPlanner(statementContext);
+
+            boolean isEnableSqlCache = isEnableSqlCache();
+            context.setIsEnableSqlCache(isEnableSqlCache);
             try {
-                planner.plan(parsedStmt, context.getSessionVariable().toThrift());
-                checkBlockRules();
-            } catch (Exception e) {
-                LOG.debug("Nereids plan query failed:\n{}", originStmt.originStmt);
-                throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
+                // create plan
+                planner = new NereidsPlanner(statementContext);
+                try {
+                    planner.plan(parsedStmt, context.getSessionVariable().toThrift());
+                    checkBlockRules();
+                } catch (Exception e) {
+                    LOG.debug("Nereids plan query failed:\n{}", originStmt.originStmt);
+                    throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
+                }
+                profile.getSummaryProfile().setQueryPlanFinishTime();
+                handleQueryWithRetry(queryId);
+            } finally {
+                if (isEnableSqlCache) {
+                    context.setIsEnableSqlCache(false);
+                }
             }
-            profile.getSummaryProfile().setQueryPlanFinishTime();
-            handleQueryWithRetry(queryId);
         }
     }
 
@@ -1317,6 +1354,15 @@ public class StmtExecutor {
                 planner.plan(newSelectStmt, context.getSessionVariable().toThrift());
             }
         }
+
+        List<ScanNode> scanNodes = planner.getScanNodes();
+        for (ScanNode scanNode : scanNodes) {
+            if (scanNode instanceof FileQueryScanNode) {
+                LOG.debug("create scan range location after cache miss");
+                ((FileQueryScanNode) scanNode).createScanRangeLocationsInternal();
+            }
+        }
+
         sendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
     }
 
@@ -1352,14 +1398,10 @@ public class StmtExecutor {
         boolean isOutfileQuery = queryStmt.hasOutFileClause();
 
         // Sql and PartitionCache
-        CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, parsedStmt, planner);
-        if (cacheAnalyzer.enableCache() && !isOutfileQuery
-                && context.getSessionVariable().getSqlSelectLimit() < 0
-                && context.getSessionVariable().getDefaultOrderByLimit() < 0) {
-            if (queryStmt instanceof QueryStmt || queryStmt instanceof LogicalPlanAdapter) {
-                handleCacheStmt(cacheAnalyzer, channel);
-                return;
-            }
+        if (context.isEnableSqlCache()) {
+            CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, parsedStmt, planner);
+            handleCacheStmt(cacheAnalyzer, channel);
+            return;
         }
 
         // handle select .. from xx  limit 0

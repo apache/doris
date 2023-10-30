@@ -261,11 +261,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     @Override
     public void createScanRangeLocations() throws UserException {
-        long start = System.currentTimeMillis();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsStartTime();
         }
-        List<Split> inputSplits = getSplits();
+        inputSplits = getSplits();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
         }
@@ -273,6 +272,17 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (inputSplits.isEmpty()) {
             return;
         }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.isEnableSqlCache()) {
+            // if enable sql cache, we will not create scan range locations
+            LOG.debug("if enable sql cache, we will not create scan range locations");
+            return;
+        }
+        createScanRangeLocationsInternal();
+    }
+
+    public void createScanRangeLocationsInternal() throws UserException {
+        long start = System.currentTimeMillis();
         TFileFormatType fileFormatType = getFileFormatType();
         params.setFormatType(fileFormatType);
         boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;

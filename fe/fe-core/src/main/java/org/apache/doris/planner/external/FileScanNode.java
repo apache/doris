@@ -64,6 +64,7 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     public static final long DEFAULT_SPLIT_SIZE = 8 * 1024 * 1024; // 8MB
 
+    List<Split> inputSplits = Lists.newArrayList();
     // For explain
     protected long inputSplitsNum = 0;
     protected long totalFileSize = 0;

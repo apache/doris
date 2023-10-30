@@ -171,6 +171,8 @@ public class ConnectContext {
 
     private String workloadGroupName = "";
 
+    private boolean isEnableSqlCache = false;
+
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
             sessionVariable.setQueryTimeoutS(queryTimeout);
@@ -731,6 +733,14 @@ public class ConnectContext {
 
     public Map<String, String> getResultAttachedInfo() {
         return resultAttachedInfo;
+    }
+
+    public void setIsEnableSqlCache(boolean isEnableSqlCache) {
+        this.isEnableSqlCache = isEnableSqlCache;
+    }
+
+    public boolean isEnableSqlCache() {
+        return isEnableSqlCache;
     }
 
     public class ThreadInfo {
