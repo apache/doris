@@ -328,6 +328,8 @@ terminal String
     KW_DATETIME,
     KW_DATETIMEV2,
     KW_DATEV2,
+    KW_DATETIMEV1,
+    KW_DATEV1,
     KW_DAY,
     KW_DECIMAL,
     KW_DECIMALV3,
@@ -6362,6 +6364,10 @@ type ::=
   {: RESULT = ScalarType.createDatetimeV2Type(precision.intValue()); :}
   | KW_DATETIME
   {: RESULT = ScalarType.createDatetimeType(); :}
+  | KW_DATEV1
+  {: RESULT = ScalarType.createDateV1Type(); :}
+  | KW_DATETIMEV1
+  {: RESULT = ScalarType.createDatetimeV1Type(); :}
   | KW_TIME LPAREN INTEGER_LITERAL:precision RPAREN
   {: RESULT = ScalarType.createTimeV2Type(precision.intValue()); :}
   | KW_TIME
@@ -6749,6 +6755,8 @@ non_pred_expr ::=
   | function_call_expr:e
   {: RESULT = e; :}
   | KW_DATE STRING_LITERAL:l
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATE), new StringLiteral(l)); :}
+  | KW_DATEV1 STRING_LITERAL:l
   {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATE), new StringLiteral(l)); :}
   | KW_DATEV2 STRING_LITERAL:l
   {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATEV2), new StringLiteral(l)); :}
@@ -7566,6 +7574,10 @@ keyword ::=
     | KW_DATEV2:id
     {: RESULT = id; :}
     | KW_DATETIMEV2:id
+    {: RESULT = id; :}
+    | KW_DATEV1:id
+    {: RESULT = id; :}
+    | KW_DATETIMEV1:id
     {: RESULT = id; :}
     | KW_DECIMAL:id
     {: RESULT = id; :}
