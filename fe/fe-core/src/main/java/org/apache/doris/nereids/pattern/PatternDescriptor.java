@@ -21,6 +21,8 @@ import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Objects;
@@ -32,6 +34,7 @@ import java.util.function.Predicate;
  * It can support pattern generic type to MatchedAction.
  */
 public class PatternDescriptor<INPUT_TYPE extends Plan> {
+    private static final Logger LOG = LogManager.getLogger(PatternDescriptor.class);
     public final Pattern<INPUT_TYPE> pattern;
     public final RulePromise defaultPromise;
 
@@ -61,6 +64,22 @@ public class PatternDescriptor<INPUT_TYPE extends Plan> {
     public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> thenApply(
             MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
         return new PatternMatcher<>(pattern, defaultPromise, matchedAction);
+    }
+
+    /**
+     * Same as thenApply, but catch all exception and return null
+     */
+    public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> thenApplyNoThrow(
+            MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
+        MatchedAction<INPUT_TYPE, OUTPUT_TYPE> adaptMatchedAction = ctx -> {
+            try {
+                return matchedAction.apply(ctx);
+            } catch (Exception ex) {
+                LOG.warn(ex.getMessage());
+                return null;
+            }
+        };
+        return new PatternMatcher<>(pattern, defaultPromise, adaptMatchedAction);
     }
 
     public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> thenMulti(
