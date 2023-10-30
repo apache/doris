@@ -20,6 +20,7 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.FrontendService;
@@ -41,18 +42,21 @@ import java.util.concurrent.TimeUnit;
 public class TokenManager {
     private static final Logger LOG = LogManager.getLogger(TokenManager.class);
 
-    private final int thriftTimeoutMs = 300 * 1000;
-    private final EvictingQueue<String> tokenQueue;
-    private final ScheduledExecutorService tokenGenerator;
+    private  int thriftTimeoutMs = 300 * 1000;
+    private  EvictingQueue<String> tokenQueue;
+    private  ScheduledExecutorService tokenGenerator;
 
     public TokenManager() {
+    }
+
+    public void start() {
         this.tokenQueue = EvictingQueue.create(Config.token_queue_size);
         // init one token to avoid async issue.
         this.tokenQueue.offer(generateNewToken());
-        this.tokenGenerator = Executors.newScheduledThreadPool(1);
-        this.tokenGenerator.scheduleAtFixedRate(() -> {
-            tokenQueue.offer(generateNewToken());
-        }, 0, Config.token_generate_period_hour, TimeUnit.HOURS);
+        this.tokenGenerator = Executors.newScheduledThreadPool(1,
+                new CustomThreadFactory("token-generator"));
+        this.tokenGenerator.scheduleAtFixedRate(() -> tokenQueue.offer(generateNewToken()), 0,
+                Config.token_generate_period_hour, TimeUnit.HOURS);
     }
 
     private String generateNewToken() {

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedView;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -66,9 +67,11 @@ public class MTMVJobManager {
 
     private final MTMVTaskManager taskManager;
 
-    private ScheduledExecutorService periodScheduler = Executors.newScheduledThreadPool(1);
+    private ScheduledExecutorService periodScheduler = Executors.newScheduledThreadPool(1,
+            new CustomThreadFactory("mtmv-job-period-scheduler"));
 
-    private ScheduledExecutorService cleanerScheduler = Executors.newScheduledThreadPool(1);
+    private ScheduledExecutorService cleanerScheduler = Executors.newScheduledThreadPool(1,
+            new CustomThreadFactory("mtmv-job-cleaner-scheduler"));
 
     private final ReentrantReadWriteLock rwLock;
 
@@ -86,13 +89,15 @@ public class MTMVJobManager {
             // check the scheduler before using it
             // since it may be shutdown when master change to follower without process shutdown.
             if (periodScheduler.isShutdown()) {
-                periodScheduler = Executors.newScheduledThreadPool(1);
+                periodScheduler = Executors.newScheduledThreadPool(1,
+                        new CustomThreadFactory("mtmv-job-period-scheduler"));
             }
 
             registerJobs();
 
             if (cleanerScheduler.isShutdown()) {
-                cleanerScheduler = Executors.newScheduledThreadPool(1);
+                cleanerScheduler = Executors.newScheduledThreadPool(1,
+                        new CustomThreadFactory("mtmv-job-cleaner-scheduler"));
             }
             cleanerScheduler.scheduleAtFixedRate(() -> {
                 if (!Env.getCurrentEnv().isMaster()) {
