@@ -986,6 +986,8 @@ public class SessionVariable implements Serializable, Writable {
     // Besides, the query will always try to select the one with the highest lastSuccessVersion among all surviving
     // BE replicas, so as to recover as much data as possible.
     // You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries.
+    // This variable conflicts with the use_fix_replica variable, when the use_fix_replica variable is not -1, 
+    // this variable will not work.
     @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION)
     public boolean skipMissingVersion = false;
 
