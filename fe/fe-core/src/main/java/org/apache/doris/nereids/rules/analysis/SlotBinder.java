@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.CascadesContext;
@@ -287,14 +288,14 @@ public class SlotBinder extends SubExprAnalyzer {
             }
             if (namePartsSize == 2) {
                 String qualifierTableName = boundSlot.getQualifier().get(qualifierSize - 1);
-                return qualifierTableName.equalsIgnoreCase(nameParts.get(0))
+                return sameTableName(qualifierTableName, nameParts.get(0))
                         && boundSlot.getName().equalsIgnoreCase(nameParts.get(1));
             }
             if (nameParts.size() == 3) {
                 String qualifierTableName = boundSlot.getQualifier().get(qualifierSize - 1);
                 String qualifierDbName = boundSlot.getQualifier().get(qualifierSize - 2);
                 return compareDbNameIgnoreClusterName(nameParts.get(0), qualifierDbName)
-                        && qualifierTableName.equalsIgnoreCase(nameParts.get(1))
+                        && sameTableName(qualifierTableName, nameParts.get(1))
                         && boundSlot.getName().equalsIgnoreCase(nameParts.get(2));
             }
             // catalog.db.table.column
@@ -304,12 +305,20 @@ public class SlotBinder extends SubExprAnalyzer {
                 String qualifierCatalogName = boundSlot.getQualifier().get(qualifierSize - 3);
                 return qualifierCatalogName.equalsIgnoreCase(nameParts.get(0))
                     && compareDbNameIgnoreClusterName(nameParts.get(1), qualifierDbName)
-                    && qualifierTableName.equalsIgnoreCase(nameParts.get(2))
+                    && sameTableName(qualifierTableName, nameParts.get(2))
                     && boundSlot.getName().equalsIgnoreCase(nameParts.get(3));
             }
             //TODO: handle name parts more than three.
             throw new AnalysisException("Not supported name: "
                     + StringUtils.join(nameParts, "."));
         }).collect(Collectors.toList());
+    }
+
+    private boolean sameTableName(String boundSlot, String unboundSlot) {
+        if (Config.lower_case_table_names != 1) {
+            return boundSlot.equals(unboundSlot);
+        } else {
+            return boundSlot.equalsIgnoreCase(unboundSlot);
+        }
     }
 }
