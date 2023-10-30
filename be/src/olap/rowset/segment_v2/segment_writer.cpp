@@ -184,7 +184,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
         }
         // indexes for this column
         opts.indexes = _tablet_schema->get_indexes_for_column(column);
-        if (column.is_variant_type() || column.is_jsonb_type()) {
+        if (column.is_variant_type() || column.is_jsonb_type() || column.is_array_type()) {
             // variant and jsonb type skip write index
             opts.indexes.clear();
         }
