@@ -51,7 +51,7 @@ suite("nereids_update_on_current_timestamp") {
     qt_sql "select id,name,score,test,dft from ${t1} order by id;"
     qt_1 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
     qt_1 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
-    sql "select sleep(1);"
+    sql "select sleep(2);"
 
 
     // set enable_unique_key_partial_update=true, it's a partial update
@@ -68,7 +68,7 @@ suite("nereids_update_on_current_timestamp") {
     qt_2 "select id,name,score,test,dft from ${t1} order by id;"
     qt_2 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
     qt_2 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
-    sql "select sleep(1);"
+    sql "select sleep(2);"
 
     // when user specify that column, it will be filled with the input value
     sql """ insert into ${t1}(id, update_time) values
@@ -78,7 +78,7 @@ suite("nereids_update_on_current_timestamp") {
     qt_3 "select count(distinct update_time) from ${t1} where update_time > '2023-10-01 00:00:00';"
     qt_3 "select count(distinct update_time) from ${t1};"
     qt_3 "select count(distinct update_time2) from ${t1} where update_time2 > '2023-10-01 00:00:00';"
-    sql "select sleep(1);"
+    sql "select sleep(2);"
 
     // test update statement
     sql """ update ${t1} set score = score * 2 where id < 3;"""
