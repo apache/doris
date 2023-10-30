@@ -449,6 +449,7 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "from_unixtime", argTypes = {"BIGINT"}, returnType = "VARCHAR")
     public static Expression fromUnixTime(BigIntLiteral second) {
+        // 32536771199L is max valid timestamp of mysql from_unix_time
         if (second.getValue() < 0 || second.getValue() > 32536771199L) {
             return null;
         }
@@ -460,9 +461,10 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "from_unixtime", argTypes = {"BIGINT", "VARCHAR"}, returnType = "VARCHAR")
     public static Expression fromUnixTime(BigIntLiteral second, VarcharLiteral format) {
-        if (second.getValue() < 0) {
+        if (second.getValue() < 0 || second.getValue() > 32536771199L) {
             return null;
         }
+
         ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
                 .plusSeconds(second.getValue())
                 .atZone(ZoneId.of("UTC+0"))
