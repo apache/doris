@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mysql_jdbc_catalog", "p0") {
+suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_docker_mysql") {
     qt_sql """select current_catalog()"""
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")

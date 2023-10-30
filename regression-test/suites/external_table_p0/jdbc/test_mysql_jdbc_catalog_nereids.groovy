@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mysql_jdbc_catalog_nereids", "p0") {
+suite("test_mysql_jdbc_catalog_nereids", "p0,external,mysql,external_docker,external_docker_mysql") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "mysql_jdbc_catalog_nereids";
