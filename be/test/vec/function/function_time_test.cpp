@@ -181,7 +181,8 @@ TEST(VTimestampFunctionsTest, from_unix_test) {
 
     InputTypeSet input_types = {TypeIndex::Int64};
 
-    DataSet data_set = {{{1565080737}, std::string("2019-08-06 16:38:57")}, {{-123}, Null()}};
+    DataSet data_set = {{{int64_t(1565080737)}, std::string("2019-08-06 16:38:57")},
+                        {{int64_t(-123)}, Null()}};
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
