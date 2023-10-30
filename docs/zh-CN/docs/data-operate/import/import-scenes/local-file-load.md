@@ -40,7 +40,7 @@ Stream Load 用于将本地文件导入到 Doris 中。
 该方式中涉及 HOST:PORT 应为 HTTP 协议端口。
 
 - BE 的 HTTP 协议端口，默认为 8040。
-- FE 的 HTTP 协议端口，默认为 8030。但须保证客户端所在机器网络能够联通 BE 所在机器。
+- FE 的 HTTP 协议端口，默认为 8030。但须保证客户端所在机器网络能够连通 BE 所在机器。
 
 本文文档我们以 [curl](https://curl.se/docs/manpage.html) 命令为例演示如何进行数据导入。
 
