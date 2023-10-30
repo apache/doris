@@ -1050,7 +1050,12 @@ Status SegmentIterator::_apply_inverted_index() {
         if (pred->type() == PredicateType::MATCH &&
             std::find(remaining_predicates.begin(), remaining_predicates.end(), pred) ==
                     remaining_predicates.end()) {
+            // TODO: change dynamic_cast to static_cast in the future
             MatchPredicate* match_pred = dynamic_cast<MatchPredicate*>(pred);
+            if (match_pred == nullptr) {
+                LOG(WARNING) << pred->debug_string() << " should be MatchPredicate";
+                continue;
+            }
             for (auto it = _common_expr_ctxs_push_down.begin();
                  it != _common_expr_ctxs_push_down.end(); it++) {
                 auto expr = (*it)->root().get();
@@ -1058,7 +1063,12 @@ Status SegmentIterator::_apply_inverted_index() {
                 if (expr->node_type() == TExprNodeType::MATCH_PRED &&
                     expr->children().size() == 2 && expr->get_child(0)->is_slot_ref() &&
                     expr->get_child(1)->is_constant()) {
+                    // TODO: change dynamic_cast to static_cast in the future
                     auto slot_ref = dynamic_cast<vectorized::VSlotRef*>(expr->get_child(0).get());
+                    if (slot_ref == nullptr) {
+                        LOG(WARNING) << expr->get_child(0)->debug_string() << " should be SlotRef";
+                        continue;
+                    }
                     std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
                     auto res = expr->get_child(1)->get_const_col((*it).get(), &const_col_wrapper);
                     if (res.ok() && const_col_wrapper) {
