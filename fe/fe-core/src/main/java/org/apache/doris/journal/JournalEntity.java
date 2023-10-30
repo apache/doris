@@ -844,9 +844,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_ALTER_CATALOG_COMMENT:
             case OperationType.OP_UPDATE_TABLE_STATS:
             case OperationType.OP_PERSIST_AUTO_JOB:
             case OperationType.OP_DELETE_TABLE_STATS: {
+                // For backward compatible with 2.0.3
                 isRead = true;
                 break;
             }
