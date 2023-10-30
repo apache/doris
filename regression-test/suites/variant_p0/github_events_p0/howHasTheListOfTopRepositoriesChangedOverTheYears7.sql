@@ -1,4 +1,5 @@
 SELECT
+    r
     repo,
     year,
     cnt
