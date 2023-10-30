@@ -91,6 +91,7 @@ public class TimerJobManager implements Closeable, Writable {
     }
 
     public void start() {
+        this.disruptor.start();
         dorisTimer = new HashedWheelTimer(new CustomThreadFactory("hashed-wheel-timer"),
                 1, TimeUnit.SECONDS, 660);
         dorisTimer.start();
