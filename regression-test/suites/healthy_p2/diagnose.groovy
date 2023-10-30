@@ -16,10 +16,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The cases is copied from https://github.com/trinodb/trino/tree/master
-// /testing/trino-product-tests/src/main/resources/sql-tests/testcases
-// and modified by Doris.
-
 suite('diagnose') {
     def items = sql 'show proc "/diagnose/cluster_balance"'
     assertTrue(items.size() > 0)
