@@ -118,7 +118,7 @@ struct ProcessHashTableBuild {
     template <int JoinOpType, bool ignore_null, bool short_circuit_for_null>
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
         if (short_circuit_for_null || ignore_null) {
-            for (int i = 0; i < _rows; i++) {
+            for (uint32_t i = 0; i < _rows; i++) {
                 if ((*null_map)[i]) {
                     *has_null_key = true;
                 }
