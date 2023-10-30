@@ -9,13 +9,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk))otherCondition=()
-------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
---------------------PhysicalProject
-----------------------PhysicalOlapScan[store_sales]
---------------------PhysicalDistribute
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------PhysicalProject
-------------------------filter(d_year IN (2000, 2001, 2002, 2003))
---------------------------PhysicalOlapScan[date_dim]
+------------------------PhysicalOlapScan[store_sales]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter(d_year IN (2000, 2001, 2002, 2003))
+----------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[item]

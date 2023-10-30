@@ -161,9 +161,10 @@ void ColumnString::insert_indices_from(const IColumn& src, const int* indices_be
     }
 }
 
-void ColumnString::update_crcs_with_value(std::vector<uint64_t>& hashes, doris::PrimitiveType type,
+void ColumnString::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
+                                          uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {
-    auto s = hashes.size();
+    auto s = rows;
     DCHECK(s == size());
 
     if (null_data == nullptr) {
@@ -310,8 +311,7 @@ void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
 }
 
 void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                               const uint8_t* null_map,
-                                               size_t max_row_byte_size) const {
+                                               const uint8_t* null_map) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
             uint32_t offset(offset_at(i));
@@ -509,11 +509,6 @@ void ColumnString::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                IColumn::Permutation& perms, EqualRange& range,
                                bool last_column) const {
     sorter->sort_column(static_cast<const ColumnString&>(*this), flags, perms, range, last_column);
-}
-
-void ColumnString::protect() {
-    get_chars().protect();
-    get_offsets().protect();
 }
 
 void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,

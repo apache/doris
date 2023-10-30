@@ -86,8 +86,7 @@ void ColumnDecimal<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_ro
 
 template <typename T>
 void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                                   const uint8_t* null_map,
-                                                   size_t max_row_byte_size) const {
+                                                   const uint8_t* null_map) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
             memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
@@ -122,8 +121,9 @@ template <typename T>
 UInt64 ColumnDecimal<T>::get64(size_t n) const {
     if constexpr (sizeof(T) > sizeof(UInt64)) {
         LOG(FATAL) << "Method get64 is not supported for " << get_family_name();
+    } else {
+        return static_cast<typename T::NativeType>(data[n]);
     }
-    return static_cast<typename T::NativeType>(data[n]);
 }
 
 template <typename T>
@@ -138,7 +138,7 @@ void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
 }
 
 template <typename T>
-void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                              const uint8_t* __restrict null_data) const {
     if (null_data == nullptr) {
         for (size_t i = start; i < end; i++) {
@@ -162,9 +162,10 @@ void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint64_t&
 }
 
 template <typename T>
-void ColumnDecimal<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type,
+                                              uint32_t rows, uint32_t offset,
                                               const uint8_t* __restrict null_data) const {
-    auto s = hashes.size();
+    auto s = rows;
     DCHECK(s == size());
 
     if constexpr (!IsDecimalV2<T>) {
@@ -502,6 +503,13 @@ Decimal128I ColumnDecimal<Decimal128I>::get_scale_multiplier() const {
     return common::exp10_i128(scale);
 }
 
+// duplicate with
+// Decimal256 DataTypeDecimal<Decimal256>::get_scale_multiplier(UInt32 scale) {
+template <>
+Decimal256 ColumnDecimal<Decimal256>::get_scale_multiplier() const {
+    return Decimal256(common::exp10_i256(scale));
+}
+
 template <typename T>
 ColumnPtr ColumnDecimal<T>::index(const IColumn& indexes, size_t limit) const {
     return select_index_impl(*this, indexes, limit);
@@ -511,4 +519,5 @@ template class ColumnDecimal<Decimal32>;
 template class ColumnDecimal<Decimal64>;
 template class ColumnDecimal<Decimal128>;
 template class ColumnDecimal<Decimal128I>;
+template class ColumnDecimal<Decimal256>;
 } // namespace doris::vectorized

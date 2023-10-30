@@ -309,7 +309,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         } else {
             decommissionTime = -1;
             if (code == SubCode.WAITING_SLOT && type != Type.BALANCE) {
-                return failedSchedCounter > 30 * 1000 / FeConstants.tablet_schedule_interval_ms;
+                return failedSchedCounter > 30 * 1000 / Config.tablet_schedule_interval_ms;
             } else {
                 return failedSchedCounter > 10;
             }
@@ -666,6 +666,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         List<Replica> decommissionCand = Lists.newArrayList();
         List<Replica> colocateCand = Lists.newArrayList();
         List<Replica> notColocateCand = Lists.newArrayList();
+        List<Replica> furtherRepairs = Lists.newArrayList();
         for (Replica replica : tablet.getReplicas()) {
             if (replica.isBad()) {
                 LOG.debug("replica {} is bad, skip. tablet: {}",
@@ -688,6 +689,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
             if (replica.getLastFailedVersion() <= 0
                     && replica.getVersion() >= visibleVersion) {
+
+                if (tabletStatus == TabletStatus.NEED_FURTHER_REPAIR && replica.needFurtherRepair()) {
+                    furtherRepairs.add(replica);
+                }
+
                 // skip healthy replica
                 LOG.debug("replica {} version {} is healthy, visible version {}, replica state {}, skip. tablet: {}",
                         replica.getId(), replica.getVersion(), visibleVersion, replica.getState(), tabletId);
@@ -709,8 +715,24 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         } else {
             candidates = decommissionCand;
         }
+
         if (candidates.isEmpty()) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to choose dest replica");
+            if (furtherRepairs.isEmpty()) {
+                throw new SchedException(Status.UNRECOVERABLE, "unable to choose dest replica");
+            }
+
+            boolean allCatchup = true;
+            for (Replica replica : furtherRepairs) {
+                if (checkFurthurRepairFinish(replica, visibleVersion)) {
+                    replica.setNeedFurtherRepair(false);
+                    replica.setFurtherRepairWatermarkTxnTd(-1);
+                } else {
+                    allCatchup = false;
+                }
+            }
+
+            throw new SchedException(Status.FINISHED,
+                    allCatchup ? "further repair all catchup" : "further repair waiting catchup");
         }
 
         Replica chosenReplica = null;
@@ -780,6 +802,32 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     chosenReplica.getId(), chosenReplica.getBackendId(), tabletId);
         }
         setDest(chosenReplica.getBackendId(), chosenReplica.getPathHash());
+    }
+
+    private boolean checkFurthurRepairFinish(Replica replica, long version) {
+        if (replica.getVersion() < version || replica.getLastFailedVersion() > 0) {
+            return false;
+        }
+
+        long furtherRepairWatermarkTxnTd = replica.getFurtherRepairWatermarkTxnTd();
+        if (furtherRepairWatermarkTxnTd < 0) {
+            return true;
+        }
+
+        try {
+            if (Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
+                        furtherRepairWatermarkTxnTd, dbId, tblId, partitionId)) {
+                LOG.info("replica {} of tablet {} has catchup with further repair watermark id {}",
+                        replica, tabletId, furtherRepairWatermarkTxnTd);
+                return true;
+            } else {
+                return false;
+            }
+        } catch (Exception e) {
+            LOG.warn("replica {} of tablet {} check catchup with further repair watermark id {} failed",
+                    replica, tabletId, furtherRepairWatermarkTxnTd, e);
+            return true;
+        }
     }
 
     public void releaseResource(TabletScheduler tabletScheduler) {
@@ -1074,6 +1122,13 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
             replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getDataSize(),
                     reportedTablet.getDataSize(), reportedTablet.getRowCount());
+            if (replica.getLastFailedVersion() > partition.getCommittedVersion()
+                    && reportedTablet.getVersion() >= partition.getCommittedVersion()
+                    //&& !(reportedTablet.isSetVersionMiss() && reportedTablet.isVersionMiss()
+                    && !(reportedTablet.isSetUsed() && !reportedTablet.isUsed())) {
+                LOG.info("change replica {} of tablet {} 's last failed version to -1", replica, tabletId);
+                replica.updateLastFailedVersion(-1L);
+            }
             if (reportedTablet.isSetPathHash()) {
                 replica.setPathHash(reportedTablet.getPathHash());
             }
@@ -1097,25 +1152,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // change from prepare to committed or visible, this replica will be fall behind and be removed
             // in REDUNDANT detection.
             //
-            boolean isCatchup = false;
-            if (replica.getVersion() >= partition.getVisibleVersion() && replica.getLastFailedVersion() < 0) {
-                long furtherRepairWatermarkTxnTd = replica.getFurtherRepairWatermarkTxnTd();
-                if (furtherRepairWatermarkTxnTd < 0) {
-                    isCatchup = true;
-                } else {
-                    try {
-                        if (Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
-                                furtherRepairWatermarkTxnTd, dbId, tblId, partitionId)) {
-                            isCatchup = true;
-                            LOG.info("new replica {} of tablet {} has catchup with further repair watermark id {}",
-                                    replica, tabletId, furtherRepairWatermarkTxnTd);
-                        }
-                    } catch (Exception e) {
-                        isCatchup = true;
-                    }
-                }
-            }
-
+            boolean isCatchup = checkFurthurRepairFinish(replica, partition.getVisibleVersion());
             replica.incrFurtherRepairCount();
             if (isCatchup || replica.getLeftFurtherRepairCount() <= 0) {
                 replica.setNeedFurtherRepair(false);

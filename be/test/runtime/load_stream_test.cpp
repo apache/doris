@@ -37,6 +37,7 @@
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/tablet_manager.h"
@@ -346,7 +347,7 @@ public:
         StreamService(LoadStreamMgr* load_stream_mgr)
                 : _sd(brpc::INVALID_STREAM_ID), _load_stream_mgr(load_stream_mgr) {}
         virtual ~StreamService() { brpc::StreamClose(_sd); };
-        virtual void open_stream_sink(google::protobuf::RpcController* controller,
+        virtual void open_load_stream(google::protobuf::RpcController* controller,
                                       const POpenStreamSinkRequest* request,
                                       POpenStreamSinkResponse* response,
                                       google::protobuf::Closure* done) {
@@ -452,11 +453,11 @@ public:
             auto ptablet = request.add_tablets();
             ptablet->set_tablet_id(NORMAL_TABLET_ID);
             ptablet->set_index_id(NORMAL_INDEX_ID);
-            stub.open_stream_sink(&_cntl, &request, &response, nullptr);
+            stub.open_load_stream(&_cntl, &request, &response, nullptr);
             if (_cntl.Failed()) {
-                std::cerr << "open_stream_sink failed" << std::endl;
-                LOG(ERROR) << "Fail to open stream sink " << _cntl.ErrorText();
-                return Status::InternalError("Fail to open stream sink");
+                std::cerr << "open_load_stream failed" << std::endl;
+                LOG(ERROR) << "Fail to open load stream " << _cntl.ErrorText();
+                return Status::InternalError("Fail to open load stream");
             }
 
             return Status::OK();

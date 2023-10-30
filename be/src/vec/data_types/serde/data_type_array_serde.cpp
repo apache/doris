@@ -94,7 +94,8 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     }
     // empty array []
     if (slice.size == 2) {
-        offsets.push_back(offsets.back());
+        auto last_off = offsets.back();
+        offsets.push_back(last_off);
         return Status::OK();
     }
     slice.remove_prefix(1);
@@ -325,7 +326,8 @@ Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-Status DataTypeArraySerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                               const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int start,
                                                int end, std::vector<StringRef>& buffer_list) const {
     orc::ListVectorBatch* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
@@ -341,7 +343,7 @@ Status DataTypeArraySerDe::write_column_to_orc(const IColumn& column, const Null
         size_t next_offset = offsets[row_id];
 
         if (cur_batch->notNull[row_id] == 1) {
-            static_cast<void>(nested_serde->write_column_to_orc(nested_column, nullptr,
+            static_cast<void>(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
                                                                 cur_batch->elements.get(), offset,
                                                                 next_offset, buffer_list));
         }

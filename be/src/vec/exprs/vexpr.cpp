@@ -125,6 +125,11 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
                 create_texpr_literal_node<TYPE_DECIMAL128I>(data, &node, precision, scale));
         break;
     }
+    case TYPE_DECIMAL256: {
+        static_cast<void>(
+                create_texpr_literal_node<TYPE_DECIMAL256>(data, &node, precision, scale));
+        break;
+    }
     case TYPE_CHAR: {
         static_cast<void>(create_texpr_literal_node<TYPE_CHAR>(data, &node));
         break;
@@ -146,6 +151,15 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
 } // namespace doris
 
 namespace doris::vectorized {
+
+bool VExpr::is_acting_on_a_slot(const VExpr& expr) {
+    const auto& children = expr.children();
+
+    auto is_a_slot = std::any_of(children.begin(), children.end(),
+                                 [](const auto& child) { return is_acting_on_a_slot(*child); });
+
+    return is_a_slot ? true : (expr.node_type() == TExprNodeType::SLOT_REF);
+}
 
 VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
@@ -220,6 +234,8 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::BOOL_LITERAL:
         case TExprNodeType::INT_LITERAL:
         case TExprNodeType::LARGE_INT_LITERAL:
+        case TExprNodeType::IPV4_LITERAL:
+        case TExprNodeType::IPV6_LITERAL:
         case TExprNodeType::FLOAT_LITERAL:
         case TExprNodeType::DECIMAL_LITERAL:
         case TExprNodeType::DATE_LITERAL:

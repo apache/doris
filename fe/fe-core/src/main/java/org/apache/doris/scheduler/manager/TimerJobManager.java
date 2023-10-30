@@ -18,6 +18,7 @@
 package org.apache.doris.scheduler.manager;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Writable;
@@ -273,9 +274,9 @@ public class TimerJobManager implements Closeable, Writable {
         if (jobMap.get(jobId).getJobStatus().equals(JobStatus.FINISHED)) {
             return;
         }
+        job.setLatestCompleteExecuteTimeMs(System.currentTimeMillis());
         cancelJobAllTask(job.getJobId());
         job.setJobStatus(JobStatus.FINISHED);
-        jobMap.get(job.getJobId()).finish();
         Env.getCurrentEnv().getEditLog().logUpdateJob(job);
     }
 
@@ -379,6 +380,7 @@ public class TimerJobManager implements Closeable, Writable {
         log.info("re-register system scheduler tasks" + TimeUtils.longToTimeString(System.currentTimeMillis()));
         dorisTimer.newTimeout(timeout -> {
             batchSchedulerTasks();
+            clearFinishJob();
             cycleSystemSchedulerTasks();
         }, BATCH_SCHEDULER_INTERVAL_SECONDS, TimeUnit.SECONDS);
 
@@ -509,5 +511,24 @@ public class TimerJobManager implements Closeable, Writable {
             Job job = Job.readFields(in);
             jobMap.putIfAbsent(job.getJobId(), job);
         }
+    }
+
+    /**
+     * clear finish job，if  job finish time is more than @Config.finish_job_max_saved_second, we will delete it
+     * this method will be called every 10 minutes, therefore, the actual maximum
+     * deletion time is Config.finish_job_max_saved_second + 10 min.
+     * we could to delete job in time, but it's not make sense.start
+     */
+    private void clearFinishJob() {
+        Long now = System.currentTimeMillis();
+        jobMap.values().forEach(job -> {
+            if (job.isFinished() && now - job.getLatestCompleteExecuteTimeMs() > Config.finish_job_max_saved_second) {
+                jobMap.remove(job.getJobId());
+                Env.getCurrentEnv().getEditLog().logDeleteJob(job);
+                Env.getCurrentEnv().getJobTaskManager().deleteJobTasks(job.getJobId());
+                log.debug("delete finish job:{}", job.getJobId());
+            }
+        });
+
     }
 }

@@ -53,13 +53,13 @@ public class Edge {
     private long referenceNodes = LongBitmap.newBitmap();
 
     // record the left child edges and right child edges in origin plan tree
-    private BitSet leftChildEdges;
-    private BitSet rightChildEdges;
+    private final BitSet leftChildEdges;
+    private final BitSet rightChildEdges;
 
     // record the edges in the same operator
-    private BitSet curJoinEdges = new BitSet();
+    private final BitSet curJoinEdges = new BitSet();
     // record all sub nodes behind in this operator. It's T function in paper
-    private Long subTreeNodes;
+    private final long subTreeNodes;
 
     /**
      * Create simple edge.
@@ -73,7 +73,7 @@ public class Edge {
         this.subTreeNodes = subTreeNodes;
     }
 
-    public LogicalJoin getJoin() {
+    public LogicalJoin<? extends Plan, ? extends Plan> getJoin() {
         return join;
     }
 

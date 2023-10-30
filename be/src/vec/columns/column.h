@@ -148,11 +148,6 @@ public:
     virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
 
     virtual std::pair<RowsetId, uint32_t> get_rowset_segment_id() const { return {}; }
-    // todo(Amory) from column to get data type is not correct ,column is memory data,can not to assume memory data belong to which data type
-    virtual TypeIndex get_data_type() const {
-        LOG(FATAL) << "Cannot get_data_type() column " << get_name();
-        __builtin_unreachable();
-    }
 
     /// Returns number of values in column.
     virtual size_t size() const = 0;
@@ -343,8 +338,7 @@ public:
     }
 
     virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                             const uint8_t* null_map,
-                                             size_t max_row_byte_size) const {
+                                             const uint8_t* null_map) const {
         LOG(FATAL) << "serialize_vec_with_null_map not supported";
     }
 
@@ -394,13 +388,14 @@ public:
     /// Update state of crc32 hash function with value of n elements to avoid the virtual function call
     /// null_data to mark whether need to do hash compute, null_data == nullptr
     /// means all element need to do hash function, else only *null_data != 0 need to do hash func
-    virtual void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+    virtual void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                        uint32_t rows, uint32_t offset = 0,
                                         const uint8_t* __restrict null_data = nullptr) const {
         LOG(FATAL) << get_name() << "update_crcs_with_value not supported";
     }
 
     // use range for one hash value to avoid virtual function call in loop
-    virtual void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    virtual void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                        const uint8_t* __restrict null_data) const {
         LOG(FATAL) << get_name() << " update_crc_with_value not supported";
     }
@@ -551,10 +546,6 @@ public:
     /// Zero, if could not be determined.
     virtual size_t allocated_bytes() const = 0;
 
-    /// Make memory region readonly with mprotect if it is large enough.
-    /// The operation is slow and performed only for debug builds.
-    virtual void protect() {}
-
     /// If the column contains subcolumns (such as Array, Nullable, etc), do callback on them.
     /// Shallow: doesn't do recursive calls; don't do call for itself.
     using ColumnCallback = std::function<void(WrappedPtr&)>;
@@ -665,6 +656,8 @@ public:
     virtual bool is_column_array() const { return false; }
 
     virtual bool is_column_map() const { return false; }
+
+    virtual bool is_column_struct() const { return false; }
 
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }

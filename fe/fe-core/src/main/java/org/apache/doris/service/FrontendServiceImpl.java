@@ -107,6 +107,7 @@ import org.apache.doris.thrift.TAddColumnsRequest;
 import org.apache.doris.thrift.TAddColumnsResult;
 import org.apache.doris.thrift.TAutoIncrementRangeRequest;
 import org.apache.doris.thrift.TAutoIncrementRangeResult;
+import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TBeginTxnRequest;
 import org.apache.doris.thrift.TBeginTxnResult;
 import org.apache.doris.thrift.TBinlog;
@@ -134,6 +135,8 @@ import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
+import org.apache.doris.thrift.TGetBackendMetaRequest;
+import org.apache.doris.thrift.TGetBackendMetaResult;
 import org.apache.doris.thrift.TGetBinlogLagResult;
 import org.apache.doris.thrift.TGetBinlogRequest;
 import org.apache.doris.thrift.TGetBinlogResult;
@@ -141,6 +144,10 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetMasterTokenRequest;
 import org.apache.doris.thrift.TGetMasterTokenResult;
+import org.apache.doris.thrift.TGetMetaDB;
+import org.apache.doris.thrift.TGetMetaRequest;
+import org.apache.doris.thrift.TGetMetaResult;
+import org.apache.doris.thrift.TGetMetaTable;
 import org.apache.doris.thrift.TGetQueryStatsRequest;
 import org.apache.doris.thrift.TGetSnapshotRequest;
 import org.apache.doris.thrift.TGetSnapshotResult;
@@ -260,6 +267,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private ConcurrentHashMap<Long, Integer> multiTableFragmentInstanceIdIndexMap =
             new ConcurrentHashMap<>(64);
 
+    private static TNetworkAddress getMasterAddress() {
+        Env env = Env.getCurrentEnv();
+        String masterHost = env.getMasterHost();
+        int masterRpcPort = env.getMasterRpcPort();
+        return new TNetworkAddress(masterHost, masterRpcPort);
+    }
+
     public FrontendServiceImpl(ExecuteEnv exeEnv) {
         masterImpl = new MasterImpl();
         this.exeEnv = exeEnv;
@@ -371,12 +385,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         Env env = Env.getCurrentEnv();
         List<CatalogIf> catalogIfs = Lists.newArrayList();
-        if (Strings.isNullOrEmpty(params.catalog)) {
-            catalogIfs = env.getCatalogMgr().listCatalogs();
+        // If infodb_support_ext_catalog is true, we will list all catalogs or the specified catalog.
+        // Otherwise, we will only list internal catalog, or if the specified catalog is internal catalog.
+        if (Config.infodb_support_ext_catalog) {
+            if (Strings.isNullOrEmpty(params.catalog)) {
+                catalogIfs = env.getCatalogMgr().listCatalogs();
+            } else {
+                catalogIfs.add(env.getCatalogMgr()
+                        .getCatalogOrException(params.catalog,
+                                catalog -> new TException("Unknown catalog " + catalog)));
+            }
         } else {
-            catalogIfs.add(env.getCatalogMgr()
-                    .getCatalogOrException(params.catalog, catalog -> new TException("Unknown catalog " + catalog)));
+            if (Strings.isNullOrEmpty(params.catalog)
+                    || params.catalog.equalsIgnoreCase(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                catalogIfs.add(env.getInternalCatalog());
+            }
         }
+
         for (CatalogIf catalog : catalogIfs) {
             Collection<DatabaseIf> dbs = new HashSet<DatabaseIf>();
             try {
@@ -518,7 +543,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
                     // index id -> index schema
                     Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
-                    //index id -> index col_unique_id supplier
+                    // index id -> index col_unique_id supplier
                     Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
                     for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
                         indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
@@ -537,13 +562,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                         colUniqueIdSupplierMap.put(entry.getKey(), colUniqueIdSupplier);
                     }
-                    //4. call schame change function, only for dynamic table feature.
+                    // 4. call schame change function, only for dynamic table feature.
                     SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
 
                     boolean lightSchemaChange = schemaChangeHandler.processAddColumns(
                             addColumnsClause, olapTable, indexSchemaMap, true, colUniqueIdSupplierMap);
                     if (lightSchemaChange) {
-                        //for schema change add column optimize, direct modify table meta.
+                        // for schema change add column optimize, direct modify table meta.
                         List<Index> newIndexes = olapTable.getCopiedIndexes();
                         long jobId = Env.getCurrentEnv().getNextId();
                         Env.getCurrentEnv().getSchemaChangeHandler().modifyTableLightSchemaChange(
@@ -555,7 +580,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
 
-                //5. build all columns
+                // 5. build all columns
                 for (Column column : olapTable.getBaseSchema()) {
                     allColumns.add(column.toThrift());
                 }
@@ -614,6 +639,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
                 : params.catalog;
+        if (!Config.infodb_support_ext_catalog
+                && !catalogName.equalsIgnoreCase(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            throw new TException("Not support getting external catalog info when "
+                    + "infodb_support_ext_catalog is false");
+        }
 
         DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
@@ -669,6 +699,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetCatalog()) {
             catalogName = params.catalog;
         }
+        if (!Config.infodb_support_ext_catalog
+                && !catalogName.equalsIgnoreCase(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            throw new TException("Not support getting external catalog info when "
+                    + "infodb_support_ext_catalog is false");
+        }
+
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (catalog != null) {
             DatabaseIf db = catalog.getDbNullable(params.db);
@@ -724,7 +760,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     public TListTableMetadataNameIdsResult listTableMetadataNameIds(TGetTablesParams params) throws TException {
-
         LOG.debug("get list simple table request: {}", params);
 
         TListTableMetadataNameIdsResult result = new TListTableMetadataNameIdsResult();
@@ -749,7 +784,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                    CaseSensibility.TABLE.getCaseSensibility());
+                        CaseSensibility.TABLE.getCaseSensibility());
             } catch (PatternMatcherException e) {
                 throw new TException("Pattern is in bad format " + params.getPattern());
             }
@@ -883,6 +918,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
                 : params.catalog;
+        if (!Config.infodb_support_ext_catalog
+                && !catalogName.equalsIgnoreCase(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            throw new TException("Not support getting external catalog info when "
+                    + "infodb_support_ext_catalog is false");
+        }
         DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
                 .getDbNullable(params.db);
@@ -953,6 +993,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
                 : params.catalog;
+        if (!Config.infodb_support_ext_catalog
+                && !catalogName.equalsIgnoreCase(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            throw new TException("Not support getting external catalog info when "
+                    + "infodb_support_ext_catalog is false");
+        }
         DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
                 .getDbNullable(params.db);
@@ -1088,13 +1133,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return tableNames;
     }
 
-    private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
-                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
+    private void checkSingleTablePasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
+            String clientIp, PrivPredicate predicate) throws AuthenticationException {
         checkPasswordAndPrivs(cluster, user, passwd, db, Lists.newArrayList(tbl), clientIp, predicate);
     }
 
+    private void checkDbPasswordAndPrivs(String cluster, String user, String passwd, String db, String clientIp,
+            PrivPredicate predicate) throws AuthenticationException {
+        checkPasswordAndPrivs(cluster, user, passwd, db, null, clientIp, predicate);
+    }
+
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, List<String> tables,
-                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
+            String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
         final String fullUserName = ClusterNamespace.getFullName(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
@@ -1102,10 +1152,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
 
         Preconditions.checkState(currentUser.size() == 1);
+        if (tables == null || tables.isEmpty()) {
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUser.get(0), fullDbName, predicate)) {
+                throw new AuthenticationException(
+                        "Access denied; you need (at least one of) the (" + predicate.toString()
+                                + ") privilege(s) for this operation");
+            }
+            return;
+        }
+
         for (String tbl : tables) {
             if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
                 throw new AuthenticationException(
-                        "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
+                        "Access denied; you need (at least one of) the (" + predicate.toString()
+                                + ") privilege(s) for this operation");
             }
         }
     }
@@ -1177,7 +1237,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
         } else if (Strings.isNullOrEmpty(request.getToken())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
+            checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
 
@@ -1221,6 +1282,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
             LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
@@ -1355,7 +1417,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         List<String> tbNames;
-        //check has multi table
+        // check has multi table
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
             tbNames = request.getTbls();
         } else {
@@ -1366,7 +1428,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             OlapTable table = (OlapTable) db.getTableOrMetaException(tbl, TableType.OLAP);
             tables.add(table);
         }
-        //if it has multi table, use multi table and update multi table running transaction table ids
+        // if it has multi table, use multi table and update multi table running transaction table ids
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
             List<Long> multiTableIds = tables.stream().map(Table::getId).collect(Collectors.toList());
             Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
@@ -1390,11 +1452,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // refactoring it
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
                 for (String tbl : request.getTbls()) {
-                    checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), tbl,
+                    checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                            tbl,
                             request.getUserIp(), PrivPredicate.LOAD);
                 }
             } else {
-                checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
                         request.getTbl(),
                         request.getUserIp(), PrivPredicate.LOAD);
             }
@@ -1502,7 +1565,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         for (Table table : tableList) {
             // check auth
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), table.getName(),
+            checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    table.getName(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
 
@@ -1570,7 +1634,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
                         request.getTbls(), request.getUserIp(), PrivPredicate.LOAD);
             } else {
-                checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
                         request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
             }
         }
@@ -1611,6 +1675,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
             LOG.error("failed to get commitTxn: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
@@ -1754,14 +1819,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
-            //multi table load
+            // multi table load
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
                 for (String tbl : request.getTbls()) {
-                    checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), tbl,
+                    checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                            tbl,
                             request.getUserIp(), PrivPredicate.LOAD);
                 }
             } else {
-                checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
                         request.getTbl(),
                         request.getUserIp(), PrivPredicate.LOAD);
             }
@@ -1798,6 +1864,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
             LOG.error("failed to get rollbackTxn: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
@@ -2044,7 +2111,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
         } else if (Strings.isNullOrEmpty(request.getToken())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
+            checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
         ctx.setEnv(Env.getCurrentEnv());
@@ -2060,8 +2128,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             NativeInsertStmt parsedStmt = (NativeInsertStmt) SqlParserUtils.getFirstStmt(parser);
             parsedStmt.setOrigStmt(new OriginStatement(originStmt, 0));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
-            if (request.isGroupCommit() && parsedStmt.getLabel() != null) {
-                throw new AnalysisException("label and group_commit can't be set at the same time");
+            if (request.isGroupCommit()) {
+                if (parsedStmt.getLabel() != null) {
+                    throw new AnalysisException("label and group_commit can't be set at the same time");
+                }
+                parsedStmt.isGroupCommitStreamLoadSql = true;
             }
             StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
             ctx.setExecutor(executor);
@@ -2121,15 +2192,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
-                                                               String fullDbName, OlapTable table,
-                                                               long timeoutMs) throws UserException {
+            String fullDbName, OlapTable table,
+            long timeoutMs) throws UserException {
         return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 1, false);
     }
 
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
-                                                               String fullDbName, OlapTable table,
-                                                               long timeoutMs, int multiTableFragmentInstanceIdIndex,
-                                                               boolean isMultiTableRequest)
+            String fullDbName, OlapTable table,
+            long timeoutMs, int multiTableFragmentInstanceIdIndex,
+            boolean isMultiTableRequest)
             throws UserException {
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException(
@@ -2181,10 +2252,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TPipelineFragmentParams generatePipelineStreamLoadPut(TStreamLoadPutRequest request, Database db,
-                                                                  String fullDbName, OlapTable table,
-                                                                  long timeoutMs,
-                                                                  int multiTableFragmentInstanceIdIndex,
-                                                                  boolean isMultiTableRequest)
+            String fullDbName, OlapTable table,
+            long timeoutMs,
+            int multiTableFragmentInstanceIdIndex,
+            boolean isMultiTableRequest)
             throws UserException {
         if (db == null) {
             String dbName = fullDbName;
@@ -2205,13 +2276,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId(),
                     multiTableFragmentInstanceIdIndex);
-            // add table indexes to transaction state
-            TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionState(db.getId(), request.getTxnId());
-            if (txnState == null) {
-                throw new UserException("txn does not exist: " + request.getTxnId());
+            if (!request.isGroupCommit()) {
+                // add table indexes to transaction state
+                TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(db.getId(), request.getTxnId());
+                if (txnState == null) {
+                    throw new UserException("txn does not exist: " + request.getTxnId());
+                }
+                txnState.addTableIndexes(table);
             }
-            txnState.addTableIndexes(table);
             return plan;
         } finally {
             table.readUnlock();
@@ -2736,7 +2809,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
         if (Strings.isNullOrEmpty(request.getToken())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTable(),
+            checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTable(),
                     request.getUserIp(), PrivPredicate.SELECT);
         }
 
@@ -2801,6 +2875,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
             LOG.error("failed to get getSnapshot: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
@@ -2856,8 +2931,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 request.getUser(), request.getDb(), request.getLabelName(), request.getSnapshotName(),
                 request.getSnapshotType());
         if (Strings.isNullOrEmpty(request.getToken())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTable(), clientIp, PrivPredicate.LOAD);
+            checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTable(), clientIp, PrivPredicate.SELECT);
         }
 
         // Step 3: get snapshot
@@ -2887,6 +2962,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
             LOG.error("failed to get restoreSnapshot: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
@@ -2940,8 +3016,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         if (Strings.isNullOrEmpty(request.getToken())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTable(), clientIp, PrivPredicate.LOAD);
+            checkDbPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), clientIp,
+                    PrivPredicate.LOAD);
         }
 
         // Step 3: get snapshot
@@ -3005,6 +3081,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().isMaster()) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
             LOG.error("failed to get getMasterToken: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
@@ -3072,7 +3149,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
         if (Strings.isNullOrEmpty(request.getToken())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTable(),
+            checkSingleTablePasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTable(),
                     request.getUserIp(), PrivPredicate.SELECT);
         }
 
@@ -3259,5 +3337,172 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(new TStatus(TStatusCode.OK));
         LOG.debug("send create partition result: {}", result);
         return result;
+    }
+
+    public TGetMetaResult getMeta(TGetMetaRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive get meta request: {}", request);
+
+        TGetMetaResult result = new TGetMetaResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            result = getMetaImpl(request, clientAddr);
+        } catch (UserException e) {
+            LOG.warn("failed to get meta: {}", e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
+    }
+
+    private TGetMetaResult getMetaImpl(TGetMetaRequest request, String clientIp)
+            throws Exception {
+        //  Step 1: check fields
+        if (!request.isSetUser()) {
+            throw new UserException("user is not set");
+        }
+        if (!request.isSetPasswd()) {
+            throw new UserException("passwd is not set");
+        }
+        if (!request.isSetDb()) {
+            throw new UserException("db is not set");
+        }
+
+        // Step 2: check auth
+        TGetMetaResult result = new TGetMetaResult();
+        result.setStatus(new TStatus(TStatusCode.OK));
+        Database db = null;
+        List<Table> tables = null;
+
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+        if (Strings.isNullOrEmpty(request.getToken())) {
+            TGetMetaDB getMetaDb = request.getDb();
+
+            if (getMetaDb.isSetId()) {
+                db = Env.getCurrentInternalCatalog().getDbNullable(getMetaDb.getId());
+            } else if (getMetaDb.isSetName()) {
+                db = Env.getCurrentInternalCatalog().getDbNullable(getMetaDb.getName());
+            }
+
+            if (db == null) {
+                LOG.warn("db not found {}", getMetaDb);
+                return result;
+            }
+
+            if (getMetaDb.isSetTables()) {
+                tables = Lists.newArrayList();
+                List<TGetMetaTable> getMetaTables = getMetaDb.getTables();
+                for (TGetMetaTable getMetaTable : getMetaTables) {
+                    Table table = null;
+                    if (getMetaTable.isSetId()) {
+                        table = db.getTableNullable(getMetaTable.getId());
+                    } else {
+                        table = db.getTableNullable(getMetaTable.getName());
+                    }
+
+                    if (table == null) {
+                        LOG.warn("table not found {}", getMetaTable);
+                        continue;
+                    }
+
+                    tables.add(table);
+                }
+            }
+
+            if (tables == null) {
+                checkDbPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), db.getFullName(), clientIp,
+                        PrivPredicate.SELECT);
+            } else {
+                List<String> tableList = Lists.newArrayList();
+                for (Table table : tables) {
+                    tableList.add(table.getName());
+                }
+                checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), db.getFullName(), tableList,
+                        clientIp,
+                        PrivPredicate.SELECT);
+            }
+        }
+
+        // Step 3: get meta
+        try {
+            return Env.getMeta(db, tables);
+        } catch (Throwable e) {
+            throw e;
+        }
+    }
+
+    public TGetBackendMetaResult getBackendMeta(TGetBackendMetaRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive get backend meta request: {}", request);
+
+        TGetBackendMetaResult result = new TGetBackendMetaResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            result = getBackendMetaImpl(request, clientAddr);
+        } catch (UserException e) {
+            LOG.warn("failed to get backend meta: {}", e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+
+        return result;
+    }
+
+    private TGetBackendMetaResult getBackendMetaImpl(TGetBackendMetaRequest request, String clientAddr)
+            throws UserException {
+        // Step 1: Check fields
+        if (!request.isSetUser()) {
+            throw new UserException("user is not set");
+        }
+        if (!request.isSetPasswd()) {
+            throw new UserException("passwd is not set");
+        }
+
+        // Step 2: check auth
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+        checkPassword(request.getCluster(), request.getUser(), request.getPasswd(), clientAddr);
+
+
+        // TODO: check getBackendMeta privilege, which privilege should be checked?
+
+        // Step 3: get meta
+        try {
+            TGetBackendMetaResult result = new TGetBackendMetaResult();
+            result.setStatus(new TStatus(TStatusCode.OK));
+
+            final SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+            List<Backend> backends = systemInfoService.getAllBackends();
+
+            for (Backend backend : backends) {
+                TBackend tBackend = new TBackend();
+                tBackend.setId(backend.getId());
+                tBackend.setHost(backend.getHost());
+                tBackend.setHttpPort(backend.getHttpPort());
+                tBackend.setBrpcPort(backend.getBrpcPort());
+                tBackend.setBePort(backend.getBePort());
+                tBackend.setIsAlive(backend.isAlive());
+                result.addToBackends(tBackend);
+            }
+
+            return result;
+        } catch (Throwable e) {
+            throw e;
+        }
     }
 }

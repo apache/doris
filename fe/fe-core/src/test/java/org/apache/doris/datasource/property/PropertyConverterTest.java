@@ -36,6 +36,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.property.constants.CosProperties;
+import org.apache.doris.datasource.property.constants.GCSProperties;
 import org.apache.doris.datasource.property.constants.MinioProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
@@ -46,6 +47,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -170,7 +172,7 @@ public class PropertyConverterTest extends TestWithFeService {
         CreateRepositoryStmt analyzedStmt = createStmt(s3Repo);
         Assertions.assertEquals(analyzedStmt.getProperties().size(), 4);
         Repository repository = getRepository(analyzedStmt, "s3_repo");
-        Assertions.assertEquals(repository.getRemoteFileSystem().getProperties().size(), 5);
+        Assertions.assertEquals(9, repository.getRemoteFileSystem().getProperties().size());
 
         String s3RepoNew = "CREATE REPOSITORY `s3_repo_new`\n"
                 + "WITH S3\n"
@@ -405,11 +407,132 @@ public class PropertyConverterTest extends TestWithFeService {
         return (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(name);
     }
 
-
     @Test
     public void testSerialization() throws Exception {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
+    }
+
+    @Test
+    public void testS3PropertiesConvertor() {
+        // 1. AWS
+        Map<String, String> origProp = Maps.newHashMap();
+        origProp.put(S3Properties.Env.ACCESS_KEY, "ak");
+        origProp.put(S3Properties.Env.SECRET_KEY, "sk");
+        origProp.put(S3Properties.Env.ENDPOINT, "endpoint");
+        origProp.put(S3Properties.Env.REGION, "region");
+        origProp.put(PropertyConverter.USE_PATH_STYLE, "true");
+        Map<String, String> beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
+        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
+        Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
+        Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
+        Assertions.assertEquals("region", beProperties.get(S3Properties.Env.REGION));
+        Assertions.assertEquals("true", beProperties.get(PropertyConverter.USE_PATH_STYLE));
+
+        // 2. s3.
+        origProp = Maps.newHashMap();
+        origProp.put(S3Properties.ACCESS_KEY, "ak");
+        origProp.put(S3Properties.SECRET_KEY, "sk");
+        origProp.put(S3Properties.ENDPOINT, "endpoint");
+        origProp.put(S3Properties.REGION, "region");
+        origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
+        beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
+        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
+        Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
+        Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
+        Assertions.assertEquals("region", beProperties.get(S3Properties.Env.REGION));
+        Assertions.assertEquals("false", beProperties.get(PropertyConverter.USE_PATH_STYLE));
+
+        // 3. minio.
+        origProp = Maps.newHashMap();
+        origProp.put(MinioProperties.ACCESS_KEY, "ak");
+        origProp.put(MinioProperties.SECRET_KEY, "sk");
+        origProp.put(MinioProperties.ENDPOINT, "endpoint");
+        origProp.put(MinioProperties.REGION, "region");
+        origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
+        beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
+        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
+        Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
+        Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
+        Assertions.assertEquals("region", beProperties.get(S3Properties.Env.REGION));
+        Assertions.assertEquals("false", beProperties.get(PropertyConverter.USE_PATH_STYLE));
+
+        // 3.1 minio without region
+        origProp = Maps.newHashMap();
+        origProp.put(MinioProperties.ACCESS_KEY, "ak");
+        origProp.put(MinioProperties.SECRET_KEY, "sk");
+        origProp.put(MinioProperties.ENDPOINT, "endpoint");
+        origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
+        beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
+        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
+        Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
+        Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
+        Assertions.assertEquals(MinioProperties.DEFAULT_REGION, beProperties.get(S3Properties.Env.REGION));
+        Assertions.assertEquals("false", beProperties.get(PropertyConverter.USE_PATH_STYLE));
+
+        // 4. obs
+        origProp = Maps.newHashMap();
+        origProp.put(ObsProperties.ACCESS_KEY, "ak");
+        origProp.put(ObsProperties.SECRET_KEY, "sk");
+        origProp.put(ObsProperties.ENDPOINT, "endpoint");
+        origProp.put(ObsProperties.REGION, "region");
+        origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
+        beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
+        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
+        Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
+        Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
+        Assertions.assertEquals("region", beProperties.get(S3Properties.Env.REGION));
+        Assertions.assertEquals("false", beProperties.get(PropertyConverter.USE_PATH_STYLE));
+
+        // 4. oss
+        origProp = Maps.newHashMap();
+        origProp.put(OssProperties.ACCESS_KEY, "ak");
+        origProp.put(OssProperties.SECRET_KEY, "sk");
+        origProp.put(OssProperties.ENDPOINT, "endpoint");
+        origProp.put(OssProperties.REGION, "region");
+        origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
+        beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
+        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
+        Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
+        Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
+        Assertions.assertEquals("region", beProperties.get(S3Properties.Env.REGION));
+        Assertions.assertEquals("false", beProperties.get(PropertyConverter.USE_PATH_STYLE));
+
+        // 4. cos
+        origProp = Maps.newHashMap();
+        origProp.put(CosProperties.ACCESS_KEY, "ak");
+        origProp.put(CosProperties.SECRET_KEY, "sk");
+        origProp.put(CosProperties.ENDPOINT, "endpoint");
+        origProp.put(CosProperties.REGION, "region");
+        origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
+        beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
+        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
+        Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
+        Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
+        Assertions.assertEquals("region", beProperties.get(S3Properties.Env.REGION));
+        Assertions.assertEquals("false", beProperties.get(PropertyConverter.USE_PATH_STYLE));
+
+        // 5. gs
+        origProp = Maps.newHashMap();
+        origProp.put(GCSProperties.ACCESS_KEY, "ak");
+        origProp.put(GCSProperties.SECRET_KEY, "sk");
+        origProp.put(GCSProperties.ENDPOINT, "endpoint");
+        origProp.put(GCSProperties.REGION, "region");
+        origProp.put(PropertyConverter.USE_PATH_STYLE, "false");
+        beProperties = S3ClientBEProperties.getBeFSProperties(origProp);
+        Assertions.assertEquals(5, beProperties.size());
+        Assertions.assertEquals("ak", beProperties.get(S3Properties.Env.ACCESS_KEY));
+        Assertions.assertEquals("sk", beProperties.get(S3Properties.Env.SECRET_KEY));
+        Assertions.assertEquals("endpoint", beProperties.get(S3Properties.Env.ENDPOINT));
+        Assertions.assertEquals("region", beProperties.get(S3Properties.Env.REGION));
+        Assertions.assertEquals("false", beProperties.get(PropertyConverter.USE_PATH_STYLE));
     }
 }

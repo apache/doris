@@ -26,7 +26,6 @@
 #include "common/global_types.h"
 #include "common/status.h"
 #include "exec/odbc_connector.h"
-#include "exec/text_converter.h"
 #include "vec/exec/scan/vscanner.h"
 
 namespace doris {
@@ -62,8 +61,6 @@ protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
 private:
-    bool _is_init;
-
     // Indicates whether there are more rows to process. Set in _odbc_connector.next().
     bool _odbc_eof;
 
@@ -82,6 +79,7 @@ private:
     std::unique_ptr<ODBCConnector> _odbc_connector;
     ODBCConnectorParam _odbc_param;
     // Helper class for converting text to other types;
-    std::unique_ptr<TextConverter> _text_converter;
+    DataTypeSerDeSPtrs _text_serdes;
+    DataTypeSerDe::FormatOptions _text_formatOptions;
 };
 } // namespace doris::vectorized

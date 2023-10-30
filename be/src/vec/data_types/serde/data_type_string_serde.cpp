@@ -47,8 +47,14 @@ Status DataTypeStringSerDe::serialize_one_cell_to_json(const IColumn& column, in
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
+    if (nesting_level > 1) {
+        bw.write('"');
+    }
     const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
     bw.write(value.data, value.size);
+    if (nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 
@@ -233,7 +239,8 @@ Status DataTypeStringSerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-Status DataTypeStringSerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+Status DataTypeStringSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                                const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch, int start,
                                                 int end,
                                                 std::vector<StringRef>& buffer_list) const {

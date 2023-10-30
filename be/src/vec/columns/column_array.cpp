@@ -288,8 +288,8 @@ void ColumnArray::update_xxHash_with_value(size_t start, size_t end, uint64_t& h
                     hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&elem_size),
                                                       sizeof(elem_size), hash);
                 } else {
-                    get_data().update_crc_with_value(offsets_column[i - 1], offsets_column[i], hash,
-                                                     nullptr);
+                    get_data().update_xxHash_with_value(offsets_column[i - 1], offsets_column[i],
+                                                        hash, nullptr);
                 }
             }
         }
@@ -300,15 +300,15 @@ void ColumnArray::update_xxHash_with_value(size_t start, size_t end, uint64_t& h
                 hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&elem_size),
                                                   sizeof(elem_size), hash);
             } else {
-                get_data().update_crc_with_value(offsets_column[i - 1], offsets_column[i], hash,
-                                                 nullptr);
+                get_data().update_xxHash_with_value(offsets_column[i - 1], offsets_column[i], hash,
+                                                    nullptr);
             }
         }
     }
 }
 
 // for every array row calculate crcHash
-void ColumnArray::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnArray::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                         const uint8_t* __restrict null_data) const {
     auto& offsets_column = get_offsets();
     if (null_data) {
@@ -354,9 +354,10 @@ void ColumnArray::update_hashes_with_value(uint64_t* __restrict hashes,
     }
 }
 
-void ColumnArray::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                         uint32_t rows, uint32_t offset,
                                          const uint8_t* __restrict null_data) const {
-    auto s = hash.size();
+    auto s = rows;
     DCHECK(s == size());
 
     if (null_data) {
@@ -422,8 +423,8 @@ void ColumnArray::reserve(size_t n) {
 
 //please check you real need size in data column, because it's maybe need greater size when data is string column
 void ColumnArray::resize(size_t n) {
-    get_offsets().resize(n);
-    get_data().resize(n);
+    auto last_off = get_offsets().back();
+    get_offsets().resize_fill(n, last_off);
 }
 
 size_t ColumnArray::byte_size() const {
@@ -432,11 +433,6 @@ size_t ColumnArray::byte_size() const {
 
 size_t ColumnArray::allocated_bytes() const {
     return get_data().allocated_bytes() + get_offsets().allocated_bytes();
-}
-
-void ColumnArray::protect() {
-    get_data().protect();
-    get_offsets().protect();
 }
 
 ColumnPtr ColumnArray::convert_to_full_column_if_const() const {

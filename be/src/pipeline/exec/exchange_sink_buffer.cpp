@@ -148,6 +148,9 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
         return Status::OK();
     }
     TUniqueId ins_id = request.channel->_fragment_instance_id;
+    if (_is_receiver_eof(ins_id.lo)) {
+        return Status::EndOfFile("receiver eof");
+    }
     bool send_now = false;
     {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[ins_id.lo]);
@@ -234,6 +237,10 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
+        if (_statistics && _statistics->collected()) {
+            auto statistic = brpc_request->mutable_query_statistics();
+            _statistics->to_pb(statistic);
+        }
         if (request.block) {
             brpc_request->set_allocated_block(request.block.get());
         }
@@ -293,6 +300,10 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
         if (request.block_holder->get_block()) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
+        }
+        if (_statistics && _statistics->collected()) {
+            auto statistic = brpc_request->mutable_query_statistics();
+            _statistics->to_pb(statistic);
         }
         auto* closure = request.channel->get_closure(id, request.eos, request.block_holder);
 
@@ -364,11 +375,11 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     if (!_rpc_channel_is_idle[id]) {
         _busy_channels--;
+        _rpc_channel_is_idle[id] = true;
         if (_finish_dependency && _busy_channels == 0) {
             _finish_dependency->set_ready_to_finish();
         }
     }
-    _rpc_channel_is_idle[id] = true;
 }
 
 template <typename Parent>
@@ -384,11 +395,11 @@ void ExchangeSinkBuffer<Parent>::_set_receiver_eof(InstanceLoId id) {
     _instance_to_receiver_eof[id] = true;
     if (!_rpc_channel_is_idle[id]) {
         _busy_channels--;
+        _rpc_channel_is_idle[id] = true;
         if (_finish_dependency && _busy_channels == 0) {
             _finish_dependency->set_ready_to_finish();
         }
     }
-    _rpc_channel_is_idle[id] = true;
 }
 
 template <typename Parent>

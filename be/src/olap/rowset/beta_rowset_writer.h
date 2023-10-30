@@ -58,9 +58,6 @@ class SegmentWriter;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
-namespace vectorized::schema_util {
-class LocalSchemaChangeRecorder;
-}
 
 class BetaRowsetWriter : public RowsetWriter {
     friend class SegcompactionWorker;
@@ -92,9 +89,11 @@ public:
     // This method is thread-safe.
     Status flush_single_block(const vectorized::Block* block) override;
 
-    RowsetSharedPtr build() override;
+    Status build(RowsetSharedPtr& rowset) override;
 
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override;
+
+    PUniqueId load_id() override { return _context.load_id; }
 
     Version version() override { return _context.version; }
 
@@ -131,6 +130,14 @@ public:
 
     int64_t segment_writer_ns() override { return _segment_writer_ns; }
 
+    std::shared_ptr<PartialUpdateInfo> get_partial_update_info() override {
+        return _context.partial_update_info;
+    }
+
+    bool is_partial_update() override {
+        return _context.partial_update_info && _context.partial_update_info->is_partial_update;
+    }
+
 private:
     Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
     Status _check_segment_number_limit();
@@ -155,13 +162,6 @@ private:
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
-
-    // Unfold variant column to Block
-    // Eg. [A | B | C | (D, E, F)]
-    // After unfold block structure changed to -> [A | B | C | D | E | F]
-    // The expanded D, E, F is dynamic part of the block
-    // The flushed Block columns should match exactly from the same type of frontend meta
-    Status _unfold_variant_column(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
 
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment

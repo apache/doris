@@ -197,6 +197,13 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
 
     @Override
     protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (this.dataType.equals(targetType)) {
+            return this;
+        }
+        if (this instanceof NullLiteral) {
+            return new NullLiteral(targetType);
+        }
+        // TODO support string to complex
         String desc = getStringValue();
         if (targetType.isBooleanType()) {
             if ("0".equals(desc) || "false".equals(desc.toLowerCase(Locale.ROOT))) {
@@ -242,6 +249,10 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new DateTimeV2Literal((DateTimeV2Type) targetType, desc);
         } else if (targetType.isJsonType()) {
             return new JsonLiteral(desc);
+        } else if (targetType.isIPv4Type()) {
+            return new IPv4Literal(desc);
+        } else if (targetType.isIPv6Type()) {
+            return new IPv6Literal(desc);
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }
@@ -289,6 +300,10 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new DateTimeV2Literal(stringValue);
         } else if (dataType.isJsonType()) {
             return new JsonLiteral(stringValue);
+        } else if (dataType.isIPv4Type()) {
+            return new IPv4Literal(stringValue);
+        } else if (dataType.isIPv6Type()) {
+            return new IPv6Literal(stringValue);
         } else {
             throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
                     + " of legacy literal to nereids literal");

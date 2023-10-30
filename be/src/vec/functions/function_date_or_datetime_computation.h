@@ -118,9 +118,9 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
                                                bool& is_null) {                                    \
             if constexpr (std::is_same_v<DateType, DataTypeDate> ||                                \
                           std::is_same_v<DateType, DataTypeDateTime>) {                            \
-                return date_time_add<TimeUnit::UNIT, doris::vectorized::VecDateTimeValue,          \
-                                     doris::vectorized::VecDateTimeValue, ReturnNativeType>(       \
-                        t, delta, is_null);                                                        \
+                return date_time_add<TimeUnit::UNIT, doris::VecDateTimeValue,                      \
+                                     doris::VecDateTimeValue, ReturnNativeType>(t, delta,          \
+                                                                                is_null);          \
             } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {                       \
                 if constexpr (TimeUnit::UNIT == TimeUnit::HOUR ||                                  \
                               TimeUnit::UNIT == TimeUnit::MINUTE ||                                \
@@ -176,9 +176,8 @@ struct AddQuartersImpl {
     static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta, bool& is_null) {
         if constexpr (std::is_same_v<DateType, DataTypeDate> ||
                       std::is_same_v<DateType, DataTypeDateTime>) {
-            return date_time_add<TimeUnit::MONTH, doris::vectorized::VecDateTimeValue,
-                                 doris::vectorized::VecDateTimeValue, ReturnNativeType>(t, delta,
-                                                                                        is_null);
+            return date_time_add<TimeUnit::MONTH, doris::VecDateTimeValue, doris::VecDateTimeValue,
+                                 ReturnNativeType>(t, delta, is_null);
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
             return date_time_add<TimeUnit::MONTH, DateV2Value<DateV2ValueType>,
                                  DateV2Value<DateV2ValueType>, ReturnNativeType>(t, delta, is_null);
@@ -370,8 +369,6 @@ TIME_DIFF_FUNCTION_IMPL(MicroSecondsDiffImpl, microseconds_diff, MICROSECOND);
 TIME_FUNCTION_TWO_ARGS_IMPL(ToYearWeekTwoArgsImpl, yearweek, year_week(mysql_week_mode(mode)),
                             DataTypeInt32);
 TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImpl, week, week(mysql_week_mode(mode)), DataTypeInt8);
-/// @TEMPORARY: for be_exec_version=2
-TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImplOld, week, week(mysql_week_mode(mode)), DataTypeInt32);
 
 template <typename FromType1, typename FromType2, typename ToType, typename Transform>
 struct DateTimeOp {
@@ -1036,7 +1033,7 @@ struct CurrentDateImpl {
             if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                   context->state()->timezone_obj())) {
                 reinterpret_cast<VecDateTimeValue*>(&dtv)->set_type(TIME_DATE);
-                auto date_packed_int = binary_cast<doris::vectorized::VecDateTimeValue, int64_t>(
+                auto date_packed_int = binary_cast<doris::VecDateTimeValue, int64_t>(
                         *reinterpret_cast<VecDateTimeValue*>(&dtv));
                 col_to->insert_data(
                         const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);

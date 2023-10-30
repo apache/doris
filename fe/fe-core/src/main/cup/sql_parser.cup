@@ -347,6 +347,7 @@ terminal String
     KW_DISTRIBUTION,
     KW_DIV,
     KW_DO,
+    KW_DORIS_INTERNAL_TABLE_ID,
     KW_DOUBLE,
     KW_DROP,
     KW_DROPP,
@@ -425,6 +426,8 @@ terminal String
     KW_INTERSECT,
     KW_INTERVAL,
     KW_INTO,
+    KW_IPV4,
+    KW_IPV6,
     KW_IS,
     KW_ISNULL,
     KW_ISOLATION,
@@ -577,6 +580,7 @@ terminal String
     KW_SNAPSHOT,
     KW_SONAME,
     KW_SPLIT,
+    KW_SQL,
     KW_SQL_BLOCK_RULE,
     KW_START,
     KW_STARTS,    
@@ -1344,6 +1348,10 @@ alter_stmt ::=
     | KW_ALTER KW_CATALOG ident:catalogName KW_SET KW_PROPERTIES LPAREN key_value_map:map RPAREN
     {:
         RESULT = new AlterCatalogPropertyStmt(catalogName, map);
+    :}
+    | KW_ALTER KW_CATALOG ident:catalogName KW_MODIFY KW_COMMENT STRING_LITERAL:comment
+    {:
+        RESULT = new AlterCatalogCommentStmt(catalogName, comment);
     :}
     | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
     {:
@@ -3253,6 +3261,15 @@ opt_partition ::=
         exprs.add(fnExpr);
         RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
     :}
+    | KW_AUTO KW_PARTITION KW_BY KW_RANGE function_name:functionName LPAREN expr_list:l COMMA
+        KW_INTERVAL expr:v ident:u RPAREN LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        Expr fnExpr = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u); 
+        ArrayList<Expr> exprs = new ArrayList<Expr>();
+        exprs.add(fnExpr);
+        RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
+    :}
+
     /* expr list partition */
     | KW_AUTO KW_PARTITION KW_BY KW_LIST LPAREN expr_list:exprs RPAREN
             LPAREN opt_all_partition_desc_list:list RPAREN
@@ -4107,7 +4124,11 @@ show_param ::=
     :}
     | KW_PROPERTY opt_user:user opt_wild_where
     {:
-        RESULT = new ShowUserPropertyStmt(user, parser.wild);
+        RESULT = new ShowUserPropertyStmt(user, parser.wild, false);
+    :}
+    | KW_ALL KW_PROPERTIES opt_wild_where
+    {:
+        RESULT = new ShowUserPropertyStmt(null, parser.wild, true);
     :}
     | KW_BACKUP opt_db:db opt_wild_where
     {:
@@ -4297,7 +4318,7 @@ show_param ::=
     {:
         RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
     :}
-    | KW_CONVERT_LSC KW_FROM opt_db:db
+    | KW_CONVERT_LSC opt_db:db
     {:
         RESULT = new ShowConvertLSCStmt(db);
     :}
@@ -4827,7 +4848,7 @@ insert_stmt ::=
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
     | /* used for group commit */
-    KW_INSERT KW_INTO INTEGER_LITERAL:table_id opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
+    KW_INSERT KW_INTO KW_DORIS_INTERNAL_TABLE_ID LPAREN INTEGER_LITERAL:table_id RPAREN opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
         RESULT = new NativeInsertStmt(table_id, label, cols, source, hints);
     :}
@@ -6128,6 +6149,12 @@ with_analysis_properties ::=
              put(AnalyzeProperties.PROPERTY_FORCE_FULL, "true");
         }};
     :}
+    | KW_SQL
+    {:
+        RESULT = new HashMap<String, String>() {{
+             put(AnalyzeProperties.PROPERTY_PARTITION_COLUMN_FROM_SQL, "true");
+        }};
+    :}
 
     ;
 
@@ -6345,6 +6372,10 @@ type ::=
   {: RESULT = ScalarType.createDatetimeV2Type(precision.intValue()); :}
   | KW_DATETIMEV2
   {: RESULT = ScalarType.createDatetimeV2Type(0); :}
+  | KW_IPV4
+  {: RESULT = Type.IPV4; :}
+  | KW_IPV6
+  {: RESULT = Type.IPV6; :}
   | KW_BITMAP
   {: RESULT = Type.BITMAP; :}
   | KW_QUANTILE_STATE

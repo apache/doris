@@ -203,7 +203,7 @@ void ColumnStruct::update_xxHash_with_value(size_t start, size_t end, uint64_t& 
     }
 }
 
-void ColumnStruct::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnStruct::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                          const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
         column->update_crc_with_value(start, end, hash, nullptr);
@@ -217,10 +217,11 @@ void ColumnStruct::update_hashes_with_value(uint64_t* __restrict hashes,
     }
 }
 
-void ColumnStruct::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+void ColumnStruct::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                          uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
-        column->update_crcs_with_value(hash, type, null_data);
+        column->update_crcs_with_value(hash, type, rows, offset, null_data);
     }
 }
 
@@ -293,6 +294,21 @@ void ColumnStruct::replicate(const uint32_t* indexs, size_t target_size, IColumn
     }
 }
 
+MutableColumnPtr ColumnStruct::get_shrinked_column() {
+    const size_t tuple_size = columns.size();
+    MutableColumns new_columns(tuple_size);
+
+    for (size_t i = 0; i < tuple_size; ++i) {
+        if (columns[i]->is_column_string() || columns[i]->is_column_array() ||
+            columns[i]->is_column_map() || columns[i]->is_column_struct()) {
+            new_columns[i] = columns[i]->get_shrinked_column();
+        } else {
+            new_columns[i] = columns[i]->get_ptr();
+        }
+    }
+    return ColumnStruct::create(std::move(new_columns));
+}
+
 MutableColumns ColumnStruct::scatter(ColumnIndex num_columns, const Selector& selector) const {
     const size_t tuple_size = columns.size();
     std::vector<MutableColumns> scattered_tuple_elements(tuple_size);
@@ -345,12 +361,6 @@ size_t ColumnStruct::allocated_bytes() const {
         res += column->allocated_bytes();
     }
     return res;
-}
-
-void ColumnStruct::protect() {
-    for (auto& column : columns) {
-        column->protect();
-    }
 }
 
 void ColumnStruct::for_each_subcolumn(ColumnCallback callback) {

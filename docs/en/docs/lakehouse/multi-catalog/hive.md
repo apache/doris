@@ -390,9 +390,9 @@ For Hive/Iceberge/Hudi
 | char| char | |
 | varchar| varchar| |
 | decimal| decimal | |
-| `array<type>` | `array<type>`| 支持array嵌套，如 `array<array<int>>` |
-| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | 暂不支持嵌套，KeyType 和 ValueType 需要为基础类型 |
-| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | 暂不支持嵌套，Type1, Type2, ... 需要为基础类型 |
+| `array<type>` | `array<type>`| support nested type, for example `array<array<int>>` |
+| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | support nested type, for example `map<string, array<int>>` |
+| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | support nested type, for example `struct<col1: array<int>, col2: map<int, date>>` |
 | other | unsupported | |
 
 ## Whether to truncate char or varchar columns according to the schema of the hive table
@@ -400,6 +400,14 @@ For Hive/Iceberge/Hudi
 If the variable `truncate_char_or_varchar_columns` is enabled, when the maximum length of the char or varchar column in the schema of the hive table is inconsistent with the schema in the underlying parquet or orc file, it will be truncated according to the maximum length of the hive table column.
 
 The variable default is false.
+
+## Access HMS with broker
+
+Add following setting when creating an HMS catalog, file splitting and scanning for Hive external table will be completed by broker named `test_broker`
+
+```sql
+"broker.name" = "test_broker"
+```
 
 ## Integrate with Apache Ranger
 

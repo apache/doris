@@ -136,7 +136,6 @@ Status ScannerScheduler::init(ExecEnv* env) {
     static_cast<void>(ThreadPoolBuilder("local_scan_group")
                               .set_min_threads(config::doris_scanner_thread_pool_thread_num)
                               .set_max_threads(config::doris_scanner_thread_pool_thread_num)
-                              .set_cgroup_cpu_ctl(env->get_cgroup_cpu_ctl())
                               .build(&_group_local_scan_thread_pool));
     for (int i = 0; i < config::doris_scanner_thread_pool_thread_num; i++) {
         static_cast<void>(_group_local_scan_thread_pool->submit_func([this] {
@@ -237,7 +236,13 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                 TabletStorageType type = (*iter)->get_storage_type();
                 bool ret = false;
                 if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-                    if (ctx->get_task_group() && config::enable_workload_group_for_scan) {
+                    if (auto* scan_sche = ctx->get_simple_scan_scheduler()) {
+                        auto work_func = [this, scanner = *iter, ctx] {
+                            this->_scanner_scan(this, ctx, scanner);
+                        };
+                        SimplifiedScanTask simple_scan_task = {work_func, ctx};
+                        ret = scan_sche->get_scan_queue()->try_put(simple_scan_task);
+                    } else if (ctx->get_task_group() && config::enable_workload_group_for_scan) {
                         auto work_func = [this, scanner = *iter, ctx] {
                             this->_scanner_scan(this, ctx, scanner);
                         };
@@ -312,10 +317,13 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScannerSPtr scanner) {
     SCOPED_ATTACH_TASK(scanner->runtime_state());
+    // for cpu hard limit, thread name should not be reset
 #if !defined(USE_BTHREAD_SCANNER)
-    Thread::set_self_name("_scanner_scan");
+    if (ctx->_should_reset_thread_name) {
+        Thread::set_self_name("_scanner_scan");
+    }
 #else
-    if (dynamic_cast<NewOlapScanner*>(scanner) == nullptr) {
+    if (dynamic_cast<NewOlapScanner*>(scanner) == nullptr && ctx->_should_reset_thread_name) {
         Thread::set_self_name("_scanner_scan");
     }
 #endif
@@ -371,8 +379,8 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     bool should_stop = false;
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
-    while (!eos && raw_bytes_read < raw_bytes_threshold &&
-           (raw_rows_read < raw_rows_threshold || num_rows_in_block < state->batch_size())) {
+    while (!eos && raw_bytes_read < raw_bytes_threshold && raw_rows_read < raw_rows_threshold &&
+           num_rows_in_block < state->batch_size()) {
         // TODO llj task group should should_yield?
         if (UNLIKELY(ctx->done())) {
             // No need to set status on error here.
@@ -447,19 +455,9 @@ void ScannerScheduler::_task_group_scanner_scan(ScannerScheduler* scheduler,
         auto success = scan_queue->take(&scan_task);
         if (success) {
             int64_t time_spent = 0;
-            if (!scan_task.is_empty_task) {
-                RuntimeProfile::Counter tmp_timer(TUnit::TIME_NS);
-                {
-                    SCOPED_CPU_TIMER(&tmp_timer);
-                    scan_task.scan_func();
-                }
-                time_spent = tmp_timer.value();
-            } else {
-                {
-                    SCOPED_RAW_TIMER(&time_spent);
-                    usleep(taskgroup::SCAN_THREAD_TIME_SLICE_US);
-                }
-                time_spent = time_spent * _core_num / _total_query_thread_num;
+            {
+                SCOPED_RAW_TIMER(&time_spent);
+                scan_task.scan_func();
             }
             scan_queue->update_statistics(scan_task, time_spent);
         }

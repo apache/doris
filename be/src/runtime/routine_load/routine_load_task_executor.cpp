@@ -336,8 +336,11 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 #endif
     }
 
+    std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe =
+            std::static_pointer_cast<io::KafkaConsumerPipe>(ctx->body_sink);
+
     // start to consume, this may block a while
-    HANDLE_ERROR(consumer_grp->start_all(ctx), "consuming failed");
+    HANDLE_ERROR(consumer_grp->start_all(ctx, kafka_pipe), "consuming failed");
 
     if (ctx->is_multi_table) {
         // plan the rest of unplanned data
@@ -346,10 +349,20 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
                      "multi tables task executes plan error");
         // need memory order
         multi_table_pipe->set_consume_finished();
+        HANDLE_ERROR(kafka_pipe->finish(), "finish multi table task failed");
     }
 
     // wait for all consumers finished
     HANDLE_ERROR(ctx->future.get(), "consume failed");
+
+    // check received and load rows
+    LOG(INFO) << "routine load task received rows: " << consumer_grp.get()->get_consumer_rows()
+              << " load total rows: " << ctx.get()->number_total_rows
+              << " loaded rows: " << ctx.get()->number_loaded_rows
+              << " filtered rows: " << ctx.get()->number_filtered_rows
+              << " unselected rows: " << ctx.get()->number_unselected_rows;
+    DCHECK(consumer_grp.get()->get_consumer_rows() == ctx.get()->number_total_rows);
+    consumer_grp.get()->set_consumer_rows(0);
 
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 

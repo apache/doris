@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "util/bit_util.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -149,6 +150,7 @@ public:
                                                                             select_vector);
             }
             break;
+            // TODO: decimal256
         case TypeIndex::String:
             [[fallthrough]];
         case TypeIndex::FixedString:
@@ -337,6 +339,65 @@ protected:
     Status _decode_primitive_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                      ColumnSelectVector& select_vector) {
         init_decimal_converter<DecimalPrimitiveType>(data_type);
+        DecimalScaleParams& scale_params = _decode_params->decimal_scale;
+#define M(FixedTypeLength, ValueCopyType, ScaleType)                                          \
+    case FixedTypeLength:                                                                     \
+        return _decode_primitive_decimal_internal<DecimalPrimitiveType, DecimalPhysicalType,  \
+                                                  has_filter, FixedTypeLength, ValueCopyType, \
+                                                  ScaleType>(doris_column, data_type,         \
+                                                             select_vector);
+
+#define APPLY_FOR_DECIMALS(ScaleType) \
+    M(1, int64_t, ScaleType)          \
+    M(2, int64_t, ScaleType)          \
+    M(3, int64_t, ScaleType)          \
+    M(4, int64_t, ScaleType)          \
+    M(5, int64_t, ScaleType)          \
+    M(6, int64_t, ScaleType)          \
+    M(7, int64_t, ScaleType)          \
+    M(8, int64_t, ScaleType)          \
+    M(9, int128_t, ScaleType)         \
+    M(10, int128_t, ScaleType)        \
+    M(11, int128_t, ScaleType)        \
+    M(12, int128_t, ScaleType)        \
+    M(13, int128_t, ScaleType)        \
+    M(14, int128_t, ScaleType)        \
+    M(15, int128_t, ScaleType)        \
+    M(16, int128_t, ScaleType)
+
+        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+            switch (_type_length) {
+                APPLY_FOR_DECIMALS(DecimalScaleParams::SCALE_UP)
+            default:
+                LOG(FATAL) << "__builtin_unreachable";
+                __builtin_unreachable();
+            }
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
+            switch (_type_length) {
+                APPLY_FOR_DECIMALS(DecimalScaleParams::SCALE_DOWN)
+            default:
+                LOG(FATAL) << "__builtin_unreachable";
+                __builtin_unreachable();
+            }
+        } else {
+            switch (_type_length) {
+                APPLY_FOR_DECIMALS(DecimalScaleParams::NO_SCALE)
+            default:
+                LOG(FATAL) << "__builtin_unreachable";
+                __builtin_unreachable();
+            }
+        }
+        return Status::OK();
+#undef APPLY_FOR_DECIMALS
+#undef M
+    }
+
+    template <typename DecimalPrimitiveType, typename DecimalPhysicalType, bool has_filter,
+              int fixed_type_length, typename ValueCopyType,
+              DecimalScaleParams::ScaleType ScaleType>
+    Status _decode_primitive_decimal_internal(MutableColumnPtr& doris_column,
+                                              DataTypePtr& data_type,
+                                              ColumnSelectVector& select_vector) {
         auto& column_data =
                 static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column)
                         .get_data();
@@ -350,12 +411,16 @@ protected:
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
                 for (size_t i = 0; i < run_length; ++i) {
-                    // we should use decimal128 to scale up/down
-                    Int128 value = static_cast<Int128>(_dict_items[_indexes[dict_index++]]);
-                    if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+                    ValueCopyType value = static_cast<T>(_dict_items[_indexes[dict_index++]]);
+                    if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
                         value *= scale_params.scale_factor;
-                    } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
+                    } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
                         value /= scale_params.scale_factor;
+                    } else if constexpr (ScaleType == DecimalScaleParams::NO_SCALE) {
+                        // do nothing
+                    } else {
+                        LOG(FATAL) << "__builtin_unreachable";
+                        __builtin_unreachable();
                     }
                     auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[data_index++]);
                     v = (DecimalPrimitiveType)value;
@@ -448,6 +513,7 @@ public:
                                                                   select_vector);
             }
             break;
+            // TODO: decimal256
         case TypeIndex::String:
             [[fallthrough]];
         case TypeIndex::FixedString:
@@ -523,51 +589,56 @@ protected:
     Status _decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                   ColumnSelectVector& select_vector) {
         init_decimal_converter<DecimalPrimitiveType>(data_type);
-        auto& column_data =
-                static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column)
-                        .get_data();
-        size_t data_index = column_data.size();
-        column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
-        size_t dict_index = 0;
         DecimalScaleParams& scale_params = _decode_params->decimal_scale;
+#define M(FixedTypeLength, ValueCopyType, ScaleType)                                              \
+    case FixedTypeLength:                                                                         \
+        return _decode_binary_decimal_internal<DecimalPrimitiveType, has_filter, FixedTypeLength, \
+                                               ValueCopyType, ScaleType>(doris_column, data_type, \
+                                                                         select_vector);
 
-        ColumnSelectVector::DataReadType read_type;
-        while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
-            switch (read_type) {
-            case ColumnSelectVector::CONTENT: {
-                for (size_t i = 0; i < run_length; ++i) {
-                    char* buf_start = _dict_items[_indexes[dict_index++]];
-                    // When Decimal in parquet is stored in byte arrays, binary and fixed,
-                    // the unscaled number must be encoded as two's complement using big-endian byte order.
-                    Int128 value = buf_start[0] & 0x80 ? -1 : 0;
-                    memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - _type_length,
-                           buf_start, _type_length);
-                    value = BigEndian::ToHost128(value);
-                    if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-                        value *= scale_params.scale_factor;
-                    } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
-                        value /= scale_params.scale_factor;
-                    }
-                    auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[data_index++]);
-                    v = (DecimalPrimitiveType)value;
-                }
-                break;
+#define APPLY_FOR_DECIMALS(ScaleType) \
+    M(1, int64_t, ScaleType)          \
+    M(2, int64_t, ScaleType)          \
+    M(3, int64_t, ScaleType)          \
+    M(4, int64_t, ScaleType)          \
+    M(5, int64_t, ScaleType)          \
+    M(6, int64_t, ScaleType)          \
+    M(7, int64_t, ScaleType)          \
+    M(8, int64_t, ScaleType)          \
+    M(9, int128_t, ScaleType)         \
+    M(10, int128_t, ScaleType)        \
+    M(11, int128_t, ScaleType)        \
+    M(12, int128_t, ScaleType)        \
+    M(13, int128_t, ScaleType)        \
+    M(14, int128_t, ScaleType)        \
+    M(15, int128_t, ScaleType)        \
+    M(16, int128_t, ScaleType)
+
+        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+            switch (_type_length) {
+                APPLY_FOR_DECIMALS(DecimalScaleParams::SCALE_UP)
+            default:
+                LOG(FATAL) << "__builtin_unreachable";
+                __builtin_unreachable();
             }
-            case ColumnSelectVector::NULL_DATA: {
-                data_index += run_length;
-                break;
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
+            switch (_type_length) {
+                APPLY_FOR_DECIMALS(DecimalScaleParams::SCALE_DOWN)
+            default:
+                LOG(FATAL) << "__builtin_unreachable";
+                __builtin_unreachable();
             }
-            case ColumnSelectVector::FILTERED_CONTENT: {
-                dict_index += run_length;
-                break;
-            }
-            case ColumnSelectVector::FILTERED_NULL: {
-                // do nothing
-                break;
-            }
+        } else {
+            switch (_type_length) {
+                APPLY_FOR_DECIMALS(DecimalScaleParams::NO_SCALE)
+            default:
+                LOG(FATAL) << "__builtin_unreachable";
+                __builtin_unreachable();
             }
         }
         return Status::OK();
+#undef APPLY_FOR_DECIMALS
+#undef M
     }
 
     template <bool has_filter>
@@ -607,6 +678,65 @@ protected:
     // For dictionary encoding
     std::vector<char*> _dict_items;
     std::unordered_map<StringRef, int32_t> _dict_value_to_code;
+
+private:
+    template <typename DecimalPrimitiveType, bool has_filter, int fixed_type_length,
+              typename ValueCopyType, DecimalScaleParams::ScaleType ScaleType>
+    Status _decode_binary_decimal_internal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                           ColumnSelectVector& select_vector) {
+        auto& column_data =
+                static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column)
+                        .get_data();
+        size_t data_index = column_data.size();
+        column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+        size_t dict_index = 0;
+        DecimalScaleParams& scale_params = _decode_params->decimal_scale;
+
+        ColumnSelectVector::DataReadType read_type;
+        while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
+            switch (read_type) {
+            case ColumnSelectVector::CONTENT: {
+                for (size_t i = 0; i < run_length; ++i) {
+                    char* buf_start = _dict_items[_indexes[dict_index++]];
+                    // When Decimal in parquet is stored in byte arrays, binary and fixed,
+                    // the unscaled number must be encoded as two's complement using big-endian byte order.
+                    DecimalPrimitiveType result_value = 0;
+                    ValueCopyType value = 0;
+                    memcpy(reinterpret_cast<char*>(&value), buf_start, fixed_type_length);
+                    value = BitUtil::big_endian_to_host(value);
+                    value = value >> ((sizeof(value) - fixed_type_length) * 8);
+                    result_value = value;
+                    if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
+                        result_value *= scale_params.scale_factor;
+                    } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
+                        result_value /= scale_params.scale_factor;
+                    } else if constexpr (ScaleType == DecimalScaleParams::NO_SCALE) {
+                        // do nothing
+                    } else {
+                        LOG(FATAL) << "__builtin_unreachable";
+                        __builtin_unreachable();
+                    }
+                    auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[data_index++]);
+                    v = (DecimalPrimitiveType)result_value;
+                }
+                break;
+            }
+            case ColumnSelectVector::NULL_DATA: {
+                data_index += run_length;
+                break;
+            }
+            case ColumnSelectVector::FILTERED_CONTENT: {
+                dict_index += run_length;
+                break;
+            }
+            case ColumnSelectVector::FILTERED_NULL: {
+                // do nothing
+                break;
+            }
+            }
+        }
+        return Status::OK();
+    }
 };
 
 } // namespace doris::vectorized

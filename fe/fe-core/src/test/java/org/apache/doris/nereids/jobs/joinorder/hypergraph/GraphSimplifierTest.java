@@ -18,13 +18,55 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.Sets;
+import org.apache.hadoop.util.Lists;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-public class GraphSimplifierTest {
+import java.util.ArrayList;
+import java.util.HashMap;
+
+class GraphSimplifierTest {
+    private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+    private static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+    private static final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+
+    @Test
+    void testComplexProject() {
+        Alias alias1 = new Alias(scan1.getOutput().get(0), "p1");
+        LogicalPlan project1 = new LogicalPlanBuilder(scan1)
+                .projectExprs(Lists.newArrayList(alias1)).build();
+        Alias alias2 = new Alias(scan2.getOutput().get(0), "p2");
+        LogicalPlan project2 = new LogicalPlanBuilder(scan2)
+                .projectExprs(Lists.newArrayList(alias2)).build();
+        Alias alias3 = new Alias(scan3.getOutput().get(0), "p3");
+        LogicalPlan project3 = new LogicalPlanBuilder(scan3)
+                .projectExprs(Lists.newArrayList(alias3)).build();
+        LogicalPlan join = new LogicalPlanBuilder(project1)
+                .join(project2, JoinType.INNER_JOIN, Lists.newArrayList(new EqualTo(alias1.toSlot(), alias2.toSlot())), new ArrayList<>())
+                .join(project3, JoinType.INNER_JOIN, Lists.newArrayList(new EqualTo(alias2.toSlot(), alias3.toSlot())), new ArrayList<>())
+                .build();
+        HyperGraph hyperGraph = HyperGraphBuilder.buildHyperGraphFromPlan(join);
+        for (Node node : hyperGraph.getNodes()) {
+            node.getGroup().setStatistics(new Statistics(1, new HashMap<>()));
+        }
+        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        while (graphSimplifier.applySimplificationStep()) {
+        }
+        Assertions.assertNull(graphSimplifier.getLastAppliedSteps());
+    }
+
     @Test
     void testStarQuery() {
         //      t1
@@ -46,6 +88,7 @@ public class GraphSimplifierTest {
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
         for (int count : counter.getAllCount().values()) {
+            System.out.println(count);
             Assertions.assertTrue(count < 10);
         }
         Assertions.assertTrue(graphSimplifier.isTotalOrder());
@@ -209,5 +252,29 @@ public class GraphSimplifierTest {
             subgraphEnumerator.enumerate();
             Assertions.assertTrue(counter.getLimit() >= 0);
         }
+    }
+
+    @Disabled
+    @Test
+    void benchGraphSimplifier() {
+        int tableNum = 64;
+        int edgeNum = 64 * 63 / 2;
+        int limit = 1000;
+
+        int times = 1;
+        double totalTime = 0;
+        for (int i = 0; i < times; i++) {
+            totalTime += benchGraphSimplifier(tableNum, edgeNum, limit);
+        }
+        System.out.println(totalTime / times);
+    }
+
+    double benchGraphSimplifier(int tableNum, int edgeNum, int limit) {
+        HyperGraph hyperGraph = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN))
+                .randomBuildWith(tableNum, edgeNum);
+        double now = System.currentTimeMillis();
+        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        graphSimplifier.simplifyGraph(limit);
+        return System.currentTimeMillis() - now;
     }
 }

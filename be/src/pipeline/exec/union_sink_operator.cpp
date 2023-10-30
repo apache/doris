@@ -145,18 +145,18 @@ Status UnionSinkOperatorX::open(RuntimeState* state) {
 
 Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                 SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (local_state._output_block == nullptr) {
         local_state._output_block =
-                local_state._shared_state->data_queue->get_free_block(_cur_child_id);
+                local_state._shared_state->data_queue.get_free_block(_cur_child_id);
     }
     if (_cur_child_id < _get_first_materialized_child_idx()) { //pass_through
         if (in_block->rows() > 0) {
             local_state._output_block->swap(*in_block);
-            local_state._shared_state->data_queue->push_block(std::move(local_state._output_block),
-                                                              _cur_child_id);
+            local_state._shared_state->data_queue.push_block(std::move(local_state._output_block),
+                                                             _cur_child_id);
         }
     } else if (_get_first_materialized_child_idx() != children_count() &&
                _cur_child_id < children_count()) { //need materialized
@@ -173,17 +173,17 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
         //because maybe sink is eos and queue have none data, if not push block
         //the source can't can_read again and can't set source finished
         if (local_state._output_block) {
-            local_state._shared_state->data_queue->push_block(std::move(local_state._output_block),
-                                                              _cur_child_id);
+            local_state._shared_state->data_queue.push_block(std::move(local_state._output_block),
+                                                             _cur_child_id);
         }
 
-        local_state._shared_state->data_queue->set_finish(_cur_child_id);
+        local_state._shared_state->data_queue.set_finish(_cur_child_id);
         return Status::OK();
     }
     // not eos and block rows is enough to output,so push block
     if (local_state._output_block && (local_state._output_block->rows() >= state->batch_size())) {
-        local_state._shared_state->data_queue->push_block(std::move(local_state._output_block),
-                                                          _cur_child_id);
+        local_state._shared_state->data_queue.push_block(std::move(local_state._output_block),
+                                                         _cur_child_id);
     }
     return Status::OK();
 }

@@ -24,7 +24,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <ostream>
 
-#include "common/status.h"
+#include "cloud/config.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
@@ -49,6 +49,14 @@ VerticalBlockReader::~VerticalBlockReader() {
         _agg_functions[i]->destroy(_agg_places[i]);
         delete[] _agg_places[i];
     }
+}
+
+Status VerticalBlockReader::next_block_with_aggregation(Block* block, bool* eof) {
+    auto res = (this->*_next_block_func)(block, eof);
+    if (!res.ok() && !res.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
+        static_cast<Tablet*>(_tablet.get())->report_error(res);
+    }
+    return res;
 }
 
 Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_params,
@@ -205,8 +213,8 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) {
-        if (UNLIKELY(!status.ok() && !status.is<ErrorCode::END_OF_FILE>())) {
-            _tablet->report_error(status);
+        if (!status.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
+            static_cast<Tablet*>(_tablet.get())->report_error(status);
         }
         return status;
     }

@@ -330,22 +330,9 @@ Status AnalyticLocalState::output_current_block(vectorized::Block* block) {
     return Status::OK();
 }
 
-void AnalyticLocalState::release_mem() {
-    _agg_arena_pool = nullptr;
-
-    std::vector<vectorized::Block> tmp_input_blocks;
-    _shared_state->input_blocks.swap(tmp_input_blocks);
-
-    std::vector<std::vector<vectorized::MutableColumnPtr>> tmp_agg_input_columns;
-    _shared_state->agg_input_columns.swap(tmp_agg_input_columns);
-
-    std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
-    _result_window_columns.swap(tmp_result_window_columns);
-}
-
 AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                                 const DescriptorTbl& descs)
-        : OperatorX<AnalyticLocalState>(pool, tnode, descs),
+                                                 int operator_id, const DescriptorTbl& descs)
+        : OperatorX<AnalyticLocalState>(pool, tnode, operator_id, descs),
           _window(tnode.analytic_node.window),
           _intermediate_tuple_id(tnode.analytic_node.intermediate_tuple_id),
           _output_tuple_id(tnode.analytic_node.output_tuple_id),
@@ -391,7 +378,7 @@ Status AnalyticSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
 
 Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (local_state._shared_state->input_eos &&
         (local_state._output_block_index == local_state._shared_state->input_blocks.size() ||
@@ -427,11 +414,6 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     return Status::OK();
 }
 
-Dependency* AnalyticSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->read_blocked_by();
-}
-
 Status AnalyticLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_close_timer);
@@ -443,7 +425,10 @@ Status AnalyticLocalState::close(RuntimeState* state) {
     }
 
     static_cast<void>(_destroy_agg_status());
-    release_mem();
+    _agg_arena_pool = nullptr;
+
+    std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
+    _result_window_columns.swap(tmp_result_window_columns);
     return PipelineXLocalState<AnalyticDependency>::close(state);
 }
 

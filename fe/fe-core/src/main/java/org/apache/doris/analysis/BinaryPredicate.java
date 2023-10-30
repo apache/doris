@@ -46,6 +46,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Objects;
 
 /**
@@ -328,6 +329,19 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
+    private boolean canCompareIP(PrimitiveType t1, PrimitiveType t2) {
+        if (t1.isIPv4Type()) {
+            return t2.isIPv4Type() || t2.isStringType();
+        } else if (t2.isIPv4Type()) {
+            return t1.isStringType();
+        } else if (t1.isIPv6Type()) {
+            return t2.isIPv6Type() || t2.isStringType();
+        } else if (t2.isIPv6Type()) {
+            return t1.isStringType();
+        }
+        return false;
+    }
+
     private Type dateV2ComparisonResultType(ScalarType t1, ScalarType t2) {
         if (!t1.isDatetimeV2() && !t2.isDatetimeV2()) {
             return Type.DATEV2;
@@ -403,8 +417,23 @@ public class BinaryPredicate extends Predicate implements Writable {
             } else if (getChild(1).getType().isDate()
                     && (getChild(0).getType().isStringType() && getChild(0) instanceof StringLiteral)) {
                 return ((StringLiteral) getChild(0)).canConvertToDateType(Type.DATE) ? Type.DATE : Type.DATETIME;
+            } else if (getChild(1).getType().isDate() && getChild(0).getType().isDate()) {
+                return Type.DATE;
             } else {
                 return Type.DATETIME;
+            }
+        }
+
+        if (canCompareIP(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
+            if ((getChild(0).getType().isIP() && getChild(1) instanceof StringLiteral)
+                    || (getChild(1).getType().isIP() && getChild(0) instanceof StringLiteral)
+                    || (getChild(0).getType().isIP() && getChild(1).getType().isIP())) {
+                if (getChild(0).getType().isIPv4() || getChild(1).getType().isIPv4()) {
+                    return Type.IPV4;
+                }
+                if (getChild(0).getType().isIPv6() || getChild(1).getType().isIPv6()) {
+                    return Type.IPV6;
+                }
             }
         }
 
@@ -535,12 +564,33 @@ public class BinaryPredicate extends Predicate implements Writable {
         // vectorizedAnalyze(analyzer);
     }
 
+    public Expr invokeFunctionExpr(ArrayList<Expr> partitionExprs, Expr paramExpr) {
+        for (Expr partExpr : partitionExprs) {
+            if (partExpr instanceof FunctionCallExpr) {
+                FunctionCallExpr function = (FunctionCallExpr) partExpr.clone();
+                ArrayList<Expr> children = function.getChildren();
+                for (int i = 0; i < children.size(); ++i) {
+                    if (children.get(i) instanceof SlotRef) {
+                        // when create partition have check only support one slotRef
+                        function.setChild(i, paramExpr);
+                        return ExpressionFunctions.INSTANCE.evalExpr(function);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     /**
      * If predicate is of the form "<slotref> <op> <expr>", returns expr,
      * otherwise returns null. Slotref may be wrapped in a CastExpr.
+     * now, when support auto create partition by function(column), so need check the "<function(column)> <op> <expr>"
+     * because import data use function result to create partition,
+     * so when have a SQL of query, prune partition also need use this function
      */
-    public Expr getSlotBinding(SlotId id) {
+    public Expr getSlotBinding(SlotId id, ArrayList<Expr> partitionExprs) {
         SlotRef slotRef = null;
+        boolean isFunctionCallExpr = false;
         // check left operand
         if (getChild(0) instanceof SlotRef) {
             slotRef = (SlotRef) getChild(0);
@@ -548,9 +598,25 @@ public class BinaryPredicate extends Predicate implements Writable {
             if (((CastExpr) getChild(0)).canHashPartition()) {
                 slotRef = (SlotRef) getChild(0).getChild(0);
             }
+        } else if (getChild(0) instanceof FunctionCallExpr) {
+            FunctionCallExpr left = (FunctionCallExpr) getChild(0);
+            if (partitionExprs != null && left.findEqual(partitionExprs) != null) {
+                ArrayList<Expr> children = left.getChildren();
+                for (int i = 0; i < children.size(); ++i) {
+                    if (children.get(i) instanceof SlotRef) {
+                        slotRef = (SlotRef) children.get(i);
+                        isFunctionCallExpr = true;
+                        break;
+                    }
+                }
+            }
         }
+
         if (slotRef != null && slotRef.getSlotId() == id) {
             slotIsleft = true;
+            if (isFunctionCallExpr) {
+                return invokeFunctionExpr(partitionExprs, getChild(1));
+            }
             return getChild(1);
         }
 
@@ -561,10 +627,25 @@ public class BinaryPredicate extends Predicate implements Writable {
             if (((CastExpr) getChild(1)).canHashPartition()) {
                 slotRef = (SlotRef) getChild(1).getChild(0);
             }
+        } else if (getChild(1) instanceof FunctionCallExpr) {
+            FunctionCallExpr left = (FunctionCallExpr) getChild(1);
+            if (partitionExprs != null && left.findEqual(partitionExprs) != null) {
+                ArrayList<Expr> children = left.getChildren();
+                for (int i = 0; i < children.size(); ++i) {
+                    if (children.get(i) instanceof SlotRef) {
+                        slotRef = (SlotRef) children.get(i);
+                        isFunctionCallExpr = true;
+                        break;
+                    }
+                }
+            }
         }
 
         if (slotRef != null && slotRef.getSlotId() == id) {
             slotIsleft = false;
+            if (isFunctionCallExpr) {
+                return invokeFunctionExpr(partitionExprs, getChild(0));
+            }
             return getChild(0);
         }
 

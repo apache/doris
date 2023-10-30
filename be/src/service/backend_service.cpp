@@ -108,7 +108,7 @@ Status BackendService::create_service(ExecEnv* exec_env, int port,
 
 void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
                                         const TExecPlanFragmentParams& params) {
-    LOG(INFO) << "exec_plan_fragment() instance_id=" << params.params.fragment_instance_id
+    LOG(INFO) << "exec_plan_fragment() instance_id=" << print_id(params.params.fragment_instance_id)
               << " coord=" << params.coord << " backend#=" << params.backend_num;
     start_plan_fragment_execution(params).set_t_status(&return_val);
 }
@@ -122,7 +122,7 @@ Status BackendService::start_plan_fragment_execution(const TExecPlanFragmentPara
 
 void BackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
                                           const TCancelPlanFragmentParams& params) {
-    LOG(INFO) << "cancel_plan_fragment(): instance_id=" << params.fragment_instance_id;
+    LOG(INFO) << "cancel_plan_fragment(): instance_id=" << print_id(params.fragment_instance_id);
     _exec_env->fragment_mgr()->cancel_instance(params.fragment_instance_id,
                                                PPlanFragmentCancelReason::INTERNAL_ERROR);
 }
@@ -478,7 +478,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     p_load_id.set_hi(load_id.hi);
     p_load_id.set_lo(load_id.lo);
     auto status = StorageEngine::instance()->txn_manager()->prepare_txn(
-            partition_id, local_tablet, txn_id, p_load_id, is_ingrest);
+            partition_id, *local_tablet, txn_id, p_load_id, is_ingrest);
     if (!status.ok()) {
         LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
                      << ", status=" << status.to_string();
@@ -590,7 +590,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     uint64_t total_size = std::accumulate(segment_file_sizes.begin(), segment_file_sizes.end(), 0);
     if (!local_tablet->can_add_binlog(total_size)) {
         LOG(WARNING) << "failed to add binlog, no enough space, total_size=" << total_size
-                     << ", tablet=" << local_tablet->full_name();
+                     << ", tablet=" << local_tablet->tablet_id();
         status = Status::InternalError("no enough space");
         status.to_thrift(&tstatus);
         return;
@@ -695,7 +695,6 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
                 rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
                 calc_delete_bitmap_token.get(), nullptr));
         static_cast<void>(calc_delete_bitmap_token->wait());
-        static_cast<void>(calc_delete_bitmap_token->get_delete_bitmap(delete_bitmap));
     }
 
     // Step 6.3: commit txn
@@ -717,7 +716,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     if (local_tablet->enable_unique_key_merge_on_write()) {
         StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
                 partition_id, txn_id, local_tablet_id, local_tablet->tablet_uid(), true,
-                delete_bitmap, pre_rowset_ids);
+                delete_bitmap, pre_rowset_ids, nullptr);
     }
 
     tstatus.__set_status_code(TStatusCode::OK);

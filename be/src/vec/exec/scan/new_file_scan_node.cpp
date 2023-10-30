@@ -58,8 +58,11 @@ Status NewFileScanNode::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-void NewFileScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
-    int max_scanners = config::doris_scanner_thread_pool_thread_num;
+void NewFileScanNode::set_scan_ranges(RuntimeState* state,
+                                      const std::vector<TScanRangeParams>& scan_ranges) {
+    int max_scanners =
+            config::doris_scanner_thread_pool_thread_num / state->query_parallel_instance_num();
+    max_scanners = max_scanners == 0 ? 1 : max_scanners;
     if (scan_ranges.size() <= max_scanners) {
         _scan_ranges = scan_ranges;
     } else {
@@ -122,7 +125,6 @@ Status NewFileScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                 scanner->prepare(_conjuncts, &_colname_to_value_range, &_colname_to_slot_id));
         scanners->push_back(std::move(scanner));
     }
-
     return Status::OK();
 }
 

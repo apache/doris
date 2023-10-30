@@ -30,7 +30,6 @@
 #include "common/global_types.h"
 #include "common/status.h"
 #include "exec/olap_common.h"
-#include "exec/text_converter.h"
 #include "io/io_common.h"
 #include "pipeline/exec/file_scan_operator.h"
 #include "runtime/descriptors.h"
@@ -93,7 +92,6 @@ protected:
     Status _cast_src_block(Block* block) { return Status::OK(); }
 
 protected:
-    std::unique_ptr<TextConverter> _text_converter;
     const TFileScanRangeParams* _params;
     const std::vector<TFileRangeDesc>& _ranges;
     int _next_range;
@@ -142,6 +140,7 @@ protected:
     // For load task
     vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
     std::unique_ptr<RowDescriptor> _src_row_desc;
+    std::unique_ptr<RowDescriptor> _dest_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
     // owned by scan node

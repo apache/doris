@@ -111,11 +111,15 @@ public:
         }
     }
 
-    int next_operator_id() { return _operator_id++; }
+    [[nodiscard]] int next_operator_id() { return _operator_id++; }
+
+    [[nodiscard]] int max_operator_id() const { return _operator_id; }
 
 private:
     void _close_action() override;
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
+    Status _add_local_exchange(ObjectPool* pool, OperatorXPtr& op, PipelinePtr& cur_pipe,
+                               const std::vector<TExpr>& texprs);
 
     [[nodiscard]] Status _build_pipelines(ObjectPool* pool,
                                           const doris::TPipelineFragmentParams& request,
@@ -128,8 +132,13 @@ private:
 
     Status _create_operator(ObjectPool* pool, const TPlanNode& tnode,
                             const doris::TPipelineFragmentParams& request,
-                            const DescriptorTbl& descs, OperatorXPtr& node, PipelinePtr& cur_pipe,
+                            const DescriptorTbl& descs, OperatorXPtr& op, PipelinePtr& cur_pipe,
                             int parent_idx, int child_idx);
+    template <bool is_intersect>
+    Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
+                                                   const DescriptorTbl& descs, OperatorXPtr& op,
+                                                   PipelinePtr& cur_pipe, int parent_idx,
+                                                   int child_idx);
 
     Status _create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                              const std::vector<TExpr>& output_exprs,
@@ -148,25 +157,53 @@ private:
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
     DataSinkOperatorXPtr _sink;
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
     std::atomic_bool _canceled = false;
 
-    // `_dag` manage dependencies between pipelines by pipeline ID
+    // `_dag` manage dependencies between pipelines by pipeline ID. the indices will be blocked by members
     std::map<PipelineId, std::vector<PipelineId>> _dag;
 
     // We use preorder traversal to create an operator tree. When we meet a join node, we should
     // build probe operator and build operator in separate pipelines. To do this, we should build
     // ProbeSide first, and use `_pipelines_to_build` to store which pipeline the build operator
     // is in, so we can build BuildSide once we complete probe side.
-    std::map<int, PipelinePtr> _build_side_pipelines;
+    struct pipeline_parent_map {
+        std::map<int, std::vector<PipelinePtr>> _build_side_pipelines;
+        void push(int parent_node_id, PipelinePtr pipeline) {
+            if (!_build_side_pipelines.contains(parent_node_id)) {
+                _build_side_pipelines.insert({parent_node_id, {pipeline}});
+            } else {
+                _build_side_pipelines[parent_node_id].push_back(pipeline);
+            }
+        }
+        void pop(PipelinePtr& cur_pipe, int parent_node_id, int child_idx) {
+            if (!_build_side_pipelines.contains(parent_node_id)) {
+                return;
+            }
+            DCHECK(_build_side_pipelines.contains(parent_node_id));
+            auto& child_pipeline = _build_side_pipelines[parent_node_id];
+            DCHECK(child_idx < child_pipeline.size());
+            cur_pipe = child_pipeline[child_idx];
+        }
+        void clear() { _build_side_pipelines.clear(); }
+    } _pipeline_parent_map;
 
     std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
     std::mutex _state_map_lock;
-    std::map<int, std::vector<PipelinePtr>> _union_child_pipelines;
-    // The number of operators is generally greater than the number of plan nodes,
-    // so we need additional ID and cannot rely solely on plan node ID.
-    int _operator_id = {1000000};
+    // We can guarantee that a plan node ID can correspond to an operator ID,
+    // but some operators do not have a corresponding plan node ID.
+    // We set these IDs as negative numbers, which are not visible to the user.
+    int _operator_id = 0;
+
+    std::map<PipelineId, std::shared_ptr<LocalExchangeSharedState>> _op_id_to_le_state;
 };
 
 } // namespace pipeline

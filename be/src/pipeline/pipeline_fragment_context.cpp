@@ -57,6 +57,7 @@
 #include "pipeline/exec/empty_source_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
+#include "pipeline/exec/group_commit_block_sink_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
@@ -157,12 +158,15 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             .tag("instance_id", print_id(_runtime_state->fragment_instance_id()))
             .tag("reason", PPlanFragmentCancelReason_Name(reason))
             .tag("message", msg);
-
+    // TODO(zhiqiang): may be not need to check if query is already cancelled.
+    // Dont cancel in this situation may lead to bug. For example, result sink node
+    // can not be cancelled if other fragments set the query_ctx cancelled, this will
+    // make result receiver on fe be stocked on rpc forever until timeout...
+    // We need a more detail discussion.
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             LOG(WARNING) << "PipelineFragmentContext "
-                         << PrintInstanceStandardInfo(_query_id, _fragment_id,
-                                                      _fragment_instance_id)
+                         << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
                          << " is canceled, cancel message: " << msg;
 
         } else {
@@ -212,12 +216,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         tracer = telemetry::get_tracer(print_id(_query_id));
     }
 
-    LOG_INFO("PipelineFragmentContext::prepare")
-            .tag("query_id", print_id(_query_id))
-            .tag("fragment_id", _fragment_id)
-            .tag("instance_id", print_id(local_params.fragment_instance_id))
-            .tag("backend_num", local_params.backend_num)
-            .tag("pthread_id", (uintptr_t)pthread_self());
+    LOG_INFO("Preparing instance {}, backend_num {}",
+             PrintInstanceStandardInfo(_query_id, local_params.fragment_instance_id),
+             local_params.backend_num);
 
     // 1. init _runtime_state
     _runtime_state = RuntimeState::create_unique(local_params, request.query_id,
@@ -249,13 +250,19 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         fragment_context->set_is_report_success(request.query_options.is_report_success);
     }
 
-    auto* desc_tbl = _query_ctx->desc_tbl;
-    _runtime_state->set_desc_tbl(desc_tbl);
+    if (request.is_simplified_param) {
+        _desc_tbl = _query_ctx->desc_tbl;
+    } else {
+        DCHECK(request.__isset.desc_tbl);
+        RETURN_IF_ERROR(
+                DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl, &_desc_tbl));
+    }
+    _runtime_state->set_desc_tbl(_desc_tbl);
 
     // 2. Create ExecNode to build pipeline with PipelineFragmentContext
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
-                                  request.fragment.plan, *desc_tbl, &_root_plan));
+                                  request.fragment.plan, *_desc_tbl, &_root_plan));
 
     // Set senders of exchange nodes before pipeline build
     std::vector<ExecNode*> exch_nodes;
@@ -273,8 +280,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     std::vector<ExecNode*> scan_nodes;
     std::vector<TScanRangeParams> no_scan_ranges;
     _root_plan->collect_scan_nodes(&scan_nodes);
-    VLOG_CRITICAL << "scan_nodes.size()=" << scan_nodes.size();
-    VLOG_CRITICAL << "params.per_node_scan_ranges.size()="
+    VLOG_CRITICAL << "query " << print_id(get_query_id())
+                  << " scan_nodes.size()=" << scan_nodes.size();
+    VLOG_CRITICAL << "query " << print_id(get_query_id()) << " params.per_node_scan_ranges.size()="
                   << local_params.per_node_scan_ranges.size();
 
     // set scan range in ScanNode
@@ -292,14 +300,15 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
                                                  no_scan_ranges);
             const bool shared_scan =
                     find_with_default(local_params.per_node_shared_scans, scan_node->id(), false);
-            scan_node->set_scan_ranges(scan_ranges);
+            scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges);
             scan_node->set_shared_scan(_runtime_state.get(), shared_scan);
         } else {
             ScanNode* scan_node = static_cast<ScanNode*>(node);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
-            static_cast<void>(scan_node->set_scan_ranges(scan_ranges));
-            VLOG_CRITICAL << "scan_node_Id=" << scan_node->id()
+            static_cast<void>(scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges));
+            VLOG_CRITICAL << "query " << print_id(get_query_id())
+                          << " scan_node_id=" << scan_node->id()
                           << " size=" << scan_ranges.get().size();
         }
     }
@@ -311,10 +320,12 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
                 _runtime_state->obj_pool(), request.fragment.output_sink,
                 request.fragment.output_exprs, request, idx, _root_plan->row_desc(),
-                _runtime_state.get(), &_sink, *desc_tbl));
+                _runtime_state.get(), &_sink, *_desc_tbl));
     }
 
     _root_pipeline = fragment_context->add_pipeline();
+    _root_pipeline->set_is_root_pipeline();
+    _root_pipeline->set_collect_query_statistics_with_every_batch();
     RETURN_IF_ERROR(_build_pipelines(_root_plan, _root_pipeline));
     if (_sink) {
         RETURN_IF_ERROR(_create_sink(request.local_params[idx].sender_id,
@@ -687,7 +698,9 @@ Status PipelineFragmentContext::submit() {
     int submit_tasks = 0;
     Status st;
     auto* scheduler = _exec_env->pipeline_task_scheduler();
-    if (_task_group_entity) {
+    if (_query_ctx->get_task_scheduler()) {
+        scheduler = _query_ctx->get_task_scheduler();
+    } else if (_task_group_entity) {
         scheduler = _exec_env->pipeline_task_group_scheduler();
     }
     for (auto& task : _tasks) {
@@ -735,7 +748,9 @@ void PipelineFragmentContext::close_if_prepare_failed() {
     }
     for (auto& task : _tasks) {
         DCHECK(!task->is_pending_finish());
-        WARN_IF_ERROR(task->close(Status::OK()), "close_if_prepare_failed failed: ");
+        std::stringstream msg;
+        msg << "query " << print_id(_query_id) << " closed since prepare failed";
+        WARN_IF_ERROR(task->close(Status::OK()), msg.str());
         close_a_pipeline();
     }
 }
@@ -757,13 +772,20 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
     }
     case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
-        if (state->query_options().enable_memtable_on_sink_node) {
+        DCHECK(thrift_sink.__isset.olap_table_sink);
+        if (state->query_options().enable_memtable_on_sink_node &&
+            !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
             sink_ = std::make_shared<OlapTableSinkV2OperatorBuilder>(next_operator_builder_id(),
                                                                      _sink.get());
         } else {
             sink_ = std::make_shared<OlapTableSinkOperatorBuilder>(next_operator_builder_id(),
                                                                    _sink.get());
         }
+        break;
+    }
+    case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
+        sink_ = std::make_shared<GroupCommitBlockSinkOperatorBuilder>(next_operator_builder_id(),
+                                                                      _sink.get());
         break;
     }
     case TDataSinkType::MYSQL_TABLE_SINK:
@@ -885,6 +907,24 @@ Status PipelineFragmentContext::send_report(bool done) {
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
                        std::placeholders::_2)},
             shared_from_this());
+}
+
+bool PipelineFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
+    OlapTableSchemaParam schema;
+    if (!schema.init(sink.schema).ok()) {
+        return false;
+    }
+    if (schema.is_partial_update()) {
+        return true;
+    }
+    for (const auto& index_schema : schema.indexes()) {
+        for (const auto& index : index_schema->indexes) {
+            if (index->index_type() == INVERTED) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 } // namespace doris::pipeline
