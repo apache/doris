@@ -710,14 +710,15 @@ public class OlapScanNode extends ScanNode {
         String visibleVersionStr = String.valueOf(visibleVersion);
 
         Set<Tag> allowedTags = Sets.newHashSet();
+        int useFixReplica = -1;
         boolean needCheckTags = false;
         boolean skipMissingVersion = false;
-        boolean allowFailedVersion = false;
         if (ConnectContext.get() != null) {
             allowedTags = ConnectContext.get().getResourceTags();
             needCheckTags = ConnectContext.get().isResourceTagsSet();
-            skipMissingVersion = ConnectContext.get().getSessionVariable().skipMissingVersion;
-            allowFailedVersion = skipMissingVersion;
+            useFixReplica = ConnectContext.get().getSessionVariable().useFixReplica;
+            // if use_fix_replica is set to true, set skip_missing_version to false
+            skipMissingVersion = useFixReplica == -1 && ConnectContext.get().getSessionVariable().skipMissingVersion;
         }
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
@@ -744,7 +745,7 @@ public class OlapScanNode extends ScanNode {
             paloRange.setTabletId(tabletId);
 
             // random shuffle List && only collect one copy
-            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion, allowFailedVersion);
+            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion, skipMissingVersion);
             if (replicas.isEmpty()) {
                 LOG.warn("no queryable replica found in tablet {}. visible version {}", tabletId, visibleVersion);
                 StringBuilder sb = new StringBuilder(
@@ -758,12 +759,13 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException(sb.toString());
             }
 
-            int useFixReplica = -1;
-            if (ConnectContext.get() != null) {
-                useFixReplica = ConnectContext.get().getSessionVariable().useFixReplica;
-            }
             if (useFixReplica == -1) {
-                Collections.shuffle(replicas);
+                if (skipMissingVersion) {
+                    // sort by replica's last success version, higher success version in the front.
+                    replicas.sort(Replica.LAST_SUCCESS_VERSION_COMPARATOR);
+                } else {
+                    Collections.shuffle(replicas);
+                }
             } else {
                 LOG.debug("use fix replica, value: {}, replica num: {}", useFixReplica, replicas.size());
                 // sort by replica id
@@ -773,10 +775,6 @@ public class OlapScanNode extends ScanNode {
                 replicas.add(replica);
             }
 
-            if (skipMissingVersion) {
-                // sort by replica's last success version, higher success version in the front.
-                replicas.sort(Replica.LAST_SUCCESS_VERSION_COMPARATOR);
-            }
             final long coolDownReplicaId = tablet.getCooldownReplicaId();
             // we prefer to query using cooldown replica to make sure the cache is fully utilized
             // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
