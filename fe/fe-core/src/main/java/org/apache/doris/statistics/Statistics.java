@@ -37,6 +37,8 @@ public class Statistics {
     // the byte size of one tuple
     private double tupleSize;
 
+    private boolean unknown = true;
+
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
         this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
