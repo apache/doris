@@ -18,6 +18,7 @@
 package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.scheduler.constants.TaskType;
 import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
@@ -28,7 +29,6 @@ import com.lmax.disruptor.TimeoutException;
 import com.lmax.disruptor.WorkHandler;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
-import com.lmax.disruptor.util.DaemonThreadFactory;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.Closeable;
@@ -75,7 +75,7 @@ public class TaskDisruptor implements Closeable {
             };
 
     public TaskDisruptor(TimerJobManager timerJobManager, TransientTaskManager transientTaskManager) {
-        ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
+        ThreadFactory producerThreadFactory = new CustomThreadFactory("task-disruptor-producer");
         disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
                 ProducerType.SINGLE, new BlockingWaitStrategy());
         WorkHandler<TaskEvent>[] workers = new TaskHandler[consumerThreadCount];

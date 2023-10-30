@@ -106,7 +106,8 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* sca
     return Status::OK();
 }
 
-void EsScanLocalState::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+void EsScanLocalState::set_scan_ranges(RuntimeState* state,
+                                       const std::vector<TScanRangeParams>& scan_ranges) {
     for (auto& es_scan_range : scan_ranges) {
         DCHECK(es_scan_range.scan_range.__isset.es_scan_range);
         _scan_ranges.emplace_back(new TEsScanRange(es_scan_range.scan_range.es_scan_range));
