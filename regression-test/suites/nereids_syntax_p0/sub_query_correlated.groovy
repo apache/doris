@@ -59,6 +59,10 @@ suite ("sub_query_correlated") {
     """
 
     sql """
+        DROP TABLE IF EXISTS `sub_query_correlated_subquery10`
+    """
+
+    sql """
         create table if not exists sub_query_correlated_subquery1
         (k1 bigint, k2 bigint)
         duplicate key(k1)
@@ -123,6 +127,13 @@ suite ("sub_query_correlated") {
 
     sql """
         create table if not exists sub_query_correlated_subquery9
+            (k1 int, k2 varchar(128), k3 bigint, v1 bigint, v2 bigint)
+            distributed by hash(k2) buckets 1
+            properties('replication_num' = '1');
+    """
+
+    sql """
+        create table if not exists sub_query_correlated_subquery10
             (k1 int, k2 varchar(128), k3 bigint, v1 bigint, v2 bigint)
             distributed by hash(k2) buckets 1
             properties('replication_num' = '1');
@@ -598,6 +609,24 @@ suite ("sub_query_correlated") {
                 FROM 
                     sub_query_correlated_subquery7
                     WHERE sub_query_correlated_subquery6.k1 > sub_query_correlated_subquery7.k3);
+    """
+
+    qt_cir_5218_exists_ok_5 """
+        SELECT count(*)
+            FROM sub_query_correlated_subquery6
+            WHERE exists
+                (SELECT sum(k3)
+                FROM 
+                    sub_query_correlated_subquery10);
+    """
+
+    qt_cir_5218_exists_ok_6 """
+        SELECT count(*)
+            FROM sub_query_correlated_subquery6
+            WHERE exists
+                (SELECT sum(k3)
+                FROM 
+                    sub_query_correlated_subquery10 group by k2);
     """
 
     test {
