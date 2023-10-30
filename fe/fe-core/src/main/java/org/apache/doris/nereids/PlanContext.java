@@ -33,9 +33,10 @@ import java.util.List;
 public class PlanContext {
 
     private final List<Statistics> childrenStats;
-    private Statistics planStats;
+    private final Statistics planStats;
     private final int arity;
     private boolean isBroadcastJoin = false;
+    private final boolean isStatsReliable;
 
     /**
      * Constructor for PlanContext.
@@ -43,15 +44,18 @@ public class PlanContext {
     public PlanContext(GroupExpression groupExpression) {
         this.arity = groupExpression.arity();
         this.planStats = groupExpression.getOwnerGroup().getStatistics();
+        this.isStatsReliable = groupExpression.getOwnerGroup().isStatsReliable();
         this.childrenStats = new ArrayList<>(groupExpression.arity());
         for (int i = 0; i < groupExpression.arity(); i++) {
             childrenStats.add(groupExpression.childStatistics(i));
         }
     }
 
+    // This is used in GraphSimplifier
     public PlanContext(Statistics planStats, List<Statistics> childrenStats) {
         this.planStats = planStats;
         this.childrenStats = childrenStats;
+        this.isStatsReliable = false;
         this.arity = this.childrenStats.size();
     }
 
@@ -69,6 +73,10 @@ public class PlanContext {
 
     public Statistics getStatisticsWithCheck() {
         return planStats;
+    }
+
+    public boolean isStatsReliable() {
+        return isStatsReliable;
     }
 
     /**

@@ -221,8 +221,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Plan plan = groupExpression.getPlan();
         Statistics newStats = plan.accept(this, null);
         newStats.enforceValid();
+
         // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
         if (groupExpression.getOwnerGroup().getStatistics() == null) {
+            boolean isReliable = groupExpression.getPlan().getExpressions().stream()
+                    .noneMatch(e -> newStats.isInputSlotsUnknown(e.getInputSlots()));
+            groupExpression.getOwnerGroup().setStatsReliable(isReliable);
             groupExpression.getOwnerGroup().setStatistics(newStats);
             groupExpression.setEstOutputRowCount(newStats.getRowCount());
         } else {
