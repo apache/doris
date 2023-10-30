@@ -22,6 +22,7 @@
 
 #include <assert.h>
 #include <fmt/format.h>
+#include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -757,6 +758,9 @@ FieldInfo ColumnObject::Subcolumn::get_subcolumn_field_info() const {
 }
 
 void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t length) {
+#ifndef NDEBUG
+    check_consistency();
+#endif
     const auto& src_object = assert_cast<const ColumnObject&>(src);
     for (const auto& entry : src_object.subcolumns) {
         if (!has_subcolumn(entry->path)) {
@@ -1238,6 +1242,18 @@ void ColumnObject::strip_outer_array() {
     std::swap(subcolumns, new_subcolumns);
 }
 
+void ColumnObject::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
+    if (!is_finalized()) {
+        const_cast<ColumnObject*>(this)->finalize();
+    }
+    auto& var = assert_cast<ColumnObject&>(column);
+    for (auto& entry : subcolumns) {
+        auto replica = entry->data.get_finalized_column().clone_empty();
+        entry->data.get_finalized_column().replicate(indexs, target_size, *replica);
+        var.add_sub_column(entry->path, std::move(replica), entry->data.get_least_common_type());
+    }
+}
+
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize();
@@ -1298,13 +1314,20 @@ size_t ColumnObject::filter(const Filter& filter) {
     return count;
 }
 
-void ColumnObject::clear() {
+void ColumnObject::clear_subcolumns_data() {
     for (auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
-            part->clear();
+            DCHECK_EQ(part->use_count(), 1);
+            (*std::move(part)).clear();
         }
         entry->data.num_of_defaults_in_prefix = 0;
     }
+    num_rows = 0;
+}
+
+void ColumnObject::clear() {
+    Subcolumns empty;
+    std::swap(empty, subcolumns);
     num_rows = 0;
 }
 
