@@ -307,7 +307,6 @@ update_submodule() {
     fi
 }
 
-
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
     clean_gensrc
     clean_be
