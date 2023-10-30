@@ -21,9 +21,9 @@ suite("test_skip_missing_version") {
     sql """ DROP TABLE IF EXISTS ${test_tbl}"""
     sql """
      CREATE TABLE ${test_tbl} (
-       `k1` char(5) NULL,
-       `k2` int(11) NULL,
-       `k3` tinyint(4) NULL,
+       `k1` int(11) NULL,
+       `k2` char(5) NULL,
+       `k3` tinyint(4) NULL
      ) ENGINE=OLAP
      DUPLICATE KEY(`k1`, `k2`, `k3`)
      DISTRIBUTED BY HASH(`k1`) BUCKETS 5
@@ -32,11 +32,11 @@ suite("test_skip_missing_version") {
      );
     """
 
-    sql """ INSERT INTO ${test_tbl} VALUES('a', 1000, 10); """
-    sql """ INSERT INTO ${test_tbl} VALUES('b', 2000, 10); """
+    sql """ INSERT INTO ${test_tbl} VALUES(1000, 'a', 10); """
+    sql """ INSERT INTO ${test_tbl} VALUES(2000, 'b', 10); """
 
     // This case cannot verify the results, but it can verify abnormalities after
     // SET skip_missing_version=true
     sql """ SET skip_missing_version=true """
-    qt_select_all """ select * from ${test_tbl} """
+    qt_select_all """ select * from ${test_tbl} order by k1 """
 }
