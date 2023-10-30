@@ -38,13 +38,11 @@ import com.google.common.collect.Lists;
 public class EnforceMissingPropertiesHelper {
     private static final EventProducer ENFORCER_TRACER = new EventProducer(EnforcerEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(EnforcerEvent.class, EventChannel.LOG)));
-    private final JobContext context;
     private final GroupExpression groupExpression;
     private Cost curTotalCost;
 
     public EnforceMissingPropertiesHelper(JobContext context, GroupExpression groupExpression,
             Cost curTotalCost) {
-        this.context = context;
         this.groupExpression = groupExpression;
         this.curTotalCost = curTotalCost;
     }
