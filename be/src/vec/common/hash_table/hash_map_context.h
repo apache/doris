@@ -176,7 +176,10 @@ struct MethodSerialized : public MethodBase<TData> {
     using Base::init_iterator;
     using State = ColumnsHashing::HashMethodSerialized<typename Base::Value, typename Base::Mapped>;
     using Base::try_presis_key;
-
+    // need keep until the hash probe end.
+    std::vector<StringRef> build_stored_keys;
+    Arena build_arena;
+    // refresh each time probe
     std::vector<StringRef> stored_keys;
 
     StringRef serialize_keys_to_pool_contiguous(size_t i, size_t keys_size,
@@ -191,41 +194,43 @@ struct MethodSerialized : public MethodBase<TData> {
         return {begin, sum_size};
     }
 
-    void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
-                              const uint8_t* null_map = nullptr, bool is_join = false,
-                              bool is_build = false) override {
-        Base::arena.clear();
-        stored_keys.resize(num_rows);
+    void init_serialized_keys_impl(const ColumnRawPtrs& key_columns, size_t num_rows,
+                                   std::vector<StringRef>& keys, Arena& arena) {
+        arena.clear();
+        keys.resize(num_rows);
 
         size_t max_one_row_byte_size = 0;
         for (const auto& column : key_columns) {
             max_one_row_byte_size += column->get_max_row_byte_size();
         }
         size_t total_bytes = max_one_row_byte_size * num_rows;
-
         if (total_bytes > config::pre_serialize_keys_limit_bytes) {
             // reach mem limit, don't serialize in batch
             size_t keys_size = key_columns.size();
             for (size_t i = 0; i < num_rows; ++i) {
-                stored_keys[i] =
-                        serialize_keys_to_pool_contiguous(i, keys_size, key_columns, Base::arena);
+                keys[i] = serialize_keys_to_pool_contiguous(i, keys_size, key_columns, arena);
             }
         } else {
-            auto* serialized_key_buffer =
-                    reinterpret_cast<uint8_t*>(Base::arena.alloc(total_bytes));
+            auto* serialized_key_buffer = reinterpret_cast<uint8_t*>(arena.alloc(total_bytes));
 
             for (size_t i = 0; i < num_rows; ++i) {
-                stored_keys[i].data =
+                keys[i].data =
                         reinterpret_cast<char*>(serialized_key_buffer + i * max_one_row_byte_size);
-                stored_keys[i].size = 0;
+                keys[i].size = 0;
             }
 
             for (const auto& column : key_columns) {
-                column->serialize_vec(stored_keys, num_rows, max_one_row_byte_size);
+                column->serialize_vec(keys, num_rows, max_one_row_byte_size);
             }
         }
-        Base::keys = stored_keys.data();
+        Base::keys = keys.data();
+    }
 
+    void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
+                              const uint8_t* null_map = nullptr, bool is_join = false,
+                              bool is_build = false) override {
+        init_serialized_keys_impl(key_columns, num_rows, is_build ? build_stored_keys : stored_keys,
+                                  is_build ? build_arena : Base::arena);
         if (is_join) {
             Base::init_join_bucket_num(num_rows, null_map);
         } else {
@@ -345,11 +350,11 @@ struct MethodKeysFixed : public MethodBase<TData> {
     MethodKeysFixed(Sizes key_sizes_) : key_sizes(std::move(key_sizes_)) {}
 
     template <typename T>
-    std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
-                               const ColumnRawPtrs& nullmap_columns) {
+    void pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
+                     const ColumnRawPtrs& nullmap_columns, std::vector<T>& result) {
         size_t bitmap_size = get_bitmap_size(nullmap_columns.size());
+        result.resize(row_numbers);
 
-        std::vector<T> result(row_numbers);
         size_t offset = 0;
         if (bitmap_size > 0) {
             for (size_t j = 0; j < nullmap_columns.size(); j++) {
@@ -403,7 +408,6 @@ struct MethodKeysFixed : public MethodBase<TData> {
             }
             offset += key_sizes[j];
         }
-        return result;
     }
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
@@ -428,10 +432,10 @@ struct MethodKeysFixed : public MethodBase<TData> {
         }
 
         if (is_build) {
-            build_stored_keys = pack_fixeds<Key>(num_rows, actual_columns, null_maps);
+            pack_fixeds<Key>(num_rows, actual_columns, null_maps, build_stored_keys);
             Base::keys = build_stored_keys.data();
         } else {
-            stored_keys = pack_fixeds<Key>(num_rows, actual_columns, null_maps);
+            pack_fixeds<Key>(num_rows, actual_columns, null_maps, stored_keys);
             Base::keys = stored_keys.data();
         }
 

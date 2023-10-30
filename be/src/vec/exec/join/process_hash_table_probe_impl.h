@@ -618,92 +618,7 @@ template <typename HashTableType>
 Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
         HashTableType& hash_table_ctx, MutableBlock& mutable_block, Block* output_block,
         bool* eos) {
-    //    using Mapped = typename HashTableType::Mapped;
     SCOPED_TIMER(_probe_process_hashtable_timer);
-    //    if constexpr (std::is_same_v<Mapped, RowRefListWithFlag> ||
-    //                  std::is_same_v<Mapped, RowRefListWithFlags>) {
-    //        hash_table_ctx.init_iterator();
-    //        auto& mcol = mutable_block.mutable_columns();
-    //
-    //        bool right_semi_anti_without_other = _is_right_semi_anti && !_have_other_join_conjunct;
-    //        int right_col_idx =
-    //                right_semi_anti_without_other ? 0 : _parent->left_table_data_types().size();
-    //        int right_col_len = _parent->right_table_data_types().size();
-    //
-    //        auto& iter = hash_table_ctx.iterator;
-    //        auto block_size = 0;
-    //        auto& visited_iter =
-    //                std::get<ForwardIterator<Mapped>>(_parent->_outer_join_pull_visited_iter);
-    //        _build_blocks_locs.resize(_batch_size);
-    //        if (visited_iter.ok()) {
-    //            if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
-    //                for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-    //                    _build_blocks_locs[block_size++] = visited_iter->row_num;
-    //                }
-    //            } else {
-    //                for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-    //                    if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
-    //                        if (visited_iter->visited) {
-    //                            _build_blocks_locs[block_size++] = visited_iter->row_num;
-    //                        }
-    //                    } else {
-    //                        if (!visited_iter->visited) {
-    //                            _build_blocks_locs[block_size++] = visited_iter->row_num;
-    //                        }
-    //                    }
-    //                }
-    //            }
-    //            if (!visited_iter.ok()) {
-    //                ++iter;
-    //            }
-    //        }
-    //
-    //        for (; iter != hash_table_ctx.hash_table->end() && block_size < _batch_size; ++iter) {
-    //            auto& mapped = iter->get_second();
-    //            if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
-    //                if (mapped.visited) {
-    //                    if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
-    //                        visited_iter = mapped.begin();
-    //                        for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-    //                            _build_blocks_locs[block_size++] = visited_iter->row_num;
-    //                        }
-    //                        if (visited_iter.ok()) {
-    //                            // block_size >= _batch_size, quit for loop
-    //                            break;
-    //                        }
-    //                    }
-    //                } else {
-    //                    if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
-    //                        visited_iter = mapped.begin();
-    //                        for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-    //                            _build_blocks_locs[block_size++] = visited_iter->row_num;
-    //                        }
-    //                        if (visited_iter.ok()) {
-    //                            // block_size >= _batch_size, quit for loop
-    //                            break;
-    //                        }
-    //                    }
-    //                }
-    //            } else {
-    //                visited_iter = mapped.begin();
-    //                for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-    //                    if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
-    //                        if (visited_iter->visited) {
-    //                            _build_blocks_locs[block_size++] = visited_iter->row_num;
-    //                        }
-    //                    } else {
-    //                        if (!visited_iter->visited) {
-    //                            _build_blocks_locs[block_size++] = visited_iter->row_num;
-    //                        }
-    //                    }
-    //                }
-    //                if (visited_iter.ok()) {
-    //                    // block_size >= _batch_size, quit for loop
-    //                    break;
-    //                }
-    //            }
-    //        }
-    //        _build_blocks_locs.resize(block_size);
     auto& mcol = mutable_block.mutable_columns();
     *eos = hash_table_ctx.hash_table->template iterate_map<JoinOpType>(_build_indexs);
     auto block_size = _build_indexs.size();
@@ -740,10 +655,6 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
         DCHECK(block_size <= _batch_size);
     }
     return Status::OK();
-    //    } else {
-    //        LOG(FATAL) << "Invalid RowRefList";
-    //        return Status::InvalidArgument("Invalid RowRefList");
-    //    }
 }
 
 template <int JoinOpType, typename Parent>
