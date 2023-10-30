@@ -120,6 +120,8 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
         Deencapsulation.setField(tbl, "objectCreated", true);
         Deencapsulation.setField(tbl, "rwLock", new ReentrantReadWriteLock(true));
+        Deencapsulation.setField(tbl, "schemaUpdateTime", NOW);
+        Deencapsulation.setField(tbl, "eventUpdateTime", 0);
         new Expectations(tbl) {
             {
                 tbl.getId();
@@ -156,16 +158,13 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
                 tbl.initSchemaAndUpdateTime();
                 minTimes = 0;
-
-                tbl.getUpdateTime();
-                minTimes = 0;
-                result = NOW;
             }
         };
 
         Deencapsulation.setField(tbl2, "objectCreated", true);
         Deencapsulation.setField(tbl2, "rwLock", new ReentrantReadWriteLock(true));
         Deencapsulation.setField(tbl2, "schemaUpdateTime", NOW);
+        Deencapsulation.setField(tbl2, "eventUpdateTime", 0);
 
         new Expectations(tbl2) {
             {
@@ -203,10 +202,6 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
                 tbl2.initSchemaAndUpdateTime();
                 minTimes = 0;
-
-                tbl2.getSchemaUpdateTime();
-                minTimes = 0;
-                result = NOW;
             }
         };
 
