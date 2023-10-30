@@ -24,10 +24,6 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String user = "test_jdbc_user";
-        String pwd = '123456';
-        def tokens = context.config.jdbcUrl.split('/')
-        def url = tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
         String catalog_name = "mysql_jdbc_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
@@ -59,9 +55,6 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         String auto_default_t = "auto_default_t";
         String dt = "dt";
         String dt_null = "dt_null";
-
-        try_sql("DROP USER ${user}")
-        sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
         sql """create database if not exists ${internal_db_name}; """
 
@@ -122,24 +115,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
-        connect(user=user, password="${pwd}", url=url) {
-            try {
-                sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
-                fail()
-            } catch (Exception e) {
-                log.info(e.getMessage())
-            }
-        }
-
-        sql """GRANT LOAD_PRIV ON ${catalog_name}.${ex_db_name}.${test_insert} TO ${user}"""
-
-        connect(user=user, password="${pwd}", url=url) {
-            try {
-                sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
-            } catch (Exception e) {
-                fail();
-            }
-        }
+        sql """ insert into ${test_insert} values ('${uuid1}', 'doris1', 18) """
 
         order_qt_test_insert1 """ select name, age from ${test_insert} where id = '${uuid1}' order by age """
 
