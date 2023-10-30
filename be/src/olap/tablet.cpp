@@ -3582,7 +3582,7 @@ Status Tablet::check_rowid_conversion(
 Status Tablet::all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const {
     //  Ensure that the obtained versions of rowsets are continuous
     std::vector<Version> version_path;
-    RETURN_IF_ERROR(capture_consistent_versions(Version(0, max_version), &version_path));
+    RETURN_IF_ERROR(capture_consistent_versions(Version(0, max_version), &version_path, false, false));
     for (auto& ver : version_path) {
         if (ver.second == 1) {
             // [0-1] rowset is empty for each tablet, skip it
