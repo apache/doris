@@ -9,10 +9,10 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk))otherCondition=()
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk))otherCondition=(( not (cd_marital_status = cd_marital_status)))
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk))otherCondition=()
+------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk))otherCondition=()
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk))otherCondition=(( not (cd_marital_status = cd_marital_status)))
+------------------------PhysicalDistribute
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_first_shipto_date_sk = d3.d_date_sk))otherCondition=()
 ------------------------------PhysicalProject
@@ -20,8 +20,6 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = ad2.ca_address_sk))otherCondition=()
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------------------PhysicalDistribute
 ------------------------------------------PhysicalProject
 --------------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_first_sales_date_sk = d2.d_date_sk))otherCondition=()
@@ -33,14 +31,18 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------------------------------PhysicalDistribute
 ------------------------------------------------------PhysicalProject
 --------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((hd2.hd_income_band_sk = ib2.ib_income_band_sk))otherCondition=()
-----------------------------------------------------------PhysicalProject
-------------------------------------------------------------PhysicalOlapScan[income_band]
 ----------------------------------------------------------PhysicalDistribute
 ------------------------------------------------------------PhysicalProject
 --------------------------------------------------------------PhysicalOlapScan[household_demographics]
+----------------------------------------------------------PhysicalDistribute
+------------------------------------------------------------PhysicalProject
+--------------------------------------------------------------PhysicalOlapScan[income_band]
 ----------------------------------------------PhysicalDistribute
 ------------------------------------------------PhysicalProject
 --------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number))otherCondition=()
@@ -100,12 +102,12 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[date_dim]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[promotion]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[customer_demographics]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[customer_demographics]
+------------------------PhysicalOlapScan[promotion]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[store]
