@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -25,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 
 import com.google.common.collect.ImmutableMap;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import javax.annotation.Nullable;
@@ -54,7 +56,8 @@ public class CTEContext {
         if ((parsedPlan == null && previousCteContext != null) || (parsedPlan != null && previousCteContext == null)) {
             throw new AnalysisException("Only first CteContext can contains null cte plan or previousCteContext");
         }
-        this.name = parsedPlan == null ? null : parsedPlan.getAlias();
+        this.name = parsedPlan == null ? null : Config.lower_case_table_names != 0
+                ? parsedPlan.getAlias().toLowerCase(Locale.ROOT) : parsedPlan.getAlias();
         this.cteContextMap = previousCteContext == null
                 ? ImmutableMap.of()
                 : ImmutableMap.<String, CTEContext>builder()
@@ -83,6 +86,9 @@ public class CTEContext {
      * findCTEContext
      */
     public Optional<CTEContext> findCTEContext(String cteName) {
+        if (Config.lower_case_table_names != 0) {
+            cteName = cteName.toLowerCase(Locale.ROOT);
+        }
         if (cteName.equals(name)) {
             return Optional.of(this);
         }
