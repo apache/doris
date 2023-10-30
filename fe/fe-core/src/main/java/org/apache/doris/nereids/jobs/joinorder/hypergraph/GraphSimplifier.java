@@ -440,13 +440,17 @@ public class GraphSimplifier {
                         && cacheStats.containsKey(bitmap),
                 "graph simplifier meet an edge %s that have not been derived stats", edge);
         LogicalJoin<? extends Plan, ? extends Plan> join = edge.getJoin();
-        Statistics stats = cacheStats.get(bitmap);
+        Statistics leftStats = cacheStats.get(leftBitmap);
+        Statistics rightStats = cacheStats.get(rightBitmap);
         double cost;
         if (JoinUtils.shouldNestedLoopJoin(join)) {
-            cost = cacheCost.get(leftBitmap) * cacheCost.get(rightBitmap) + stats.getRowCount();
+            cost = cacheCost.get(leftBitmap) + cacheCost.get(rightBitmap)
+                    + rightStats.getRowCount() + 1 / leftStats.getRowCount();
         } else {
-            cost = cacheCost.get(leftBitmap) + cacheCost.get(rightBitmap) * 1.2 + stats.getRowCount();
+            cost = cacheCost.get(leftBitmap) + cacheCost.get(rightBitmap)
+                    + (rightStats.getRowCount() + 1 / leftStats.getRowCount()) * 1.2;
         }
+
         if (!cacheCost.containsKey(bitmap) || cacheCost.get(bitmap) > cost) {
             cacheCost.put(bitmap, cost);
         }

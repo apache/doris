@@ -86,13 +86,13 @@ class GraphSimplifierTest {
                 .build();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
         List<Pair<Long, Long>> steps = ImmutableList.<Pair<Long, Long>>builder()
-                .add(Pair.of(3L, 16L))   // 01   - 4
-                .add(Pair.of(3L, 8L))    // 01   - 3
-                .add(Pair.of(3L, 4L))    // 01   - 2
-                .add(Pair.of(7L, 16L))   // 012  - 4
-                .add(Pair.of(7L, 8L))    // 012  - 3
-                .add(Pair.of(15L, 16L))  // 0123 - 4
-                .build(); // 0-1-2-3-4
+                .add(Pair.of(17L, 2L))   // 04   - 1
+                .add(Pair.of(17L, 4L))   // 04   - 2
+                .add(Pair.of(17L, 8L))   // 04   - 3
+                .add(Pair.of(25L, 2L))   // 034  - 1
+                .add(Pair.of(25L, 4L))   // 034  - 2
+                .add(Pair.of(29L, 2L))   // 0234 - 1
+                .build(); // 0-4-3-2-1 : big left deep tree
         for (Pair<Long, Long> step : steps) {
             if (!graphSimplifier.applySimplificationStep()) {
                 break;
