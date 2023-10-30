@@ -252,6 +252,10 @@ public class VariableMgr {
         }
     }
 
+    public static SessionVariable cloneSessionVariable(SessionVariable var) {
+        return SerializationUtils.clone(var);
+    }
+
     // Check if this setVar can be set correctly
     // Do not use ErrorReport.reportDdlException to throw exeception, it will set the query state in connection context.
     // But in some case, we do not want to set the query state and need to ignore that error.

@@ -47,6 +47,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 // EXPORT statement, export data to dirs by broker.
@@ -121,11 +122,8 @@ public class ExportStmt extends StatementBase {
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
         this.timeout = DEFAULT_TIMEOUT;
         this.columns = DEFAULT_COLUMNS;
-        if (ConnectContext.get() != null) {
-            this.sessionVariables = ConnectContext.get().getSessionVariable();
-        } else {
-            this.sessionVariables = VariableMgr.getDefaultSessionVariable();
-        }
+        this.sessionVariables = VariableMgr.cloneSessionVariable(Optional.ofNullable(
+                ConnectContext.get().getSessionVariable()).orElse(VariableMgr.getDefaultSessionVariable()));
     }
 
     public String getColumns() {
