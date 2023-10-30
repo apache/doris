@@ -263,11 +263,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     @Override
     public void createScanRangeLocations() throws UserException {
-        long start = System.currentTimeMillis();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsStartTime();
         }
-        List<Split> inputSplits = getSplits();
+        inputSplits = getSplits();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
         }
@@ -275,6 +274,20 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (inputSplits.isEmpty() && !(getLocationType() == TFileType.FILE_STREAM)) {
             return;
         }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.isEnableSqlCache()) {
+            // If enable sql cache, we will not create scan range locations.
+            // Because create scan range may be time-consuming if there are too many splits,
+            // but these scan range is not used in sql cache.
+            // So here we do a lazy creation, to create scan range after sql cache is missing.
+            LOG.debug("skip create scan range locations if sql cache is enabled");
+            return;
+        }
+        createScanRangeLocationsImpl();
+    }
+
+    public void createScanRangeLocationsImpl() throws UserException {
+        long start = System.currentTimeMillis();
         TFileFormatType fileFormatType = getFileFormatType();
         params.setFormatType(fileFormatType);
         boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;

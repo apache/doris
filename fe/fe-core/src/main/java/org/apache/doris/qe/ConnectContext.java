@@ -206,6 +206,12 @@ public class ConnectContext {
     // In this case, `skipAuth` needs to be set to `true` to skip the permission check of `AlterTable`
     private boolean skipAuth = false;
 
+    // Set to true the sql cache is enabled.
+    // Not same as sessionVariable.isEnableSqlCache, this is set to true only if the sql cache can be used
+    // in the current query.
+    // And after the query is finished, this flag will be set to false again.
+    private boolean isEnableSqlCache = false;
+
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
             sessionVariable.setQueryTimeoutS(queryTimeout);
@@ -874,6 +880,14 @@ public class ConnectContext {
 
     public Map<String, String> getResultAttachedInfo() {
         return resultAttachedInfo;
+    }
+
+    public void setIsEnableSqlCache(boolean isEnableSqlCache) {
+        this.isEnableSqlCache = isEnableSqlCache;
+    }
+
+    public boolean isEnableSqlCache() {
+        return isEnableSqlCache;
     }
 
     public class ThreadInfo {
