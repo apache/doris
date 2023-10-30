@@ -70,7 +70,7 @@ struct SharedRuntimeFilterContext;
 } // namespace vectorized
 
 namespace pipeline {
-class FilterDependency;
+class RuntimeFilterTimer;
 } // namespace pipeline
 
 enum class RuntimeFilterType {
@@ -397,7 +397,7 @@ public:
 
     int64_t registration_time() const { return registration_time_; }
 
-    void set_dependency(std::shared_ptr<pipeline::FilterDependency>);
+    void set_dependency(std::shared_ptr<pipeline::RuntimeFilterTimer>);
 
 protected:
     // serialize _wrapper to protobuf
@@ -490,7 +490,7 @@ protected:
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
     bool _opt_remote_rf;
-    std::shared_ptr<pipeline::FilterDependency> _dependency;
+    std::shared_ptr<pipeline::RuntimeFilterTimer> _dependency;
 };
 
 // avoid expose RuntimePredicateWrapper

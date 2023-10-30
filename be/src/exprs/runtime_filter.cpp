@@ -1236,7 +1236,7 @@ void IRuntimeFilter::signal() {
     if (_enable_pipeline_exec) {
         _rf_state_atomic.store(RuntimeFilterState::READY);
         if (_dependency) {
-            _dependency->set_filter_ready();
+            _dependency->call_ready();
         }
     } else {
         std::unique_lock lock(_inner_mutex);
@@ -1258,7 +1258,7 @@ void IRuntimeFilter::signal() {
     }
 }
 
-void IRuntimeFilter::set_dependency(std::shared_ptr<pipeline::FilterDependency> dependency) {
+void IRuntimeFilter::set_dependency(std::shared_ptr<pipeline::RuntimeFilterTimer> dependency) {
     _dependency = dependency;
 }
 

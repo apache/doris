@@ -199,52 +199,36 @@ protected:
     const int _node_id;
 };
 
-class FilterDependency;
-struct RuntimeFilterTimerQueue {
-    constexpr static int64_t interval = 10;
-    ~RuntimeFilterTimerQueue() { _thread.detach(); }
-    RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
-    void start();
-
-    static void push_filter_timer(std::shared_ptr<FilterDependency> filter) {
-        static RuntimeFilterTimerQueue que;
-
-        que.push(filter);
-    }
-    void push(std::shared_ptr<FilterDependency> filter) { _que.push_back(filter); }
-    std::thread _thread;
-    std::condition_variable cv;
-    std::mutex cv_m;
-
-    std::list<std::shared_ptr<FilterDependency>> _que;
-};
 class RuntimeFilterDependency;
-class FilterDependency {
+class RuntimeFilterTimer {
 public:
-    FilterDependency(int64_t registration_time, int32_t wait_time_ms,
-                     std::shared_ptr<RuntimeFilterDependency> parent)
+    RuntimeFilterTimer(int64_t registration_time, int32_t wait_time_ms,
+                       std::shared_ptr<RuntimeFilterDependency> parent,
+                       IRuntimeFilter* runtime_filter)
             : _parent(std::move(parent)),
               _registration_time(registration_time),
-              _wait_time_ms(wait_time_ms) {}
-    void set_filter_ready() {
-        _hash_ready = true;
-        call_timeout_or_ready();
-    }
+              _wait_time_ms(wait_time_ms),
+              _runtime_filter(runtime_filter) {}
 
-    void call_timeout_or_ready();
+    void call_ready();
 
-    bool hash_ready() const { return _hash_ready; }
+    void call_timeout();
+
+    void call_has_ready();
+
+    bool has_ready();
 
     int64_t registration_time() const { return _registration_time; }
     int32_t wait_time_ms() const { return _wait_time_ms; }
 
 private:
-    std::atomic_bool _hash_ready;
-    bool _has_call {};
+    bool _call_ready {};
+    bool _call_timeout {};
     std::shared_ptr<RuntimeFilterDependency> _parent;
     std::mutex _lock;
     const int64_t _registration_time;
     const int32_t _wait_time_ms;
+    IRuntimeFilter* _runtime_filter;
 };
 class RuntimeFilterDependency final : public Dependency {
 public:
@@ -261,23 +245,8 @@ public:
         return this;
     }
     void* shared_state() override { return nullptr; }
-    void add_filters(IRuntimeFilter* runtime_filter) {
-        _filters++;
-        int64_t registration_time = runtime_filter->registration_time();
-        int32 wait_time_ms = runtime_filter->wait_time_ms();
-        auto filter = std::make_shared<FilterDependency>(
-                registration_time, wait_time_ms,
-                std::dynamic_pointer_cast<RuntimeFilterDependency>(shared_from_this()));
-        runtime_filter->set_dependency(filter);
-        RuntimeFilterTimerQueue::push_filter_timer(filter);
-    }
-    void sub_filters() {
-        _filters--;
-        if (_filters == 0) {
-            call_task_ready();
-        }
-        _runtime_filters_are_ready_or_timeout();
-    }
+    void add_filters(IRuntimeFilter* runtime_filter);
+    void sub_filters();
     void call_task_ready() {
         /// TODO:
     }
