@@ -47,7 +47,7 @@ public:
     }
 
     bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return input_type == Type;
+        return input_type == Type || (is_string_type(input_type) && is_string_type(Type));
     }
 
     bool need_to_clone() const override { return true; }

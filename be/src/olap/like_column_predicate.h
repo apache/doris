@@ -63,7 +63,7 @@ public:
     }
 
     bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return input_type == T;
+        return input_type == T || (is_string_type(input_type) && is_string_type(T));
     }
 
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
