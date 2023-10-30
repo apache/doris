@@ -1361,7 +1361,7 @@ public class SessionVariable implements Serializable, Writable {
         */
         // pull_request_id default value is 0. When it is 0, use default (global) session variable.
         if (Config.pull_request_id > 0) {
-            this.enablePipelineEngine = true;
+            this.enablePipelineEngine = false;
             this.enableNereidsPlanner = true;
             this.enableMemtableOnSinkNode = true;
 
