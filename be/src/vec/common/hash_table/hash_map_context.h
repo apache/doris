@@ -55,7 +55,6 @@ struct MethodBase {
     std::vector<size_t> hash_values;
 
     // use in join case
-    uint32_t bucket_size;
     std::vector<uint32_t> bucket_nums;
 
     MethodBase() { hash_table.reset(new HashMap()); }
@@ -73,18 +72,17 @@ struct MethodBase {
         }
     }
 
-    void set_bucket_size(uint32_t bucket) { bucket_size = bucket; }
-
     virtual void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                                       const uint8_t* null_map = nullptr, bool is_join = false,
-                                      bool is_build = false) = 0;
+                                      bool is_build = false, uint32_t bucket_size = 0) = 0;
 
-    void init_join_bucket_num(uint32_t num_rows, const uint8_t* null_map) {
+    void init_join_bucket_num(uint32_t num_rows, uint32_t bucket_size, const uint8_t* null_map) {
+        bucket_nums.resize(num_rows);
+
         if (null_map == nullptr) {
-            init_join_bucket_num(num_rows);
+            init_join_bucket_num(num_rows, bucket_size);
             return;
         }
-        bucket_nums.resize(num_rows);
         for (uint32_t k = 0; k < num_rows; ++k) {
             if (null_map[k]) {
                 continue;
@@ -94,8 +92,7 @@ struct MethodBase {
         }
     }
 
-    void init_join_bucket_num(uint32_t num_rows) {
-        bucket_nums.resize(num_rows);
+    void init_join_bucket_num(uint32_t num_rows, uint32_t bucket_size) {
         for (uint32_t k = 0; k < num_rows; ++k) {
             bucket_nums[k] = hash_table->hash(keys[k]) & (bucket_size - 1);
         }
@@ -228,11 +225,11 @@ struct MethodSerialized : public MethodBase<TData> {
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
-                              bool is_build = false) override {
+                              bool is_build = false, uint32_t bucket_size = 0) override {
         init_serialized_keys_impl(key_columns, num_rows, is_build ? build_stored_keys : stored_keys,
                                   is_build ? build_arena : Base::arena);
         if (is_join) {
-            Base::init_join_bucket_num(num_rows, null_map);
+            Base::init_join_bucket_num(num_rows, bucket_size, null_map);
         } else {
             Base::init_hash_values(num_rows, null_map);
         }
@@ -262,7 +259,7 @@ struct MethodStringNoCache : public MethodBase<TData> {
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
-                              bool is_build = false) override {
+                              bool is_build = false, uint32_t bucket_size = 0) override {
         const IColumn& column = *key_columns[0];
         const auto& column_string = assert_cast<const ColumnString&>(
                 column.is_nullable()
@@ -278,7 +275,7 @@ struct MethodStringNoCache : public MethodBase<TData> {
 
         Base::keys = stored_keys.data();
         if (is_join) {
-            Base::init_join_bucket_num(num_rows, null_map);
+            Base::init_join_bucket_num(num_rows, bucket_size, null_map);
         } else {
             Base::init_hash_values(num_rows, null_map);
         }
@@ -303,7 +300,7 @@ struct MethodOneNumber : public MethodBase<TData> {
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
-                              bool is_build = false) override {
+                              bool is_build = false, uint32_t bucket_size = 0) override {
         Base::keys = (FieldType*)(key_columns[0]->is_nullable()
                                           ? assert_cast<const ColumnNullable*>(key_columns[0])
                                                     ->get_nested_column_ptr()
@@ -312,7 +309,7 @@ struct MethodOneNumber : public MethodBase<TData> {
                              .data;
         std::string name = key_columns[0]->get_name();
         if (is_join) {
-            Base::init_join_bucket_num(num_rows, null_map);
+            Base::init_join_bucket_num(num_rows, bucket_size, null_map);
         } else {
             Base::init_hash_values(num_rows, null_map);
         }
@@ -412,7 +409,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
-                              bool is_build = false) override {
+                              bool is_build = false, uint32_t bucket_size = 0) override {
         ColumnRawPtrs actual_columns;
         ColumnRawPtrs null_maps;
         if (has_nullable_keys) {
@@ -440,7 +437,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
         }
 
         if (is_join) {
-            Base::init_join_bucket_num(num_rows, null_map);
+            Base::init_join_bucket_num(num_rows, bucket_size, null_map);
         } else {
             Base::init_hash_values(num_rows, null_map);
         }

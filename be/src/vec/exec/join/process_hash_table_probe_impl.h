@@ -144,7 +144,7 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_p
         _parent->_ready_probe = true;
         hash_table_ctx.reset();
         hash_table_ctx.init_serialized_keys(_parent->_probe_columns, probe_rows, null_map, true,
-                                            false);
+                                            false, hash_table_ctx.hash_table->get_bucket_size());
     }
     return typename HashTableType::State(_parent->_probe_columns);
 }

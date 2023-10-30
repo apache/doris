@@ -230,13 +230,13 @@ public:
         }
     }
 
-    uint32_t get_bucket_size() { return bucket_size; }
+    uint32_t get_bucket_size() const { return bucket_size; }
 
-    void build(const Key* __restrict keys, const uint32_t* __restrict hash_values,
+    void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
                size_t num_elem) {
         build_keys = keys;
         for (size_t i = 1; i < num_elem; i++) {
-            uint32_t bucket_num = hash_values[i] & (bucket_size - 1);
+            uint32_t bucket_num = bucket_nums[i];
             next[i] = first[bucket_num];
             first[bucket_num] = i;
         }
