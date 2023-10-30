@@ -25,13 +25,15 @@ suite("test_broker_load_func", "p0,external,hive,external_docker,external_docker
 
             String database_name = "test_broker_load_func"
             String broker_name = "hdfs"
+            String test_load_label="label_test_broker_load_func"
+            String table_name="simple"
 
             sql """drop database if exists ${database_name}; """
             sql """create database if not exists ${database_name};"""
             sql """use ${database_name}; """
 
             sql """
-                create table simple (
+                create table ${table_name} (
                     `t_empty_string`  varchar(255) NULL COMMENT '',
                     `t_string` varchar(255) NULL COMMENT ''
                 ) engine=olap
@@ -42,10 +44,10 @@ suite("test_broker_load_func", "p0,external,hive,external_docker,external_docker
                 """
 
             sql """
-                LOAD LABEL ${database_name}.label_test_broker_load_func
+                LOAD LABEL ${database_name}.${test_load_label}
                 (
                     DATA INFILE("hdfs://${externalEnvIp}:${hdfsPort}/user/doris/preinstalled_data/csv/csv_all_types/csv_all_types")
-                    INTO TABLE `simple`
+                    INTO TABLE ${table_name}
                     COLUMNS TERMINATED BY ","
                 )
                 WITH BROKER ${broker_name}
@@ -55,11 +57,26 @@ suite("test_broker_load_func", "p0,external,hive,external_docker,external_docker
                 );
             """
 
-            sleep(10000)
-            
-            def res = sql """select count(*) from simple;"""
-            
-            assertEquals(10,res[0][0])
+            def check_load_result = {checklabel, testTablex ->
+                max_try_milli_secs = 60000
+                while(max_try_milli_secs) {
+                    result = sql "show load where label = '${checklabel}'"
+                    if(result[0][2] == "FINISHED") {
+                        //sql "sync"
+                        def res = sql "select count(*) from ${database_name}.${testTablex};"
+                        assertEquals(10,res[0][0])
+                        break
+                    } else {
+                        sleep(1000) // wait 1 second every time
+                        max_try_milli_secs -= 1000
+                        if(max_try_milli_secs <= 0) {
+                            assertEquals(1, 2)
+                        }
+                    }
+                }
+            }
+
+            check_load_result.call(test_load_label, table_name)
 
         } finally {
         }
