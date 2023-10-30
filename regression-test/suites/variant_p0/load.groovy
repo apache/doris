@@ -449,6 +449,9 @@ suite("regression_test_variant", "variant_type"){
         sql """insert into var_index values(7, '{"a1" : 0, "b1": 3}', 'hello world'), (8, '{"a2" : 123}', 'world'),(9, '{"a3" : 123}', 'hello world')"""
         qt_sql_inv6 """select * from ${table_name} order by k desc limit 4"""
 
+        // test groupby with multiple variants
+        sql """select cast(v:xxx as int),  cast(v:yyy as text) from ${table_name} group by cast(v:xxx as int),  cast(v:yyy as text)"""
+
     } finally {
         // reset flags
         set_be_config.call("max_filter_ratio_for_variant_parsing", "0.05")
