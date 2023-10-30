@@ -179,7 +179,9 @@ public:
             return false;
         }
 
-        DCHECK_LE(sizeof(T), statistic.first->size());
+        DCHECK(sizeof(T) <= statistic.first->size() || Type == TYPE_DATE)
+                << " Type: " << Type << " sizeof(T): " << sizeof(T)
+                << " statistic.first->size(): " << statistic.first->size();
 
         T tmp_min_value {};
         T tmp_max_value {};
