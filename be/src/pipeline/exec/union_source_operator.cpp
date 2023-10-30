@@ -108,6 +108,14 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         for (auto& dep : deps) {
             ((UnionDependency*)dep.get())->set_shared_state(ss);
         }
+    } else {
+        auto& deps = info.dependencys;
+        DCHECK(child_count == 0);
+        DCHECK(deps.size() == 1);
+        DCHECK(deps.front() == nullptr);
+        //child_count == 0 , we need to creat a  UnionDependency
+        deps.front() = std::make_shared<UnionDependency>(_parent->operator_id());
+        ((UnionDependency*)deps.front().get())->set_shared_state(ss);
     }
     RETURN_IF_ERROR(Base::init(state, info));
     ss->data_queue.set_dependency(_dependency);
@@ -143,7 +151,7 @@ std::shared_ptr<UnionSharedState> UnionSourceLocalState::create_shared_state() {
 
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                        SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (local_state._need_read_for_const_expr) {
         if (has_more_const(state)) {
@@ -164,7 +172,7 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     }
     local_state.reached_limit(block, source_state);
     //have exectue const expr, queue have no data any more, and child could be colsed
-    if (_child_size == 0) {
+    if (_child_size == 0 && !local_state._need_read_for_const_expr) {
         source_state = SourceState::FINISHED;
     } else if ((!_has_data(state) && local_state._shared_state->data_queue.is_all_finish())) {
         source_state = SourceState::FINISHED;
@@ -178,7 +186,7 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
 
 Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Block* block) {
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
-    auto& local_state = state->get_local_state(id())->cast<UnionSourceLocalState>();
+    auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
     DCHECK_LT(local_state._const_expr_list_idx, _const_expr_lists.size());
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
     vectorized::MutableBlock mblock =

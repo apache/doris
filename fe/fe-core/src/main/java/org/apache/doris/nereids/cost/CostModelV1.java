@@ -67,7 +67,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     // the penalty factor is no more than BROADCAST_JOIN_SKEW_PENALTY_LIMIT
     static final double BROADCAST_JOIN_SKEW_RATIO = 30.0;
     static final double BROADCAST_JOIN_SKEW_PENALTY_LIMIT = 2.0;
-    private int beNumber = 1;
+    private final int beNumber;
 
     public CostModelV1() {
         if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
@@ -302,10 +302,22 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             }
             // TODO: since the outputs rows may expand a lot, penalty on it will cause bc never be chosen.
             // will refine this in next generation cost model.
+            if (!context.isStatsReliable()) {
+                // forbid broadcast join when stats is unknown
+                return CostV1.of(rightRowCount * buildSideFactor + 1 / leftRowCount,
+                        rightRowCount,
+                        0
+                );
+            }
             return CostV1.of(leftRowCount + rightRowCount * buildSideFactor + outputRowCount * probeSideFactor,
                     rightRowCount,
                     0
             );
+        }
+        if (!context.isStatsReliable()) {
+            return CostV1.of(rightRowCount + 1 / leftRowCount,
+                    rightRowCount,
+                    0);
         }
         return CostV1.of(leftRowCount + rightRowCount + outputRowCount,
                 rightRowCount,
@@ -321,7 +333,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Preconditions.checkState(context.arity() == 2);
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
-
+        if (!context.isStatsReliable()) {
+            return CostV1.of(rightStatistics.getRowCount() + 1 / leftStatistics.getRowCount(),
+                    rightStatistics.getRowCount(),
+                    0);
+        }
         return CostV1.of(
                 leftStatistics.getRowCount() * rightStatistics.getRowCount(),
                 rightStatistics.getRowCount(),

@@ -530,13 +530,18 @@ public class Coordinator implements CoordInterface {
 
         this.idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("Query {} idToBackend size={}", DebugUtil.printId(queryId), idToBackend.size());
+            int backendNum = idToBackend.size();
+            StringBuilder backendInfos = new StringBuilder("backends info:");
             for (Map.Entry<Long, Backend> entry : idToBackend.entrySet()) {
                 Long backendID = entry.getKey();
                 Backend backend = entry.getValue();
-                LOG.debug("Query {}, backend: {}-{}-{}-{}", DebugUtil.printId(queryId),
-                                    backendID, backend.getHost(), backend.getBePort(), backend.getProcessEpoch());
+                backendInfos.append(' ').append(backendID).append("-")
+                            .append(backend.getHost()).append("-")
+                            .append(backend.getBePort()).append("-")
+                            .append(backend.getProcessEpoch());
             }
+            LOG.debug("query {}, backend size: {}, {}",
+                    DebugUtil.printId(queryId), backendNum, backendInfos.toString());
         }
     }
 
@@ -631,7 +636,7 @@ public class Coordinator implements CoordInterface {
             resultInternalServiceAddr = toBrpcHost(execBeAddr);
             resultOutputExprs = fragments.get(0).getOutputExprs();
             if (LOG.isDebugEnabled()) {
-                LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId),
+                LOG.debug("dispatch result sink of query {} to {}", DebugUtil.printId(queryId),
                         topParams.instanceExecParams.get(0).host);
             }
 
@@ -857,7 +862,8 @@ public class Coordinator implements CoordInterface {
                     }
                 }
 
-                // 3. group BackendExecState by BE. So that we can use one RPC to send all fragment instances of a BE.
+                // 3. group PipelineExecContext by BE.
+                // So that we can use one RPC to send all fragment instances of a BE.
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     Long backendId = this.addressToBackendID.get(entry.getKey());
                     PipelineExecContext pipelineExecContext = new PipelineExecContext(fragment.getFragmentId(),
@@ -905,6 +911,16 @@ public class Coordinator implements CoordInterface {
                     span = ConnectContext.get().getTracer().spanBuilder("execRemoteFragmentsAsync")
                             .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
                 }
+
+                if (LOG.isDebugEnabled()) {
+                    String infos = "";
+                    for (PipelineExecContext pec : ctxs.ctxs) {
+                        infos += pec.fragmentId + " ";
+                    }
+                    LOG.debug("query {}, sending pipeline fragments: {} to be {} bprc address {}",
+                            DebugUtil.printId(queryId), infos, ctxs.beId, ctxs.brpcAddr.toString());
+                }
+
                 ctxs.scopedSpan = new ScopedSpan(span);
                 ctxs.unsetFields();
                 BackendServiceProxy proxy = BackendServiceProxy.getInstance();
@@ -2415,9 +2431,12 @@ public class Coordinator implements CoordInterface {
             if (params.isSetErrorTabletInfos()) {
                 updateErrorTabletInfos(params.getErrorTabletInfos());
             }
+
             Preconditions.checkArgument(params.isSetDetailedReport());
             for (TDetailedReportParams param : params.detailed_report) {
                 if (ctx.fragmentInstancesMap.get(param.fragment_instance_id).getIsDone()) {
+                    LOG.debug("Query {} instance {} is marked done",
+                            DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
                     executionProfile.markOneInstanceDone(param.getFragmentInstanceId());
                 }
             }
@@ -2442,9 +2461,11 @@ public class Coordinator implements CoordInterface {
             // and returned_all_results_ is true.
             // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
             if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
-                LOG.warn("one instance report fail, query_id={} instance_id={}, error message: {}",
-                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
-                        status.getErrorMsg());
+                LOG.warn("one instance report fail, query_id={} fragment_id={} instance_id={}, be={},"
+                                  + " error message: {}",
+                        DebugUtil.printId(queryId), params.getFragmentId(),
+                        DebugUtil.printId(params.getFragmentInstanceId()),
+                        params.getBackendId(), status.getErrorMsg());
                 updateStatus(status, params.getFragmentInstanceId());
             }
             if (ctx.fragmentInstancesMap.get(params.fragment_instance_id).getIsDone()) {
@@ -2466,11 +2487,17 @@ public class Coordinator implements CoordInterface {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
+                LOG.debug("Query {} instance {} is marked done",
+                         DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
+            } else {
+                LOG.debug("Query {} instance {} is not marked done",
+                         DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
             }
         } else {
             if (params.backend_num >= backendExecStates.size()) {
-                LOG.warn("unknown backend number: {}, expected less than: {}",
+                LOG.warn("Query {} instance {} unknown backend number: {}, expected less than: {}",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
                         params.backend_num, backendExecStates.size());
                 return;
             }
@@ -2518,7 +2545,12 @@ public class Coordinator implements CoordInterface {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
+                LOG.info("Query {} instance {} is marked done",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
+            } else {
+                LOG.info("Query {} instance {} is not marked done",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
             }
         }
 
@@ -3121,9 +3153,10 @@ public class Coordinator implements CoordInterface {
             for (TPipelineInstanceParams localParam : rpcParams.local_params) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("cancelRemoteFragments initiated={} done={} hasCanceled={} backend: {},"
-                                    + " fragment instance id={}, reason: {}",
+                                    + " fragment instance id={} query={}, reason: {}",
                             this.initiated, this.done, this.hasCanceled, backend.getId(),
-                            DebugUtil.printId(localParam.fragment_instance_id), cancelReason.name());
+                            DebugUtil.printId(localParam.fragment_instance_id),
+                            DebugUtil.printId(queryId), cancelReason.name());
                 }
 
                 RuntimeProfile profile = fragmentInstancesMap.get(localParam.fragment_instance_id);

@@ -86,7 +86,7 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
     Status res = Status::OK();
     _request = request;
 
-    static_cast<void>(DescriptorTbl::create(&_pool, _request.desc_tbl, &_desc_tbl));
+    RETURN_IF_ERROR(DescriptorTbl::create(&_pool, _request.desc_tbl, &_desc_tbl));
 
     res = _do_streaming_ingestion(tablet, request, push_type, tablet_info_vec);
 
@@ -95,7 +95,7 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
             TTabletInfo tablet_info;
             tablet_info.tablet_id = tablet->tablet_id();
             tablet_info.schema_hash = tablet->schema_hash();
-            static_cast<void>(
+            RETURN_IF_ERROR(
                     StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info));
             tablet_info_vec->push_back(tablet_info);
         }
@@ -141,33 +141,6 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         DeletePredicatePB del_pred;
         TabletSchema tablet_schema;
         tablet_schema.copy_from(*tablet->tablet_schema());
-        for (const auto& delete_cond : request.delete_conditions) {
-            if (!delete_cond.__isset.column_unique_id) {
-                LOG(WARNING) << "column=" << delete_cond.column_name
-                             << " in predicate does not have uid, table id="
-                             << tablet_schema.table_id();
-                // TODO(tsy): make it fail here after FE forbidding hard-link-schema-change
-                continue;
-            }
-            if (tablet_schema.field_index(delete_cond.column_unique_id) == -1) {
-                const auto& err_msg =
-                        fmt::format("column id={} does not exists, table id={}",
-                                    delete_cond.column_unique_id, tablet_schema.table_id());
-                LOG(WARNING) << err_msg;
-                DCHECK(false);
-                return Status::Aborted(err_msg);
-            }
-            if (tablet_schema.column_by_uid(delete_cond.column_unique_id).name() !=
-                delete_cond.column_name) {
-                const auto& err_msg = fmt::format(
-                        "colum name={} does not belongs to column uid={}, which column name={}",
-                        delete_cond.column_name, delete_cond.column_unique_id,
-                        tablet_schema.column_by_uid(delete_cond.column_unique_id).name());
-                LOG(WARNING) << err_msg;
-                DCHECK(false);
-                return Status::Aborted(err_msg);
-            }
-        }
         if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
             tablet_schema.clear_columns();
             for (const auto& column_desc : request.columns_desc) {
@@ -317,7 +290,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             }
 
             reader->print_profile();
-            static_cast<void>(reader->close());
+            RETURN_IF_ERROR(reader->close());
         }
 
         if (!res.ok()) {
@@ -664,8 +637,8 @@ Status PushBrokerReader::_get_next_reader() {
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
         std::unordered_map<std::string, vectorized::VExprContextSPtr> missing_columns;
-        static_cast<void>(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
-        static_cast<void>(_cur_reader->set_fill_columns(partition_columns, missing_columns));
+        RETURN_IF_ERROR(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
+        RETURN_IF_ERROR(_cur_reader->set_fill_columns(partition_columns, missing_columns));
         break;
     }
     default:

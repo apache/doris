@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
  *   bushy: star graph can't be a bushy, it can only form a zig-zag (because the center must be joined first)
  * </pre>
  */
-public class CascadesJoinReorderTest extends SqlTestBase {
+class CascadesJoinReorderTest extends SqlTestBase {
     @Test
     void testStartThreeJoin() {
         // Three join

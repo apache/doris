@@ -58,7 +58,7 @@ excludeGroups = ""
 excludeSuites = "test_sql_block_rule,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter"
 
 // this directories will not be executed
-excludeDirectories = "workload_manager_p1"
+excludeDirectories = "workload_manager_p1,fault_injection_p0"
 
 customConf1 = "test_custom_conf_value"
 
@@ -78,7 +78,7 @@ enableBrokerLoad=true
 enableJdbcTest=false
 mysql_57_port=7111
 pg_14_port=7121
-
+mariadb_10_port=3326
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
@@ -91,6 +91,9 @@ hiveServerPort=10000
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableKafkaTest=true
 kafka_port=19193
+
+// iceberg test config
+iceberg_rest_uri_port=18181
 
 enableEsTest=false
 es_6_port=19200

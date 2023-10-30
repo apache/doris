@@ -174,15 +174,12 @@ struct ToBitmapWithCheck {
                     if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
                         res_data[i].add(int_value);
                     } else {
-                        std::stringstream ss;
-                        ss << "The input: " << std::string(raw_str, str_size)
-                           << " is not valid, to_bitmap only support bigint value from 0 to "
-                              "18446744073709551615 currently, cannot create MV with to_bitmap on "
-                              "column with negative values or cannot load negative values to "
-                              "column "
-                              "with to_bitmap MV on it.";
-                        LOG(WARNING) << ss.str();
-                        return Status::InternalError(ss.str());
+                        return Status::InvalidArgument(
+                                "The input: {} is not valid, to_bitmap only support bigint value "
+                                "from 0 to 18446744073709551615 currently, cannot create MV with "
+                                "to_bitmap on column with negative values or cannot load negative "
+                                "values to column with to_bitmap MV on it.",
+                                std::string(raw_str, str_size));
                     }
                 }
             }
@@ -199,20 +196,17 @@ struct ToBitmapWithCheck {
                     if (LIKELY(int_value >= 0)) {
                         res_data[i].add(int_value);
                     } else {
-                        std::stringstream ss;
-                        ss << "The input: " << int_value
-                           << " is not valid, to_bitmap only support bigint value from 0 to "
-                              "18446744073709551615 currently, cannot create MV with to_bitmap on "
-                              "column with negative values or cannot load negative values to "
-                              "column "
-                              "with to_bitmap MV on it.";
-                        LOG(WARNING) << ss.str();
-                        return Status::InternalError(ss.str());
+                        return Status::InvalidArgument(
+                                "The input: {} is not valid, to_bitmap only support bigint value "
+                                "from 0 to 18446744073709551615 currently, cannot create MV with "
+                                "to_bitmap on column with negative values or cannot load negative "
+                                "values to column with to_bitmap MV on it.",
+                                int_value);
                     }
                 }
             }
         } else {
-            return Status::InternalError("not support type");
+            return Status::InvalidArgument("not support type");
         }
         return Status::OK();
     }
@@ -379,19 +373,21 @@ public:
                     static_cast<const ColumnNullable&>(array_column.get_data());
             const auto& nested_column = nested_nullable_column.get_nested_column();
             const auto& nested_null_map = nested_nullable_column.get_null_map_column().get_data();
-            if (check_column<ColumnInt8>(nested_column)) {
+
+            WhichDataType which_type(argument_type);
+            if (which_type.is_int8()) {
                 static_cast<void>(Impl::template vector<ColumnInt8>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (check_column<ColumnUInt8>(nested_column)) {
+            } else if (which_type.is_uint8()) {
                 static_cast<void>(Impl::template vector<ColumnUInt8>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (check_column<ColumnInt16>(nested_column)) {
+            } else if (which_type.is_int16()) {
                 static_cast<void>(Impl::template vector<ColumnInt16>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (check_column<ColumnInt32>(nested_column)) {
+            } else if (which_type.is_int32()) {
                 static_cast<void>(Impl::template vector<ColumnInt32>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (check_column<ColumnInt64>(nested_column)) {
+            } else if (which_type.is_int64()) {
                 static_cast<void>(Impl::template vector<ColumnInt64>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else {

@@ -122,6 +122,7 @@ import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -395,15 +396,17 @@ public class StmtExecutor {
         return masterOpExecutor.getProxyStatus();
     }
 
-    public boolean isInsertStmt() {
+    public boolean isSyncLoadKindStmt() {
         if (parsedStmt == null) {
             return false;
         }
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-            return logicalPlan instanceof InsertIntoTableCommand;
+            return logicalPlan instanceof InsertIntoTableCommand
+                    || (logicalPlan instanceof CreateTableCommand
+                    && ((CreateTableCommand) logicalPlan).isCtasCommand());
         }
-        return parsedStmt instanceof InsertStmt;
+        return parsedStmt instanceof InsertStmt || parsedStmt instanceof CreateTableAsSelectStmt;
     }
 
     public boolean isAnalyzeStmt() {
@@ -1350,6 +1353,8 @@ public class StmtExecutor {
 
     // Process a select statement.
     private void handleQueryStmt() throws Exception {
+        LOG.info("Handling query {} with query id {}",
+                          originStmt.originStmt, DebugUtil.printId(context.queryId));
         // Every time set no send flag and clean all data in buffer
         context.getMysqlChannel().reset();
         Queriable queryStmt = (Queriable) parsedStmt;
@@ -1366,6 +1371,7 @@ public class StmtExecutor {
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(queryStmt.getExplainOptions());
             handleExplainStmt(explainString, false);
+            LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
             return;
         }
 
@@ -1373,6 +1379,7 @@ public class StmtExecutor {
         Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
         if (resultSet.isPresent()) {
             sendResultSet(resultSet.get());
+            LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
             return;
         }
 
@@ -1386,6 +1393,7 @@ public class StmtExecutor {
                 && context.getSessionVariable().getDefaultOrderByLimit() < 0) {
             if (queryStmt instanceof QueryStmt || queryStmt instanceof LogicalPlanAdapter) {
                 handleCacheStmt(cacheAnalyzer, channel);
+                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 return;
             }
         }
@@ -1397,11 +1405,13 @@ public class StmtExecutor {
                 LOG.info("ignore handle limit 0 ,sql:{}", parsedSelectStmt.toSql());
                 sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
                 context.getState().setEof();
+                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 return;
             }
         }
 
         sendResult(isOutfileQuery, false, queryStmt, channel, null, null);
+        LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
     }
 
     private void sendResult(boolean isOutfileQuery, boolean isSendFields, Queriable queryStmt, MysqlChannel channel,
@@ -1890,10 +1900,10 @@ public class StmtExecutor {
 
                 coord.exec();
                 int execTimeout = context.getExecTimeout();
-                LOG.debug("Insert execution timeout:{}", execTimeout);
+                LOG.debug("Insert {} execution timeout:{}", DebugUtil.printId(context.queryId()), execTimeout);
                 boolean notTimeout = coord.join(execTimeout);
                 if (!coord.isDone()) {
-                    coord.cancel();
+                    coord.cancel(Types.PPlanFragmentCancelReason.TIMEOUT);
                     if (notTimeout) {
                         errMsg = coord.getExecStatus().getErrorMsg();
                         ErrorReport.reportDdlException("There exists unhealthy backend. "

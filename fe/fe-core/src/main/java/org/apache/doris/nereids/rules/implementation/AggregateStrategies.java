@@ -972,13 +972,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
         Set<AggregateFunction> aggregateFunctions = logicalAgg.getAggregateFunctions();
 
-        Set<Expression> distinctArguments = aggregateFunctions.stream()
+        Set<NamedExpression> distinctArguments = aggregateFunctions.stream()
                 .filter(AggregateFunction::isDistinct)
                 .flatMap(aggregateExpression -> aggregateExpression.getArguments().stream())
+                .filter(NamedExpression.class::isInstance)
+                .map(NamedExpression.class::cast)
                 .collect(ImmutableSet.toImmutableSet());
 
         Set<NamedExpression> localAggGroupBy = ImmutableSet.<NamedExpression>builder()
-                .addAll((List) logicalAgg.getGroupByExpressions())
+                .addAll((List<NamedExpression>) (List) logicalAgg.getGroupByExpressions())
                 .addAll(distinctArguments)
                 .build();
 
@@ -1106,13 +1108,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         Set<AggregateFunction> aggregateFunctions = logicalAgg.getAggregateFunctions();
 
-        Set<Expression> distinctArguments = aggregateFunctions.stream()
+        Set<NamedExpression> distinctArguments = aggregateFunctions.stream()
                 .filter(AggregateFunction::isDistinct)
                 .flatMap(aggregateExpression -> aggregateExpression.getArguments().stream())
+                .filter(NamedExpression.class::isInstance)
+                .map(NamedExpression.class::cast)
                 .collect(ImmutableSet.toImmutableSet());
 
         Set<NamedExpression> localAggGroupBySet = ImmutableSet.<NamedExpression>builder()
-                .addAll((List) logicalAgg.getGroupByExpressions())
+                .addAll((List<NamedExpression>) (List) logicalAgg.getGroupByExpressions())
                 .addAll(distinctArguments)
                 .build();
 
@@ -1492,6 +1496,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         Set<NamedExpression> distinctArguments = aggregateFunctions.stream()
                 .filter(AggregateFunction::isDistinct)
                 .flatMap(aggregateExpression -> aggregateExpression.getArguments().stream())
+                .filter(NamedExpression.class::isInstance)
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableSet.toImmutableSet());
 
@@ -1636,9 +1641,24 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     }
 
     private boolean couldConvertToMulti(LogicalAggregate<? extends Plan> aggregate) {
-        return ExpressionUtils.noneMatch(aggregate.getOutputExpressions(), expr ->
-                expr instanceof AggregateFunction && ((AggregateFunction) expr).isDistinct()
-                        && (expr.arity() > 1
-                        || !(expr instanceof Count || expr instanceof Sum || expr instanceof GroupConcat)));
+        Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
+        for (AggregateFunction func : aggregateFunctions) {
+            if (!func.isDistinct()) {
+                continue;
+            }
+            if (!(func instanceof Count || func instanceof Sum || func instanceof GroupConcat)) {
+                return false;
+            }
+            if (func.arity() <= 1) {
+                continue;
+            }
+            for (int i = 1; i < func.arity(); i++) {
+                // think about group_concat(distinct col_1, ',')
+                if (!func.child(i).getInputSlots().isEmpty()) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 }

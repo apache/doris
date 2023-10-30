@@ -189,7 +189,7 @@ public class ColumnTypeTest {
     public void testDecimalPreFail() throws AnalysisException {
         TypeDef type;
         if (Config.enable_decimal_conversion) {
-            type = TypeDef.createDecimal(39, 3);
+            type = TypeDef.createDecimal(77, 3);
         } else {
             type = TypeDef.createDecimal(28, 3);
         }

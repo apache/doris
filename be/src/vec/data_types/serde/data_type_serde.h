@@ -266,7 +266,8 @@ public:
                                         int end, const cctz::time_zone& ctz) const = 0;
 
     // ORC serializer
-    virtual Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
+    virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                       const NullMap* null_map,
                                        orc::ColumnVectorBatch* orc_col_batch, int start, int end,
                                        std::vector<StringRef>& buffer_list) const = 0;
     // ORC deserializer

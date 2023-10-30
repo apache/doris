@@ -475,6 +475,7 @@ enum PColumnType {
     COLUMN_TYPE_DECIMAL32 = 17;
     COLUMN_TYPE_DECIMAL64 = 18;
     COLUMN_TYPE_DECIMAL128I = 19;
+    COLUMN_TYPE_DECIMAL256 = 20;
 }
 
 message PMinMaxFilter {
@@ -502,7 +503,7 @@ enum PFilterType {
 message PMergeFilterRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
-    required PUniqueId fragment_id = 3;
+    required PUniqueId fragment_instance_id = 3;
     required PFilterType filter_type = 4;
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
@@ -518,7 +519,7 @@ message PMergeFilterResponse {
 message PPublishFilterRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
-    required PUniqueId fragment_id = 3;
+    required PUniqueId fragment_instance_id = 3;
     required PFilterType filter_type = 4;
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
@@ -795,7 +796,7 @@ service PBackendService {
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
-    rpc open_stream_sink(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
+    rpc open_load_stream(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_add_block_by_http(PEmptyRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
