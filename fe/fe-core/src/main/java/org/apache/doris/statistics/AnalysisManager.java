@@ -128,6 +128,8 @@ public class AnalysisManager extends Daemon implements Writable {
 
     private final Map<Long, TableStatsMeta> idToTblStats = new ConcurrentHashMap<>();
 
+    private final Map<Long, AnalysisJob> idToAnalysisJob = new ConcurrentHashMap<>();
+
     protected SimpleQueue<AnalysisInfo> autoJobs = createSimpleQueue(null, this);
 
     private final Function<TaskStatusWrapper, Void> userJobStatusUpdater = w -> {
@@ -371,6 +373,7 @@ public class AnalysisManager extends Daemon implements Writable {
         boolean isSync = stmt.isSync();
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
+        constructJob(jobInfo, analysisTaskInfos.values());
         if (!jobInfo.partitionOnly && stmt.isAllColumns()
                 && StatisticsUtil.isExternalTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId)) {
             createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, isSync);
@@ -1128,5 +1131,18 @@ public class AnalysisManager extends Daemon implements Writable {
             return null;
         }
         return tableStats.findColumnStatsMeta(colName);
+    }
+
+    public AnalysisJob findJob(long id) {
+        return idToAnalysisJob.get(id);
+    }
+
+    public void constructJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> tasks) {
+        AnalysisJob job = new AnalysisJob(jobInfo, tasks);
+        idToAnalysisJob.put(jobInfo.jobId, job);
+    }
+
+    public void removeJob(long id) {
+        idToAnalysisJob.remove(id);
     }
 }

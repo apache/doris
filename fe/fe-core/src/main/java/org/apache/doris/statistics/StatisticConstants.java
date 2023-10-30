@@ -84,6 +84,8 @@ public class StatisticConstants {
     public static final String FULL_AUTO_ANALYZE_START_TIME = "00:00:00";
     public static final String FULL_AUTO_ANALYZE_END_TIME = "23:59:59";
 
+    public static final int ANALYZE_JOB_BUF_SIZE = 20000;
+
     static {
         SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER
                 + ClusterNamespace.CLUSTER_DELIMITER + FeConstants.INTERNAL_DB_NAME);

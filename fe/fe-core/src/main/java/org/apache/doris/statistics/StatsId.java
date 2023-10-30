@@ -52,7 +52,7 @@ public class StatsId {
         sj.add(String.valueOf(tblId));
         sj.add(String.valueOf(idxId));
         sj.add(StatisticsUtil.quote(colId));
-        sj.add(StatisticsUtil.quote(partId));
+        sj.add(partId);
         return sj.toString();
     }
 }

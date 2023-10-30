@@ -17,25 +17,9 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.InternalSchemaInitializer;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
-import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
-import org.apache.doris.statistics.AnalysisInfo.JobType;
-import org.apache.doris.statistics.util.DBObjects;
-import org.apache.doris.statistics.util.StatisticsUtil;
-import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -44,136 +28,199 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.HashSet;
 
-public class AnalysisJobTest extends TestWithFeService {
+public class AnalysisJobTest {
 
-    @Override
-    protected void runBeforeAll() throws Exception {
-        try {
-            InternalSchemaInitializer.createDB();
-            createDatabase("analysis_job_test");
-            connectContext.setDatabase("default_cluster:analysis_job_test");
-            createTable("CREATE TABLE t1 (col1 int not null, col2 int not null, col3 int not null)\n"
-                    + "DISTRIBUTED BY HASH(col3)\n" + "BUCKETS 1\n"
-                    + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n"
-                    + ");");
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        FeConstants.runningUnitTest = true;
+    @Test
+    public void initTest(@Mocked AnalysisInfo jobInfo, @Mocked OlapAnalysisTask task) {
+        AnalysisJob analysisJob = new AnalysisJob(jobInfo, Arrays.asList(task));
+        Assertions.assertSame(task.job, analysisJob);
     }
 
     @Test
-    public void testCreateAnalysisJob() throws Exception {
-
-        new MockUp<StatisticsUtil>() {
-
+    public void testAppendBufTest1(@Mocked AnalysisInfo analysisInfo, @Mocked OlapAnalysisTask olapAnalysisTask) {
+        new MockUp<AnalysisJob>() {
             @Mock
-            public AutoCloseConnectContext buildConnectContext() {
-                return new AutoCloseConnectContext(connectContext);
+            protected void writeBuf() {
             }
 
             @Mock
-            public void execUpdate(String sql) throws Exception {
+            public void updateTaskState(AnalysisState state, String msg) {
             }
-        };
 
-        new MockUp<StmtExecutor>() {
             @Mock
-            public List<ResultRow> executeInternalQuery() {
-                return Collections.emptyList();
+            public void deregisterJob() {
             }
         };
+        AnalysisJob job = new AnalysisJob(analysisInfo, Arrays.asList(olapAnalysisTask));
+        job.queryingTask = new HashSet<>();
+        job.queryingTask.add(olapAnalysisTask);
+        job.queryFinished = new HashSet<>();
+        job.buf = new ArrayList<>();
+        job.total = 20;
 
-        new MockUp<ConnectContext>() {
-
-            @Mock
-            public ConnectContext get() {
-                return connectContext;
-            }
-        };
-        String sql = "ANALYZE TABLE t1";
-        Assertions.assertNotNull(getSqlStmtExecutor(sql));
-    }
-
-    @Test
-    public void testJobExecution(@Mocked StmtExecutor stmtExecutor, @Mocked InternalCatalog catalog, @Mocked
-            Database database,
-            @Mocked OlapTable olapTable)
-            throws Exception {
-        new MockUp<OlapTable>() {
-
-            @Mock
-            public Column getColumn(String name) {
-                return new Column("col1", PrimitiveType.INT);
-            }
-        };
-
-        new MockUp<StatisticsUtil>() {
-
-            @Mock
-            public ConnectContext buildConnectContext() {
-                return connectContext;
-            }
-
-            @Mock
-            public void execUpdate(String sql) throws Exception {
-            }
-
-            @Mock
-            public DBObjects convertIdToObjects(long catalogId, long dbId, long tblId) {
-                return new DBObjects(catalog, database, olapTable);
-            }
-        };
-        new MockUp<StatisticsCache>() {
-
-            @Mock
-            public void syncLoadColStats(long tableId, long idxId, String colName) {
-            }
-        };
-        new MockUp<StmtExecutor>() {
-
-            @Mock
-            public void execute() throws Exception {
-
-            }
-
-            @Mock
-            public List<ResultRow> executeInternalQuery() {
-                return new ArrayList<>();
-            }
-        };
-
-        new MockUp<OlapAnalysisTask>() {
-
-            @Mock
-            public void execSQLs(List<String> partitionAnalysisSQLs, Map<String, String> params) throws Exception {}
-        };
-        HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
-        colToPartitions.put("col1", Collections.singleton("t1"));
-        AnalysisInfo analysisJobInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
-                .setCatalogId(0)
-                .setDBId(0)
-                .setTblId(0)
-                .setColName("col1").setJobType(JobType.MANUAL)
-                .setAnalysisMode(AnalysisMode.FULL)
-                .setAnalysisMethod(AnalysisMethod.FULL)
-                .setAnalysisType(AnalysisType.FUNDAMENTALS)
-                .setColToPartitions(colToPartitions)
-                .setState(AnalysisState.RUNNING)
-                .build();
-        new OlapAnalysisTask(analysisJobInfo).doExecute();
+        job.appendBuf(olapAnalysisTask, Arrays.asList(new ColStatsData()));
         new Expectations() {
             {
-                stmtExecutor.execute();
+                job.writeBuf();
+                times = 0;
+            }
+        };
+    }
+
+    @Test
+    public void testAppendBufTest2(@Mocked AnalysisInfo analysisInfo, @Mocked OlapAnalysisTask olapAnalysisTask) {
+        new MockUp<AnalysisJob>() {
+            @Mock
+            protected void writeBuf() {
+            }
+
+            @Mock
+            public void updateTaskState(AnalysisState state, String msg) {
+            }
+
+            @Mock
+            public void deregisterJob() {
+            }
+        };
+        AnalysisJob job = new AnalysisJob(analysisInfo, Arrays.asList(olapAnalysisTask));
+        job.queryingTask = new HashSet<>();
+        job.queryingTask.add(olapAnalysisTask);
+        job.queryFinished = new HashSet<>();
+        job.buf = new ArrayList<>();
+        job.total = 1;
+
+        job.appendBuf(olapAnalysisTask, Arrays.asList(new ColStatsData()));
+        new Expectations() {
+            {
+                job.writeBuf();
+                times = 1;
+                job.deregisterJob();
                 times = 1;
             }
         };
+    }
+
+    @Test
+    public void testAppendBufTest3(@Mocked AnalysisInfo analysisInfo, @Mocked OlapAnalysisTask olapAnalysisTask) {
+        new MockUp<AnalysisJob>() {
+            @Mock
+            protected void writeBuf() {
+            }
+
+            @Mock
+            public void updateTaskState(AnalysisState state, String msg) {
+            }
+
+            @Mock
+            public void deregisterJob() {
+            }
+        };
+        AnalysisJob job = new AnalysisJob(analysisInfo, Arrays.asList(olapAnalysisTask));
+        job.queryingTask = new HashSet<>();
+        job.queryingTask.add(olapAnalysisTask);
+        job.queryFinished = new HashSet<>();
+        job.buf = new ArrayList<>();
+        ColStatsData colStatsData = new ColStatsData();
+        for (int i = 0; i < StatisticConstants.ANALYZE_JOB_BUF_SIZE; i++) {
+            job.buf.add(colStatsData);
+        }
+        job.total = 100;
+
+        job.appendBuf(olapAnalysisTask, Arrays.asList(new ColStatsData()));
+        new Expectations() {
+            {
+                job.writeBuf();
+                times = 1;
+            }
+        };
+    }
+
+    @Test
+    public void testUpdateTaskState(
+            @Mocked AnalysisInfo info,
+            @Mocked OlapAnalysisTask task1,
+            @Mocked OlapAnalysisTask task2) {
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public void updateTaskStatus(AnalysisInfo info, AnalysisState taskState, String message, long time) {
+            }
+        };
+        AnalysisManager analysisManager = new AnalysisManager();
+        new MockUp<Env>() {
+            @Mock
+            public AnalysisManager getAnalysisManager() {
+                return analysisManager;
+            }
+        };
+        AnalysisJob job = new AnalysisJob(info, Collections.singletonList(task1));
+        job.queryFinished = new HashSet<>();
+        job.queryFinished.add(task2);
+        job.updateTaskState(AnalysisState.FAILED, "");
+        new Expectations() {
+            {
+                analysisManager.updateTaskStatus((AnalysisInfo) any, (AnalysisState) any, anyString, anyLong);
+                times = 2;
+            }
+        };
+    }
+
+    @Test
+    public void testWriteBuf1(@Mocked AnalysisInfo info,
+            @Mocked OlapAnalysisTask task1, @Mocked OlapAnalysisTask task2) {
+        AnalysisJob job = new AnalysisJob(info, Collections.singletonList(task1));
+        job.queryFinished = new HashSet<>();
+        job.queryFinished.add(task2);
+        new MockUp<AnalysisJob>() {
+            @Mock
+            public void updateTaskState(AnalysisState state, String msg) {
+            }
+
+            @Mock
+            protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
+
+            }
+
+            @Mock
+            protected void syncLoadStats() {
+            }
+        };
+        new Expectations() {
+            {
+                job.syncLoadStats();
+                times = 1;
+            }
+        };
+        job.writeBuf();
+
+        Assertions.assertEquals(0, job.queryFinished.size());
+    }
+
+    @Test
+    public void testWriteBuf2(@Mocked AnalysisInfo info,
+            @Mocked OlapAnalysisTask task1, @Mocked OlapAnalysisTask task2) {
+        AnalysisJob job = new AnalysisJob(info, Collections.singletonList(task1));
+        job.queryFinished = new HashSet<>();
+        job.queryFinished.add(task2);
+        new MockUp<AnalysisJob>() {
+            @Mock
+            public void updateTaskState(AnalysisState state, String msg) {
+            }
+
+            @Mock
+            protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
+                throw new RuntimeException();
+            }
+
+            @Mock
+            protected void syncLoadStats() {
+            }
+        };
+        job.writeBuf();
+        Assertions.assertEquals(1, job.queryFinished.size());
     }
 
 }

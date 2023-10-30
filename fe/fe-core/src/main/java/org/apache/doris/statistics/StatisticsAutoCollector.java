@@ -50,7 +50,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     public StatisticsAutoCollector() {
         super("Automatic Analyzer",
-                TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes),
+                TimeUnit.MINUTES.toMillis(1),
                 new AnalysisTaskExecutor(Config.full_auto_analyze_simultaneously_running_task_num));
     }
 

@@ -22,57 +22,27 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.QueryState;
-import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Lists;
 import org.apache.commons.text.StringSubstitutor;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.StringJoiner;
 import java.util.stream.Collectors;
 
 /**
  * Each task analyze one column.
  */
 public class OlapAnalysisTask extends BaseAnalysisTask {
-
-    // TODO Currently, NDV is computed for the full table; in fact,
-    //  NDV should only be computed for the relevant partition.
-    private static final String ANALYZE_COLUMN_SQL_TEMPLATE = INSERT_COL_STATISTICS
-            + "     (SELECT NDV(`${colName}`) AS ndv "
-            + "     FROM `${dbName}`.`${tblName}`) t2";
-
-    private static final String COLLECT_PARTITION_STATS_SQL_TEMPLATE =
-            " SELECT "
-                    + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}', '-', ${partId}) AS id, "
-                    + "${catalogId} AS catalog_id, "
-                    + "${dbId} AS db_id, "
-                    + "${tblId} AS tbl_id, "
-                    + "${idxId} AS idx_id, "
-                    + "'${colId}' AS col_id, "
-                    + "${partId} AS part_id, "
-                    + "COUNT(1) AS row_count, "
-                    + "NDV(`${colName}`) AS ndv, "
-                    + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) AS null_count, "
-                    + "MIN(`${colName}`) AS min, "
-                    + "MAX(`${colName}`) AS max, "
-                    + "${dataSizeFunction} AS data_size, "
-                    + "NOW() FROM `${dbName}`.`${tblName}` PARTITION ${partitionName}";
 
     private static final String SAMPLE_COLUMN_SQL_TEMPLATE = "SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
@@ -91,9 +61,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             + "NOW() "
             + "FROM `${dbName}`.`${tblName}`"
             + "${tablets}";
-
-    // cache stats for each partition, it would be inserted into column_statistics in a batch.
-    private final List<List<ColStatsData>> buf = new ArrayList<>();
 
     @VisibleForTesting
     public OlapAnalysisTask() {
@@ -148,45 +115,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             stmtExecutor = new StmtExecutor(r.connectContext, stringSubstitutor.replace(SAMPLE_COLUMN_SQL_TEMPLATE));
             // Scalar query only return one row
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
-            OlapTable olapTable = (OlapTable) tbl;
-            Collection<Partition> partitions = olapTable.getPartitions();
-            int partitionCount = partitions.size();
-            List<String> values = partitions.stream().map(p -> String.format(
-                    "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())",
-                    StatisticsUtil.quote(StatisticsUtil.constructId(tbl.getId(), -1, col.getName(), p.getId())),
-                    InternalCatalog.INTERNAL_CATALOG_ID,
-                    db.getId(),
-                    tbl.getId(),
-                    -1,
-                    StatisticsUtil.quote(col.getName()),
-                    p.getId(),
-                    colStatsData.count / partitionCount,
-                    colStatsData.ndv / partitionCount,
-                    colStatsData.nullCount / partitionCount,
-                    StatisticsUtil.quote(colStatsData.minLit),
-                    StatisticsUtil.quote(colStatsData.maxLit),
-                    colStatsData.dataSizeInBytes / partitionCount)).collect(Collectors.toList());
-            values.add(String.format(
-                    "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())",
-                    StatisticsUtil.quote(StatisticsUtil.constructId(tbl.getId(), -1, col.getName())),
-                    InternalCatalog.INTERNAL_CATALOG_ID,
-                    db.getId(),
-                    tbl.getId(),
-                    -1,
-                    StatisticsUtil.quote(col.getName()),
-                    "NULL",
-                    colStatsData.count,
-                    colStatsData.ndv,
-                    colStatsData.nullCount,
-                    StatisticsUtil.quote(colStatsData.minLit),
-                    StatisticsUtil.quote(colStatsData.maxLit),
-                    colStatsData.dataSizeInBytes));
-            String insertSQL = "INSERT INTO "
-                    + StatisticConstants.FULL_QUALIFIED_STATS_TBL_NAME
-                    + " VALUES "
-                    + String.join(",", values);
-            stmtExecutor = new StmtExecutor(r.connectContext, insertSQL);
-            executeWithExceptionOnFail(stmtExecutor);
+            job.appendBuf(this, Collections.singletonList(colStatsData));
         }
     }
 
@@ -212,68 +141,14 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("dbName", db.getFullName());
         params.put("colName", String.valueOf(info.colName));
         params.put("tblName", String.valueOf(tbl.getName()));
-        List<String> partitionAnalysisSQLs = new ArrayList<>();
-        try {
-            tbl.readLock();
-
-            for (String partitionName : partitionNames) {
-                Partition part = tbl.getPartition(partitionName);
-                if (part == null) {
-                    continue;
-                }
-                params.put("partId", String.valueOf(tbl.getPartition(partitionName).getId()));
-                // Avoid error when get the default partition
-                params.put("partitionName", "`" + partitionName + "`");
-                StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-                partitionAnalysisSQLs.add(stringSubstitutor.replace(COLLECT_PARTITION_STATS_SQL_TEMPLATE));
-            }
-        } finally {
-            tbl.readUnlock();
-        }
-        execSQLs(partitionAnalysisSQLs, params);
+        execSQL(params);
     }
 
     @VisibleForTesting
-    public void execSQLs(List<String> partitionAnalysisSQLs, Map<String, String> params) throws Exception {
-        long startTime = System.currentTimeMillis();
-        LOG.debug("analyze task {} start at {}", info.toString(), new Date());
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(info.jobType.equals(JobType.SYSTEM))) {
-            List<List<String>> sqlGroups = Lists.partition(partitionAnalysisSQLs, StatisticConstants.UNION_ALL_LIMIT);
-            for (List<String> group : sqlGroups) {
-                if (killed) {
-                    return;
-                }
-                StringJoiner partitionCollectSQL = new StringJoiner("UNION ALL");
-                group.forEach(partitionCollectSQL::add);
-                stmtExecutor = new StmtExecutor(r.connectContext, partitionCollectSQL.toString());
-                buf.add(stmtExecutor.executeInternalQuery()
-                        .stream().map(ColStatsData::new).collect(Collectors.toList()));
-                QueryState queryState = r.connectContext.getState();
-                if (queryState.getStateType().equals(MysqlStateType.ERR)) {
-                    throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
-                            catalog.getName(), db.getFullName(), info.colName, partitionCollectSQL,
-                            queryState.getErrorMessage()));
-                }
-            }
-            for (List<ColStatsData> colStatsDataList : buf) {
-                StringBuilder batchInsertSQL =
-                        new StringBuilder("INSERT INTO " + StatisticConstants.FULL_QUALIFIED_STATS_TBL_NAME
-                                + " VALUES ");
-                StringJoiner sj = new StringJoiner(",");
-                colStatsDataList.forEach(c -> sj.add(c.toSQL(true)));
-                batchInsertSQL.append(sj.toString());
-                stmtExecutor = new StmtExecutor(r.connectContext, batchInsertSQL.toString());
-                executeWithExceptionOnFail(stmtExecutor);
-            }
-            params.put("type", col.getType().toString());
-            StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-            String sql = stringSubstitutor.replace(ANALYZE_COLUMN_SQL_TEMPLATE);
-            stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            executeWithExceptionOnFail(stmtExecutor);
-        } finally {
-            LOG.debug("analyze task {} end. cost {}ms", info,
-                    System.currentTimeMillis() - startTime);
-        }
+    public void execSQL(Map<String, String> params) throws Exception {
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String collectColStats = stringSubstitutor.replace(COLLECT_COL_STATISTICS);
+        runQuery(collectColStats);
     }
 
     // Get sample tablets id and scale up scaleFactor
