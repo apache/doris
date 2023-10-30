@@ -69,6 +69,11 @@ public class IcebergHMSSource implements IcebergSource {
     }
 
     @Override
+    public void updateRequiredSlots(ExternalFileScanNode.ParamCreateContext context) throws UserException {
+        hiveScanProvider.updateRequiredSlots(context);
+    }
+
+    @Override
     public TableIf getTargetTable() {
         return hiveScanProvider.getTargetTable();
     }
