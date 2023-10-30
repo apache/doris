@@ -21,7 +21,7 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String mysql_57_port = context.config.otherConfigs.get("mysql_57_port")
@@ -674,22 +674,22 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
               sum(case when capital_type = '2' and petty_cash_type = '2' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_recharge_amount,
               sum(case when capital_type = '2' and petty_cash_type = '3' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_return_amount,
               sum(case when capital_type = '3' then IFNULL(need_actual_amount, 0.00) else 0.00 end) as return_goods_amount,
-              GROUP_CONCAT(distinct cast(supplier_id as varchar (12))) supplier_id_list
+              GROUP_CONCAT(cast(supplier_id as varchar (12)) order by supplier_id) supplier_id_list
        from tmp_media_purchase group by media_order_id),
-        t2 as (select media_order_id, GROUP_CONCAT(distinct (case agent_policy_type 
+        t2 as (select media_order_id, GROUP_CONCAT((case agent_policy_type 
         when '1' then 'A' when '2' then 'B' when '3' then 'C' when '4' then 'D' when '5' then 'E' when '6' then 'F'
         when '7' then 'G' when '8' then 'H' when '9' then 'I' when '10' then 'J' when '11' then 'K' when '12' then 'L'
-        when '13' then 'M'  else agent_policy_type end)) agent_policy_type_list
+        when '13' then 'M'  else agent_policy_type end) order by agent_policy_type) agent_policy_type_list
        from tmp_media_purchase group by media_order_id),
-       t3 as (select media_order_id, GROUP_CONCAT(distinct cast(agent_policy as varchar (12))) agent_policy_list
+       t3 as (select media_order_id, GROUP_CONCAT(cast(agent_policy as varchar (12)) order by agent_policy) agent_policy_list
        from tmp_media_purchase group by media_order_id),
-       t4 as (select media_order_id, GROUP_CONCAT(distinct (case capital_type
-        when '1' then 'A' when '2' then 'B' when '3' then 'C' else capital_type end)) capital_type_list
+       t4 as (select media_order_id, GROUP_CONCAT((case capital_type
+        when '1' then 'A' when '2' then 'B' when '3' then 'C' else capital_type end) order by capital_type) capital_type_list
        from tmp_media_purchase group by media_order_id),
-       t5 as (select media_order_id, GROUP_CONCAT(distinct (case petty_cash_type
-        when '1' then 'A' when '2' then 'B' when '3' then 'C' else petty_cash_type end)) petty_cash_type_list
+       t5 as (select media_order_id, GROUP_CONCAT((case petty_cash_type
+        when '1' then 'A' when '2' then 'B' when '3' then 'C' else petty_cash_type end) order by petty_cash_type) petty_cash_type_list
        from tmp_media_purchase group by media_order_id),
-       t6 as (select media_order_id, GROUP_CONCAT(distinct `name`) company_name_list
+       t6 as (select media_order_id, GROUP_CONCAT(`name` order by `name`) company_name_list
             from tmp_media_purchase group by media_order_id)
         select distinct tmp_media_purchase.`media_order_id`,
                 first_payment_date,
