@@ -834,7 +834,7 @@ public class HiveMetaStoreClientHelper {
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {
-        Configuration conf = new HdfsConfiguration();
+        Configuration conf = new HdfsConfiguration(Config.load_default_conf_for_hms_client);
         for (Map.Entry<String, String> entry : table.getHadoopProperties().entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }
