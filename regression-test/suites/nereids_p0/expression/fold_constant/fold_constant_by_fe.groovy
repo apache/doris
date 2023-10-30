@@ -137,9 +137,13 @@ suite("test_fold_constant_by_fe") {
         assertFalse(res.contains("day") || res.contains("date"))
     }
 
+    // NOTE: For casts that has precision loss, new planner will not do const fold on fe.
+    // But we do have some cases like select CAST(419074969.6 AS INT) that can be processed by FE,
+    // this is actually an unexpected cast.
+    // So after changing arguments of from_unixtime from int to bigint, we also changed test case to avoid precision loss cast on fe.
     for (year in test_year) {
         for (integer in test_int) {
-            res = sql "explain select makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year / 10 * year * integer})"
+            res = sql "explain select makedate(${year}, ${integer}), from_days(${year * integer}), from_unixtime(${year * integer * 10})"
             res = res.split('VUNION')[1]
             assertFalse(res.contains("makedate") || res.contains("from"))
         }
