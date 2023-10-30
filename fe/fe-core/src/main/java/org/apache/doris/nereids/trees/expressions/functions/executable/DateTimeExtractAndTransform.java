@@ -26,7 +26,9 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.Duration;
@@ -449,10 +451,6 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "from_unixtime", argTypes = {"BIGINT"}, returnType = "VARCHAR")
     public static Expression fromUnixTime(BigIntLiteral second) {
-        // 32536771199L is max valid timestamp of mysql from_unix_time
-        if (second.getValue() < 0 || second.getValue() > 32536771199L) {
-            return null;
-        }
         return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s"));
     }
 
@@ -461,8 +459,9 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "from_unixtime", argTypes = {"BIGINT", "VARCHAR"}, returnType = "VARCHAR")
     public static Expression fromUnixTime(BigIntLiteral second, VarcharLiteral format) {
+        // 32536771199L is max valid timestamp of mysql from_unix_time
         if (second.getValue() < 0 || second.getValue() > 32536771199L) {
-            return null;
+            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
         }
 
         ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
