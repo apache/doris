@@ -140,10 +140,10 @@ public:
 
             dst_null_data[row] = false;
             if (offsets1[row] != offsets2[row]) [[unlikely]] {
-                return Status::RuntimeError(fmt::format(
+                return Status::InvalidArgument(
                         "function {} have different input element sizes of array: {} and {}",
                         get_name(), offsets1[row] - offsets1[row - 1],
-                        offsets2[row] - offsets2[row - 1]));
+                        offsets2[row] - offsets2[row - 1]);
             }
 
             typename DistanceImpl::State st;

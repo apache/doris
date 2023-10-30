@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <utility>
@@ -88,6 +89,7 @@ public:
 
     void merge(QueryStatisticsRecvr* recvr);
 
+    void merge(QueryStatisticsRecvr* recvr, int sender_id);
     // Get the maximum value from the peak memory collected by all node statistics
     int64_t calculate_max_peak_memory_bytes();
 
@@ -100,13 +102,18 @@ public:
         returned_rows = 0;
         max_peak_memory_bytes = 0;
         clearNodeStatistics();
+        //clear() is used before collection, so calling "clear" is equivalent to being collected.
+        set_collected();
     }
 
     void to_pb(PQueryStatistics* statistics);
 
     void from_pb(const PQueryStatistics& statistics);
+    bool collected() const { return _collected; }
+    void set_collected() { _collected = true; }
 
 private:
+    friend class QueryStatisticsRecvr;
     int64_t scan_rows;
     int64_t scan_bytes;
     int64_t cpu_ms;
@@ -117,16 +124,21 @@ private:
     // only set once by result sink when closing.
     int64_t max_peak_memory_bytes;
     // The statistics of the query on each backend.
-    typedef std::unordered_map<int64_t, NodeStatistics*> NodeStatisticsMap;
+    using NodeStatisticsMap = std::unordered_map<int64_t, NodeStatistics*>;
     NodeStatisticsMap _nodes_statistics_map;
+    bool _collected = false;
 };
-
+using QueryStatisticsPtr = std::shared_ptr<QueryStatistics>;
 // It is used for collecting sub plan query statistics in DataStreamRecvr.
 class QueryStatisticsRecvr {
 public:
-    ~QueryStatisticsRecvr();
+    ~QueryStatisticsRecvr() = default;
 
+    // Transmitted via RPC, incurring serialization overhead.
     void insert(const PQueryStatistics& statistics, int sender_id);
+
+    // using local_exchange for transmission, only need to hold a shared pointer.
+    void insert(QueryStatisticsPtr statistics, int sender_id);
 
 private:
     friend class QueryStatistics;
@@ -138,7 +150,7 @@ private:
         }
     }
 
-    std::map<int, QueryStatistics*> _query_statistics;
+    std::map<int, QueryStatisticsPtr> _query_statistics;
     SpinLock _lock;
 };
 

@@ -90,8 +90,9 @@ OperatorPtr DistinctStreamingAggSourceOperatorBuilder::build_operator() {
 
 DistinctStreamingAggSourceOperatorX::DistinctStreamingAggSourceOperatorX(ObjectPool* pool,
                                                                          const TPlanNode& tnode,
+                                                                         int operator_id,
                                                                          const DescriptorTbl& descs)
-        : Base(pool, tnode, descs) {
+        : Base(pool, tnode, operator_id, descs) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {
@@ -105,7 +106,7 @@ DistinctStreamingAggSourceOperatorX::DistinctStreamingAggSourceOperatorX(ObjectP
 
 Status DistinctStreamingAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                       SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     std::unique_ptr<vectorized::Block> agg_block;
     RETURN_IF_ERROR(local_state._shared_state->data_queue->get_block_from_queue(&agg_block));

@@ -26,6 +26,7 @@
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+#include "vec/core/wide_integer.h"
 
 // Here is an empirical value.
 static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
@@ -94,6 +95,9 @@ struct DefaultHash<T> {
 template <>
 struct DefaultHash<doris::StringRef> : public doris::StringRefHash {};
 
+template <>
+struct DefaultHash<wide::Int256> : public std::hash<wide::Int256> {};
+
 template <typename T>
 struct HashCRC32;
 
@@ -159,6 +163,23 @@ struct HashCRC32<doris::vectorized::UInt256> {
         return crc;
 #else
         return Hash128to64({Hash128to64({x.a, x.b}), Hash128to64({x.c, x.d})});
+#endif
+    }
+};
+
+template <>
+struct HashCRC32<wide::Int256> {
+    size_t operator()(const wide::Int256& x) const {
+#if defined(__SSE4_2__) || defined(__aarch64__)
+        doris::vectorized::UInt64 crc = -1ULL;
+        crc = _mm_crc32_u64(crc, x.items[0]);
+        crc = _mm_crc32_u64(crc, x.items[1]);
+        crc = _mm_crc32_u64(crc, x.items[2]);
+        crc = _mm_crc32_u64(crc, x.items[3]);
+        return crc;
+#else
+        return Hash128to64(
+                {Hash128to64({x.items[0], x.items[1]}), Hash128to64({x.items[2], x.items[3]})});
 #endif
     }
 };

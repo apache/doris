@@ -31,20 +31,20 @@ class PipScannerContext : public vectorized::ScannerContext {
 public:
     PipScannerContext(RuntimeState* state, vectorized::VScanNode* parent,
                       const TupleDescriptor* output_tuple_desc,
-                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
+                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit_,
                       int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
                       const int num_parallel_instances)
-            : vectorized::ScannerContext(state, parent, output_tuple_desc, scanners, limit,
+            : vectorized::ScannerContext(state, parent, output_tuple_desc, scanners, limit_,
                                          max_bytes_in_blocks_queue, num_parallel_instances),
               _col_distribute_ids(col_distribute_ids),
               _need_colocate_distribute(!_col_distribute_ids.empty()) {}
 
     PipScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
                       const TupleDescriptor* output_tuple_desc,
-                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
+                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit_,
                       int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
                       const int num_parallel_instances)
-            : vectorized::ScannerContext(state, nullptr, output_tuple_desc, scanners, limit,
+            : vectorized::ScannerContext(state, nullptr, output_tuple_desc, scanners, limit_,
                                          max_bytes_in_blocks_queue, num_parallel_instances,
                                          local_state),
               _col_distribute_ids(col_distribute_ids),

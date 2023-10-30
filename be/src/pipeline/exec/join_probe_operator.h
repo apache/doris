@@ -66,7 +66,8 @@ template <typename LocalStateType>
 class JoinProbeOperatorX : public StatefulOperatorX<LocalStateType> {
 public:
     using Base = StatefulOperatorX<LocalStateType>;
-    JoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    JoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                       const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status open(doris::RuntimeState* state) override;

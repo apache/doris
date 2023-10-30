@@ -29,6 +29,8 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TPrimitiveType;
 
@@ -177,15 +179,24 @@ public class TypeDef implements ParseNode {
                     parent.getPrimitiveType() + " unsupported sub-type: " + child.toSql());
         }
 
-        if (child.getPrimitiveType().isStringType() && !child.isLengthSet()) {
-            child.setLength(1);
-        }
         analyze(child);
     }
 
     private void analyzeScalarType(ScalarType scalarType)
             throws AnalysisException {
         PrimitiveType type = scalarType.getPrimitiveType();
+        // When string type length is not assigned, it needs to be assigned to 1.
+        if (scalarType.getPrimitiveType().isStringType() && !scalarType.isLengthSet()) {
+            if (scalarType.getPrimitiveType() == PrimitiveType.VARCHAR) {
+                // always set varchar length MAX_VARCHAR_LENGTH
+                scalarType.setLength(ScalarType.MAX_VARCHAR_LENGTH);
+            } else if (scalarType.getPrimitiveType() == PrimitiveType.STRING) {
+                // always set text length MAX_STRING_LENGTH
+                scalarType.setLength(ScalarType.MAX_STRING_LENGTH);
+            } else {
+                scalarType.setLength(1);
+            }
+        }
         switch (type) {
             case CHAR:
             case VARCHAR: {
@@ -291,6 +302,39 @@ public class TypeDef implements ParseNode {
                             + " Scale is " + decimal128Scale + " and precision is " + decimal128Precision);
                 }
                 break;
+            }
+            case DECIMAL256: {
+                boolean enableNereidsPlanner = false;
+                boolean enableDecimal256 = false;
+                ConnectContext connectContext = ConnectContext.get();
+                if (connectContext != null) {
+                    SessionVariable sessionVariable = connectContext.getSessionVariable();
+                    enableDecimal256 = sessionVariable.enableDecimal256();
+                    enableNereidsPlanner = sessionVariable.isEnableNereidsPlanner();
+                }
+                if (enableNereidsPlanner && enableDecimal256) {
+                    int precision = scalarType.decimalPrecision();
+                    int scale = scalarType.decimalScale();
+                    if (precision < 1 || precision > ScalarType.MAX_DECIMAL256_PRECISION) {
+                        throw new AnalysisException("Precision of decimal256 must between 1 and 76."
+                                + " Precision was set to: " + precision + ".");
+                    }
+                    // scale >= 0
+                    if (scale < 0) {
+                        throw new AnalysisException("Scale of decimal must not be less than 0." + " Scale was set to: "
+                                + scale + ".");
+                    }
+                    // scale < precision
+                    if (scale > precision) {
+                        throw new AnalysisException("Scale of decimal must be smaller than precision."
+                                + " Scale is " + scale + " and precision is " + precision);
+                    }
+                    break;
+                } else {
+                    int precision = scalarType.decimalPrecision();
+                    throw new AnalysisException(
+                            "Column of type Decimal256 with precision " + precision + " in not supported.");
+                }
             }
             case TIMEV2:
             case DATETIMEV2: {

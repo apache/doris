@@ -214,13 +214,13 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
         }
 
         if constexpr (std::is_same_v<ExecParam, TExecPlanFragmentParams>) {
-            static_cast<void>(
+            RETURN_IF_ERROR(
                     putPipe(plan.params.fragment_instance_id, _planned_pipes[plan.table_name]));
-            LOG(INFO) << "fragment_instance_id=" << plan.params.fragment_instance_id
+            LOG(INFO) << "fragment_instance_id=" << print_id(plan.params.fragment_instance_id)
                       << " table=" << plan.table_name;
         } else if constexpr (std::is_same_v<ExecParam, TPipelineFragmentParams>) {
             auto pipe_id = calculate_pipe_id(plan.query_id, plan.fragment_id);
-            static_cast<void>(putPipe(pipe_id, _planned_pipes[plan.table_name]));
+            RETURN_IF_ERROR(putPipe(pipe_id, _planned_pipes[plan.table_name]));
             LOG(INFO) << "pipe_id=" << pipe_id << "table=" << plan.table_name;
         } else {
             LOG(WARNING) << "illegal exec param type, need `TExecPlanFragmentParams` or "
@@ -228,7 +228,7 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
             CHECK(false);
         }
 
-        static_cast<void>(exec_env->fragment_mgr()->exec_plan_fragment(
+        RETURN_IF_ERROR(exec_env->fragment_mgr()->exec_plan_fragment(
                 plan, [this](RuntimeState* state, Status* status) {
                     {
                         std::lock_guard<std::mutex> l(_tablet_commit_infos_lock);

@@ -41,6 +41,8 @@
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/int_exp.h"
+#include "vec/core/extended_types.h"
+#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_decimal.h"
 
 namespace doris {
@@ -91,7 +93,7 @@ public:
     template <typename T>
     static T get_scale_multiplier(int scale) {
         static_assert(std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
-                              std::is_same_v<T, __int128>,
+                              std::is_same_v<T, __int128> || std::is_same_v<T, Int256>,
                       "You can only instantiate as int32_t, int64_t, __int128.");
         if constexpr (std::is_same_v<T, int32_t>) {
             return common::exp10_i32(scale);
@@ -99,6 +101,8 @@ public:
             return common::exp10_i64(scale);
         } else if constexpr (std::is_same_v<T, __int128>) {
             return common::exp10_i128(scale);
+        } else if constexpr (std::is_same_v<T, Int256>) {
+            return common::exp10_i256(scale);
         }
     }
 
@@ -566,6 +570,11 @@ inline int StringParser::StringParseTraits<int64_t>::max_ascii_len() {
 template <>
 inline int StringParser::StringParseTraits<__int128>::max_ascii_len() {
     return 39;
+}
+
+template <>
+inline int StringParser::StringParseTraits<wide::Int256>::max_ascii_len() {
+    return 78;
 }
 
 template <PrimitiveType P, typename T>

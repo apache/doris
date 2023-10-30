@@ -74,7 +74,7 @@ private:
 class NestedLoopJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState> {
 public:
-    NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                      const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError(
