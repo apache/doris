@@ -172,29 +172,8 @@ public:
             int result_column_id = _build_expr_context[i]->get_last_result_column_id();
             for (const auto* it : datas) {
                 auto column = it->get_by_position(result_column_id).column;
-
-                std::vector<int> indexs;
-                // indexs start from 1 because the first row is mocked for join hash map
-                if (const auto* nullable =
-                            vectorized::check_and_get_column<vectorized::ColumnNullable>(*column)) {
-                    column = nullable->get_nested_column_ptr();
-                    const uint8_t* null_map = assert_cast<const vectorized::ColumnUInt8*>(
-                                                      nullable->get_null_map_column_ptr().get())
-                                                      ->get_data()
-                                                      .data();
-                    for (int i = 1; i < column->size(); i++) {
-                        if (null_map[i]) {
-                            continue;
-                        }
-                        indexs.push_back(i);
-                    }
-                } else {
-                    for (int i = 1; i < column->size(); i++) {
-                        indexs.push_back(i);
-                    }
-                }
                 for (auto* filter : iter->second) {
-                    filter->insert_batch(column, indexs);
+                    filter->insert_batch(column, 1);
                 }
             }
         }

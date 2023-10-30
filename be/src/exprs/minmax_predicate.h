@@ -19,15 +19,16 @@
 
 #include "common/object_pool.h"
 #include "runtime/type_limit.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 
 namespace doris {
 // only used in Runtime Filter
 class MinMaxFuncBase {
 public:
     virtual void insert(const void* data) = 0;
-    virtual void insert_fixed_len(const char* data, const int* offsets, int number) = 0;
+    virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
     virtual bool find(void* data) = 0;
-    virtual bool is_empty() = 0;
     virtual void* get_max() = 0;
     virtual void* get_min() = 0;
     // assign minmax data
@@ -37,7 +38,7 @@ public:
     virtual ~MinMaxFuncBase() = default;
 };
 
-template <class T>
+template <class T, bool NeedMax = true, bool NeedMin = true>
 class MinMaxNumFunc : public MinMaxFuncBase {
 public:
     MinMaxNumFunc() = default;
@@ -50,32 +51,52 @@ public:
 
         T val_data = *reinterpret_cast<const T*>(data);
 
-        if (_empty) {
-            _min = val_data;
-            _max = val_data;
-            _empty = false;
-            return;
+        if constexpr (NeedMin) {
+            if (val_data < _min) {
+                _min = val_data;
+            }
         }
-        if (val_data < _min) {
-            _min = val_data;
-        } else if (val_data > _max) {
-            _max = val_data;
+
+        if constexpr (NeedMax) {
+            if (val_data > _max) {
+                _max = val_data;
+            }
         }
     }
 
-    void insert_fixed_len(const char* data, const int* offsets, int number) override {
-        if (!number) {
+    void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+        if (column->empty()) {
             return;
         }
-        if (_empty) {
-            _min = *((T*)data + offsets[0]);
-            _max = *((T*)data + offsets[0]);
+        if (column->is_nullable()) {
+            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto& col = nullable->get_nested_column();
+            const auto& nullmap =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
+                            .get_data();
+
+            const T* data = (T*)col.get_raw_data().data;
+            for (size_t i = start; i < column->size(); i++) {
+                if (!nullmap[i]) {
+                    if constexpr (NeedMin) {
+                        _min = std::min(_min, *(data + i));
+                    }
+                    if constexpr (NeedMax) {
+                        _max = std::max(_max, *(data + i));
+                    }
+                }
+            }
+        } else {
+            const T* data = (T*)column->get_raw_data().data;
+            for (size_t i = start; i < column->size(); i++) {
+                if constexpr (NeedMin) {
+                    _min = std::min(_min, *(data + i));
+                }
+                if constexpr (NeedMax) {
+                    _max = std::max(_max, *(data + i));
+                }
+            }
         }
-        for (int i = _empty; i < number; i++) {
-            _min = std::min(_min, *((T*)data + offsets[i]));
-            _max = std::max(_max, *((T*)data + offsets[i]));
-        }
-        _empty = false;
     }
 
     bool find(void* data) override {
@@ -84,39 +105,54 @@ public:
         }
 
         T val_data = *reinterpret_cast<T*>(data);
-        return val_data >= _min && val_data <= _max;
+        if constexpr (NeedMin) {
+            if (val_data < _min) {
+                return false;
+            }
+        }
+        if constexpr (NeedMax) {
+            if (val_data > _max) {
+                return false;
+            }
+        }
+        return true;
     }
 
     Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) override {
         if constexpr (std::is_same_v<T, StringRef>) {
-            MinMaxNumFunc<T>* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
-
-            if (other_minmax->_min < _min) {
-                auto& other_min = other_minmax->_min;
-                auto str = pool->add(new std::string(other_min.data, other_min.size));
-                _min.data = str->data();
-                _min.size = str->length();
+            auto* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
+            if constexpr (NeedMin) {
+                if (other_minmax->_min < _min) {
+                    auto& other_min = other_minmax->_min;
+                    auto* str = pool->add(new std::string(other_min.data, other_min.size));
+                    _min.data = str->data();
+                    _min.size = str->length();
+                }
             }
-            if (other_minmax->_max > _max) {
-                auto& other_max = other_minmax->_max;
-                auto str = pool->add(new std::string(other_max.data, other_max.size));
-                _max.data = str->data();
-                _max.size = str->length();
+            if constexpr (NeedMax) {
+                if (other_minmax->_max > _max) {
+                    auto& other_max = other_minmax->_max;
+                    auto* str = pool->add(new std::string(other_max.data, other_max.size));
+                    _max.data = str->data();
+                    _max.size = str->length();
+                }
             }
         } else {
-            MinMaxNumFunc<T>* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
-            if (other_minmax->_min < _min) {
-                _min = other_minmax->_min;
+            auto* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
+            if constexpr (NeedMin) {
+                if (other_minmax->_min < _min) {
+                    _min = other_minmax->_min;
+                }
             }
-            if (other_minmax->_max > _max) {
-                _max = other_minmax->_max;
+            if constexpr (NeedMax) {
+                if (other_minmax->_max > _max) {
+                    _max = other_minmax->_max;
+                }
             }
         }
 
         return Status::OK();
     }
-
-    bool is_empty() override { return _empty; }
 
     void* get_max() override { return &_max; }
 
@@ -131,161 +167,12 @@ public:
 protected:
     T _max = type_limit<T>::min();
     T _min = type_limit<T>::max();
-    // we use _empty to avoid compare twice
-    bool _empty = true;
 };
 
 template <class T>
-class MinNumFunc : public MinMaxNumFunc<T> {
-public:
-    MinNumFunc() = default;
-    ~MinNumFunc() override = default;
-
-    void insert(const void* data) override {
-        if (data == nullptr) {
-            return;
-        }
-
-        T val_data = *reinterpret_cast<const T*>(data);
-
-        if (this->_empty) {
-            this->_min = val_data;
-            this->_empty = false;
-            return;
-        }
-        if (val_data < this->_min) {
-            this->_min = val_data;
-        }
-    }
-
-    void insert_fixed_len(const char* data, const int* offsets, int number) override {
-        if (!number) {
-            return;
-        }
-        if (this->_empty) {
-            this->_min = *((T*)data + offsets[0]);
-        }
-        for (int i = this->_empty; i < number; i++) {
-            this->_min = std::min(this->_min, *((T*)data + offsets[i]));
-        }
-        this->_empty = false;
-    }
-
-    bool find(void* data) override {
-        if (data == nullptr) {
-            return false;
-        }
-
-        T val_data = *reinterpret_cast<T*>(data);
-        return val_data >= this->_min;
-    }
-
-    Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) override {
-        if constexpr (std::is_same_v<T, StringRef>) {
-            MinNumFunc<T>* other_minmax = assert_cast<MinNumFunc<T>*>(minmax_func);
-            if (other_minmax->_min < this->_min) {
-                auto& other_min = other_minmax->_min;
-                auto str = pool->add(new std::string(other_min.data, other_min.size));
-                this->_min.data = str->data();
-                this->_min.size = str->length();
-            }
-        } else {
-            MinNumFunc<T>* other_minmax = assert_cast<MinNumFunc<T>*>(minmax_func);
-            if (other_minmax->_min < this->_min) {
-                this->_min = other_minmax->_min;
-            }
-        }
-
-        return Status::OK();
-    }
-
-    //min filter the max is useless, so return nullptr directly
-    void* get_max() override {
-        DCHECK(false);
-        return nullptr;
-    }
-
-    Status assign(void* min_data, void* max_data) override {
-        this->_min = *(T*)min_data;
-        return Status::OK();
-    }
-};
+using MinNumFunc = MinMaxNumFunc<T, false, true>;
 
 template <class T>
-class MaxNumFunc : public MinMaxNumFunc<T> {
-public:
-    MaxNumFunc() = default;
-    ~MaxNumFunc() override = default;
-
-    void insert(const void* data) override {
-        if (data == nullptr) {
-            return;
-        }
-
-        T val_data = *reinterpret_cast<const T*>(data);
-
-        if (this->_empty) {
-            this->_max = val_data;
-            this->_empty = false;
-            return;
-        }
-        if (val_data > this->_max) {
-            this->_max = val_data;
-        }
-    }
-
-    void insert_fixed_len(const char* data, const int* offsets, int number) override {
-        if (!number) {
-            return;
-        }
-        if (this->_empty) {
-            this->_max = *((T*)data + offsets[0]);
-        }
-        for (int i = this->_empty; i < number; i++) {
-            this->_max = std::max(this->_max, *((T*)data + offsets[i]));
-        }
-        this->_empty = false;
-    }
-
-    bool find(void* data) override {
-        if (data == nullptr) {
-            return false;
-        }
-
-        T val_data = *reinterpret_cast<T*>(data);
-        return val_data <= this->_max;
-    }
-
-    Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) override {
-        if constexpr (std::is_same_v<T, StringRef>) {
-            MinMaxNumFunc<T>* other_minmax = assert_cast<MinMaxNumFunc<T>*>(minmax_func);
-
-            if (other_minmax->_max > this->_max) {
-                auto& other_max = other_minmax->_max;
-                auto str = pool->add(new std::string(other_max.data, other_max.size));
-                this->_max.data = str->data();
-                this->_max.size = str->length();
-            }
-        } else {
-            MinMaxNumFunc<T>* other_minmax = assert_cast<MinMaxNumFunc<T>*>(minmax_func);
-            if (other_minmax->_max > this->_max) {
-                this->_max = other_minmax->_max;
-            }
-        }
-
-        return Status::OK();
-    }
-
-    //max filter the min is useless, so return nullptr directly
-    void* get_min() override {
-        DCHECK(false);
-        return nullptr;
-    }
-
-    Status assign(void* min_data, void* max_data) override {
-        this->_max = *(T*)max_data;
-        return Status::OK();
-    }
-};
+using MaxNumFunc = MinMaxNumFunc<T, true, false>;
 
 } // namespace doris

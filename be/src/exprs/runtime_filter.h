@@ -266,7 +266,7 @@ public:
     // only used for producer
     void insert(const void* data);
     void insert(const StringRef& data);
-    void insert_batch(vectorized::ColumnPtr column, const std::vector<int>& rows);
+    void insert_batch(vectorized::ColumnPtr column, size_t start);
 
     // publish filter
     // push filter to remote node or push down it to scan_node
@@ -353,10 +353,6 @@ public:
     std::string& get_name() { return _name; }
 
     void update_runtime_filter_type_to_profile();
-
-    static bool enable_use_batch(bool use_batch, PrimitiveType type) {
-        return use_batch && (is_int_or_bool(type) || is_float_or_double(type));
-    }
 
     int filter_id() const { return _filter_id; }
 

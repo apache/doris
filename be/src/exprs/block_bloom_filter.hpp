@@ -74,13 +74,6 @@ public:
     // Same as above with convenience of hashing the key.
     void insert(const Slice& key) noexcept {
         if (key.data) {
-            insert(HashUtil::murmur_hash3_32(key.data, key.size, _hash_seed));
-        }
-    }
-
-    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    void insert_crc32_hash(const Slice& key) noexcept {
-        if (key.data) {
             insert(HashUtil::crc_hash(key.data, key.size, _hash_seed));
         }
     }
@@ -125,20 +118,11 @@ public:
     // Same as above with convenience of hashing the key.
     bool find(const Slice& key) const noexcept {
         if (key.data) {
-            return find(HashUtil::murmur_hash3_32(key.data, key.size, _hash_seed));
-        } else {
-            return false;
+            return find(HashUtil::crc_hash(key.data, key.size, _hash_seed));
         }
+        return false;
     }
 
-    // This function is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    bool find_crc32_hash(const Slice& key) const noexcept {
-        if (key.data) {
-            return find(HashUtil::crc_hash(key.data, key.size, _hash_seed));
-        } else {
-            return false;
-        }
-    }
     // Computes the logical OR of this filter with 'other' and stores the result in this
     // filter.
     // Notes:
