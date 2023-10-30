@@ -73,4 +73,10 @@ TEST_F(StatusTest, Error) {
     }
 }
 
+TEST_F(StatusTest, Format) {
+    // default
+    Status st;
+    EXPECT_TRUE(fmt::format("{}", st).compare(fmt::format("{}", st.to_string())) == 0);
+}
+
 } // namespace doris
