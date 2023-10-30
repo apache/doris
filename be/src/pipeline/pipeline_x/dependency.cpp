@@ -337,6 +337,7 @@ bool RuntimeFilterTimer::has_ready() {
 
 void RuntimeFilterTimer::call_timeout() {
     std::unique_lock<std::mutex> lc(_lock);
+    _runtime_filter->is_ready_or_timeout();
     if (_call_ready) {
         return;
     }
@@ -348,6 +349,7 @@ void RuntimeFilterTimer::call_timeout() {
 
 void RuntimeFilterTimer::call_ready() {
     std::unique_lock<std::mutex> lc(_lock);
+    _runtime_filter->is_ready_or_timeout();
     if (_call_timeout) {
         return;
     }
@@ -436,7 +438,7 @@ void RuntimeFilterDependency::sub_filters() {
     _filters--;
     if (_filters == 0) {
         call_task_ready();
-        _runtime_filters_are_ready_or_timeout();
+        // _runtime_filters_are_ready_or_timeout();
     }
 }
 
