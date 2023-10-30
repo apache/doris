@@ -185,6 +185,27 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     }
 
     /**
+     * iterate top down and test predicate, if matched then collect it.
+     *
+     * @param predicate predicate
+     * @param matchedNodes the nodes that satisfies the predicate
+     * @param traversalAll whether continue to recurse or not when predicate is true
+     */
+    default void matchAndCollect(Predicate<TreeNode<NODE_TYPE>> predicate,
+            List<TreeNode<NODE_TYPE>> matchedNodes,
+            boolean traversalAll) {
+        if (predicate.test(this)) {
+            matchedNodes.add(this);
+            if (!traversalAll) {
+                return;
+            }
+        }
+        for (NODE_TYPE child : children()) {
+            child.matchAndCollect(predicate, matchedNodes, traversalAll);
+        }
+    }
+
+    /**
      * Collect the nodes that satisfied the predicate.
      */
     default <T> T collect(Predicate<TreeNode<NODE_TYPE>> predicate) {

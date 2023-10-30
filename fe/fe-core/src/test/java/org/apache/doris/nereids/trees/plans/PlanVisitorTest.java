@@ -17,15 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitors;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitors.TableCollectorContext;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -35,7 +39,7 @@ import java.util.stream.Collectors;
 
 /**
  * Tests for plan visitors to make sure the result meets expectation.
- * */
+ */
 public class PlanVisitorTest extends TestWithFeService {
 
     @Override
@@ -84,22 +88,25 @@ public class PlanVisitorTest extends TestWithFeService {
                                 + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR table1.c1 < 10",
                         nereidsPlanner -> {
                             PhysicalPlan physicalPlan = nereidsPlanner.getPhysicalPlan();
-                            List<Expression> collectResult = new ArrayList<>();
+                            List<TreeNode<Expression>> collectResult = new ArrayList<>();
                             // Check nondeterministic collect
-                            physicalPlan.accept(PlanVisitors.NondeterministicCollector.INSTANCE, collectResult);
+                            physicalPlan.accept(PlanVisitors.NONDETERMINISTIC_FUNCTION_COLLECTOR,
+                                    collectResult);
                             Assertions.assertEquals(1, collectResult.size());
-                            Assertions.assertTrue(
-                                    Now.class.isAssignableFrom(collectResult.get(0).getClass()));
+                            Assertions.assertTrue(collectResult.get(0) instanceof Now);
                             // Check get tables
-                            List<Table> tableCollectResult = new ArrayList<>();
-                            physicalPlan.accept(PlanVisitors.TableCollector.INSTANCE, tableCollectResult);
-                            Assertions.assertEquals(3, tableCollectResult.size());
+                            TableCollectorContext collectorContext =
+                                    new PlanVisitors.TableCollectorContext(Sets.newHashSet(TableType.OLAP));
+                            physicalPlan.accept(PlanVisitors.TABLE_COLLECTOR, collectorContext);
+                            Assertions.assertEquals(3, collectorContext.getCollectedTables().size());
                             List<String> expectedTables = new ArrayList<>();
                             expectedTables.add("table1");
                             expectedTables.add("table2");
                             expectedTables.add("table2");
                             Assertions.assertEquals(
-                                    tableCollectResult.stream().map(Table::getName).collect(Collectors.toList()),
+                                    collectorContext.getCollectedTables().stream()
+                                            .map(TableIf::getName)
+                                            .collect(Collectors.toList()),
                                     expectedTables);
                         });
     }
@@ -112,25 +119,27 @@ public class PlanVisitorTest extends TestWithFeService {
                                 + "WHERE view1.c1 IN (SELECT c1 FROM table2) OR view1.c1 < 10",
                         nereidsPlanner -> {
                             PhysicalPlan physicalPlan = nereidsPlanner.getPhysicalPlan();
-                            List<Expression> collectResult = new ArrayList<>();
+                            List<TreeNode<Expression>> collectResult = new ArrayList<>();
                             // Check nondeterministic collect
-                            physicalPlan.accept(PlanVisitors.NondeterministicCollector.INSTANCE, collectResult);
+                            physicalPlan.accept(PlanVisitors.NONDETERMINISTIC_FUNCTION_COLLECTOR,
+                                    collectResult);
                             Assertions.assertEquals(2, collectResult.size());
-                            Assertions.assertTrue(
-                                    Now.class.isAssignableFrom(collectResult.get(0).getClass()));
-                            Assertions.assertTrue(
-                                    CurrentDate.class.isAssignableFrom(collectResult.get(1).getClass()));
+                            Assertions.assertTrue(collectResult.get(0) instanceof Now);
+                            Assertions.assertTrue(collectResult.get(1) instanceof CurrentDate);
                             // Check get tables
-                            List<Table> tableCollectResult = new ArrayList<>();
-                            physicalPlan.accept(PlanVisitors.TableCollector.INSTANCE, tableCollectResult);
-                            Assertions.assertEquals(4, tableCollectResult.size());
+                            TableCollectorContext collectorContext =
+                                    new PlanVisitors.TableCollectorContext(Sets.newHashSet(TableType.OLAP));
+                            physicalPlan.accept(PlanVisitors.TABLE_COLLECTOR, collectorContext);
+                            Assertions.assertEquals(4, collectorContext.getCollectedTables().size());
                             List<String> expectedTables = new ArrayList<>();
                             expectedTables.add("table1");
                             expectedTables.add("table2");
                             expectedTables.add("table2");
                             expectedTables.add("table2");
                             Assertions.assertEquals(
-                                    tableCollectResult.stream().map(Table::getName).collect(Collectors.toList()),
+                                    collectorContext.getCollectedTables().stream()
+                                            .map(TableIf::getName)
+                                            .collect(Collectors.toList()),
                                     expectedTables);
                         });
     }
