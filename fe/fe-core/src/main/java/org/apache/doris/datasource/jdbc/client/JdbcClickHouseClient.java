@@ -69,12 +69,18 @@ public class JdbcClickHouseClient extends JdbcClient {
             if (ckType.equals("DateTime")) {
                 return ScalarType.createDatetimeV2Type(0);
             } else {
-                // DateTime64 with [0~9] precision
                 int indexStart = ckType.indexOf('(');
                 int indexEnd = ckType.indexOf(')');
                 if (indexStart != -1 && indexEnd != -1) {
                     String scaleStr = ckType.substring(indexStart + 1, indexEnd);
-                    int scale = Integer.parseInt(scaleStr);
+                    int scale;
+                    try {
+                        scale = Integer.parseInt(scaleStr);
+                    } catch (NumberFormatException e) {
+                        // DateTime([timezone])
+                        return ScalarType.createDatetimeV2Type(0);
+                    }
+                    // DateTime64 with [0~9] precision
                     if (scale > 6) {
                         scale = 6;
                     }
