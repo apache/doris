@@ -38,6 +38,7 @@ import org.apache.doris.regression.action.HttpCliAction
 import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
+import org.apache.doris.regression.util.DebugPoint
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -69,12 +70,14 @@ class Suite implements GroovyInterceptable {
     final List<Future> lazyCheckFutures = new Vector<>()
 
     SuiteCluster cluster
+    DebugPoint debugPoint
 
     Suite(String name, String group, SuiteContext context) {
         this.name = name
         this.group = group
         this.context = context
         this.cluster = null
+        this.debugPoint = new DebugPoint(this)
     }
 
     String getConf(String key, String defaultValue = null) {
@@ -476,7 +479,7 @@ class Suite implements GroovyInterceptable {
         String s3Url = "http://${s3BucketName}.${s3Endpoint}"
         return s3Url
     }
-    
+
     void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
         String cmd = "scp -r ${username}@${host}:${files} ${filePath}"
         if (!fromDst) {
@@ -487,7 +490,7 @@ class Suite implements GroovyInterceptable {
         def code = process.waitFor()
         Assert.assertEquals(0, code)
     }
-    
+
     void sshExec(String username, String host, String cmd) {
         String command = "ssh ${username}@${host} '${cmd}'"
         def cmds = ["/bin/bash", "-c", command]
@@ -499,7 +502,7 @@ class Suite implements GroovyInterceptable {
         assert errMsg.length() == 0: "error occurred!" + errMsg
         assert p.exitValue() == 0
     }
-    
+
 
     void getBackendIpHttpPort(Map<String, String> backendId_to_backendIP, Map<String, String> backendId_to_backendHttpPort) {
         List<List<Object>> backends = sql("show backends");
@@ -509,7 +512,7 @@ class Suite implements GroovyInterceptable {
             backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
         }
         return;
-    } 
+    }
 
     int getTotalLine(String filePath) {
         def file = new File(filePath)
@@ -693,14 +696,14 @@ class Suite implements GroovyInterceptable {
             String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
             sql = cleanedSqlStr
         }
-        quickRunTest(tag, sql, isOrder) 
+        quickRunTest(tag, sql, isOrder)
     }
 
     void quickExecute(String tag, PreparedStatement stmt) {
         logger.info("Execute tag: ${tag}, sql: ${stmt}".toString())
-        quickRunTest(tag, stmt) 
+        quickRunTest(tag, stmt)
     }
-    
+
     @Override
     Object invokeMethod(String name, Object args) {
         // qt: quick test
@@ -760,6 +763,10 @@ class Suite implements GroovyInterceptable {
         }
         // set server side prepared statement url
         return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true"
+    }
+
+    DebugPoint GetDebugPoint() {
+        return debugPoint
     }
 }
 
