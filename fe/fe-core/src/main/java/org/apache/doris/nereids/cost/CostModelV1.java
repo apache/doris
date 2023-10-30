@@ -302,7 +302,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             }
             // TODO: since the outputs rows may expand a lot, penalty on it will cause bc never be chosen.
             // will refine this in next generation cost model.
-            if (context.isStatsReliable()) {
+            if (!context.isStatsReliable()) {
                 // forbid broadcast join when stats is unknown
                 return CostV1.of(rightRowCount * buildSideFactor + 1 / leftRowCount,
                         rightRowCount,
@@ -314,7 +314,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     0
             );
         }
-        if (context.isStatsReliable()) {
+        if (!context.isStatsReliable()) {
             return CostV1.of(rightRowCount + 1 / leftRowCount,
                     rightRowCount,
                     0);
@@ -333,7 +333,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Preconditions.checkState(context.arity() == 2);
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
-        if (isStatsUnknown(nestedLoopJoin, leftStatistics, rightStatistics)) {
+        if (!context.isStatsReliable()) {
             return CostV1.of(rightStatistics.getRowCount() + 1 / leftStatistics.getRowCount(),
                     rightStatistics.getRowCount(),
                     0);
