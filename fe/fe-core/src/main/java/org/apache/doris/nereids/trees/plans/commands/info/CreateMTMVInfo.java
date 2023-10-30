@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.mtmv.EnvInfo;
+import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
