@@ -18,7 +18,6 @@
 #pragma once
 #include "vec/common/arena.h"
 #include "vec/common/columns_hashing.h"
-#include "vec/common/hash_table/hash_map.h"
 #include "vec/core/block.h"
 
 namespace doris::vectorized {
@@ -45,19 +44,19 @@ namespace doris::vectorized {
  */
 struct RowRef {
     uint32_t row_num = 0;
-    uint8_t block_offset;
 
     RowRef() = default;
-    RowRef(size_t row_num_count, uint8_t block_offset_)
-            : row_num(row_num_count), block_offset(block_offset_) {}
+    RowRef(size_t row_num_count) : row_num(row_num_count) {}
+    void clear() {};
 };
 
 struct RowRefWithFlag : public RowRef {
     bool visited;
 
     RowRefWithFlag() = default;
-    RowRefWithFlag(size_t row_num_count, uint8_t block_offset_, bool is_visited = false)
-            : RowRef(row_num_count, block_offset_), visited(is_visited) {}
+    RowRefWithFlag(size_t row_num_count, bool is_visited = false)
+            : RowRef(row_num_count), visited(is_visited) {}
+    void clear() {};
 };
 
 /// Portion of RowRefs, 16 * (MAX_SIZE + 1) bytes sized.
@@ -93,14 +92,15 @@ public:
     ForwardIterator() : root(nullptr), first(false), batch(nullptr), position(0) {}
 
     ForwardIterator(RowRefListType* begin)
-            : root(begin), first(true), batch(root->next), position(0) {}
+            : root(begin), first(true), batch((&root->next)), position(0) {}
 
     RowRefType& operator*() {
         if (first) {
             return *root;
         }
-        return batch->row_refs[position];
+        return batch->operator[](position);
     }
+
     RowRefType* operator->() { return &(**this); }
 
     void operator++() {
@@ -109,21 +109,17 @@ public:
             return;
         }
 
-        if (batch) {
+        if (batch && position < batch->size()) {
             ++position;
-            if (position >= batch->size) {
-                batch = batch->next;
-                position = 0;
-            }
         }
     }
 
-    bool ok() const { return first || batch; }
+    bool ok() const { return first || (batch && position < batch->size()); }
 
 private:
     RowRefListType* root;
     bool first;
-    Batch<RowRefType>* batch;
+    std::vector<RowRefType>* batch;
     size_t position;
 };
 
@@ -131,76 +127,60 @@ struct RowRefList : RowRef {
     using RowRefType = RowRef;
 
     RowRefList() = default;
-    RowRefList(size_t row_num_, uint8_t block_offset_) : RowRef(row_num_, block_offset_) {}
+    RowRefList(size_t row_num_) : RowRef(row_num_) {}
 
     ForwardIterator<RowRefList> begin() { return ForwardIterator<RowRefList>(this); }
 
     /// insert element after current one
-    void insert(RowRefType&& row_ref, Arena& pool) {
-        if (!next) {
-            next = pool.alloc<Batch<RowRefType>>();
-            *next = Batch<RowRefType>(nullptr);
-        }
-        next = next->insert(std::move(row_ref), pool);
-    }
+    void insert(RowRefType&& row_ref, Arena& pool) { next.emplace_back(std::move(row_ref)); }
+
+    void clear() { next.clear(); }
 
 private:
     friend class ForwardIterator<RowRefList>;
-
-    Batch<RowRefType>* next = nullptr;
+    std::vector<RowRefType> next;
 };
 
 struct RowRefListWithFlag : RowRef {
     using RowRefType = RowRef;
 
     RowRefListWithFlag() = default;
-    RowRefListWithFlag(size_t row_num_, uint8_t block_offset_) : RowRef(row_num_, block_offset_) {}
+    RowRefListWithFlag(size_t row_num_) : RowRef(row_num_) {}
 
     ForwardIterator<RowRefListWithFlag> const begin() {
         return ForwardIterator<RowRefListWithFlag>(this);
     }
 
     /// insert element after current one
-    void insert(RowRef&& row_ref, Arena& pool) {
-        if (!next) {
-            next = pool.alloc<Batch<RowRefType>>();
-            *next = Batch<RowRefType>(nullptr);
-        }
-        next = next->insert(std::move(row_ref), pool);
-    }
+    void insert(RowRefType&& row_ref, Arena& pool) { next.emplace_back(row_ref); }
+
+    void clear() { next.clear(); }
 
     bool visited = false;
 
 private:
     friend class ForwardIterator<RowRefListWithFlag>;
-
-    Batch<RowRefType>* next = nullptr;
+    std::vector<RowRefType> next;
 };
 
 struct RowRefListWithFlags : RowRefWithFlag {
     using RowRefType = RowRefWithFlag;
 
     RowRefListWithFlags() = default;
-    RowRefListWithFlags(size_t row_num_, uint8_t block_offset_)
-            : RowRefWithFlag(row_num_, block_offset_) {}
+    RowRefListWithFlags(size_t row_num_) : RowRefWithFlag(row_num_) {}
 
     ForwardIterator<RowRefListWithFlags> const begin() {
         return ForwardIterator<RowRefListWithFlags>(this);
     }
 
     /// insert element after current one
-    void insert(RowRefWithFlag&& row_ref, Arena& pool) {
-        if (!next) {
-            next = pool.alloc<Batch<RowRefType>>();
-            *next = Batch<RowRefType>(nullptr);
-        }
-        next = next->insert(std::move(row_ref), pool);
-    }
+    void insert(RowRefType&& row_ref, Arena& pool) { next.emplace_back(row_ref); }
+
+    void clear() { next.clear(); }
 
 private:
     friend class ForwardIterator<RowRefListWithFlags>;
-
-    Batch<RowRefType>* next = nullptr;
+    std::vector<RowRefType> next;
 };
 
 } // namespace doris::vectorized

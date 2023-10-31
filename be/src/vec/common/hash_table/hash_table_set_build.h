@@ -24,11 +24,9 @@ namespace doris::vectorized {
 template <class HashTableContext, bool is_intersect>
 struct HashTableBuild {
     template <typename Parent>
-    HashTableBuild(Parent* parent, int rows, ColumnRawPtrs& build_raw_ptrs, uint8_t offset,
-                   RuntimeState* state)
+    HashTableBuild(Parent* parent, int rows, ColumnRawPtrs& build_raw_ptrs, RuntimeState* state)
             : _mem_used(parent->mem_used()),
               _rows(rows),
-              _offset(offset),
               _build_raw_ptrs(build_raw_ptrs),
               _state(state) {}
 
@@ -48,9 +46,9 @@ struct HashTableBuild {
         size_t k = 0;
         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
             HashTableContext::try_presis_key(key, origin, arena);
-            ctor(key, Mapped {k, _offset});
+            ctor(key, Mapped {k});
         };
-        auto creator_for_null_key = [&](auto& mapped) { mapped = {k, _offset}; };
+        auto creator_for_null_key = [&](auto& mapped) { mapped = {k}; };
 
         for (; k < _rows; ++k) {
             if (k % CHECK_FRECUENCY == 0) {
@@ -64,7 +62,6 @@ struct HashTableBuild {
 private:
     int64_t* _mem_used;
     const int _rows;
-    const uint8_t _offset;
     ColumnRawPtrs& _build_raw_ptrs;
     RuntimeState* _state;
 };
