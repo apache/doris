@@ -104,7 +104,7 @@ public class ArrayType extends Type {
 
     @Override
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
-                                       boolean useSpecializedType) throws TypeException {
+                                       boolean useSpecializedType, boolean enableDecimal256) throws TypeException {
         ArrayType specificArrayType = null;
         if (specificType instanceof ArrayType) {
             specificArrayType = (ArrayType) specificType;
@@ -116,7 +116,7 @@ public class ArrayType extends Type {
         if (itemType.hasTemplateType()) {
             newItemType = itemType.specializeTemplateType(
                 specificArrayType != null ? specificArrayType.itemType : specificType,
-                specializedTypeMap, useSpecializedType);
+                specializedTypeMap, useSpecializedType, enableDecimal256);
         }
 
         return new ArrayType(newItemType);
@@ -163,8 +163,10 @@ public class ArrayType extends Type {
         return Type.canCastTo(type.getItemType(), targetType.getItemType());
     }
 
-    public static Type getAssignmentCompatibleType(ArrayType t1, ArrayType t2, boolean strict) {
-        Type itemCompatibleType = Type.getAssignmentCompatibleType(t1.getItemType(), t2.getItemType(), strict);
+    public static Type getAssignmentCompatibleType(
+            ArrayType t1, ArrayType t2, boolean strict, boolean enableDecimal256) {
+        Type itemCompatibleType = Type.getAssignmentCompatibleType(t1.getItemType(), t2.getItemType(), strict,
+                enableDecimal256);
 
         if (itemCompatibleType.isInvalid()) {
             return ScalarType.INVALID;

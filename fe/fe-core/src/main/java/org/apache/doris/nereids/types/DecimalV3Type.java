@@ -110,7 +110,7 @@ public class DecimalV3Type extends FractionalType {
         boolean enableDecimal256 = false;
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null) {
-            enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+            enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
         }
         if (precision > MAX_DECIMAL128_PRECISION && !enableDecimal256) {
             throw new NotSupportedException("Datatype DecimalV3 with precision " + precision
@@ -133,7 +133,7 @@ public class DecimalV3Type extends FractionalType {
         boolean enableDecimal256 = false;
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null) {
-            enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+            enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
         }
         if (enableDecimal256) {
             Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL256_PRECISION,
@@ -169,7 +169,7 @@ public class DecimalV3Type extends FractionalType {
         boolean enableDecimal256 = false;
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null) {
-            enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+            enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
         }
         if (range + scale > (enableDecimal256 ? MAX_DECIMAL256_PRECISION : MAX_DECIMAL128_PRECISION)
                 && overflowToDouble) {
@@ -247,7 +247,7 @@ public class DecimalV3Type extends FractionalType {
             boolean enableDecimal256 = false;
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null) {
-                enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+                enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
             }
             if (enableDecimal256) {
                 return 32;

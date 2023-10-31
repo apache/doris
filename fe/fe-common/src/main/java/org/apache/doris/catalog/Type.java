@@ -627,7 +627,7 @@ public abstract class Type {
 
     // return a new type without template type, by specialize template type in this type
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
-                                       boolean useSpecializedType) throws TypeException {
+                                       boolean useSpecializedType, boolean enableDecimal256) throws TypeException {
         if (hasTemplateType()) {
             // throw exception by default, sub class should specialize tempalte type properly
             throw new TypeException("specializeTemplateType not implemented");
@@ -728,9 +728,9 @@ public abstract class Type {
      * If strict is true, only consider casts that result in no loss of precision.
      * TODO: Support casting of non-scalar types.
      */
-    public static boolean isImplicitlyCastable(Type t1, Type t2, boolean strict) {
+    public static boolean isImplicitlyCastable(Type t1, Type t2, boolean strict, boolean enableDecimal256) {
         if (t1.isScalarType() && t2.isScalarType()) {
-            return ScalarType.isImplicitlyCastable((ScalarType) t1, (ScalarType) t2, strict);
+            return ScalarType.isImplicitlyCastable((ScalarType) t1, (ScalarType) t2, strict, enableDecimal256);
         }
         if (t1.isComplexType() || t2.isComplexType()) {
             if ((t1.isArrayType() && t2.isArrayType()) || (t1.isMapType() && t2.isMapType())
@@ -771,17 +771,17 @@ public abstract class Type {
      * no such type or if any of t1 and t2 is INVALID_TYPE.
      * TODO: Support non-scalar types.
      */
-    public static Type getAssignmentCompatibleType(Type t1, Type t2, boolean strict) {
+    public static Type getAssignmentCompatibleType(Type t1, Type t2, boolean strict, boolean enableDecimal256) {
         if (t1.isScalarType() && t2.isScalarType()) {
-            return ScalarType.getAssignmentCompatibleType((ScalarType) t1, (ScalarType) t2, strict);
+            return ScalarType.getAssignmentCompatibleType((ScalarType) t1, (ScalarType) t2, strict, enableDecimal256);
         }
 
         if (t1.isArrayType() && t2.isArrayType()) {
-            return ArrayType.getAssignmentCompatibleType((ArrayType) t1, (ArrayType) t2, strict);
+            return ArrayType.getAssignmentCompatibleType((ArrayType) t1, (ArrayType) t2, strict, enableDecimal256);
         } else if (t1.isMapType() && t2.isMapType()) {
-            return MapType.getAssignmentCompatibleType((MapType) t1, (MapType) t2, strict);
+            return MapType.getAssignmentCompatibleType((MapType) t1, (MapType) t2, strict, enableDecimal256);
         } else if (t1.isStructType() && t2.isStructType()) {
-            return StructType.getAssignmentCompatibleType((StructType) t1, (StructType) t2, strict);
+            return StructType.getAssignmentCompatibleType((StructType) t1, (StructType) t2, strict, enableDecimal256);
         } else if (t1.isComplexType() && t2.isNull()) {
             return t1;
         } else if (t1.isNull() && t2.isComplexType()) {
@@ -1977,7 +1977,7 @@ public abstract class Type {
         }
     }
 
-    public static Type getCmpType(Type t1, Type t2) {
+    public static Type getCmpType(Type t1, Type t2, boolean enableDecimal256) {
         if (t1.getPrimitiveType() == PrimitiveType.NULL_TYPE) {
             return t2;
         }
@@ -2033,7 +2033,7 @@ public abstract class Type {
         }
 
         if (t1ResultType == PrimitiveType.BIGINT && t2ResultType == PrimitiveType.BIGINT) {
-            return getAssignmentCompatibleType(t1, t2, false);
+            return getAssignmentCompatibleType(t1, t2, false, enableDecimal256);
         }
         if (t1.getPrimitiveType().isDecimalV3Type() && t2.getPrimitiveType().isDecimalV3Type()) {
             int resultPrecision = Math.max(t1.getPrecision(), t2.getPrecision());
@@ -2049,11 +2049,16 @@ public abstract class Type {
                 return ScalarType.createDecimalType(resultDecimalType, resultPrecision, Math.max(
                         ((ScalarType) t1).getScalarScale(), ((ScalarType) t2).getScalarScale()));
             } else {
-                return Type.DOUBLE;
+                if (enableDecimal256) {
+                    return ScalarType.createDecimalType(resultDecimalType, resultPrecision, Math.max(
+                            ((ScalarType) t1).getScalarScale(), ((ScalarType) t2).getScalarScale()));
+                } else {
+                    return Type.DOUBLE;
+                }
             }
         }
         if (t1ResultType.isDecimalV3Type() || t2ResultType.isDecimalV3Type()) {
-            return getAssignmentCompatibleType(t1, t2, false);
+            return getAssignmentCompatibleType(t1, t2, false, enableDecimal256);
         }
         if ((t1ResultType == PrimitiveType.BIGINT
                 || t1ResultType == PrimitiveType.DECIMALV2)

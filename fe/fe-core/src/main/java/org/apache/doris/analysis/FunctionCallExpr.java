@@ -41,6 +41,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
@@ -1238,6 +1239,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     private void analyzeArrayFunction(Analyzer analyzer) throws AnalysisException {
+        boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
         if (fnName.getFunction().equalsIgnoreCase("array_distinct")
                 || fnName.getFunction().equalsIgnoreCase("array_max")
                 || fnName.getFunction().equalsIgnoreCase("array_min")
@@ -1254,7 +1256,8 @@ public class FunctionCallExpr extends Expr {
             Type[] childTypes = collectChildReturnTypes();
             Type compatibleType = childTypes[0];
             for (int i = 1; i < childTypes.length; ++i) {
-                compatibleType = Type.getAssignmentCompatibleType(compatibleType, childTypes[i], true);
+                compatibleType = Type.getAssignmentCompatibleType(compatibleType, childTypes[i], true,
+                        enableDecimal256);
                 if (compatibleType == Type.INVALID) {
                     throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
                 }
@@ -1291,7 +1294,8 @@ public class FunctionCallExpr extends Expr {
             }
             Type compatibleType = ((ArrayType) childTypes[0]).getItemType();
             for (int i = 1; i < childTypes.length; ++i) {
-                compatibleType = Type.getAssignmentCompatibleType(compatibleType, childTypes[i], true);
+                compatibleType = Type.getAssignmentCompatibleType(compatibleType, childTypes[i], true,
+                        enableDecimal256);
                 if (compatibleType == Type.INVALID) {
                     throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
                 }
@@ -1391,6 +1395,7 @@ public class FunctionCallExpr extends Expr {
 
         analyzeArrayFunction(analyzer);
 
+        boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
             if (this.children.isEmpty()) {
                 throw new AnalysisException("The " + fnName + " function must has one input param");
@@ -1403,7 +1408,7 @@ public class FunctionCallExpr extends Expr {
             Type compatibleType = this.children.get(0).getType();
             for (int i = 1; i < this.children.size(); ++i) {
                 Type type = this.children.get(i).getType();
-                compatibleType = Type.getAssignmentCompatibleType(compatibleType, type, true);
+                compatibleType = Type.getAssignmentCompatibleType(compatibleType, type, true, enableDecimal256);
                 if (compatibleType.isInvalid()) {
                     compatibleType = Type.VARCHAR;
                     break;
@@ -1495,7 +1500,8 @@ public class FunctionCallExpr extends Expr {
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
-            Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
+            Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true,
+                    enableDecimal256);
             if (assignmentCompatibleType.isDecimalV3()) {
                 if (assignmentCompatibleType.isDecimalV3() && !childTypes[1].equals(assignmentCompatibleType)) {
                     uncheckedCastChild(assignmentCompatibleType, 1);
@@ -1521,7 +1527,8 @@ public class FunctionCallExpr extends Expr {
         } else if (fnName.getFunction().equalsIgnoreCase("ifnull")
                 || fnName.getFunction().equalsIgnoreCase("nvl")) {
             Type[] childTypes = collectChildReturnTypes();
-            Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true);
+            Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true,
+                    enableDecimal256);
             if (assignmentCompatibleType != Type.INVALID) {
                 if (assignmentCompatibleType.isDecimalV3()) {
                     if (assignmentCompatibleType.isDecimalV3() && !childTypes[0].equals(assignmentCompatibleType)) {
@@ -1548,7 +1555,7 @@ public class FunctionCallExpr extends Expr {
             Type assignmentCompatibleType = childTypes[0];
             for (int i = 1; i < childTypes.length; i++) {
                 assignmentCompatibleType = ScalarType
-                        .getAssignmentCompatibleType(assignmentCompatibleType, childTypes[i], true);
+                        .getAssignmentCompatibleType(assignmentCompatibleType, childTypes[i], true, enableDecimal256);
             }
             if (assignmentCompatibleType.isDecimalV3()) {
                 for (int i = 0; i < childTypes.length; i++) {

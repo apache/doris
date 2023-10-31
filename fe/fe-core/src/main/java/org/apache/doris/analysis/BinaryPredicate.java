@@ -33,6 +33,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -447,7 +448,8 @@ public class BinaryPredicate extends Predicate implements Writable {
             return Type.STRING;
         }
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
-            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
+            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false,
+                    SessionVariable.getEnableDecimal256());
         }
         if ((t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.DECIMALV2)
                 || (t2 == PrimitiveType.BIGINT && t1 == PrimitiveType.DECIMALV2)
@@ -480,7 +482,8 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         if ((t1.isDecimalV3Type() && !t2.isStringType() && !t2.isFloatingPointType())
                 || (t2.isDecimalV3Type() && !t1.isStringType() && !t1.isFloatingPointType())) {
-            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
+            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false,
+                    SessionVariable.getEnableDecimal256());
         }
 
         return Type.DOUBLE;

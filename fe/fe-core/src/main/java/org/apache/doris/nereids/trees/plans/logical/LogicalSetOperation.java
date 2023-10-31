@@ -37,6 +37,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -253,6 +254,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
         return DataType.fromCatalogType(Type.getAssignmentCompatibleType(
                 left.toCatalogDataType(),
                 right.toCatalogDataType(),
-                false));
+                false,
+                SessionVariable.getEnableDecimal256()));
     }
 }

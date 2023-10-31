@@ -31,6 +31,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -111,7 +112,8 @@ public class ArithmeticExpr extends Expr {
             for (int j = 0; j < Type.getNumericTypes().size(); j++) {
                 Type t2 = Type.getNumericTypes().get(j);
 
-                Type retType = Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false));
+                // For old planner, set enableDecimal256 to false to keep the original behaviour
+                Type retType = Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false, false));
                 NullableMode mode = retType.isDecimalV3() ? NullableMode.CUSTOM : NullableMode.DEPEND_ON_ARGUMENT;
                 functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                         Operator.MULTIPLY.getName(), Lists.newArrayList(t1, t2), retType, mode));
@@ -197,13 +199,14 @@ public class ArithmeticExpr extends Expr {
             for (int j = 0; j < Type.getIntegerTypes().size(); j++) {
                 Type t2 = Type.getIntegerTypes().get(j);
 
+                // For old planner, set enableDecimal256 to false to keep the original behaviour
                 functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                         Operator.INT_DIVIDE.getName(), Lists.newArrayList(t1, t2),
-                        Type.getAssignmentCompatibleType(t1, t2, false),
+                        Type.getAssignmentCompatibleType(t1, t2, false, false),
                         Function.NullableMode.ALWAYS_NULLABLE));
                 functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                         Operator.MOD.getName(), Lists.newArrayList(t1, t2),
-                        Type.getAssignmentCompatibleType(t1, t2, false),
+                        Type.getAssignmentCompatibleType(t1, t2, false, false),
                         Function.NullableMode.ALWAYS_NULLABLE));
             }
         }
@@ -401,7 +404,7 @@ public class ArithmeticExpr extends Expr {
                     t1 = Type.TINYINT;
                     t2 = Type.TINYINT;
                 }
-                commonType = Type.getAssignmentCompatibleType(t1, t2, false);
+                commonType = Type.getAssignmentCompatibleType(t1, t2, false, SessionVariable.getEnableDecimal256());
                 if (commonType.getPrimitiveType().ordinal() > PrimitiveType.LARGEINT.ordinal()) {
                     commonType = Type.BIGINT;
                 }

@@ -827,7 +827,7 @@ struct Field::TypeToEnum<Int128> {
     static constexpr Types::Which value = Types::Int128;
 };
 template <>
-struct Field::TypeToEnum<Int256> {
+struct Field::TypeToEnum<wide::Int256> {
     static constexpr Types::Which value = Types::Int256;
 };
 template <>

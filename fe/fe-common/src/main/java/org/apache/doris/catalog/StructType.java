@@ -111,7 +111,8 @@ public class StructType extends Type {
         return true;
     }
 
-    public static Type getAssignmentCompatibleType(StructType t1, StructType t2, boolean strict) {
+    public static Type getAssignmentCompatibleType(
+            StructType t1, StructType t2, boolean strict, boolean enableDecimal256) {
         ArrayList<StructField> fieldsLeft = t1.getFields();
         ArrayList<StructField> fieldsRight = t2.getFields();
         ArrayList<StructField> fieldsRes = new ArrayList<>();
@@ -120,7 +121,7 @@ public class StructType extends Type {
             StructField leftField = fieldsLeft.get(i);
             StructField rightField = fieldsRight.get(i);
             Type itemCompatibleType = Type.getAssignmentCompatibleType(leftField.getType(), rightField.getType(),
-                    strict);
+                    strict, enableDecimal256);
             if (itemCompatibleType.isInvalid()) {
                 return ScalarType.INVALID;
             }
@@ -221,7 +222,7 @@ public class StructType extends Type {
 
     @Override
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
-            boolean useSpecializedType) throws TypeException {
+            boolean useSpecializedType, boolean enableDecimal256) throws TypeException {
         StructType specificStructType = null;
         if (specificType instanceof StructType) {
             specificStructType = (StructType) specificType;
@@ -234,7 +235,7 @@ public class StructType extends Type {
             if (fields.get(i).type.hasTemplateType()) {
                 newTypes.add(fields.get(i).type.specializeTemplateType(
                         specificStructType != null ? specificStructType.fields.get(i).type : specificType,
-                        specializedTypeMap, useSpecializedType));
+                        specializedTypeMap, useSpecializedType, enableDecimal256));
             }
         }
 

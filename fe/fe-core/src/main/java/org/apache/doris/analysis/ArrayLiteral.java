@@ -53,7 +53,7 @@ public class ArrayLiteral extends LiteralExpr {
             if (itemType == Type.NULL) {
                 itemType = expr.getType();
             } else {
-                itemType = Type.getAssignmentCompatibleType(itemType, expr.getType(), false);
+                itemType = Type.getAssignmentCompatibleType(itemType, expr.getType(), false, false);
             }
 
             if (expr.isNullable()) {

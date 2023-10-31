@@ -92,7 +92,7 @@ public class Avg extends NullableAggregateFunction
             boolean enableDecimal256 = false;
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null) {
-                enableDecimal256 = connectContext.getSessionVariable().enableDecimal256();
+                enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
             }
             DecimalV3Type decimalV3Type = DecimalV3Type.forType(argumentType);
             // DecimalV3 scale lower than DEFAULT_MIN_AVG_DECIMAL128_SCALE should do cast
