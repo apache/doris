@@ -234,6 +234,7 @@ public class FEFunctions {
     @FEFunction(name = "from_unixtime", argTypes = { "BIGINT" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime) throws AnalysisException {
         // if unixTime < 0, we should return null, throw a exception and let BE process
+        // 32536771199L is max valid timestamp of mysql from_unix_time
         if (unixTime.getLongValue() < 0 || unixTime.getLongValue() > 32536771199L) {
             throw new AnalysisException("unix timestamp out of range");
         }
@@ -245,6 +246,7 @@ public class FEFunctions {
     @FEFunction(name = "from_unixtime", argTypes = { "BIGINT", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime, StringLiteral fmtLiteral) throws AnalysisException {
         // if unixTime < 0, we should return null, throw a exception and let BE process
+        // 32536771199L is max valid timestamp of mysql from_unix_time
         if (unixTime.getLongValue() < 0 || unixTime.getLongValue() >= 32536771199L) {
             throw new AnalysisException("unix timestamp out of range");
         }
