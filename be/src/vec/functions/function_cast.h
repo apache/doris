@@ -1943,7 +1943,7 @@ private:
                 size_t element_result = block.columns();
                 block.insert({to_kv_types[i], ""});
                 RETURN_IF_ERROR(kv_wrappers[i](context, block, element_arguments, element_result,
-                                               from_col_map->size()));
+                                               columnsWithTypeAndName[i].column->size()));
                 converted_columns[i] = block.get_by_position(element_result).column;
             }
 
