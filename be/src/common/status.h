@@ -321,7 +321,8 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::UNINITIALIZED
         && code != ErrorCode::PIP_WAIT_FOR_RF
         && code != ErrorCode::PIP_WAIT_FOR_SC
-        && code != ErrorCode::INVALID_ARGUMENT;
+        && code != ErrorCode::INVALID_ARGUMENT
+        && code != ErrorCode::DATA_QUALITY_ERR;
 }
 // clang-format on
 
@@ -573,15 +574,6 @@ inline std::string Status::to_string() const {
         if (UNLIKELY(!_s.ok())) {                           \
             LOG(WARNING) << (warning_prefix) << ": " << _s; \
         }                                                   \
-    } while (false);
-
-#define RETURN_WITH_WARN_IF_ERROR(stmt, ret_code, warning_prefix)  \
-    do {                                                           \
-        Status _s = (stmt);                                        \
-        if (UNLIKELY(!_s.ok())) {                                  \
-            LOG(WARNING) << (warning_prefix) << ", error: " << _s; \
-            return ret_code;                                       \
-        }                                                          \
     } while (false);
 
 #define RETURN_NOT_OK_STATUS_WITH_WARN(stmt, warning_prefix)       \

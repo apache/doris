@@ -21,7 +21,7 @@
 #include "util/stack_util.h"
 namespace doris {
 
-Exception::Exception(int code, const std::string_view msg) {
+Exception::Exception(int code, const std::string_view& msg) {
     _code = code;
     _err_msg = std::make_unique<ErrMsg>();
     _err_msg->_msg = msg;
@@ -31,7 +31,7 @@ Exception::Exception(int code, const std::string_view msg) {
     }
 }
 
-Exception::Exception(const Exception& nested, int code, const std::string_view msg) {
+Exception::Exception(const Exception& nested, int code, const std::string_view& msg) {
     _code = code;
     _err_msg = std::make_unique<ErrMsg>();
     _err_msg->_msg = msg;
