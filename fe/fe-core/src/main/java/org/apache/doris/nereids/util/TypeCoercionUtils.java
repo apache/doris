@@ -82,6 +82,8 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IPv4Type;
+import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
@@ -227,6 +229,8 @@ public class TypeCoercionUtils {
             } else if (expected instanceof NumericType) {
                 // For any other numeric types, implicitly cast to each other, e.g. bigint -> int, int -> bigint
                 returnType = expected.defaultConcreteType();
+            } else if (expected instanceof IPv4Type) {
+                returnType = IPv4Type.INSTANCE;
             }
         } else if (input instanceof CharacterType) {
             if (expected instanceof DecimalV2Type) {
@@ -239,6 +243,10 @@ public class TypeCoercionUtils {
                 returnType = DateTimeType.INSTANCE;
             } else if (expected instanceof JsonType) {
                 returnType = JsonType.INSTANCE;
+            } else if (expected instanceof IPv4Type) {
+                returnType = IPv4Type.INSTANCE;
+            } else if (expected instanceof IPv6Type) {
+                returnType = IPv6Type.INSTANCE;
             }
         } else if (input.isDateType()) {
             if (expected instanceof DateTimeType) {
@@ -1203,6 +1211,16 @@ public class TypeCoercionUtils {
                 }
             }
             return Optional.of(commonType);
+        }
+
+        // ip type
+        if ((leftType.isIPv4Type() && rightType.isStringLikeType())
+                || (rightType.isIPv4Type() && leftType.isStringLikeType())) {
+            return Optional.of(IPv4Type.INSTANCE);
+        }
+        if ((leftType.isIPv6Type() && rightType.isStringLikeType())
+                || (rightType.isIPv6Type() && leftType.isStringLikeType())) {
+            return Optional.of(IPv6Type.INSTANCE);
         }
 
         return Optional.of(DoubleType.INSTANCE);

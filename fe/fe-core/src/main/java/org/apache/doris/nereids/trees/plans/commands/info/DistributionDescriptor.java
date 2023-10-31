@@ -71,7 +71,7 @@ public class DistributionDescriptor {
             }
             cols.forEach(c -> {
                 if (!columnMap.containsKey(c)) {
-                    throw new AnalysisException(String.format("column %s is not found in distribution desc", c));
+                    throw new AnalysisException(String.format("Distribution column(%s) doesn't exist", c));
                 }
             });
         } else {

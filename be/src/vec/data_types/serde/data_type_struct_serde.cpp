@@ -370,7 +370,8 @@ Status DataTypeStructSerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-Status DataTypeStructSerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                                const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch, int start,
                                                 int end,
                                                 std::vector<StringRef>& buffer_list) const {
@@ -381,8 +382,8 @@ Status DataTypeStructSerDe::write_column_to_orc(const IColumn& column, const Nul
         if (cur_batch->notNull[row_id] == 1) {
             for (int i = 0; i < struct_col.tuple_size(); ++i) {
                 static_cast<void>(elemSerDeSPtrs[i]->write_column_to_orc(
-                        struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id, row_id + 1,
-                        buffer_list));
+                        timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
+                        row_id + 1, buffer_list));
             }
         } else {
             // This else is necessary

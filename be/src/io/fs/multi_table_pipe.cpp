@@ -216,7 +216,7 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
         if constexpr (std::is_same_v<ExecParam, TExecPlanFragmentParams>) {
             RETURN_IF_ERROR(
                     putPipe(plan.params.fragment_instance_id, _planned_pipes[plan.table_name]));
-            LOG(INFO) << "fragment_instance_id=" << plan.params.fragment_instance_id
+            LOG(INFO) << "fragment_instance_id=" << print_id(plan.params.fragment_instance_id)
                       << " table=" << plan.table_name;
         } else if constexpr (std::is_same_v<ExecParam, TPipelineFragmentParams>) {
             auto pipe_id = calculate_pipe_id(plan.query_id, plan.fragment_id);

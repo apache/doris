@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <memory>
+#include <sstream>
 #include <string>
 
 #include "common/config.h"
@@ -81,9 +82,10 @@ public:
         // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
         // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
         // on query mem tracker, released on other trackers.
+        std::string mem_tracker_msg {""};
         if (query_mem_tracker->peak_consumption() != 0) {
-            LOG(INFO) << fmt::format(
-                    "Deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
+            mem_tracker_msg = fmt::format(
+                    ", deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
                     "PeakUsed={}",
                     print_id(_query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
                     MemTracker::print_bytes(query_mem_tracker->consumption()),
@@ -92,6 +94,8 @@ public:
         if (_task_group) {
             _task_group->remove_mem_tracker_limiter(query_mem_tracker);
         }
+
+        LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
     }
 
     // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.

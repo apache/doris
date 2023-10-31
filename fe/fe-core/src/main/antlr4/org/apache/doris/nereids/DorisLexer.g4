@@ -187,6 +187,8 @@ DATEDIFF: 'DATEDIFF';
 DATETIME: 'DATETIME';
 DATETIMEV2: 'DATETIMEV2';
 DATEV2: 'DATEV2';
+DATETIMEV1: 'DATETIMEV1';
+DATEV1: 'DATEV1';
 DAY: 'DAY';
 DAYS_ADD: 'DAYS_ADD';
 DAYS_SUB: 'DAYS_SUB';
@@ -293,6 +295,8 @@ INTERSECT: 'INTERSECT';
 INTERVAL: 'INTERVAL';
 INTO: 'INTO';
 INVERTED: 'INVERTED';
+IPV4: 'IPV4';
+IPV6: 'IPV6';
 IS: 'IS';
 IS_NOT_NULL_PRED: 'IS_NOT_NULL_PRED';
 IS_NULL_PRED: 'IS_NULL_PRED';
@@ -565,8 +569,8 @@ ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
 STRING_LITERAL
-    : '\'' ( ~('\''|'\\') | ('\\' .) )* '\''
-    | '"' ( ~('"'|'\\') | ('\\' .) )* '"'
+    : '\'' ('\\'. | '\'\'' | ~('\'' | '\\'))* '\''
+    | '"' ( '\\'. | '""' | ~('"'| '\\') )* '"'
     | 'R\'' (~'\'')* '\''
     | 'R"'(~'"')* '"'
     ;

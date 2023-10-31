@@ -116,6 +116,16 @@ partial_columns:true
 
 Also, specify the columns to be loaded in the `columns` header (it must include all key columns, or else updates cannot be performed).
 
+### Flink Connector
+
+If you are using the Flink Connector, you need to add the following configuration:
+
+```
+'sink.properties.partial_columns' = 'true',
+```
+
+Also, specify the columns to be loaded in `sink.properties.column` (it must include all key columns, or else updates cannot be performed).
+
 #### INSERT INTO
 
 In all data models, by default, when you use `INSERT INTO` with a given set of columns, the default behavior is to insert the entire row. To enable partial column updates in the Merge-on-Write implementation, you need to set the following session variable:

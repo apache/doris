@@ -38,7 +38,6 @@ import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterDatabaseRename;
-import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -50,7 +49,6 @@ import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -70,7 +68,6 @@ import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
-import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -113,6 +110,9 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.publish.TopicPublisher;
+import org.apache.doris.common.publish.TopicPublisherThread;
+import org.apache.doris.common.publish.WorkloadGroupPublisher;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.HttpURLUtil;
@@ -172,11 +172,9 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
@@ -248,7 +246,16 @@ import org.apache.doris.task.PriorityMasterTaskExecutor;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TFrontendInfo;
+import org.apache.doris.thrift.TGetMetaDBMeta;
+import org.apache.doris.thrift.TGetMetaIndexMeta;
+import org.apache.doris.thrift.TGetMetaPartitionMeta;
+import org.apache.doris.thrift.TGetMetaReplicaMeta;
+import org.apache.doris.thrift.TGetMetaResult;
+import org.apache.doris.thrift.TGetMetaTableMeta;
+import org.apache.doris.thrift.TGetMetaTabletMeta;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -461,8 +468,6 @@ public class Env {
 
     private PolicyMgr policyMgr;
 
-    private MTMVJobManager mtmvJobManager;
-
     private AnalysisManager analysisManager;
 
     private ExternalMetaCacheMgr extMetaCacheMgr;
@@ -491,6 +496,8 @@ public class Env {
     private StatisticsPeriodCollector statisticsPeriodCollector;
 
     private HiveTransactionMgr hiveTransactionMgr;
+
+    private TopicPublisherThread topicPublisherThread;
 
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
@@ -564,10 +571,6 @@ public class Env {
 
     public CatalogMgr getCatalogMgr() {
         return catalogMgr;
-    }
-
-    public MTMVJobManager getMTMVJobManager() {
-        return mtmvJobManager;
     }
 
     public ExternalMetaCacheMgr getExtMetaCacheMgr() {
@@ -711,7 +714,6 @@ public class Env {
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
-        this.mtmvJobManager = new MTMVJobManager();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
         this.analysisManager = new AnalysisManager();
         this.statisticsCleaner = new StatisticsCleaner();
@@ -726,6 +728,8 @@ public class Env {
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
+        this.topicPublisherThread = new TopicPublisherThread(
+                "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
     }
 
     public static void destroyCheckpoint() {
@@ -970,6 +974,10 @@ public class Env {
         }
 
         queryCancelWorker.start();
+
+        TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
+        topicPublisherThread.addToTopicPublisherList(wgPublisher);
+        topicPublisherThread.start();
     }
 
     // wait until FE is ready.
@@ -1563,8 +1571,6 @@ public class Env {
         if (Config.enable_hms_events_incremental_sync) {
             metastoreEventsProcessor.start();
         }
-        // start mtmv jobManager
-        mtmvJobManager.start();
         getRefreshManager().start();
 
         // binlog gcer
@@ -1574,6 +1580,8 @@ public class Env {
 
     // start threads that should running on all FE
     private void startNonMasterDaemonThreads() {
+        // start load manager thread
+        loadManager.start();
         tabletStatMgr.start();
         // load and export job label cleaner thread
         labelCleaner.start();
@@ -1613,8 +1621,6 @@ public class Env {
 
         MetricRepo.init();
 
-        // stop mtmv scheduler
-        mtmvJobManager.stop();
         if (analysisManager != null) {
             analysisManager.getStatisticsCache().preHeat();
         }
@@ -1726,7 +1732,8 @@ public class Env {
                 String url = "http://" + hostPort + "/image?version=" + version;
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(this.imageDir);
-                MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getFile(filename, dir));
+                MetaHelper.getRemoteFile(url, Config.sync_image_timeout_second * 1000,
+                        MetaHelper.getFile(filename, dir));
                 MetaHelper.complete(filename, dir);
             } else {
                 LOG.warn("get an image with a lower version, localImageVersion: {}, got version: {}",
@@ -2080,15 +2087,6 @@ public class Env {
     }
 
     /**
-     * Load mtmv jobManager.
-     **/
-    public long loadMTMVJobManager(DataInputStream in, long checksum) throws IOException {
-        this.mtmvJobManager = MTMVJobManager.read(in, checksum);
-        LOG.info("finished replay mtmv job and tasks from image");
-        return checksum;
-    }
-
-    /**
      * Load global function.
      **/
     public long loadGlobalFunction(DataInputStream in, long checksum) throws IOException {
@@ -2336,12 +2334,6 @@ public class Env {
      */
     public long saveCatalog(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getCatalogMgr().write(out);
-        return checksum;
-    }
-
-    public long saveMTMVJobManager(CountingDataOutputStream out, long checksum) throws IOException {
-        Env.getCurrentEnv().getMTMVJobManager().write(out, checksum);
-        LOG.info("Save mtmv job and tasks to image");
         return checksum;
     }
 
@@ -3009,10 +3001,6 @@ public class Env {
             }
             sb.append("\n) ENGINE=");
             sb.append(table.getType().name());
-        } else {
-            MaterializedView materializedView = ((MaterializedView) table);
-            sb.append("\n").append("BUILD ").append(materializedView.getBuildMode())
-                    .append(materializedView.getRefreshInfo().toString());
         }
 
         if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
@@ -3409,10 +3397,6 @@ public class Env {
             sb.append("\"table\" = \"").append(jdbcTable.getJdbcTable()).append("\",\n");
             sb.append("\"table_type\" = \"").append(jdbcTable.getJdbcTypeName()).append("\"");
             sb.append("\n)");
-        }
-
-        if (table.getType() == TableType.MATERIALIZED_VIEW) {
-            sb.append("\nAS ").append(((MaterializedView) table).getQuery());
         }
 
         createTableStmt.add(sb + ";");
@@ -4037,11 +4021,6 @@ public class Env {
         this.alter.processAlterTable(stmt);
     }
 
-    public void alterMaterializedView(AlterMaterializedViewStmt stmt) throws UserException {
-        AlterMultiMaterializedView alter = new AlterMultiMaterializedView(stmt.getTable(), stmt.getRefreshInfo());
-        this.alter.processAlterMaterializedView(alter, false);
-    }
-
     /**
      * used for handling AlterViewStmt (the ALTER VIEW command).
      */
@@ -4054,16 +4033,8 @@ public class Env {
         this.alter.processCreateMaterializedView(stmt);
     }
 
-    public void createMultiTableMaterializedView(CreateMultiTableMaterializedViewStmt stmt) throws UserException {
-        this.alter.processCreateMultiTableMaterializedView(stmt);
-    }
-
     public void dropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
         this.alter.processDropMaterializedView(stmt);
-    }
-
-    public void refreshMaterializedView(RefreshMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
-        this.alter.processRefreshMaterializedView(stmt);
     }
 
     /*
@@ -5611,6 +5582,89 @@ public class Env {
 
     public static boolean isTableNamesCaseInsensitive() {
         return GlobalVariable.lowerCaseTableNames == 2;
+    }
+
+    private static void getTableMeta(OlapTable olapTable, TGetMetaDBMeta dbMeta) {
+        LOG.debug("get table meta. table: {}", olapTable.getName());
+
+        TGetMetaTableMeta tableMeta = new TGetMetaTableMeta();
+        olapTable.readLock();
+        try {
+            tableMeta.setId(olapTable.getId());
+            tableMeta.setName(olapTable.getName());
+
+            PartitionInfo tblPartitionInfo = olapTable.getPartitionInfo();
+
+            Collection<Partition> partitions = olapTable.getAllPartitions();
+            for (Partition partition : partitions) {
+                TGetMetaPartitionMeta partitionMeta = new TGetMetaPartitionMeta();
+                long partitionId = partition.getId();
+                partitionMeta.setId(partitionId);
+                partitionMeta.setName(partition.getName());
+                String partitionRange = "";
+                if (tblPartitionInfo.getType() == PartitionType.RANGE
+                        || tblPartitionInfo.getType() == PartitionType.LIST) {
+                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
+                }
+                partitionMeta.setRange(partitionRange);
+                partitionMeta.setVisibleVersion(partition.getVisibleVersion());
+                // partitionMeta.setTemp（partition.isTemp());
+
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                    TGetMetaIndexMeta indexMeta = new TGetMetaIndexMeta();
+                    indexMeta.setId(index.getId());
+                    indexMeta.setName(olapTable.getIndexNameById(index.getId()));
+
+                    for (Tablet tablet : index.getTablets()) {
+                        TGetMetaTabletMeta tabletMeta = new TGetMetaTabletMeta();
+                        tabletMeta.setId(tablet.getId());
+
+                        for (Replica replica : tablet.getReplicas()) {
+                            TGetMetaReplicaMeta replicaMeta = new TGetMetaReplicaMeta();
+                            replicaMeta.setId(replica.getId());
+                            replicaMeta.setBackendId(replica.getBackendId());
+                            replicaMeta.setVersion(replica.getVersion());
+                            tabletMeta.addToReplicas(replicaMeta);
+                        }
+
+                        indexMeta.addToTablets(tabletMeta);
+                    }
+
+                    partitionMeta.addToIndexes(indexMeta);
+                }
+                tableMeta.addToPartitions(partitionMeta);
+            }
+            dbMeta.addToTables(tableMeta);
+        } finally {
+            olapTable.readUnlock();
+        }
+    }
+
+    public static TGetMetaResult getMeta(Database db, List<Table> tables) throws MetaNotFoundException {
+        TGetMetaResult result = new TGetMetaResult();
+        result.setStatus(new TStatus(TStatusCode.OK));
+
+        TGetMetaDBMeta dbMeta = new TGetMetaDBMeta();
+        dbMeta.setId(db.getId());
+        dbMeta.setName(db.getFullName());
+
+        if (tables == null) {
+            db.readLock();
+            tables = db.getTables();
+            db.readUnlock();
+        }
+
+        for (Table table : tables) {
+            if (table.getType() != TableType.OLAP) {
+                continue;
+            }
+
+            OlapTable olapTable = (OlapTable) table;
+            getTableMeta(olapTable, dbMeta);
+        }
+
+        result.setDbMeta(dbMeta);
+        return result;
     }
 
     public void compactTable(AdminCompactTableStmt stmt) throws DdlException {

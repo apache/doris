@@ -415,6 +415,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     }
 
     if (!rpc_status.ok()) {
+        LOG_INFO("Going to cancel instance {} since report exec status got rpc failed: {}",
+                 print_id(req.fragment_instance_id), rpc_status.to_string());
         // we need to cancel the execution of this fragment
         static_cast<void>(req.update_fn(rpc_status));
         req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, rpc_status.msg());
@@ -425,15 +427,13 @@ static void empty_function(RuntimeState*, Status*) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                                const FinishCallback& cb) {
-    std::string func_name {"PlanFragmentExecutor::_exec_actual"};
 #ifndef BE_TEST
     SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
 #endif
 
-    LOG_INFO(func_name)
-            .tag("query_id", fragment_executor->query_id())
-            .tag("instance_id", fragment_executor->fragment_instance_id())
-            .tag("pthread_id", (uintptr_t)pthread_self());
+    LOG_INFO("Instance {} executing",
+             PrintInstanceStandardInfo(fragment_executor->query_id(),
+                                       fragment_executor->fragment_instance_id()));
 
     Status st = fragment_executor->execute();
     if (!st.ok()) {
@@ -452,8 +452,13 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
     {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_instance_map.erase(fragment_executor->fragment_instance_id());
+
+        LOG_INFO("Instance {} finished",
+                 PrintInstanceStandardInfo(fragment_executor->query_id(),
+                                           fragment_executor->fragment_instance_id()));
         if (all_done && query_ctx) {
             _query_ctx_map.erase(query_ctx->query_id());
+            LOG_INFO("Query {} finished", print_id(query_ctx->query_id()));
         }
     }
 
@@ -560,11 +565,12 @@ void FragmentMgr::remove_pipeline_context(
     f_context->instance_ids(ins_ids);
     bool all_done = q_context->countdown(ins_ids.size());
     for (const auto& ins_id : ins_ids) {
-        VLOG_DEBUG << "remove pipeline context " << print_id(ins_id) << ", all_done:" << all_done;
+        LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
+                 print_id(ins_id), all_done);
         _pipeline_map.erase(ins_id);
     }
     if (all_done) {
-        LOG(INFO) << "remove query context " << print_id(query_id);
+        LOG_INFO("Query {} finished", print_id(query_id));
         _query_ctx_map.erase(query_id);
     }
 }
@@ -584,6 +590,17 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
         query_ctx = search->second;
     } else {
+        {
+            // Find _query_ctx_map, in case some other request has already
+            // create the query fragments context.
+            std::lock_guard<std::mutex> lock(_lock);
+            auto search = _query_ctx_map.find(query_id);
+            if (search != _query_ctx_map.end()) {
+                query_ctx = search->second;
+                return Status::OK();
+            }
+        }
+
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, params.fragment_num_on_host, _exec_env,
@@ -789,11 +806,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
     cur_span->SetAttribute("query_id", print_id(params.query_id));
 
-    VLOG_ROW << "exec_plan_fragment params is "
+    VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
-    VLOG_ROW << "query options is "
+    VLOG_ROW << "query: " << print_id(params.query_id) << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
     std::shared_ptr<QueryContext> query_ctx;
@@ -1064,6 +1081,7 @@ void FragmentMgr::cancel_worker() {
             }
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
                 if (it->second->is_timeout(now)) {
+                    LOG_INFO("Query {} is timeout", print_id(it->first));
                     it = _query_ctx_map.erase(it);
                 } else {
                     ++it;

@@ -51,9 +51,10 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     return Status::OK();
 }
 
-PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, int operator_id,
+                                                       const TPlanNode& tnode,
                                                        const DescriptorTbl& descs)
-        : DataSinkOperatorX(tnode.node_id),
+        : DataSinkOperatorX(operator_id, tnode.node_id),
           _pool(pool),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _limit(tnode.limit),
@@ -95,7 +96,7 @@ Status PartitionSortSinkOperatorX::open(RuntimeState* state) {
 
 Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* input_block,
                                         SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     auto current_rows = input_block->rows();
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     if (current_rows > 0) {

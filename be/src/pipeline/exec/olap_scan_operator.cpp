@@ -293,7 +293,8 @@ TOlapScanNode& OlapScanLocalState::olap_scan_node() {
     return _parent->cast<OlapScanOperatorX>()._olap_scan_node;
 }
 
-void OlapScanLocalState::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
+                                         const std::vector<TScanRangeParams>& scan_ranges) {
     for (auto& scan_range : scan_ranges) {
         DCHECK(scan_range.scan_range.__isset.palo_scan_range);
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
@@ -470,9 +471,9 @@ void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& upda
     _segment_profile->add_info_string(filter_name, info_str);
 }
 
-OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                      const DescriptorTbl& descs)
-        : ScanOperatorX<OlapScanLocalState>(pool, tnode, descs),
+        : ScanOperatorX<OlapScanLocalState>(pool, tnode, operator_id, descs),
           _olap_scan_node(tnode.olap_scan_node) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     _col_distribute_ids = tnode.olap_scan_node.distribute_column_ids;
