@@ -447,11 +447,15 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
             local_state._child_source_state != SourceState::FINISHED) {
             return Status::OK();
         }
-        RETURN_IF_ERROR(
-                push(state, local_state._child_block.get(), local_state._child_source_state));
+        {
+            SCOPED_TIMER(local_state.profile()->total_time_counter());
+            RETURN_IF_ERROR(
+                    push(state, local_state._child_block.get(), local_state._child_source_state));
+        }
     }
 
     if (!need_more_input_data(state)) {
+        SCOPED_TIMER(local_state.profile()->total_time_counter());
         SourceState new_state = SourceState::DEPEND_ON_SOURCE;
         RETURN_IF_ERROR(pull(state, block, new_state));
         if (new_state == SourceState::FINISHED) {

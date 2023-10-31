@@ -54,16 +54,8 @@ struct ExchangeDataDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeDataDependency);
     ExchangeDataDependency(int id, vectorized::VDataStreamRecvr::SenderQueue* sender_queue)
-            : Dependency(id, "DataDependency"), _sender_queue(sender_queue), _always_done(false) {}
+            : Dependency(id, "DataDependency"), _always_done(false) {}
     void* shared_state() override { return nullptr; }
-    [[nodiscard]] Dependency* read_blocked_by() override {
-        if (config::enable_fuzzy_mode && _sender_queue->should_wait() &&
-            _read_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
-            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
-        }
-        return _sender_queue->should_wait() ? this : nullptr;
-    }
 
     void set_always_done() {
         _always_done = true;
@@ -74,17 +66,14 @@ public:
         _ready_for_read = true;
     }
 
-    void set_ready_for_read() override {
-        if (_always_done || !_ready_for_read) {
+    void block_reading() override {
+        if (_always_done) {
             return;
         }
         _ready_for_read = false;
-        // ScannerContext is set done outside this function now and only stop watcher here.
-        _read_dependency_watcher.start();
     }
 
 private:
-    vectorized::VDataStreamRecvr::SenderQueue* _sender_queue;
     std::atomic<bool> _always_done;
 };
 
