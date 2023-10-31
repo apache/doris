@@ -45,12 +45,6 @@ public class GroupMatching {
                     matchingPlans.add(plan);
                 }
             }
-            // Jackwener: We don't need to match physical expressions.
-            // for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
-            //     for (Plan plan : new GroupExpressionMatching(pattern, groupExpression)) {
-            //         matchingPlans.add(plan);
-            //     }
-            // }
         }
         return matchingPlans;
     }

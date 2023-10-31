@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -66,9 +67,10 @@ public class JoinUtils {
      * check if the row count of the left child in the broadcast join is less than a threshold value.
      */
     public static boolean checkBroadcastJoinStats(PhysicalHashJoin<? extends Plan, ? extends Plan> join) {
-        double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
-        double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
-        double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        double memLimit = sessionVariable.getMaxExecMemByte();
+        double rowsLimit = sessionVariable.getBroadcastRowCountLimit();
+        double brMemlimit = sessionVariable.getBroadcastHashtableMemLimitPercentage();
         double datasize = join.getGroupExpression().get().child(1).getStatistics().computeSize();
         double rowCount = join.getGroupExpression().get().child(1).getStatistics().getRowCount();
         return rowCount <= rowsLimit && datasize <= memLimit * brMemlimit;
@@ -114,12 +116,12 @@ public class JoinUtils {
          * @return true if the equal can be used as hash join condition
          */
         public boolean isHashJoinCondition(EqualTo equalTo) {
-            Set<Slot> equalLeft = equalTo.left().collect(Slot.class::isInstance);
+            Set<Slot> equalLeft = equalTo.left().getInputSlots();
             if (equalLeft.isEmpty()) {
                 return false;
             }
 
-            Set<Slot> equalRight = equalTo.right().collect(Slot.class::isInstance);
+            Set<Slot> equalRight = equalTo.right().getInputSlots();
             if (equalRight.isEmpty()) {
                 return false;
             }
