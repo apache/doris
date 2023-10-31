@@ -28,7 +28,6 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropPartitionFromIndexClause;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.ModifyEngineClause;
@@ -123,26 +122,14 @@ public class Alter {
     }
 
     public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
-        if (!stmt.isForMTMV() && stmt.getTableName() == null) {
-            throw new DdlException("Drop materialized view without table name is unsupported : " + stmt.toSql());
-        }
+        TableName tableName = stmt.getTableName();
+        // check db
+        String dbName = tableName.getDb();
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
-        // drop materialized view
-        if (!stmt.isForMTMV()) {
-            TableName tableName = stmt.getTableName();
-
-            // check db
-            String dbName = tableName.getDb();
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-
-            String name = tableName.getTbl();
-            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name, TableType.OLAP);
-            ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
-        } else {
-            DropTableStmt dropTableStmt = new DropTableStmt(stmt.isIfExists(), stmt.getMTMVName(), false);
-            dropTableStmt.setMaterializedView(true);
-            Env.getCurrentInternalCatalog().dropTable(dropTableStmt);
-        }
+        String name = tableName.getTbl();
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name, TableType.OLAP);
+        ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,

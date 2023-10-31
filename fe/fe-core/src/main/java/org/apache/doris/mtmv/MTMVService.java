@@ -60,46 +60,54 @@ public class MTMVService {
         hooks.remove(name);
     }
 
+    // when create mtmv,triggered when playing back logs
     public void registerMTMV(MTMV materializedView) {
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.registerMTMV(materializedView);
         }
     }
 
+    // when drop mtmv,triggered when playing back logs
     public void deregisterMTMV(MTMV materializedView) {
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.deregisterMTMV(materializedView);
         }
     }
 
+    // when create mtmv,only trigger once
     public void createMTMV(MTMV materializedView) throws DdlException {
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.createMTMV(materializedView);
         }
     }
 
+    // when drop mtmv,only trigger once
     public void dropMTMV(MTMV materializedView) {
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.dropMTMV(materializedView);
         }
     }
 
+    // when alter mtmv,only trigger once
     public void alterMTMV(MTMV materializedView, AlterMTMV alterMTMV) throws DdlException {
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.alterMTMV(materializedView, alterMTMV);
         }
     }
 
+    // when refresh mtmv,only trigger once
     public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.refreshMTMV(info);
         }
     }
 
+    // when base table is dropped,only trigger once
     public void dropTable(Table table) throws UserException {
         processBaseTableChange(table, "The base table has been deleted:");
     }
 
+    // when base table is Modified,only trigger once
     public void alterTable(Table table) throws UserException {
         processBaseTableChange(table, "The base table has been updated:");
     }
