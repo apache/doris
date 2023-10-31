@@ -37,6 +37,7 @@ import org.apache.commons.text.StringSubstitutor;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -121,8 +122,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<Long> tabletIds = pair.first;
         double scaleFactor = (double) tbl.getRowCount() / (double) pair.second;
         // might happen if row count in fe metadata hasn't been updated yet
-        if (Double.isInfinite(scaleFactor)) {
+        if (Double.isInfinite(scaleFactor) || Double.isNaN(scaleFactor)) {
             scaleFactor = 1;
+            tabletIds = Collections.emptyList();
         }
         String tabletStr = tabletIds.stream()
                 .map(Object::toString)
