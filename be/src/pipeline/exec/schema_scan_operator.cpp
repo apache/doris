@@ -47,7 +47,7 @@ Status SchemaScanOperator::close(RuntimeState* state) {
 Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
 
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<SchemaScanOperatorX>();
     _scanner_param.common_param = p._common_scanner_param;
@@ -212,7 +212,7 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
 Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_CANCELLED(state);
     bool schema_eos = false;
 

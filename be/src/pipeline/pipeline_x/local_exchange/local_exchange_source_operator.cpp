@@ -21,7 +21,7 @@ namespace doris::pipeline {
 
 Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _dependency->set_shared_state(info.local_exchange_state);
     _shared_state = (LocalExchangeSharedState*)_dependency->shared_state();
@@ -37,7 +37,7 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
 Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                SourceState& source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     PartitionedBlock partitioned_block;
     std::unique_ptr<vectorized::MutableBlock> mutable_block = nullptr;
 

@@ -119,7 +119,7 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     }
     RETURN_IF_ERROR(Base::init(state, info));
     ss->data_queue.set_dependency(_dependency);
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     // Const exprs materialized by this node. These exprs don't refer to any children.
     // Only materialized by the first fragment instance to avoid duplication.
@@ -152,7 +152,7 @@ std::shared_ptr<UnionSharedState> UnionSourceLocalState::create_shared_state() {
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                        SourceState& source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     if (local_state._need_read_for_const_expr) {
         if (has_more_const(state)) {
             static_cast<void>(get_next_const(state, block));

@@ -31,7 +31,7 @@ OperatorPtr PartitionSortSourceOperatorBuilder::build_operator() {
 
 Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<PartitionSortDependency>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
     _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
@@ -43,7 +43,7 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
                                                SourceState& source_state) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_TIMER(local_state._get_next_timer);
     output_block->clear_column_data();
     {

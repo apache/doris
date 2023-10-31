@@ -31,7 +31,7 @@ OperatorPtr OlapTableSinkOperatorBuilder::build_operator() {
 
 Status OlapTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
     RETURN_IF_ERROR(_writer->init_properties(p._pool, p._group_commit));
@@ -43,7 +43,7 @@ Status OlapTableSinkLocalState::close(RuntimeState* state, Status exec_status) {
         return Status::OK();
     }
     SCOPED_TIMER(_close_timer);
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     if (_closed) {
         return _close_status;
     }
