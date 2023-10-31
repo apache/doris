@@ -360,6 +360,8 @@ public class Env {
     private TimerJobManager timerJobManager;
     private TransientTaskManager transientTaskManager;
     private JobTaskManager jobTaskManager;
+    
+    private TaskDisruptor taskDisruptor;
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
     private Daemon feDiskUpdater;  // Update fe disk info
@@ -640,7 +642,7 @@ public class Env {
         this.jobTaskManager = new JobTaskManager();
         this.timerJobManager = new TimerJobManager();
         this.transientTaskManager = new TransientTaskManager();
-        TaskDisruptor taskDisruptor = new TaskDisruptor(this.timerJobManager, this.transientTaskManager);
+        this.taskDisruptor = new TaskDisruptor(this.timerJobManager, this.transientTaskManager);
         this.timerJobManager.setDisruptor(taskDisruptor);
         this.transientTaskManager.setDisruptor(taskDisruptor);
         this.persistentJobRegister = new TimerJobRegister(timerJobManager);
@@ -1544,6 +1546,7 @@ public class Env {
         publishVersionDaemon.start();
         // Start txn cleaner
         txnCleaner.start();
+        taskDisruptor.start();
         timerJobManager.start();
         // Alter
         getAlterInstance().start();
