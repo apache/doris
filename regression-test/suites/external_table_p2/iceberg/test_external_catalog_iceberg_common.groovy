@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_external_catalog_iceberg_partition", "p2,external,iceberg,external_remote,external_remote_iceberg") {
+suite("test_external_catalog_iceberg_common", "p2,external,iceberg,external_remote,external_remote_iceberg") {
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
