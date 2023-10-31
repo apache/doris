@@ -55,7 +55,6 @@ public class GroupExpressionMatching implements Iterable<Plan> {
     public static class GroupExpressionIterator implements Iterator<Plan> {
         private final List<Plan> results = Lists.newArrayList();
         private int resultIndex = 0;
-        private int resultsSize;
 
         /**
          * Constructor.
@@ -104,7 +103,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                 // matching children group, one List<Plan> per child
                 // first dimension is every child group's plan
                 // second dimension is all matched plan in one group
-                List<Plan>[] childrenPlans = new List[childrenGroupArity];
+                List<List<Plan>> childrenPlans = Lists.newArrayListWithCapacity(childrenGroupArity);
                 for (int i = 0; i < childrenGroupArity; ++i) {
                     Group childGroup = groupExpression.child(i);
                     List<Plan> childrenPlan = matchingChildGroup(pattern, childGroup, i);
@@ -117,7 +116,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                             return;
                         }
                     }
-                    childrenPlans[i] = childrenPlan;
+                    childrenPlans.add(childrenPlan);
                 }
                 assembleAllCombinationPlanTree(root, pattern, groupExpression, childrenPlans);
             } else if (patternArity == 1 && (pattern.hasMultiChild() || pattern.hasMultiGroupChild())) {
@@ -128,7 +127,6 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                     results.add(root);
                 }
             }
-            this.resultsSize = results.size();
         }
 
         private List<Plan> matchingChildGroup(Pattern<? extends Plan> parentPattern,
@@ -156,37 +154,40 @@ public class GroupExpressionMatching implements Iterable<Plan> {
         }
 
         private void assembleAllCombinationPlanTree(Plan root, Pattern<Plan> rootPattern,
-                GroupExpression groupExpression, List<Plan>[] childrenPlans) {
-            int childrenPlansSize = childrenPlans.length;
-            int[] childrenPlanIndex = new int[childrenPlansSize];
+                GroupExpression groupExpression,
+                List<List<Plan>> childrenPlans) {
+            int[] childrenPlanIndex = new int[childrenPlans.size()];
             int offset = 0;
             LogicalProperties logicalProperties = groupExpression.getOwnerGroup().getLogicalProperties();
 
             // assemble all combination of plan tree by current root plan and children plan
-            Optional<GroupExpression> groupExprOption = Optional.of(groupExpression);
-            Optional<LogicalProperties> logicalPropOption = Optional.of(logicalProperties);
-            while (offset < childrenPlansSize) {
-                ImmutableList.Builder<Plan> childrenBuilder = ImmutableList.builderWithExpectedSize(childrenPlansSize);
-                for (int i = 0; i < childrenPlansSize; i++) {
-                    childrenBuilder.add(childrenPlans[i].get(childrenPlanIndex[i]));
+            while (offset < childrenPlans.size()) {
+                ImmutableList.Builder<Plan> childrenBuilder =
+                        ImmutableList.builderWithExpectedSize(childrenPlans.size());
+                for (int i = 0; i < childrenPlans.size(); i++) {
+                    childrenBuilder.add(childrenPlans.get(i).get(childrenPlanIndex[i]));
                 }
                 List<Plan> children = childrenBuilder.build();
 
                 // assemble children: replace GroupPlan to real plan,
                 // withChildren will erase groupExpression, so we must
                 // withGroupExpression too.
-                Plan rootWithChildren = root.withGroupExprLogicalPropChildren(groupExprOption,
-                        logicalPropOption, children);
+                Plan rootWithChildren = root.withGroupExprLogicalPropChildren(Optional.of(groupExpression),
+                        Optional.of(logicalProperties), children);
                 if (rootPattern.matchPredicates(rootWithChildren)) {
                     results.add(rootWithChildren);
                 }
-                for (offset = 0; offset < childrenPlansSize; offset++) {
+                offset = 0;
+                while (true) {
                     childrenPlanIndex[offset]++;
-                    if (childrenPlanIndex[offset] == childrenPlans[offset].size()) {
-                        // Reset the index when it reaches the size of the current child plan list
+                    if (childrenPlanIndex[offset] == childrenPlans.get(offset).size()) {
                         childrenPlanIndex[offset] = 0;
+                        offset++;
+                        if (offset == childrenPlans.size()) {
+                            break;
+                        }
                     } else {
-                        break;  // Break the loop when the index is within the size of the current child plan list
+                        break;
                     }
                 }
             }
@@ -194,7 +195,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
 
         @Override
         public boolean hasNext() {
-            return resultIndex < resultsSize;
+            return resultIndex < results.size();
         }
 
         @Override
