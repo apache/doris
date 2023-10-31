@@ -73,7 +73,7 @@ TEST_F(StatusTest, Error) {
     }
 }
 
-TEST_F(StatusTest, Format) {
+TEST_F(StatusTest /*unused*/, Format /*unused*/) {
     // default
     Status st;
     EXPECT_TRUE(fmt::format("{}", st).compare(fmt::format("{}", st.to_string())) == 0);
