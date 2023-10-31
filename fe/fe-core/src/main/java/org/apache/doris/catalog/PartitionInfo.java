@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
@@ -29,11 +30,13 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStringLiteral;
 import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -49,6 +52,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /*
  * Repository of a partition's related infos
@@ -147,6 +151,63 @@ public class PartitionInfo implements Writable {
         } else {
             idToItem.put(partitionId, item);
         }
+    }
+
+    // for auto partition. now only support one column.
+    public boolean contains(TStringLiteral key, PartitionType partitionType) throws AnalysisException {
+        if (partitionType == PartitionType.LIST) {
+            PartitionValue keyValue = new PartitionValue(key.getValue());
+
+            List<ListPartitionItem> existPartitions = Stream.of(idToItem, idToTempItem)
+                    .flatMap(map -> map.values().stream())
+                    .map(item -> (ListPartitionItem) item)
+                    .collect(Collectors.toList());
+            if (existPartitions.isEmpty()) {
+                return false;
+            }
+            // keyExpr is to check.
+            Preconditions.checkArgument(existPartitions.get(0).getItems().get(0).getKeys().size() == 1);
+            PrimitiveType toType = existPartitions.get(0).getItems().get(0).getTypes().get(0);
+            LiteralExpr detectExpr = LiteralExpr.create(keyValue.getStringValue(), Type.fromPrimitiveType(toType));
+
+            for (ListPartitionItem item : existPartitions) {
+                List<PartitionKey> keysListInOneItem = item.getItems(); // a partition item may have multi partition key
+                for (PartitionKey oneKeyForColumns : keysListInOneItem) {
+                    // now only support 1 partition column
+                    LiteralExpr keyExprInItem = oneKeyForColumns.getKeys().get(0);
+                    if (detectExpr.compareLiteral(keyExprInItem) == 0) {
+                        return true;
+                    }
+                }
+            }
+        } else if (partitionType == PartitionType.RANGE) {
+            PartitionValue keyValue = new PartitionValue(key.getValue());
+
+            List<RangePartitionItem> existPartitions = Stream.of(idToItem, idToTempItem)
+                    .flatMap(map -> map.values().stream())
+                    .map(item -> (RangePartitionItem) item)
+                    .collect(Collectors.toList());
+            if (existPartitions.isEmpty()) {
+                return false;
+            }
+            // keyExpr is to check.
+            Preconditions.checkArgument(existPartitions.get(0).getItems().lowerEndpoint().getKeys().size() == 1);
+            PrimitiveType toType = existPartitions.get(0).getItems().lowerEndpoint().getTypes().get(0);
+            LiteralExpr detectExpr = LiteralExpr.create(keyValue.getStringValue(), Type.fromPrimitiveType(toType));
+
+            for (RangePartitionItem item : existPartitions) {
+                Range<PartitionKey> keysListInOneItem = item.getItems();
+                LiteralExpr lowerKey = keysListInOneItem.lowerEndpoint().getKeys().get(0);
+                LiteralExpr upperKey = keysListInOneItem.upperEndpoint().getKeys().get(0);
+                if (upperKey instanceof MaxLiteral
+                        || (detectExpr.compareLiteral(lowerKey) >= 0 && detectExpr.compareLiteral(upperKey) < 0)) {
+                    return true;
+                }
+            }
+        } else {
+            throw new AnalysisException("Only support IN/FIXED on checking partition's inclusion");
+        }
+        return false;
     }
 
     public PartitionItem handleNewSinglePartitionDesc(SinglePartitionDesc desc,

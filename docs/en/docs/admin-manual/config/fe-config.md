@@ -167,7 +167,7 @@ Default：100
 
 the max txn number which bdbje can rollback when trying to rejoin the group
 
-### `grpc_threadmgr_threads_nums`
+#### `grpc_threadmgr_threads_nums`
 
 Default: 4096
 
@@ -2777,3 +2777,9 @@ Forbid LocalDeployManager drop nodes to prevent errors in the cluster.info file 
 Default: mysql
 
 To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. If this database conflicts with a user's own database, please modify this field to replace the name of the Doris built-in MySQL database with a different name.
+
+#### `max_auto_partition_num`
+
+Default value: 2000
+
+For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000.

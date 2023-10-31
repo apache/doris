@@ -113,9 +113,15 @@ public class PartitionExprUtil {
         return null;
     }
 
-    public static Map<String, AddPartitionClause> getAddPartitionClauseFromPartitionValues(OlapTable olapTable,
+    // In one calling, because we have partition values filter, the same partition
+    // value won't make duplicate AddPartitionClause.
+    // But if there's same partition values in two calling of this. we may have the
+    // different partition name because we have timestamp suffix here.
+    // Should check existence of partitions in this table. so need readlock first.
+    public static Map<String, AddPartitionClause> getNonExistPartitionAddClause(OlapTable olapTable,
             ArrayList<TStringLiteral> partitionValues, PartitionInfo partitionInfo)
             throws AnalysisException {
+        olapTable.readLock();
         Map<String, AddPartitionClause> result = Maps.newHashMap();
         ArrayList<Expr> partitionExprs = partitionInfo.getPartitionExprs();
         PartitionType partitionType = partitionInfo.getType();
@@ -132,6 +138,12 @@ public class PartitionExprUtil {
                 continue;
             }
             filterPartitionValues.add(value);
+
+            // check if this key value has been covered by some partition.
+            if (partitionInfo.contains(partitionValue, partitionType)) {
+                continue;
+            }
+
             if (partitionType == PartitionType.RANGE) {
                 String beginTime = value;
                 DateLiteral beginDateTime = new DateLiteral(beginTime, partitionColumnType);
@@ -147,21 +159,24 @@ public class PartitionExprUtil {
                 listValues.add(Collections.singletonList(lowerValue));
                 partitionKeyDesc = PartitionKeyDesc.createIn(
                         listValues);
+                // the partition's name can't contain some special characters. so some string
+                // values(like a*b and ab) will get same partition name. to distingush them, we
+                // have to add a timestamp.
                 partitionName += getFormatPartitionValue(lowerValue.getStringValue());
                 if (partitionColumnType.isStringType()) {
                     partitionName += "_" + System.currentTimeMillis();
                 }
             } else {
-                throw new AnalysisException("now only support range and list partition");
+                throw new AnalysisException("auto-partition only support range and list partition");
             }
 
             Map<String, String> partitionProperties = Maps.newHashMap();
             DistributionDesc distributionDesc = olapTable.getDefaultDistributionInfo().toDistributionDesc();
 
-            SinglePartitionDesc singleRangePartitionDesc = new SinglePartitionDesc(true, partitionName,
+            SinglePartitionDesc partitionDesc = new SinglePartitionDesc(true, partitionName,
                     partitionKeyDesc, partitionProperties);
 
-            AddPartitionClause addPartitionClause = new AddPartitionClause(singleRangePartitionDesc,
+            AddPartitionClause addPartitionClause = new AddPartitionClause(partitionDesc,
                     distributionDesc, partitionProperties, false);
             result.put(partitionName, addPartitionClause);
         }

@@ -25,9 +25,12 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.NativeInsertStmt;
+import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionExprUtil;
+import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.TableName;
@@ -251,6 +254,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BiPredicate;
 import java.util.function.IntSupplier;
 import java.util.stream.Collectors;
 
@@ -3255,8 +3259,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        OlapTable olapTable = (OlapTable) table;
-        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        // extract request's partitions
         ArrayList<TStringLiteral> partitionValues = new ArrayList<TStringLiteral>();
         for (int i = 0; i < request.partitionValues.size(); i++) {
             if (request.partitionValues.get(i).size() != 1) {
@@ -3267,9 +3270,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             partitionValues.add(request.partitionValues.get(i).get(0));
         }
-        Map<String, AddPartitionClause> addPartitionClauseMap;
+
+        // get the table and its partitions.
+        OlapTable olapTable = (OlapTable) table;
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+
+        // generate the partitions from value.
+        Map<String, AddPartitionClause> addPartitionClauseMap; // name to partition. each is one partition.
         try {
-            addPartitionClauseMap = PartitionExprUtil.getAddPartitionClauseFromPartitionValues(olapTable,
+            // won't get duplicate values. WE WILL HOLD READ LOCK FROM NOW ON.
+            addPartitionClauseMap = PartitionExprUtil.getNonExistPartitionAddClause(olapTable,
                     partitionValues, partitionInfo);
         } catch (AnalysisException ex) {
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
@@ -3277,10 +3287,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
+        // check partition's number limit.
+        int partitionNum = olapTable.getPartitionNum() + addPartitionClauseMap.size();
+        if (partitionNum > Config.max_auto_partition_num) {
+            String errorMessage = String.format(
+                    "create partition failed. partition numbers %d will exceed limit variable max_auto_partition_num%d",
+                    partitionNum, Config.max_auto_partition_num);
+            LOG.warn(errorMessage);
+            errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
+            result.setStatus(errorStatus);
+            return result;
+        }
+
+        // add partitions to table. will write metadata.
         for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
             try {
-                // here maybe check and limit created partitions num
-                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionClause);
+                Env.getCurrentEnv().addPartitionReadLocked(db, olapTable, addPartitionClause);
             } catch (DdlException e) {
                 LOG.warn(e);
                 errorStatus.setErrorMsgs(

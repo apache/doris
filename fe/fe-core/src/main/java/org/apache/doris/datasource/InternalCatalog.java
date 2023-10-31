@@ -1370,7 +1370,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             } finally {
                 table.readUnlock();
             }
-            addPartition(db, tableName, clause);
+            addPartition(db, tableName, clause, false);
 
         } catch (UserException e) {
             throw new DdlException("Failed to ADD PARTITION " + addPartitionLikeClause.getPartitionName()
@@ -1378,7 +1378,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
+    public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause, boolean skipLock)
+            throws DdlException {
         SinglePartitionDesc singlePartitionDesc = addPartitionClause.getSingeRangePartitionDesc();
         DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
         boolean isTempPartition = addPartitionClause.isTempPartition();
@@ -1391,7 +1392,9 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
-        olapTable.readLock();
+        if (!skipLock) { // otherwise, there's locked outside.
+            olapTable.readLock();
+        }
         try {
             olapTable.checkNormalStateForAlter();
             // check partition type
@@ -1521,10 +1524,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             // get BinlogConfig
             binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
         } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        } finally {
             olapTable.readUnlock();
+            throw new DdlException(e.getMessage());
         }
+        // now we still hold the read lock.
 
         Preconditions.checkNotNull(distributionInfo);
         Preconditions.checkNotNull(olapTable);
