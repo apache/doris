@@ -45,7 +45,7 @@ ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* paren
 
 Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
@@ -64,7 +64,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         static const std::string timer_name =
                 "WaitForDependency[" + source_dependency->name() + "]Time";
         _wait_for_dependency_timer = ADD_TIMER(_runtime_profile, timer_name);
-        metrics[i] = ADD_CHILD_TIMER(_runtime_profile, "WaitForData", timer_name);
+        metrics[i] = ADD_CHILD_TIMER(_runtime_profile, fmt::format("WaitForData{}", i), timer_name);
     }
     RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
             state, vsort_exec_exprs));
@@ -72,7 +72,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 }
 
 Status ExchangeLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
     return Status::OK();
@@ -125,7 +125,7 @@ Status ExchangeSourceOperatorX::open(RuntimeState* state) {
 Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     if (_is_merging && !local_state.is_ready) {
         RETURN_IF_ERROR(local_state.stream_recvr->create_merger(
                 local_state.vsort_exec_exprs.lhs_ordering_expr_ctxs(), _is_asc_order, _nulls_first,
@@ -168,7 +168,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
 }
 
 Status ExchangeLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();

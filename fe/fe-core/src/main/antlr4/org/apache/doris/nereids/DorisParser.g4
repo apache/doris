@@ -522,7 +522,7 @@ booleanExpression
     ;
 
 rowConstructor
-    : LEFT_PAREN namedExpression (COMMA namedExpression)+ RIGHT_PAREN
+    : LEFT_PAREN namedExpression (COMMA namedExpression)* RIGHT_PAREN
     ;
 
 predicate

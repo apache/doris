@@ -22,8 +22,6 @@
 #include <CLucene/util/bkd/bkd_writer.h>
 #include <glog/logging.h>
 
-#include <algorithm>
-#include <cstdint>
 #include <limits>
 #include <memory>
 #include <ostream>
@@ -51,6 +49,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/collection_value.h"
+#include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 #include "util/string_util.h"
@@ -477,6 +476,8 @@ public:
                         InvertedIndexDescriptor::get_temporary_bkd_index_meta_file_name().c_str());
                 index_out = dir->createOutput(
                         InvertedIndexDescriptor::get_temporary_bkd_index_file_name().c_str());
+                DBUG_EXECUTE_IF("InvertedIndexWriter._set_fulltext_data_out_nullptr",
+                                { data_out = nullptr; });
                 if (data_out != nullptr && meta_out != nullptr && index_out != nullptr) {
                     _bkd_writer->meta_finish(meta_out, _bkd_writer->finish(data_out, index_out),
                                              int(field_type));
@@ -492,6 +493,9 @@ public:
                 dir = _index_writer->getDirectory();
                 write_null_bitmap(null_bitmap_out, dir);
                 close();
+                DBUG_EXECUTE_IF("InvertedIndexWriter._throw_clucene_error_in_bkd_writer_close", {
+                    _CLTHROWA(CL_ERR_IO, "debug point: test throw error in bkd index writer");
+                });
             }
         } catch (CLuceneError& e) {
             FINALLY_FINALIZE_OUTPUT(null_bitmap_out)

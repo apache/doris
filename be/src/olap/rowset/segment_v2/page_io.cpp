@@ -130,7 +130,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         uint32_t footer_size = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
         std::string footer_buf(page_slice.data + page_slice.size - 4 - footer_size, footer_size);
         if (!footer->ParseFromString(footer_buf)) {
-            return Status::Corruption("Bad page: invalid footer");
+            return Status::Corruption("Bad page: invalid footer, footer_size={}, file={}",
+                                      footer_size, opts.file_reader->path().native());
         }
         *body = Slice(page_slice.data, page_slice.size - 4 - footer_size);
         return Status::OK();
@@ -139,7 +140,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     // every page contains 4 bytes footer length and 4 bytes checksum
     const uint32_t page_size = opts.page_pointer.size;
     if (page_size < 8) {
-        return Status::Corruption("Bad page: too small size ({})", page_size);
+        return Status::Corruption("Bad page: too small size ({}), file={}", page_size,
+                                  opts.file_reader->path().native());
     }
 
     // hold compressed page at first, reset to decompressed page later
@@ -158,8 +160,9 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
         uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
         if (expect != actual) {
-            return Status::Corruption("Bad page: checksum mismatch (actual={} vs expect={})",
-                                      actual, expect);
+            return Status::Corruption(
+                    "Bad page: checksum mismatch (actual={} vs expect={}), file={}", actual, expect,
+                    opts.file_reader->path().native());
         }
     }
 
@@ -168,13 +171,16 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     // parse and set footer
     uint32_t footer_size = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
     if (!footer->ParseFromArray(page_slice.data + page_slice.size - 4 - footer_size, footer_size)) {
-        return Status::Corruption("Bad page: invalid footer");
+        return Status::Corruption("Bad page: invalid footer, footer_size={}, file={}", footer_size,
+                                  opts.file_reader->path().native());
     }
 
     uint32_t body_size = page_slice.size - 4 - footer_size;
     if (body_size != footer->uncompressed_size()) { // need decompress body
         if (opts.codec == nullptr) {
-            return Status::Corruption("Bad page: page is compressed but codec is NO_COMPRESSION");
+            return Status::Corruption(
+                    "Bad page: page is compressed but codec is NO_COMPRESSION, file={}",
+                    opts.file_reader->path().native());
         }
         SCOPED_RAW_TIMER(&opts.stats->decompress_ns);
         std::unique_ptr<DataPage> decompressed_page =
@@ -186,8 +192,9 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         RETURN_IF_ERROR(opts.codec->decompress(compressed_body, &decompressed_body));
         if (decompressed_body.size != footer->uncompressed_size()) {
             return Status::Corruption(
-                    "Bad page: record uncompressed size={} vs real decompressed size={}",
-                    footer->uncompressed_size(), decompressed_body.size);
+                    "Bad page: record uncompressed size={} vs real decompressed size={}, file={}",
+                    footer->uncompressed_size(), decompressed_body.size,
+                    opts.file_reader->path().native());
         }
         // append footer and footer size
         memcpy(decompressed_body.data + decompressed_body.size, page_slice.data + body_size,

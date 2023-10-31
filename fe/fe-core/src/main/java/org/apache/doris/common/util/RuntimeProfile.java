@@ -127,7 +127,11 @@ public class RuntimeProfile {
     }
 
     public Counter getCounterTotalTime() {
-        return counterTotalTime;
+        Counter totalTimeCounter = counterMap.get("TotalTime");
+        if (totalTimeCounter == null) {
+            return counterTotalTime;
+        }
+        return totalTimeCounter;
     }
 
     public int nodeId() {
