@@ -77,7 +77,7 @@ public:
                 *eos = _is_finished || _should_stop;
                 return Status::OK();
             }
-            if (_is_finished || _should_stop) {
+            if ((_is_finished || _should_stop) && _status_error) {
                 *eos = true;
                 return Status::OK();
             }
