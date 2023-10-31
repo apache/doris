@@ -441,7 +441,6 @@ protected:
     Cell* buf {nullptr}; /// A piece of memory for all elements except the element with zero key.
     Grower grower;
     int64_t _resize_timer_ns;
-
     // the bucket count threshold above which it's converted to partioned hash table
     // > 0: enable convert dynamically
     // 0: convert is disabled
