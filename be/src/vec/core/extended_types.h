@@ -32,6 +32,7 @@ static_assert(sizeof(UInt256) == 32);
 /// The standard library type traits, such as std::is_arithmetic, with one exception
 /// (std::common_type), are "set in stone". Attempting to specialize them causes undefined behavior.
 /// So instead of using the std type_traits, we use our own version which allows extension.
+namespace wide {
 template <typename T>
 struct is_signed // NOLINT(readability-identifier-naming)
 {
@@ -58,6 +59,7 @@ inline constexpr bool is_unsigned_v = is_unsigned<T>::value;
 template <class T>
 concept is_integer =
         std::is_integral_v<T> || std::is_same_v<T, Int256> || std::is_same_v<T, UInt256>;
+} // namespace wide
 
 namespace std {
 template <>
@@ -69,9 +71,6 @@ struct make_unsigned<UInt256> {
     using type = UInt256;
 };
 
-template <typename T>
-using make_unsigned_t = typename make_unsigned<T>::type;
-
 template <>
 struct make_signed<Int256> {
     using type = Int256;
@@ -80,7 +79,4 @@ template <>
 struct make_signed<UInt256> {
     using type = Int256;
 };
-
-template <typename T>
-using make_signed_t = typename make_signed<T>::type;
 } // namespace std
