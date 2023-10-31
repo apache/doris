@@ -73,6 +73,10 @@ public class PlanVisitors {
         }
     }
 
+    /**
+     * The context for table collecting, it contains the target collect table types
+     * and the result of collect.
+     */
     public static final class TableCollectorContext {
         private final List<TableIf> collectedTables = new ArrayList<>();
         private final Set<TableType> targetTableTypes;
