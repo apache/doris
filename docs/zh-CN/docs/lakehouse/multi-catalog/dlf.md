@@ -66,24 +66,26 @@ CREATE CATALOG dlf PROPERTIES (
 
 ### 使用开启了HDFS服务的OSS存储数据
 
-1. 确认OSS开启了HDFS服务。[开通并授权访问OSS-HDFS服务](https://help.aliyun.com/document_detail/419505.html?spm=a2c4g.2357115.0.i0)
-2. 下载SDK。[JindoData SDK下载](https://github.com/aliyun/alibabacloud-jindodata/blob/master/docs/user/5.x/5.0.0-beta7/jindodata_download.md)
-3. 解压下载后的jindosdk.tar.gz，将其lib目录下的`jindo-core.jar、jindo-sdk.jar`放到`${DORIS_HOME}/fe/lib`和`${DORIS_HOME}/be/lib/java_extensions`目录下。
+1. 确认OSS开启了HDFS服务。[开通并授权访问OSS-HDFS服务](https://help.aliyun.com/document_detail/419505.html?spm=a2c4g.2357115.0.i0)。
+2. 下载SDK。[JindoData SDK下载](https://github.com/aliyun/alibabacloud-jindodata/blob/master/docs/user/5.x/5.0.0-beta7/jindodata_download.md)。如果集群上已有SDK目录，忽略这一步。
+3. 解压下载后的jindosdk.tar.gz或者在集群上找到Jindo SDK的目录，将其lib目录下的`jindo-core.jar、jindo-sdk.jar`放到`${DORIS_HOME}/fe/lib`和`${DORIS_HOME}/be/lib/java_extensions/preload-extensions`目录下。
 4. 创建DLF Catalog，并配置`oss.hdfs.enabled`为`true`：
 
-```sql
-CREATE CATALOG dlf_oss_hdfs PROPERTIES (
-   "type"="hms",
-   "hive.metastore.type" = "dlf",
-   "dlf.proxy.mode" = "DLF_ONLY",
-   "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
-   "dlf.region" = "cn-beijing",
-   "dlf.uid" = "uid",
-   "dlf.access_key" = "ak",
-   "dlf.secret_key" = "sk",
-   "oss.hdfs.enabled" = "true"
-);
-```
+    ```sql
+    CREATE CATALOG dlf_oss_hdfs PROPERTIES (
+       "type"="hms",
+       "hive.metastore.type" = "dlf",
+       "dlf.proxy.mode" = "DLF_ONLY",
+       "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
+       "dlf.region" = "cn-beijing",
+       "dlf.uid" = "uid",
+       "dlf.access_key" = "ak",
+       "dlf.secret_key" = "sk",
+       "oss.hdfs.enabled" = "true"
+    );
+    ```
+
+5. 当Jindo SDK版本与EMR集群上所用的版本不一致时，会出现`Plugin not found`的问题，需更换到对应版本。
 
 ### 访问DLF Iceberg表
 
