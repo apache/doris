@@ -180,7 +180,7 @@ public class MysqlLoadManager {
         boolean clientLocal = dataDesc.isClientLocal();
         MySqlLoadContext loadContext = new MySqlLoadContext();
         loadContextMap.put(loadId, loadContext);
-        LOG.info("execute MySqlLoadJob for id: {}.", loadId);
+        LOG.info("Executing mysql load with id: {}.", loadId);
         try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
             for (String file : filePaths) {
                 InputStreamEntity entity = getInputStreamEntity(context, clientLocal, file, loadId);
@@ -193,7 +193,8 @@ public class MysqlLoadManager {
                         String errorUrl = Optional.ofNullable(result.get("ErrorURL"))
                                 .map(JsonElement::getAsString).orElse("");
                         failedRecords.offer(new MySqlLoadFailRecord(loadId, errorUrl));
-                        LOG.warn("Execute mysql data load failed with request: {} and response: {}", request, body);
+                        LOG.warn("Execute mysql load failed with request: {} and response: {}, job id: {}",
+                                request, body, loadId);
                         throw new LoadException(result.get("Message").getAsString() + " with load id " + loadId);
                     }
                     loadResult.incRecords(result.get("NumberLoadedRows").getAsLong());
@@ -201,10 +202,10 @@ public class MysqlLoadManager {
                 }
             }
         } catch (Throwable t) {
-            LOG.warn("Execute mysql load {} failed", loadId, t);
+            LOG.warn("Execute mysql load {} failed, msg: {}", loadId, t.getMessage());
             // drain the data from client conn util empty packet received, otherwise the connection will be reset
             if (clientLocal && loadContextMap.containsKey(loadId) && !loadContextMap.get(loadId).isFinished()) {
-                LOG.warn("not drained yet, try reading left data from client connection for load {}.", loadId);
+                LOG.warn("Not drained yet, try reading left data from client connection for load {}.", loadId);
                 ByteBuffer buffer = context.getMysqlChannel().fetchOnePacket();
                 // MySql client will send an empty packet when eof
                 while (buffer != null && buffer.limit() != 0) {
@@ -219,6 +220,7 @@ public class MysqlLoadManager {
                 throw t;
             }
         } finally {
+            LOG.info("Mysql load job {} finished, loaded records: {}", loadId, loadResult.getRecords());
             loadContextMap.remove(loadId);
         }
         return loadResult;
