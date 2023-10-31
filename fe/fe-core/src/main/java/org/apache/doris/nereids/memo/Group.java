@@ -59,7 +59,7 @@ public class Group {
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
     private final List<GroupExpression> enforcers = Lists.newArrayList();
-
+    private boolean isStatsReliable = true;
     private LogicalProperties logicalProperties;
 
     // Map of cost lower bounds
@@ -117,6 +117,14 @@ public class Group {
         }
         groupExpression.setOwnerGroup(this);
         return groupExpression;
+    }
+
+    public void setStatsReliable(boolean statsReliable) {
+        this.isStatsReliable = statsReliable;
+    }
+
+    public boolean isStatsReliable() {
+        return isStatsReliable;
     }
 
     public void addLogicalExpression(GroupExpression groupExpression) {
