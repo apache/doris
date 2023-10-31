@@ -19,6 +19,7 @@
 #include <gen_cpp/Opcodes_types.h>
 
 #include "common/status.h"
+#include "gutil/integral_types.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
@@ -83,6 +84,7 @@ public:
         bool rhs_all_true = false;
         bool rhs_all_false = false;
         bool rhs_all_is_not_null = false;
+        bool result_is_nullable = _data_type->is_nullable();
 
         auto get_rhs_colum = [&]() {
             if (rhs_id == -1) {
@@ -102,74 +104,100 @@ public:
             }
             return Status::OK();
         };
+
+        auto create_nullable_result_column = [&](ColumnPtr nested_column) {
+            auto result_column =
+                    ColumnNullable::create(nested_column, ColumnUInt8::create(size, 0));
+            *result_column_id = block->columns();
+            block->insert({std::move(result_column), _data_type, _expr_name});
+        };
+
+        auto vector_vector_null = [&]<bool is_and_op>() {
+            auto col_res = ColumnUInt8::create(size);
+            auto col_nulls = ColumnUInt8::create(size);
+            auto* __restrict res_datas = assert_cast<ColumnUInt8*>(col_res)->get_data().data();
+            auto* __restrict res_nulls = assert_cast<ColumnUInt8*>(col_nulls)->get_data().data();
+            ColumnPtr temp_null_map = nullptr;
+            if ((lhs_is_nullable && !rhs_is_nullable) ||
+                (!lhs_is_nullable || rhs_is_nullable)) { // one of children is nullable
+                if (lhs_null_map == nullptr) {
+                    temp_null_map = ColumnUInt8::create(size, 0);
+                    lhs_null_map = assert_cast<ColumnUInt8*>(temp_null_map->assume_mutable().get())
+                                           ->get_data()
+                                           .data();
+                }
+                if (rhs_null_map == nullptr) {
+                    temp_null_map = ColumnUInt8::create(size, 0);
+                    rhs_null_map = assert_cast<ColumnUInt8*>(temp_null_map->assume_mutable().get())
+                                           ->get_data()
+                                           .data();
+                }
+            }
+            if constexpr (is_and_op) {
+                for (size_t i = 0; i < size; ++i) {
+                    res_nulls[i] = apply_and_null(lhs_data_column[i], lhs_null_map[i],
+                                                  rhs_data_column[i], rhs_null_map[i]);
+                    res_datas[i] = lhs_data_column[i] & rhs_data_column[i];
+                }
+            } else {
+                for (size_t i = 0; i < size; ++i) {
+                    res_nulls[i] = apply_or_null(lhs_data_column[i], lhs_null_map[i],
+                                                 rhs_data_column[i], rhs_null_map[i]);
+                    res_datas[i] = lhs_data_column[i] | rhs_data_column[i];
+                }
+            }
+            auto result_column = ColumnNullable::create(std::move(col_res), std::move(col_nulls));
+            *result_column_id = block->columns();
+            block->insert({std::move(result_column), _data_type, _expr_name});
+        };
+
         // false and NULL ----> 0
         // true  and NULL ----> NULL
         if (_op == TExprOpcode::COMPOUND_AND) {
-            //not null column: all data is false
-            //nullable column: null map all is not null
+            //1. not null column: all data is false
+            //2. nullable column: null map all is not null
             if ((lhs_all_false && !lhs_is_nullable) || (lhs_all_false && lhs_all_is_not_null)) {
                 // false and any = false, return lhs
-                *result_column_id = lhs_id;
+                if (result_is_nullable && !lhs_is_nullable) {
+                    create_nullable_result_column(lhs_column);
+                } else {
+                    *result_column_id = lhs_id;
+                }
             } else {
                 RETURN_IF_ERROR(get_rhs_colum());
 
                 if ((lhs_all_true && !lhs_is_nullable) ||    //not null column
                     (lhs_all_true && lhs_all_is_not_null)) { //nullable column
                     // true and any = any, return rhs
-                    *result_column_id = rhs_id;
+                    if (result_is_nullable && !rhs_is_nullable) {
+                        create_nullable_result_column(rhs_column);
+                    } else {
+                        *result_column_id = rhs_id;
+                    }
                 } else if ((rhs_all_false && !rhs_is_nullable) ||
                            (rhs_all_false && rhs_all_is_not_null)) {
                     // any and false = false, return rhs
-                    *result_column_id = rhs_id;
+                    if (result_is_nullable && !rhs_is_nullable) {
+                        create_nullable_result_column(rhs_column);
+                    } else {
+                        *result_column_id = rhs_id;
+                    }
                 } else if ((rhs_all_true && !rhs_is_nullable) ||
                            (rhs_all_true && rhs_all_is_not_null)) {
                     // any and true = any, return lhs
-                    *result_column_id = lhs_id;
+                    if (result_is_nullable && !lhs_is_nullable) {
+                        create_nullable_result_column(lhs_column);
+                    } else {
+                        *result_column_id = lhs_id;
+                    }
                 } else {
-                    bool res_nullable = (lhs_is_nullable || rhs_is_nullable);
-                    if (!res_nullable) {
+                    if (!result_is_nullable) {
                         *result_column_id = lhs_id;
                         for (size_t i = 0; i < size; i++) {
                             lhs_data_column[i] &= rhs_data_column[i];
                         }
                     } else {
-                        auto col_res = ColumnUInt8::create(size);
-                        auto col_nulls = ColumnUInt8::create(size);
-                        auto* __restrict res_datas =
-                                assert_cast<ColumnUInt8*>(col_res)->get_data().data();
-                        auto* __restrict res_nulls =
-                                assert_cast<ColumnUInt8*>(col_nulls)->get_data().data();
-                        ColumnPtr temp_null_map = nullptr;
-                        if ((lhs_is_nullable && !rhs_is_nullable) ||
-                            (!lhs_is_nullable || rhs_is_nullable)) { // one of children is nullable
-                            if (lhs_null_map == nullptr) {
-                                temp_null_map = ColumnUInt8::create(size, 0);
-                                lhs_null_map = assert_cast<ColumnUInt8*>(
-                                                       temp_null_map->assume_mutable().get())
-                                                       ->get_data()
-                                                       .data();
-                            }
-                            if (rhs_null_map == nullptr) {
-                                temp_null_map = ColumnUInt8::create(size, 0);
-                                rhs_null_map = assert_cast<ColumnUInt8*>(
-                                                       temp_null_map->assume_mutable().get())
-                                                       ->get_data()
-                                                       .data();
-                            }
-                        }
-
-                        for (size_t i = 0; i < size; ++i) {
-                            res_nulls[i] =
-                                    (lhs_null_map[i] & rhs_null_map[i]) |
-                                    (rhs_null_map[i] & (lhs_null_map[i] ^ lhs_data_column[i])) |
-                                    (lhs_null_map[i] & (rhs_null_map[i] ^ rhs_data_column[i]));
-                            res_datas[i] = lhs_data_column[i] & rhs_data_column[i];
-                        }
-                        auto result_column =
-                                ColumnNullable::create(std::move(col_res), std::move(col_nulls));
-                        auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
-                        *result_column_id = block->columns();
-                        block->insert({std::move(result_column), result_type, _expr_name});
+                        vector_vector_null.template operator()<true>();
                     }
                 }
             }
@@ -178,65 +206,44 @@ public:
             // false or NULL ----> NULL
             if ((lhs_all_true && !lhs_is_nullable) || (lhs_all_true && lhs_all_is_not_null)) {
                 // true or any = true, return lhs
-                *result_column_id = lhs_id;
+                if (result_is_nullable && !lhs_is_nullable) {
+                    create_nullable_result_column(lhs_column);
+                } else {
+                    *result_column_id = lhs_id;
+                }
             } else {
                 RETURN_IF_ERROR(get_rhs_colum());
                 if ((lhs_all_false && !lhs_is_nullable) || (lhs_all_false && lhs_all_is_not_null)) {
                     // false or any = any, return rhs
-                    *result_column_id = rhs_id;
+                    if (result_is_nullable && !rhs_is_nullable) {
+                        create_nullable_result_column(rhs_column);
+                    } else {
+                        *result_column_id = rhs_id;
+                    }
                 } else if ((rhs_all_true && !rhs_is_nullable) ||
                            (rhs_all_true && rhs_all_is_not_null)) {
                     // any or true = true, return rhs
-                    *result_column_id = rhs_id;
+                    if (result_is_nullable && !rhs_is_nullable) {
+                        create_nullable_result_column(rhs_column);
+                    } else {
+                        *result_column_id = rhs_id;
+                    }
                 } else if ((rhs_all_false && !rhs_is_nullable) ||
                            (rhs_all_false && rhs_all_is_not_null)) {
                     // any or false = any, return lhs
-                    *result_column_id = lhs_id;
+                    if (result_is_nullable && !lhs_is_nullable) {
+                        create_nullable_result_column(lhs_column);
+                    } else {
+                        *result_column_id = lhs_id;
+                    }
                 } else {
-                    bool res_nullable = (lhs_is_nullable || rhs_is_nullable);
-                    if (!res_nullable) {
+                    if (!result_is_nullable) {
                         *result_column_id = lhs_id;
                         for (size_t i = 0; i < size; i++) {
                             lhs_data_column[i] |= rhs_data_column[i];
                         }
                     } else {
-                        auto col_res = ColumnUInt8::create(size);
-                        auto col_nulls = ColumnUInt8::create(size);
-                        auto* __restrict res_datas =
-                                assert_cast<ColumnUInt8*>(col_res)->get_data().data();
-                        auto* __restrict res_nulls =
-                                assert_cast<ColumnUInt8*>(col_nulls)->get_data().data();
-                        ColumnPtr temp_null_map = nullptr;
-                        if ((lhs_is_nullable && !rhs_is_nullable) ||
-                            (!lhs_is_nullable || rhs_is_nullable)) { // one of children is nullable
-                            if (lhs_null_map == nullptr) {
-                                temp_null_map = ColumnUInt8::create(size, 0);
-                                lhs_null_map = assert_cast<ColumnUInt8*>(
-                                                       temp_null_map->assume_mutable().get())
-                                                       ->get_data()
-                                                       .data();
-                            }
-                            if (rhs_null_map == nullptr) {
-                                temp_null_map = ColumnUInt8::create(size, 0);
-                                rhs_null_map = assert_cast<ColumnUInt8*>(
-                                                       temp_null_map->assume_mutable().get())
-                                                       ->get_data()
-                                                       .data();
-                            }
-                        }
-
-                        for (size_t i = 0; i < size; ++i) {
-                            res_nulls[i] =
-                                    (lhs_null_map[i] & rhs_null_map[i]) |
-                                    (rhs_null_map[i] & (rhs_null_map[i] ^ lhs_data_column[i])) |
-                                    (lhs_null_map[i] & (lhs_null_map[i] ^ rhs_data_column[i]));
-                            res_datas[i] = lhs_data_column[i] | rhs_data_column[i];
-                        }
-                        auto result_column =
-                                ColumnNullable::create(std::move(col_res), std::move(col_nulls));
-                        auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
-                        *result_column_id = block->columns();
-                        block->insert({std::move(result_column), result_type, _expr_name});
+                        vector_vector_null.template operator()<false>();
                     }
                 }
             }
@@ -250,6 +257,15 @@ public:
     bool is_compound_predicate() const override { return true; }
 
 private:
+    static inline constexpr uint8 apply_and_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
+        // (<> && false) is false, (true && NULL) is NULL
+        return (l_null & r_null) | (r_null & (l_null ^ a)) | (l_null & (r_null ^ b));
+    }
+    static inline constexpr uint8 apply_or_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
+        // (<> || true) is true, (false || NULL) is NULL
+        return (l_null & r_null) | (r_null & (r_null ^ a)) | (l_null & (l_null ^ b));
+    }
+
     bool _all_child_is_compound_and_not_const() const {
         for (auto child : _children) {
             // we can make sure non const compound predicate's return column is allow modifyied locally.
