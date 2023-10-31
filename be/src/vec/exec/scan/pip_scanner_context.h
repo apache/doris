@@ -77,7 +77,7 @@ public:
                 *eos = _is_finished || _should_stop;
                 return Status::OK();
             }
-            if (_process_status.is<CANCELLED>()) {
+            if (_process_status.is<ErrorCode::CANCELLED>()) {
                 *eos = true;
                 return Status::OK();
             }
