@@ -17,7 +17,6 @@
 
 package org.apache.doris.scheduler.job;
 
-import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -27,6 +26,7 @@ import org.apache.doris.scheduler.constants.TaskType;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -56,7 +56,7 @@ public class JobTask<T> implements Writable {
     private String executeResult;
     @SerializedName("errorMsg")
     private String errorMsg;
-    
+
     @SerializedName("contextDataStr")
     private String contextDataStr;
 

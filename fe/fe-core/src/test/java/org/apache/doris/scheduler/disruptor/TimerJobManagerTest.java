@@ -65,6 +65,7 @@ public class TimerJobManagerTest {
         TransientTaskManager transientTaskManager = new TransientTaskManager();
         TaskDisruptor taskDisruptor = new TaskDisruptor(this.timerJobManager, transientTaskManager);
         this.timerJobManager.setDisruptor(taskDisruptor);
+        taskDisruptor.start();
         timerJobManager.start();
     }
 

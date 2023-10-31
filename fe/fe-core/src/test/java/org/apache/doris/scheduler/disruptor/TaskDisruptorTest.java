@@ -59,6 +59,7 @@ public class TaskDisruptorTest {
     @BeforeEach
     public void init() {
         taskDisruptor = new TaskDisruptor(timerJobManager, transientTaskManager);
+        taskDisruptor.start();
     }
 
     @Test
