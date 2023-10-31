@@ -50,4 +50,16 @@ suite ("testProjectionMV1") {
         contains "(emps_mv)"
     }
     qt_select_mv "select empid, deptno from emps order by empid;"
+
+    explain {
+        sql("select empid, sum(deptno) from emps group by empid order by empid;")
+        contains "(emps_mv)"
+    }
+    qt_select_mv "select empid, sum(deptno) from emps group by empid order by empid;"
+
+    explain {
+        sql("select deptno, sum(empid) from emps group by deptno order by deptno;")
+        contains "(emps_mv)"
+    }
+    qt_select_mv "select deptno, sum(empid) from emps group by deptno order by deptno;"
 }
