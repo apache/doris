@@ -75,7 +75,7 @@ select avg(ss_quantity)
     def topPlan = queryResult[0][0].toString()
     assertTrue(topPlan.contains("LogicalResultSink"))
     assertTrue(topPlan.contains("__avg_0"))
-    assertTrue(topPlan.contains("__avg_0"))
+    assertTrue(topPlan.contains("__avg_1"))
     assertTrue(topPlan.contains("__avg_2"))
     assertTrue(topPlan.contains("__sum_3"))
 }
