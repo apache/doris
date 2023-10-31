@@ -248,13 +248,13 @@ public:
 
     template <int JoinOpType>
     auto find_batch(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
-                    int probe_idx, int probe_rows, uint32_t* __restrict probe_idxs,
-                    uint32_t* __restrict build_idxs) {
+                    int probe_idx, uint32_t build_idx, int probe_rows,
+                    uint32_t* __restrict probe_idxs, uint32_t* __restrict build_idxs) {
         if constexpr (JoinOpType == doris::TJoinOp::INNER_JOIN ||
                       JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
                       JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                       JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN) {
-            return _find_batch_inner_outer_join<JoinOpType>(keys, bucket_nums, probe_idx,
+            return _find_batch_inner_outer_join<JoinOpType>(keys, bucket_nums, probe_idx, build_idx,
                                                             probe_rows, probe_idxs, build_idxs);
         }
         if constexpr (JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
@@ -266,7 +266,7 @@ public:
                       JoinOpType == doris::TJoinOp::RIGHT_SEMI_JOIN) {
             return _find_batch_right_semi_anti(keys, bucket_nums, probe_idx, probe_rows);
         }
-        return std::pair {0, 0};
+        return std::tuple {0, 0u, 0};
     }
 
     template <int JoinOpType>
@@ -295,7 +295,7 @@ private:
     auto _find_batch_right_semi_anti(const Key* __restrict keys,
                                      const uint32_t* __restrict bucket_nums, int probe_idx,
                                      int probe_rows) {
-        while (LIKELY(probe_idx < probe_rows)) {
+        while (probe_idx < probe_rows) {
             auto build_idx = first[bucket_nums[probe_idx]];
 
             while (build_idx) {
@@ -306,7 +306,7 @@ private:
             }
             probe_idx++;
         }
-        return std::pair {probe_idx, 0};
+        return std::tuple {probe_idx, 0u, 0};
     }
 
     template <int JoinOpType>
@@ -331,17 +331,17 @@ private:
             matched_cnt += matched;
             probe_idxs[matched_cnt - matched] = probe_idx++;
         }
-        return std::pair {probe_idx, matched_cnt};
+        return std::tuple {probe_idx, 0u, matched_cnt};
     }
 
     template <int JoinOpType>
     auto _find_batch_inner_outer_join(const Key* __restrict keys,
                                       const uint32_t* __restrict bucket_nums, int probe_idx,
-                                      int probe_rows, uint32_t* __restrict probe_idxs,
+                                      uint32_t build_idx, int probe_rows,
+                                      uint32_t* __restrict probe_idxs,
                                       uint32_t* __restrict build_idxs) {
         auto matched_cnt = 0;
         const auto batch_size = max_batch_size;
-        size_t build_idx = 0;
 
         auto do_the_probe = [&]() {
             while (build_idx && matched_cnt < batch_size) {
@@ -369,10 +369,7 @@ private:
             probe_idx++;
         };
 
-        if (probe_idx == current_probe_idx) {
-            current_probe_idx = -1;
-            build_idx = current_build_idx;
-            current_build_idx = 0;
+        if (build_idx) {
             do_the_probe();
         }
 
@@ -382,12 +379,8 @@ private:
             do_the_probe();
         }
 
-        if (matched_cnt == batch_size && build_idx) {
-            probe_idx--;
-            current_probe_idx = probe_idx;
-            current_build_idx = build_idx;
-        }
-        return std::pair {probe_idx, matched_cnt};
+        probe_idx -= (matched_cnt == batch_size && build_idx);
+        return std::tuple {probe_idx, build_idx, matched_cnt};
     }
 
     const Key* __restrict build_keys;
@@ -395,9 +388,6 @@ private:
 
     uint32_t bucket_size = 0;
     int max_batch_size = 0;
-
-    int current_probe_idx = -1;
-    uint32_t current_build_idx = 0;
 
     std::vector<uint32_t> first;
     std::vector<uint32_t> next;
