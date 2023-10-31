@@ -1446,4 +1446,10 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述: 是否在导入json数据时用simdjson来解析。
 * 默认值: false
 
+
+#### `be_thrift_max_pkg_bytes`
+
+* 描述: be节点thrift端口最大接收包大小
+* 默认值: 20000000
+
 </version>

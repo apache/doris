@@ -2734,3 +2734,15 @@ show data （其他用法：HELP SHOW DATA）
 
 这个参数主要用于避免因 external catalog 无法访问、信息过多等原因导致的查询 `information_schema` 超时的问题。
 
+
+#### `fe_thrift_max_pkg_bytes`
+
+默认值：20000000
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+用于限制fe节点thrift端口可以接收的最大包长度，避免接收到过大或者错误的包导致OOM
+
+

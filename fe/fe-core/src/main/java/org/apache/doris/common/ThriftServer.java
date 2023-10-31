@@ -91,14 +91,14 @@ public class ThriftServer {
 
     private void createSimpleServer() throws TTransportException {
         TServer.Args args = new TServer.Args(new TServerSocket(port)).protocolFactory(
-                new TBinaryProtocol.Factory()).processor(processor);
+                new TBinaryProtocol.Factory(Config.fe_thrift_max_pkg_bytes, -1)).processor(processor);
         server = new TSimpleServer(args);
     }
 
     private void createThreadedServer() throws TTransportException {
         TThreadedSelectorServer.Args args = new TThreadedSelectorServer.Args(
                 new TNonblockingServerSocket(port, Config.thrift_client_timeout_ms)).protocolFactory(
-                        new TBinaryProtocol.Factory()).processor(processor);
+                        new TBinaryProtocol.Factory(Config.fe_thrift_max_pkg_bytes, -1)).processor(processor);
         ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
                 Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
         args.executorService(threadPoolExecutor);
@@ -114,7 +114,7 @@ public class ThriftServer {
 
         TThreadPoolServer.Args serverArgs =
                 new TThreadPoolServer.Args(new TServerSocket(socketTransportArgs)).protocolFactory(
-                        new TBinaryProtocol.Factory()).processor(processor);
+                        new TBinaryProtocol.Factory(Config.fe_thrift_max_pkg_bytes, -1)).processor(processor);
         ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
                 Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
         serverArgs.executorService(threadPoolExecutor);

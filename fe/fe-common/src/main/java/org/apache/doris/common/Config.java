@@ -2053,5 +2053,11 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean use_mysql_bigint_for_largeint = false;
+
+    /** 
+    * the max package size fe thrift server can receive,avoid accepting error or too large package causing OOM,default 20M
+    */
+    @ConfField
+    public static int fe_thrift_max_pkg_bytes = 20000000;
 }
 
