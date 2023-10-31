@@ -135,7 +135,7 @@ MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(Runtime
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
     static_cast<MultiCastDependency*>(_dependency)->set_consumer_id(p._consumer_id);
@@ -155,7 +155,7 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
                                                        SourceState& source_state) {
     //auto& local_state = get_local_state(state);
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     bool eos = false;
     vectorized::Block tmp_block;
     vectorized::Block* output_block = block;

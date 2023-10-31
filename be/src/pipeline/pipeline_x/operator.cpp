@@ -175,7 +175,7 @@ void PipelineXLocalStateBase::clear_origin_block() {
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
                                      vectorized::Block* output_block) const {
     auto local_state = state->get_local_state(operator_id());
-    SCOPED_TIMER(local_state->profile()->total_time_counter());
+    SCOPED_TIMER(local_state->exec_time_counter());
     SCOPED_TIMER(local_state->_projection_timer);
     using namespace vectorized;
     vectorized::MutableBlock mutable_block =
@@ -357,6 +357,7 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
     _projection_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ProjectionTime", 1);
     _open_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "OpenTime", 1);
     _close_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "CloseTime", 1);
+    _exec_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ExecTime", 1);
     _mem_tracker = std::make_unique<MemTracker>("PipelineXLocalState:" + _runtime_profile->name());
     _memory_used_counter = ADD_LABEL_COUNTER(_runtime_profile, "MemoryUsage");
     _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
@@ -406,6 +407,7 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
     _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
     _open_timer = ADD_TIMER_WITH_LEVEL(_profile, "OpenTime", 1);
     _close_timer = ADD_TIMER_WITH_LEVEL(_profile, "CloseTime", 1);
+    _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
     info.parent_profile->add_child(_profile, true, nullptr);
     _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
     return Status::OK();

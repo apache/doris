@@ -52,7 +52,7 @@ bool ResultSinkOperator::can_write() {
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER(_profile, timer_name);
@@ -79,7 +79,7 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
 }
 
 Status ResultSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(PipelineXSinkLocalState<>::open(state));
     auto& p = _parent->cast<ResultSinkOperatorX>();
@@ -139,7 +139,7 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
 Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                  SourceState source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
     }
@@ -173,14 +173,14 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     }
     SCOPED_TIMER(_close_timer);
     COUNTER_UPDATE(_wait_for_queue_timer, _queue_dependency->write_watcher_elapse_time());
-    COUNTER_UPDATE(profile()->total_time_counter(), _queue_dependency->write_watcher_elapse_time());
+    COUNTER_UPDATE(exec_time_counter(), _queue_dependency->write_watcher_elapse_time());
     COUNTER_SET(_wait_for_buffer_timer, _buffer_dependency->write_watcher_elapse_time());
-    COUNTER_UPDATE(profile()->total_time_counter(),
+    COUNTER_UPDATE(exec_time_counter(),
                    _buffer_dependency->write_watcher_elapse_time());
     COUNTER_SET(_wait_for_cancel_timer, _cancel_dependency->write_watcher_elapse_time());
-    COUNTER_UPDATE(profile()->total_time_counter(),
+    COUNTER_UPDATE(exec_time_counter(),
                    _cancel_dependency->write_watcher_elapse_time());
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     Status final_status = exec_status;
     if (_writer) {
         // close the writer
