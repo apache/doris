@@ -118,7 +118,7 @@ suite("test_analyze") {
         DROP STATS ${tbl}(analyzetestlimitedk3)
     """
 
-    exception = null
+    def exception = null
 
     try {
         sql """
