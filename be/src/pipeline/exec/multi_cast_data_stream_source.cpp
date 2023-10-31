@@ -145,8 +145,7 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     }
     // init profile for runtime filter
     RuntimeFilterConsumer::_init_profile(profile());
-    _filter_dependency->set_filter_blocked_by_fn(
-            [this]() { return this->runtime_filters_are_ready_or_timeout(); });
+    init_runtime_filter_dependency(_filter_dependency.get());
     return Status::OK();
 }
 

@@ -42,6 +42,7 @@
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
 #include "gutil/strings/substitute.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
@@ -62,7 +63,6 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/runtime/shared_hash_table_controller.h"
-
 namespace doris {
 
 // PrimitiveType-> PColumnType
@@ -1235,6 +1235,11 @@ void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
     if (_enable_pipeline_exec) {
         _rf_state_atomic.store(RuntimeFilterState::READY);
+        if (!_filter_timer.empty()) {
+            for (auto& timer : _filter_timer) {
+                timer->call_ready();
+            }
+        }
     } else {
         std::unique_lock lock(_inner_mutex);
         _rf_state = RuntimeFilterState::READY;
@@ -1253,6 +1258,10 @@ void IRuntimeFilter::signal() {
         _profile->add_info_string("BloomFilterSize",
                                   std::to_string(_wrapper->get_bloom_filter_size()));
     }
+}
+
+void IRuntimeFilter::set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer> timer) {
+    _filter_timer.push_back(timer);
 }
 
 BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
