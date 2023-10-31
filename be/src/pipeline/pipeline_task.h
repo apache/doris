@@ -133,8 +133,6 @@ public:
         _wait_worker_watcher.start();
     }
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
-    void start_schedule_watcher() { _wait_schedule_watcher.start(); }
-    void stop_schedule_watcher() { _wait_schedule_watcher.stop(); }
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
 
@@ -311,8 +309,6 @@ protected:
     MonotonicStopWatch _wait_worker_watcher;
     RuntimeProfile::Counter* _wait_worker_timer;
     // TODO we should calculate the time between when really runnable and runnable
-    MonotonicStopWatch _wait_schedule_watcher;
-    RuntimeProfile::Counter* _wait_schedule_timer;
     RuntimeProfile::Counter* _yield_counts;
     RuntimeProfile::Counter* _core_change_times;
 

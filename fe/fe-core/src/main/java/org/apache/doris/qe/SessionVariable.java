@@ -409,6 +409,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FULL_AUTO_ANALYZE_END_TIME = "full_auto_analyze_end_time";
 
+    public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -422,6 +424,9 @@ public class SessionVariable implements Serializable, Writable {
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
+
+    @VariableMgr.VarAttr(name = EXPAND_RUNTIME_FILTER_BY_INNER_JION)
+    public boolean expandRuntimeFilterByInnerJoin = false;
 
     @VariableMgr.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL)
     public boolean jdbcClickhouseQueryFinal = false;
@@ -1546,7 +1551,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setMaxScanQueueMemByte(long scanQueueMemByte) {
-        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 20);
+        this.maxScanQueueMemByte = Math.min(scanQueueMemByte, maxExecMemByte / 2);
     }
 
     public boolean isSqlQuoteShowCreate() {

@@ -508,6 +508,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     for (Slot slot : targetList) {
                         ctx.setTargetExprIdToFilter(slot.getExprId(), filter);
                     }
+                    ctx.setRuntimeFilterIdentityToFilter(equalTo.right(), type, join, filter);
                 }
             }
         }

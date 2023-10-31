@@ -179,7 +179,7 @@ public class StatisticsRepository {
         return stringJoiner.toString();
     }
 
-    public static void dropStatistics(Set<Long> partIds) throws DdlException {
+    public static void dropStatistics(Set<String> partIds) throws DdlException {
         dropStatisticsByPartId(partIds, StatisticConstants.STATISTIC_TBL_NAME);
     }
 
@@ -202,7 +202,7 @@ public class StatisticsRepository {
         }
     }
 
-    public static void dropStatisticsByPartId(Set<Long> partIds, String statsTblName) throws DdlException {
+    public static void dropStatisticsByPartId(Set<String> partIds, String statsTblName) throws DdlException {
         Map<String, String> params = new HashMap<>();
         String right = StatisticsUtil.joinElementsToString(partIds, ",");
         String inPredicate = String.format(" part_id IN (%s)", right);
@@ -296,14 +296,14 @@ public class StatisticsRepository {
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(FETCH_STATS_FULL_NAME));
     }
 
-    public static Map<String, Set<Long>> fetchColAndPartsForStats(long tblId) {
+    public static Map<String, Set<String>> fetchColAndPartsForStats(long tblId) {
         Map<String, String> params = Maps.newHashMap();
         params.put("tblId", String.valueOf(tblId));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String partSql = stringSubstitutor.replace(FETCH_STATS_PART_ID);
         List<ResultRow> resultRows = StatisticsUtil.execStatisticQuery(partSql);
 
-        Map<String, Set<Long>> columnToPartitions = Maps.newHashMap();
+        Map<String, Set<String>> columnToPartitions = Maps.newHashMap();
 
         resultRows.forEach(row -> {
             try {

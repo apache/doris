@@ -363,7 +363,7 @@ public class AnalysisManager extends Daemon implements Writable {
         boolean isSync = stmt.isSync();
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(jobInfo, analysisTaskInfos, isSync);
-        if (stmt.isAllColumns()
+        if (!jobInfo.partitionOnly && stmt.isAllColumns()
                 && StatisticsUtil.isExternalTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName)) {
             createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, isSync);
         }
@@ -453,7 +453,7 @@ public class AnalysisManager extends Daemon implements Writable {
         }
 
         // Get the partition granularity statistics that have been collected
-        Map<String, Set<Long>> existColAndPartsForStats = StatisticsRepository
+        Map<String, Set<String>> existColAndPartsForStats = StatisticsRepository
                 .fetchColAndPartsForStats(tableId);
 
         if (existColAndPartsForStats.isEmpty()) {
@@ -461,12 +461,12 @@ public class AnalysisManager extends Daemon implements Writable {
             return columnToPartitions;
         }
 
-        Set<Long> existPartIdsForStats = new HashSet<>();
+        Set<String> existPartIdsForStats = new HashSet<>();
         existColAndPartsForStats.values().forEach(existPartIdsForStats::addAll);
-        Map<Long, String> idToPartition = StatisticsUtil.getPartitionIdToName(table);
+        Set<String> idToPartition = StatisticsUtil.getPartitionIds(table);
         // Get an invalid set of partitions (those partitions were deleted)
-        Set<Long> invalidPartIds = existPartIdsForStats.stream()
-                .filter(id -> !idToPartition.containsKey(id)).collect(Collectors.toSet());
+        Set<String> invalidPartIds = existPartIdsForStats.stream()
+                .filter(id -> !idToPartition.contains(id)).collect(Collectors.toSet());
 
         if (!invalidPartIds.isEmpty()) {
             // Delete invalid partition statistics to avoid affecting table statistics
@@ -496,6 +496,8 @@ public class AnalysisManager extends Daemon implements Writable {
         Set<String> partitionNames = stmt.getPartitionNames();
         boolean partitionOnly = stmt.isPartitionOnly();
         boolean isSamplingPartition = stmt.isSamplingPartition();
+        boolean isAllPartition = stmt.isAllPartitions();
+        long partitionCount = stmt.getPartitionCount();
         int samplePercent = stmt.getSamplePercent();
         int sampleRows = stmt.getSampleRows();
         AnalysisType analysisType = stmt.getAnalysisType();
@@ -516,6 +518,8 @@ public class AnalysisManager extends Daemon implements Writable {
         infoBuilder.setPartitionNames(partitionNames);
         infoBuilder.setPartitionOnly(partitionOnly);
         infoBuilder.setSamplingPartition(isSamplingPartition);
+        infoBuilder.setAllPartition(isAllPartition);
+        infoBuilder.setPartitionCount(partitionCount);
         infoBuilder.setJobType(JobType.MANUAL);
         infoBuilder.setState(AnalysisState.PENDING);
         infoBuilder.setLastExecTimeInMs(System.currentTimeMillis());

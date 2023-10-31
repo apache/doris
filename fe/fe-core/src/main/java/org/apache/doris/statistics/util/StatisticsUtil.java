@@ -73,7 +73,6 @@ import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -103,8 +102,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.StringJoiner;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -187,9 +186,6 @@ public class StatisticsUtil {
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        connectContext.setQueryId(queryId);
         connectContext.setStartTime();
         connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         return new AutoCloseConnectContext(connectContext);
@@ -439,6 +435,15 @@ public class StatisticsUtil {
                 ));
     }
 
+    public static Set<String> getPartitionIds(TableIf table) {
+        if (table instanceof OlapTable) {
+            return ((OlapTable) table).getPartitionIds().stream().map(String::valueOf).collect(Collectors.toSet());
+        } else if (table instanceof ExternalTable) {
+            return table.getPartitionNames();
+        }
+        throw new RuntimeException(String.format("Not supported Table %s", table.getClass().getName()));
+    }
+
     public static <T> String joinElementsToString(Collection<T> values, String delimiter) {
         StringJoiner builder = new StringJoiner(delimiter);
         values.forEach(v -> builder.add(String.valueOf(v)));
@@ -512,7 +517,11 @@ public class StatisticsUtil {
         }
         // Table parameters contains row count, simply get and return it.
         if (parameters.containsKey(NUM_ROWS)) {
-            return Long.parseLong(parameters.get(NUM_ROWS));
+            long rows = Long.parseLong(parameters.get(NUM_ROWS));
+            // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
+            if (rows != 0) {
+                return rows;
+            }
         }
         if (!parameters.containsKey(TOTAL_SIZE) || isInit) {
             return -1;

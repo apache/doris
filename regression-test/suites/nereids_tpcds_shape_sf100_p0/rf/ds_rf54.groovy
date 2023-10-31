@@ -106,5 +106,5 @@ suite("ds_rf54") {
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-     assertEquals("RF6[s_county->[ca_county],RF7[s_state->[ca_state],RF5[d_date_sk->[ss_sold_date_sk],RF4[c_customer_sk->[ss_customer_sk],RF3[c_current_addr_sk->[ca_address_sk],RF2[customer_sk->[c_customer_sk],RF0[i_item_sk->[cs_item_sk],RF1[i_item_sk->[ws_item_sk]", getRuntimeFilters(plan))
+     assertEquals("RF5[s_county->[ca_county],RF6[s_state->[ca_state],RF4[d_date_sk->[ss_sold_date_sk],RF3[c_customer_sk->[ss_customer_sk],RF2[c_current_addr_sk->[ca_address_sk],RF1[customer_sk->[c_customer_sk],RF0[i_item_sk->[cs_item_sk, ws_item_sk]", getRuntimeFilters(plan))
 }

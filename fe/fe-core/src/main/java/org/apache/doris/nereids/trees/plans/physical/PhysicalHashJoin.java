@@ -25,6 +25,7 @@ import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
@@ -39,12 +40,13 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.Comparator;
 import java.util.List;
@@ -207,7 +209,7 @@ public class PhysicalHashJoin<
         if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(getJoinType()) || isMarkJoin()) {
             if (builderNode instanceof PhysicalHashJoin) {
                 PhysicalHashJoin<?, ?> builderJion = (PhysicalHashJoin<?, ?>) builderNode;
-                if (builderJion.id.asInt() == id.asInt()) {
+                if (builderJion == this) {
                     return false;
                 }
             }
@@ -234,11 +236,26 @@ public class PhysicalHashJoin<
         Preconditions.checkState(leftNode != null && rightNode != null,
                 "join child node is null");
 
-        pushedDown |= leftNode.pushDownRuntimeFilter(context, generator, builderNode,
-                srcExpr, probeExpr, type, buildSideNdv, exprOrder);
-        pushedDown |= rightNode.pushDownRuntimeFilter(context, generator, builderNode,
-                srcExpr, probeExpr, type, buildSideNdv, exprOrder);
-
+        Set<Expression> probExprList = Sets.newHashSet(probeExpr);
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin) {
+            if (!this.equals(builderNode) && this.getJoinType() == JoinType.INNER_JOIN) {
+                for (Expression expr : this.getHashJoinConjuncts()) {
+                    EqualTo equalTo = (EqualTo) expr;
+                    if (probeExpr.equals(equalTo.left())) {
+                        probExprList.add(equalTo.right());
+                    } else if (probeExpr.equals(equalTo.right())) {
+                        probExprList.add(equalTo.left());
+                    }
+                }
+                probExprList.remove(srcExpr);
+            }
+        }
+        for (Expression prob : probExprList) {
+            pushedDown |= leftNode.pushDownRuntimeFilter(context, generator, builderNode,
+                    srcExpr, prob, type, buildSideNdv, exprOrder);
+            pushedDown |= rightNode.pushDownRuntimeFilter(context, generator, builderNode,
+                    srcExpr, prob, type, buildSideNdv, exprOrder);
+        }
         // currently, we can ensure children in the two side are corresponding to the equal_to's.
         // so right maybe an expression and left is a slot
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
@@ -255,24 +272,7 @@ public class PhysicalHashJoin<
             return false;
         }
 
-        // TODO: if can't push down into join's chidren, try to
-        // find possible chance in upper layer
-        if (pushedDown) {
-            return true;
-        }
-
-        // in-filter is not friendly to pipeline
-        if (type == TRuntimeFilterType.IN_OR_BLOOM
-                && ctx.getSessionVariable().getEnablePipelineEngine()
-                && RuntimeFilterGenerator.hasRemoteTarget(this, scan)) {
-            type = TRuntimeFilterType.BLOOM;
-        }
-        RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                srcExpr, ImmutableList.of(olapScanSlot), type, exprOrder, this, buildSideNdv);
-        ctx.addJoinToTargetMap(this, olapScanSlot.getExprId());
-        ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
-        ctx.setTargetsOnScanNode(aliasTransferMap.get(probeSlot).first.getRelationId(), olapScanSlot);
-        return true;
+        return pushedDown;
     }
 
     private class ExprComparator implements Comparator<Expression> {

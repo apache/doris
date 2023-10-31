@@ -116,11 +116,19 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
                 && RuntimeFilterGenerator.hasRemoteTarget(builderNode, scan)) {
             type = TRuntimeFilterType.BLOOM;
         }
-        org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                src, ImmutableList.of(olapScanSlot), type, exprOrder, builderNode, buildSideNdv);
-        ctx.addJoinToTargetMap(builderNode, olapScanSlot.getExprId());
-        ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
-        ctx.setTargetsOnScanNode(aliasTransferMap.get(probeExpr).first.getRelationId(), olapScanSlot);
+        org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter =
+                ctx.getRuntimeFilterBySrcAndType(src, type, builderNode);
+        if (filter != null) {
+            filter.addTargetSlot(olapScanSlot);
+            filter.addTargetExpressoin(olapScanSlot);
+        } else {
+            filter = new RuntimeFilter(generator.getNextId(),
+                    src, ImmutableList.of(olapScanSlot), type, exprOrder, builderNode, buildSideNdv);
+            ctx.addJoinToTargetMap(builderNode, olapScanSlot.getExprId());
+            ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
+            ctx.setTargetsOnScanNode(aliasTransferMap.get(probeExpr).first.getRelationId(), olapScanSlot);
+            ctx.setRuntimeFilterIdentityToFilter(src, type, builderNode, filter);
+        }
         return true;
     }
 

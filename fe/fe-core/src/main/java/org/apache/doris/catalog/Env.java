@@ -855,12 +855,10 @@ public class Env {
         while (true) {
             try {
                 if (!lock.tryLock(Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
-                    if (LOG.isDebugEnabled()) {
-                        // to see which thread held this lock for long time.
-                        Thread owner = lock.getOwner();
-                        if (owner != null) {
-                            LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
-                        }
+                    // to see which thread held this lock for long time.
+                    Thread owner = lock.getOwner();
+                    if (owner != null) {
+                        LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
                     }
 
                     if (mustLock) {

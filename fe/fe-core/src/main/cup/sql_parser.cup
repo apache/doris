@@ -528,6 +528,7 @@ terminal String
     KW_QUOTA,
     KW_RANDOM,
     KW_RANGE,
+    KW_RECENT,
     KW_READ,
     KW_REBALANCE,
     KW_RECOVER,
@@ -5899,6 +5900,14 @@ partition_names ::=
     | KW_TEMPORARY KW_PARTITION ident:partName
     {:
         RESULT = new PartitionNames(true, Lists.newArrayList(partName));
+    :}
+    | KW_PARTITIONS LPAREN STAR RPAREN
+    {:
+        RESULT = new PartitionNames(true);
+    :}
+    | KW_PARTITIONS KW_WITH KW_RECENT INTEGER_LITERAL:count
+    {:
+        RESULT = new PartitionNames(count);
     :}
     ;
 

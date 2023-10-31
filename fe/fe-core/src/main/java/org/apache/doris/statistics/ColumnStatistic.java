@@ -93,7 +93,7 @@ public class ColumnStatistic {
     public final Histogram histogram;
 
     @SerializedName("partitionIdToColStats")
-    public final Map<Long, ColumnStatistic> partitionIdToColStats = new HashMap<>();
+    public final Map<String, ColumnStatistic> partitionIdToColStats = new HashMap<>();
 
     public final String updatedTime;
 
@@ -120,7 +120,7 @@ public class ColumnStatistic {
     }
 
     public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
-        Map<Long, ColumnStatistic> partitionIdToColStats = new HashMap<>();
+        Map<String, ColumnStatistic> partitionIdToColStats = new HashMap<>();
         ColumnStatistic columnStatistic = null;
         try {
             for (ResultRow resultRow : resultRows) {
@@ -128,7 +128,7 @@ public class ColumnStatistic {
                 if (partId == null) {
                     columnStatistic = fromResultRow(resultRow);
                 } else {
-                    partitionIdToColStats.put(Long.parseLong(partId), fromResultRow(resultRow));
+                    partitionIdToColStats.put(partId, fromResultRow(resultRow));
                 }
             }
         } catch (Throwable t) {
@@ -392,7 +392,7 @@ public class ColumnStatistic {
         return isUnKnown;
     }
 
-    public void putPartStats(long partId, ColumnStatistic columnStatistic) {
+    public void putPartStats(String partId, ColumnStatistic columnStatistic) {
         this.partitionIdToColStats.put(partId, columnStatistic);
     }
 }
