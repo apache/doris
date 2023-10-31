@@ -406,8 +406,10 @@ public class HiveMetaStoreCache {
                 if (uri.getScheme() != null) {
                     String scheme = uri.getScheme();
                     updateJobConf("fs." + scheme + ".impl.disable.cache", "true");
-                    if (!scheme.equals("hdfs") && !scheme.equals("viewfs")) {
-                        updateJobConf("fs." + scheme + ".impl", PropertyConverter.getHadoopFSImplByScheme(scheme));
+                    if (jobConf.get("fs." + scheme + ".impl") == null) {
+                        if (!scheme.equals("hdfs") && !scheme.equals("viewfs")) {
+                            updateJobConf("fs." + scheme + ".impl", PropertyConverter.getHadoopFSImplByScheme(scheme));
+                        }
                     }
                 }
             } catch (Exception e) {

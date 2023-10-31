@@ -332,8 +332,8 @@ public class PropertyConverter {
                         region + ".oss-dls.aliyuncs.com");
             }
         }
-        ossProperties.put("fs.oss.impl", "com.aliyun.emr.fs.oss.JindoOssFileSystem");
-        ossProperties.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.emr.fs.oss.OSS");
+        ossProperties.put("fs.oss.impl", "com.aliyun.jindodata.oss.JindoOssFileSystem");
+        ossProperties.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.jindodata.oss.OSS");
     }
 
     private static Map<String, String> convertToCOSProperties(Map<String, String> props, CloudCredential credential) {
@@ -454,7 +454,8 @@ public class PropertyConverter {
         if (!Strings.isNullOrEmpty(region)) {
             boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
             if (hdfsEnabled) {
-                props.putIfAbsent("fs.oss.impl", "com.aliyun.emr.fs.oss.JindoOssFileSystem");
+                props.putIfAbsent("fs.oss.impl", "com.aliyun.jindodata.oss.JindoOssFileSystem");
+                props.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.jindodata.oss.OSS");
                 props.putIfAbsent(OssProperties.REGION, region);
                 // example: cn-shanghai.oss-dls.aliyuncs.com
                 // from https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
