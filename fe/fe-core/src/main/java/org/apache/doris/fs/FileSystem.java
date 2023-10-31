@@ -50,14 +50,8 @@ public interface FileSystem {
 
     Status makeDir(String remotePath);
 
-    default RemoteFiles listLocatedFiles(String remotePath) throws UserException {
-        return listLocatedFiles(remotePath, false, false);
-    }
-
     // Get files and directories located status, not only files
-    default RemoteFiles listLocatedFiles(String remotePath, boolean onlyFiles, boolean recursive) throws UserException {
-        throw new UserException("Not support to listLocations.");
-    }
+    RemoteFiles listLocatedFiles(String remotePath, boolean onlyFiles, boolean recursive) throws UserException;
 
     // List files in remotePath
     // The remote file name will only contain file name only(Not full path)
