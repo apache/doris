@@ -3278,10 +3278,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // generate the partitions from value.
         Map<String, AddPartitionClause> addPartitionClauseMap; // name to partition. each is one partition.
         try {
-            // won't get duplicate values. WE WILL HOLD READ LOCK FROM NOW ON.
+            // Lock from here
+            olapTable.writeLockOrDdlException();
+            // won't get duplicate values.
             addPartitionClauseMap = PartitionExprUtil.getNonExistPartitionAddClause(olapTable,
                     partitionValues, partitionInfo);
+        } catch (DdlException ddlEx) {
+            errorStatus.setErrorMsgs(Lists.newArrayList(ddlEx.getMessage()));
+            result.setStatus(errorStatus);
+            return result;
         } catch (AnalysisException ex) {
+            olapTable.writeUnlock();
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
             result.setStatus(errorStatus);
             return result;
@@ -3290,6 +3297,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // check partition's number limit.
         int partitionNum = olapTable.getPartitionNum() + addPartitionClauseMap.size();
         if (partitionNum > Config.max_auto_partition_num) {
+            olapTable.writeUnlock();
             String errorMessage = String.format(
                     "create partition failed. partition numbers %d will exceed limit variable max_auto_partition_num%d",
                     partitionNum, Config.max_auto_partition_num);
@@ -3300,16 +3308,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // add partitions to table. will write metadata.
-        for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
-            try {
-                Env.getCurrentEnv().addPartitionReadLocked(db, olapTable, addPartitionClause);
-            } catch (DdlException e) {
-                LOG.warn(e);
-                errorStatus.setErrorMsgs(
-                        Lists.newArrayList(String.format("create partition failed. error:%s", e.getMessage())));
-                result.setStatus(errorStatus);
-                return result;
+        try {
+            for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
+                Env.getCurrentEnv().addPartitionSkipLock(db, olapTable, addPartitionClause);
             }
+        } catch (DdlException e) {
+            LOG.warn(e);
+            errorStatus.setErrorMsgs(
+                    Lists.newArrayList(String.format("create partition failed. error:%s", e.getMessage())));
+            result.setStatus(errorStatus);
+            return result;
+        } finally {
+            // read/write metadata finished. free lock.
+            olapTable.writeUnlock();
         }
 
         // build partition & tablets

@@ -2887,7 +2887,7 @@ public class Env {
         getInternalCatalog().addPartition(db, tableName, addPartitionClause, false);
     }
 
-    public void addPartitionReadLocked(Database db, OlapTable table, AddPartitionClause addPartitionClause)
+    public void addPartitionSkipLock(Database db, OlapTable table, AddPartitionClause addPartitionClause)
             throws DdlException {
         getInternalCatalog().addPartition(db, table.getName(), addPartitionClause, true);
     }

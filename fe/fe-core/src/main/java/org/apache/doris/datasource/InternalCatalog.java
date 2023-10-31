@@ -1378,6 +1378,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
+    // if skipLock = true. there's not any lock operation. In generally it means we
+    // have a relative process outside and under a same huge lock.
     public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause, boolean skipLock)
             throws DdlException {
         SinglePartitionDesc singlePartitionDesc = addPartitionClause.getSingeRangePartitionDesc();
@@ -1392,7 +1394,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
-        if (!skipLock) { // otherwise, there's locked outside.
+        if (!skipLock) {
             olapTable.readLock();
         }
         try {
@@ -1524,8 +1526,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             // get BinlogConfig
             binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
         } catch (AnalysisException e) {
-            olapTable.readUnlock();
             throw new DdlException(e.getMessage());
+        } finally {
+            if (!skipLock) {
+                olapTable.readUnlock();
+            }
         }
         // now we still hold the read lock.
 
@@ -1571,7 +1576,9 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             // check again
             olapTable = db.getOlapTableOrDdlException(tableName);
-            olapTable.writeLockOrDdlException();
+            if (!skipLock) {
+                olapTable.writeLockOrDdlException();
+            }
             try {
                 olapTable.checkNormalStateForAlter();
                 // check partition name
@@ -1666,7 +1673,9 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 LOG.info("succeed in creating partition[{}], temp: {}", partitionId, isTempPartition);
             } finally {
-                olapTable.writeUnlock();
+                if (!skipLock) {
+                    olapTable.writeUnlock();
+                }
             }
         } catch (DdlException e) {
             for (Long tabletId : tabletIdSet) {

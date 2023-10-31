@@ -117,11 +117,11 @@ public class PartitionExprUtil {
     // value won't make duplicate AddPartitionClause.
     // But if there's same partition values in two calling of this. we may have the
     // different partition name because we have timestamp suffix here.
-    // Should check existence of partitions in this table. so need readlock first.
+    // Should check existence of partitions in this table. so need at least readlock
+    // first.
     public static Map<String, AddPartitionClause> getNonExistPartitionAddClause(OlapTable olapTable,
             ArrayList<TStringLiteral> partitionValues, PartitionInfo partitionInfo)
             throws AnalysisException {
-        olapTable.readLock();
         Map<String, AddPartitionClause> result = Maps.newHashMap();
         ArrayList<Expr> partitionExprs = partitionInfo.getPartitionExprs();
         PartitionType partitionType = partitionInfo.getType();
