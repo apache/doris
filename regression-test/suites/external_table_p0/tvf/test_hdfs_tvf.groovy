@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hdfs_tvf") {
+suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
     String hdfs_port = context.config.otherConfigs.get("hdfs_port")
     // It's okay to use random `hdfsUser`, but can not be empty.
     def hdfsUserName = "doris"

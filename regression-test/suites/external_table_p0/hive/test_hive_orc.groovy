@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_orc", "all_types") {
+suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_docker_hive") {
     // Ensure that all types are parsed correctly
     def select_top50 = {
         qt_select_top50 """select * from orc_all_types order by int_col desc limit 50;"""
@@ -79,10 +79,12 @@ suite("test_hive_orc", "all_types") {
         try {
             String hms_port = context.config.otherConfigs.get("hms_port")
             String catalog_name = "hive_test_orc"
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
-                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );"""
             sql """use `${catalog_name}`.`default`"""
 
@@ -100,7 +102,7 @@ suite("test_hive_orc", "all_types") {
             sql """
                 create catalog if not exists ${catalog_name} properties (
                     "type"="hms",
-                    'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+                    'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
                 );
             """
             sql """use `${catalog_name}`.`default`"""

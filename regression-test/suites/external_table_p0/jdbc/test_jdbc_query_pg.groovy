@@ -17,7 +17,7 @@
 
 import java.nio.charset.Charset;
 
-suite("test_jdbc_query_pg", "p0") {
+suite("test_jdbc_query_pg", "p0,external,pg,external_docker,external_docker_pg") {
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
