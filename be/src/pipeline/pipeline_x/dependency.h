@@ -241,17 +241,14 @@ public:
         if (!_blocked_by_rf) {
             return nullptr;
         }
-        if (_filters == 0) {
-            return nullptr;
+        if (*_blocked_by_rf) {
+            return this;
         }
-        return this;
+        return nullptr;
     }
     void* shared_state() override { return nullptr; }
     void add_filters(IRuntimeFilter* runtime_filter);
     void sub_filters();
-    void call_task_ready() {
-        /// TODO:
-    }
     void set_blocked_by_rf(std::shared_ptr<std::atomic_bool> blocked_by_rf) {
         _blocked_by_rf = blocked_by_rf;
     }
