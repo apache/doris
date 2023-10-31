@@ -621,6 +621,8 @@ public class TabletScheduler extends MasterDaemon {
         Optional<Replica> destReplica = tabletCtx.getReplicas()
                 .stream().filter(replica -> replica.getBackendId() == tabletCtx.getDestBackendId()).findAny();
         if (destReplica.isPresent() && tabletCtx.getDestPathHash() != -1) {
+            LOG.info("dx test success report old {} : new {}",
+                    destReplica.get().getPathHash(), tabletCtx.getDestPathHash());
             destReplica.get().setPathHash(tabletCtx.getDestPathHash());
         }
     }
