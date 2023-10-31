@@ -61,11 +61,11 @@ public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
     using Parent = HashJoinBuildSinkOperatorX;
     HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
-    ~HashJoinBuildSinkLocalState() = default;
+    ~HashJoinBuildSinkLocalState() override = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
-    Status process_build_block(RuntimeState* state, vectorized::Block& block, uint8_t offset);
+    Status process_build_block(RuntimeState* state, vectorized::Block& block);
 
     void init_short_circuit_for_probe();
 
@@ -94,7 +94,6 @@ protected:
 
     std::vector<IRuntimeFilter*> _runtime_filters;
     bool _should_build_hash_table = true;
-    uint8_t _build_block_idx = 0;
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
     vectorized::MutableBlock _build_side_mutable_block;
@@ -102,7 +101,7 @@ protected:
     bool _has_set_need_null_map_for_build = false;
     bool _build_side_ignore_null = false;
     size_t _build_rf_cardinality = 0;
-    std::unordered_map<const vectorized::Block*, std::vector<int>> _inserted_rows;
+    std::unordered_set<const vectorized::Block*> _inserted_blocks;
     std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
 
     RuntimeProfile::Counter* _build_table_timer;

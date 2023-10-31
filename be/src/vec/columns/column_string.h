@@ -475,6 +475,9 @@ public:
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override;
 
+    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                  const uint32_t* indices_end) override;
+
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
 
