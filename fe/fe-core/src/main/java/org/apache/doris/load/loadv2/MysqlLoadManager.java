@@ -202,7 +202,7 @@ public class MysqlLoadManager {
                 }
             }
         } catch (Throwable t) {
-            LOG.warn("Execute mysql load {} failed, msg: {}", loadId, t.getMessage());
+            LOG.warn("Execute mysql load {} failed, msg: {}", loadId, t);
             // drain the data from client conn util empty packet received, otherwise the connection will be reset
             if (clientLocal && loadContextMap.containsKey(loadId) && !loadContextMap.get(loadId).isFinished()) {
                 LOG.warn("Not drained yet, try reading left data from client connection for load {}.", loadId);
