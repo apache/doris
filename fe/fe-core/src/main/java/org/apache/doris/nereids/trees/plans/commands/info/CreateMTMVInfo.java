@@ -17,26 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
+import org.apache.doris.analysis.CreateMTMVStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -145,63 +138,18 @@ public class CreateMTMVInfo {
      * analyzeQuery
      */
     public void analyzeQuery(ConnectContext ctx) {
-        // create table as select
-        // NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        // Plan plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
-        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
-        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-        analyzeBaseTables(planner);
-        getColumns(planner);
-    }
-
-    private void analyzeBaseTables(NereidsPlanner planner) {
-        for (ScanNode scanNode : planner.getScanNodes()) {
-            TableIf table = scanNode.getTupleDesc().getTable();
-            if (table.getType().equals(TableType.MATERIALIZED_VIEW)) {
-                throw new AnalysisException("can not create materialized view use other materialized view");
-            }
-        }
-    }
-
-    private void getColumns(NereidsPlanner planner) {
-        List<Slot> slots = planner.getOptimizedPlan().getOutput();
-        if (slots.isEmpty()) {
-            throw new AnalysisException("table should contain at least one column");
-        }
-        if (simpleColumnDefinitions != null && simpleColumnDefinitions.size() != slots.size()) {
-            throw new AnalysisException("simpleColumnDefinitions size is not equal to the query's");
-        }
-        Set<String> colNames = Sets.newHashSet();
-        for (int i = 0; i < slots.size(); i++) {
-            String colName = simpleColumnDefinitions == null ? slots.get(i).getName()
-                    : simpleColumnDefinitions.get(i).getName();
-            try {
-                FeNameFormat.checkColumnName(colName);
-            } catch (org.apache.doris.common.AnalysisException e) {
-                throw new AnalysisException(e.getMessage());
-            }
-            if (colNames.contains(colName)) {
-                throw new AnalysisException("repeat cols:" + colName);
-            } else {
-                colNames.add(colName);
-            }
-            columns.add(new ColumnDefinition(
-                    colName, slots.get(i).getDataType(), true,
-                    simpleColumnDefinitions == null ? null : simpleColumnDefinitions.get(i).getComment()));
-        }
     }
 
     /**
      * translate to catalog CreateMultiTableMaterializedViewStmt
      */
-    public CreateMultiTableMaterializedViewStmt translateToLegacyStmt() {
+    public CreateMTMVStmt translateToLegacyStmt() {
         TableName tableName = mvName.transferToTableName();
         KeysDesc keysDesc = new KeysDesc(KeysType.DUP_KEYS, keys);
         List<Column> catalogColumns = columns.stream()
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
-        return new CreateMultiTableMaterializedViewStmt(ifNotExists, tableName, catalogColumns, refreshInfo, keysDesc,
+        return new CreateMTMVStmt(ifNotExists, tableName, catalogColumns, refreshInfo, keysDesc,
                 distribution.translateToCatalogStyle(), properties, mvProperties, querySql, comment, envInfo);
     }
 }

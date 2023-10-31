@@ -45,6 +45,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
@@ -62,6 +63,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
@@ -201,6 +204,8 @@ public class Alter {
         } else if (currentAlterOps.hasSchemaChangeOp()) {
             // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
             schemaChangeHandler.process(stmt.toSql(), alterClauses, clusterName, db, olapTable);
+            // if base table schemaChanged, need change mtmv status
+            Env.getCurrentEnv().getMtmvService().alterTable(olapTable);
         } else if (currentAlterOps.hasRollupOp()) {
             materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
         } else if (currentAlterOps.hasPartitionOp()) {
@@ -256,6 +261,7 @@ public class Alter {
             }
         } else if (currentAlterOps.hasRenameOp()) {
             processRename(db, olapTable, alterClauses);
+            Env.getCurrentEnv().getMtmvService().alterTable(olapTable);
         } else if (currentAlterOps.hasReplaceTableOp()) {
             processReplaceTable(db, olapTable, alterClauses);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_PROPERTY_SYNC)) {
@@ -874,5 +880,33 @@ public class Alter {
 
     public AlterHandler getClusterHandler() {
         return clusterHandler;
+    }
+
+    public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay)
+            throws UserException {
+        TableNameInfo tbl = alterMTMV.getMvName();
+        MTMV mtmv = null;
+        try {
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
+            mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
+
+            mtmv.writeLock();
+            if (alterMTMV.getRefreshInfo() != null) {
+                mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
+            } else if (alterMTMV.getStatus() != null) {
+                mtmv.alterStatus(alterMTMV.getStatus());
+            } else if (alterMTMV.getMvProperties() != null) {
+                mtmv.alterMvProperties(alterMTMV.getMvProperties());
+            }
+            // 4. log it and replay it in the follower
+            if (!isReplay) {
+                Env.getCurrentEnv().getMtmvService().alterMTMV(mtmv, alterMTMV);
+                Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
+            }
+        } finally {
+            if (mtmv != null) {
+                mtmv.writeUnlock();
+            }
+        }
     }
 }

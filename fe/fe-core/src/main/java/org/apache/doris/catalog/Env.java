@@ -173,9 +173,14 @@ import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVService;
+import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
@@ -4081,8 +4086,12 @@ public class Env {
         getBackupHandler().cancel(stmt);
     }
 
-    // entry of rename table operation
     public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
+        renameTable(db, table, tableRenameClause.getNewTableName());
+    }
+
+    // entry of rename table operation
+    public void renameTable(Database db, Table table, String newTableName) throws DdlException {
         db.writeLockOrDdlException();
         try {
             table.writeLockOrDdlException();
@@ -4093,7 +4102,6 @@ public class Env {
                 }
 
                 String oldTableName = table.getName();
-                String newTableName = tableRenameClause.getNewTableName();
                 if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(newTableName)) {
                     newTableName = newTableName.toLowerCase();
                 }
@@ -5257,7 +5265,8 @@ public class Env {
         long dbId = replaceTempPartitionLog.getDbId();
         long tableId = replaceTempPartitionLog.getTblId();
         Database db = getInternalCatalog().getDbOrMetaException(dbId);
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+        OlapTable olapTable = (OlapTable) db
+                .getTableOrMetaException(tableId, Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW));
         olapTable.writeLock();
         try {
             olapTable.replaceTempPartitions(replaceTempPartitionLog.getPartitions(),
@@ -5771,5 +5780,22 @@ public class Env {
 
     public StatisticsAutoCollector getStatisticsAutoCollector() {
         return statisticsAutoCollector;
+    }
+
+    public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) throws UserException {
+        AlterMTMV alter = new AlterMTMV(info.getMvName(), info.getRefreshInfo());
+        this.alter.processAlterMTMV(alter, false);
+    }
+
+    public void alterMTMVProperty(AlterMTMVPropertyInfo info) throws UserException {
+        AlterMTMV alter = new AlterMTMV(info.getMvName());
+        alter.setMvProperties(info.getProperties());
+        this.alter.processAlterMTMV(alter, false);
+    }
+
+    public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) throws UserException {
+        AlterMTMV alter = new AlterMTMV(mvName);
+        alter.setStatus(status);
+        this.alter.processAlterMTMV(alter, false);
     }
 }

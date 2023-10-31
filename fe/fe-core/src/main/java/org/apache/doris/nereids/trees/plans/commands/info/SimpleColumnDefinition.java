@@ -15,24 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mtmv;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-import java.util.Set;
+/**
+ * column def for mv
+ */
+public class SimpleColumnDefinition {
+    private final String name;
+    private final String comment;
 
-public class MTMVCache {
-    private Set<BaseTableInfo> baseTables;
-    private Set<BaseTableInfo> baseViews;
-
-    public MTMVCache(Set<BaseTableInfo> baseTables, Set<BaseTableInfo> baseViews) {
-        this.baseTables = baseTables;
-        this.baseViews = baseViews;
+    /**
+     * constructor
+     */
+    public SimpleColumnDefinition(String name, String comment) {
+        this.name = name;
+        this.comment = comment;
     }
 
-    public Set<BaseTableInfo> getBaseTables() {
-        return baseTables;
+    public String getName() {
+        return name;
     }
 
-    public Set<BaseTableInfo> getBaseViews() {
-        return baseViews;
+    public String getComment() {
+        return comment;
     }
 }

@@ -19,15 +19,14 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.MaterializedView;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshEnum.BuildMode;
-import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshEnum.RefreshTrigger;
-import org.apache.doris.nereids.trees.plans.commands.info.MTMVRefreshSchedule;
+import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
@@ -44,7 +43,7 @@ public class MTMVJobManager implements MTMVHookService {
     public static final String MTMV_JOB_PREFIX = "mtmv_";
 
     @Override
-    public void createMTMV(MaterializedView materializedView) throws DdlException {
+    public void createMTMV(MTMV materializedView) throws DdlException {
         if (materializedView.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger()
                 .equals(RefreshTrigger.SCHEDULE)) {
             createCycleJob(materializedView);
@@ -54,7 +53,7 @@ public class MTMVJobManager implements MTMVHookService {
 
     }
 
-    private void createOnceJob(MaterializedView materializedView) throws DdlException {
+    private void createOnceJob(MTMV materializedView) throws DdlException {
         String uid = UUID.randomUUID().toString().replace("-", "_");
         Job job = new Job();
         job.setCycleJob(false);
@@ -69,7 +68,7 @@ public class MTMVJobManager implements MTMVHookService {
         Env.getCurrentEnv().getJobRegister().registerJob(job);
     }
 
-    private void createCycleJob(MaterializedView materializedView) throws DdlException {
+    private void createCycleJob(MTMV materializedView) throws DdlException {
         String uid = UUID.randomUUID().toString().replace("-", "_");
         Job job = new Job();
         job.setCycleJob(true);
@@ -94,7 +93,7 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void dropMTMV(MaterializedView table) {
+    public void dropMTMV(MTMV table) {
         List<Job> jobs = Env.getCurrentEnv().getJobRegister()
                 .getJobs(table.getQualifiedDbName(), null, JobCategory.MTMV, null);
         for (Job job : jobs) {
@@ -106,17 +105,17 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void registerMTMV(MaterializedView materializedView) {
+    public void registerMTMV(MTMV materializedView) {
 
     }
 
     @Override
-    public void deregisterMTMV(MaterializedView materializedView) {
+    public void deregisterMTMV(MTMV materializedView) {
 
     }
 
     @Override
-    public void alterMTMV(MaterializedView materializedView, AlterMTMV alterMTMV) throws DdlException {
+    public void alterMTMV(MTMV materializedView, AlterMTMV alterMTMV) throws DdlException {
         if (alterMTMV.isNeedRebuildJob()) {
             dropMTMV(materializedView);
             createMTMV(materializedView);
@@ -127,12 +126,12 @@ public class MTMVJobManager implements MTMVHookService {
     public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
         TableNameInfo mvName = info.getMvName();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
-        MaterializedView mv = (MaterializedView) db
+        MTMV mv = (MTMV) db
                 .getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
         createOnceJob(mv);
     }
 
-    private static String generateSql(MaterializedView materializedView) {
+    private static String generateSql(MTMV materializedView) {
         StringBuilder builder = new StringBuilder();
         builder.append("INSERT OVERWRITE TABLE ");
         builder.append(materializedView.getDatabase().getCatalog().getName());
@@ -145,7 +144,7 @@ public class MTMVJobManager implements MTMVHookService {
         return builder.toString();
     }
 
-    private MTMVJobExecutor generateJobExecutor(MaterializedView materializedView) {
+    private MTMVJobExecutor generateJobExecutor(MTMV materializedView) {
         return new MTMVJobExecutor(materializedView.getQualifiedDbName(), materializedView.getName(),
                 generateSql(materializedView));
     }
