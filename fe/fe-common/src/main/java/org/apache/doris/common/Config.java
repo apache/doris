@@ -1919,6 +1919,12 @@ public class Config extends ConfigBase {
     public static boolean ssl_force_client_auth = false;
 
     /**
+     * ssl connection needs to authenticate client's certificate store type.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String ssl_trust_store_type = "PKCS12";
+
+    /**
      * Default CA certificate file location for mysql ssl connection.
      */
     @ConfField(mutable = false, masterOnly = false)
@@ -2015,12 +2021,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_round_robin_create_tablet = false;
-
-    /**
-     * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
-     */
-    @ConfField
-    public static boolean enable_stats = true;
 
     /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
@@ -2219,7 +2219,7 @@ public class Config extends ConfigBase {
             "控制统计信息的自动触发作业执行记录的持久化行数",
             "Determine the persist number of automatic triggered analyze job execution status"
     })
-    public static long auto_analyze_job_record_count = 20000;
+    public static long analyze_record_limit = 20000;
 
     @ConfField(description = {
             "Auto Buckets中最小的buckets数目",
@@ -2244,6 +2244,7 @@ public class Config extends ConfigBase {
             + "If this database conflicts with a user's own database, please modify this field to replace "
             + "the name of the Doris built-in MySQL database with a different name."})
     public static String mysqldb_replace_name = "mysql";
+
     @ConfField(description = {
         "设置允许跨域访问的特定域名,默认允许任何域名跨域访问",
         "Set the specific domain name that allows cross-domain access. "
@@ -2251,4 +2252,28 @@ public class Config extends ConfigBase {
     })
     public static String access_control_allowed_origin_domain = "*";
 
+    @ConfField(description = {
+            "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
+                    + "默认为 false，如果 Image 文件中包含未知的模块，Doris 将会抛出异常。"
+                    + "该参数主要用于降级操作中，老版本可以兼容新版本的 Image 文件。",
+            "Whether to ignore unknown modules in Image file. "
+                    + "If true, metadata modules not in PersistMetaModules.MODULE_NAMES "
+                    + "will be ignored and skipped. Default is false, if Image file contains unknown modules, "
+                    + "Doris will throw exception. "
+                    + "This parameter is mainly used in downgrade operation, "
+                    + "old version can be compatible with new version Image file."
+    })
+    public static boolean ignore_unknown_metadata_module = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "从主节点同步image文件的超时时间，用户可根据${meta_dir}/image文件夹下面的image文件大小和节点间的网络环境调整，"
+                    + "单位为秒，默认值300",
+            "The timeout for FE Follower/Observer synchronizing an image file from the FE Master, can be adjusted by "
+                    + "the user on the size of image file in the ${meta_dir}/image and the network environment between "
+                    + "nodes. The default values is 300."
+    })
+    public static int sync_image_timeout_second = 300;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int publish_topic_info_interval_ms = 30000; // 30s
 }

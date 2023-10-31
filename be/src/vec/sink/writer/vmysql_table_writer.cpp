@@ -205,7 +205,8 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         }
         case TYPE_DECIMAL32:
         case TYPE_DECIMAL64:
-        case TYPE_DECIMAL128I: {
+        case TYPE_DECIMAL128I:
+        case TYPE_DECIMAL256: {
             auto val = type_ptr->to_string(*column, row);
             fmt::format_to(_insert_stmt_buffer, "{}", val);
             break;
@@ -213,8 +214,7 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         case TYPE_DATE:
         case TYPE_DATETIME: {
             int64_t int_val = assert_cast<const vectorized::ColumnInt64&>(*column).get_data()[row];
-            vectorized::VecDateTimeValue value =
-                    binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(int_val);
+            VecDateTimeValue value = binary_cast<int64_t, doris::VecDateTimeValue>(int_val);
 
             char buf[64];
             char* pos = value.to_string(buf);
@@ -225,8 +225,8 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         case TYPE_DATEV2: {
             uint32_t int_val =
                     assert_cast<const vectorized::ColumnUInt32&>(*column).get_data()[row];
-            vectorized::DateV2Value<DateV2ValueType> value =
-                    binary_cast<uint32_t, doris::vectorized::DateV2Value<DateV2ValueType>>(int_val);
+            DateV2Value<DateV2ValueType> value =
+                    binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_val);
 
             char buf[64];
             char* pos = value.to_string(buf);
@@ -237,9 +237,8 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         case TYPE_DATETIMEV2: {
             uint32_t int_val =
                     assert_cast<const vectorized::ColumnUInt64&>(*column).get_data()[row];
-            vectorized::DateV2Value<DateTimeV2ValueType> value =
-                    binary_cast<uint64_t, doris::vectorized::DateV2Value<DateTimeV2ValueType>>(
-                            int_val);
+            DateV2Value<DateTimeV2ValueType> value =
+                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_val);
 
             char buf[64];
             char* pos = value.to_string(buf, _vec_output_expr_ctxs[i]->root()->type().scale);

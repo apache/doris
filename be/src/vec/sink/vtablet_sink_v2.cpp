@@ -38,6 +38,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/object_pool.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/delta_writer_v2.h"
@@ -156,6 +157,7 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    signal::set_signal_task_id(_load_id);
 
     if (config::share_delta_writers) {
         _delta_writer_for_tablet =
@@ -335,7 +337,7 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
             }
         }
         DeltaWriterV2* delta_writer = nullptr;
-        static_cast<void>(DeltaWriterV2::open(&req, streams, &delta_writer, _profile));
+        static_cast<void>(DeltaWriterV2::open(&req, streams, &delta_writer));
         return delta_writer;
     });
     {
@@ -379,7 +381,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            static_cast<void>(_delta_writer_for_tablet->close());
+            static_cast<void>(_delta_writer_for_tablet->close(_profile));
             _delta_writer_for_tablet.reset();
         }
 
@@ -394,7 +396,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             SCOPED_TIMER(_close_load_timer);
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : *streams) {
-                    static_cast<void>(stream->close_wait());
+                    RETURN_IF_ERROR(stream->close_wait());
                 }
             }
         }

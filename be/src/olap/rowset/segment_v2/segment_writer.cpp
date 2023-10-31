@@ -27,6 +27,7 @@
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
@@ -70,20 +71,20 @@ const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
-                             TabletSchemaSPtr tablet_schema, TabletSharedPtr tablet,
+                             TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                              DataDir* data_dir, uint32_t max_row_per_segment,
                              const SegmentWriterOptions& opts,
                              std::shared_ptr<MowContext> mow_context)
         : _segment_id(segment_id),
-          _tablet_schema(tablet_schema),
-          _tablet(tablet),
+          _tablet_schema(std::move(tablet_schema)),
+          _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _max_row_per_segment(max_row_per_segment),
           _opts(opts),
           _file_writer(file_writer),
           _mem_tracker(std::make_unique<MemTracker>("SegmentWriter:Segment-" +
                                                     std::to_string(segment_id))),
-          _mow_context(mow_context) {
+          _mow_context(std::move(mow_context)) {
     CHECK_NOTNULL(file_writer);
     _num_key_columns = _tablet_schema->num_key_columns();
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
@@ -323,6 +324,11 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 // 3. set columns to data convertor and then write all columns
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
+    if (config::cloud_mode) {
+        // TODO(plat1ko)
+        return Status::NotSupported("append_block_with_partial_content");
+    }
+    auto tablet = static_cast<Tablet*>(_tablet.get());
     if (block->columns() <= _tablet_schema->num_key_columns() ||
         block->columns() >= _tablet_schema->num_columns()) {
         return Status::InternalError(
@@ -335,8 +341,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
     DCHECK(_opts.rowset_ctx->partial_update_info);
     // find missing column cids
-    std::vector<uint32_t> missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
-    std::vector<uint32_t> including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
+    const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
+    const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
 
     // create full block and fill with input columns
     auto full_block = _tablet_schema->create_block();
@@ -388,8 +394,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
-        std::shared_lock rlock(_tablet->get_header_lock());
-        specified_rowsets = _tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+        std::shared_lock rlock(tablet->get_header_lock());
+        specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     // locate rows in base data
@@ -416,11 +422,22 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         }
         _maybe_invalid_row_cache(key);
 
+        // mark key with delete sign as deleted.
+        bool have_delete_sign =
+                (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
+        if (have_delete_sign && !_tablet_schema->has_sequence_col() && !have_input_seq_column) {
+            // we can directly use delete bitmap to mark the rows with delete sign as deleted
+            // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
+            _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
+                                              DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
+                                             segment_pos);
+        }
+
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
         RowsetSharedPtr rowset;
-        auto st = _tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
-                                          _mow_context->max_version, segment_caches, &rowset);
+        auto st = tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
+                                         _mow_context->max_version, segment_caches, &rowset);
         if (st.is<KEY_NOT_FOUND>()) {
             if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
                 ++num_rows_filtered;
@@ -447,21 +464,14 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         // if the delete sign is marked, it means that the value columns of the row
         // will not be read. So we don't need to read the missing values from the previous rows.
         // But we still need to mark the previous row on delete bitmap
-        if (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0) {
+        if (have_delete_sign) {
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
-            if (!_tablet_schema->has_sequence_col() && !have_input_seq_column) {
-                // we can directly use delete bitmap to mark the rows with delete sign as deleted
-                // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
-                _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
-                                                  DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
-                                                 segment_pos);
-            }
         } else {
             // partial update should not contain invisible columns
             use_default_or_null_flag.emplace_back(false);
             _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-            _tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
+            tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
         }
 
         if (st.is<KEY_ALREADY_EXISTS>()) {
@@ -478,8 +488,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     CHECK(use_default_or_null_flag.size() == num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {
-        _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
-                                                    _mow_context->rowset_ids);
+        tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
+                                                   _mow_context->rowset_ids);
     }
 
     // read and fill block
@@ -493,10 +503,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     }
 
     // convert missing columns and send to column writer
-    auto cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, row_pos, num_rows,
-                                                                   cids_missing);
-    for (auto cid : cids_missing) {
+                                                                   missing_cids);
+    for (auto cid : missing_cids) {
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
         if (!converted_result.first.ok()) {
             return converted_result.first;
@@ -545,8 +554,12 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                                            const std::vector<bool>& use_default_or_null_flag,
                                            bool has_default_or_nullable,
                                            const size_t& segment_start_pos) {
+    if (config::cloud_mode) [[unlikely]] {
+        return Status::NotSupported("fill_missing_columns");
+    }
+    auto tablet = static_cast<Tablet*>(_tablet.get());
     // create old value columns
-    std::vector<uint32_t> cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
+    const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
     CHECK(cids_missing.size() == old_value_block.columns());
     auto mutable_old_columns = old_value_block.mutate_columns();
@@ -564,8 +577,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 read_index[id_and_pos.pos] = read_idx++;
             }
             if (has_row_column) {
-                auto st = _tablet->fetch_value_through_row_column(rowset, seg_it.first, rids,
-                                                                  cids_missing, old_value_block);
+                auto st = tablet->fetch_value_through_row_column(rowset, seg_it.first, rids,
+                                                                 cids_missing, old_value_block);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value through row column";
                     return st;
@@ -574,8 +587,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             }
             for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
                 TabletColumn tablet_column = _tablet_schema->column(cids_missing[cid]);
-                auto st = _tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
-                                                         mutable_old_columns[cid]);
+                auto st = tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
+                                                        mutable_old_columns[cid]);
                 // set read value to output block
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value by rowids";

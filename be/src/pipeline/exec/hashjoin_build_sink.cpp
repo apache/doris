@@ -48,7 +48,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
     SCOPED_TIMER(profile()->total_time_counter());
     SCOPED_TIMER(_open_timer);
-    _shared_hash_table_dependency = SharedHashTableDependency::create_shared(_parent->id());
+    _shared_hash_table_dependency =
+            SharedHashTableDependency::create_shared(_parent->operator_id());
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
     if (p._is_broadcast_join && state->enable_share_hash_table_for_broadcast_join()) {
@@ -74,14 +75,15 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         if (state->enable_share_hash_table_for_broadcast_join()) {
             profile()->add_info_string("ShareHashTableEnabled", "true");
             _should_build_hash_table = p._shared_hashtable_controller->should_build_hash_table(
-                    state->fragment_instance_id(), p.id());
+                    state->fragment_instance_id(), p.node_id());
         } else {
             profile()->add_info_string("ShareHashTableEnabled", "false");
         }
     }
     if (!_should_build_hash_table) {
         _shared_hash_table_dependency->block_writing();
-        p._shared_hashtable_controller->append_dependency(p.id(), _shared_hash_table_dependency);
+        p._shared_hashtable_controller->append_dependency(p.node_id(),
+                                                          _shared_hash_table_dependency);
     } else if (p._is_broadcast_join) {
         // avoid vector expand change block address.
         // one block can store 4g data, _build_blocks can store 128*4g data.
@@ -343,9 +345,10 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                *_shared_state->hash_table_variants);
 }
 
-HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
+                                                       const TPlanNode& tnode,
                                                        const DescriptorTbl& descs)
-        : JoinBuildSinkOperatorX(pool, tnode, descs),
+        : JoinBuildSinkOperatorX(pool, operator_id, tnode, descs),
           _is_broadcast_join(tnode.hash_join_node.__isset.is_broadcast_join &&
                              tnode.hash_join_node.is_broadcast_join) {
     _runtime_filter_descs = tnode.runtime_filters;
@@ -356,7 +359,7 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
         if (state->enable_share_hash_table_for_broadcast_join()) {
             _shared_hashtable_controller =
                     state->get_query_ctx()->get_shared_hash_table_controller();
-            _shared_hash_table_context = _shared_hashtable_controller->get_context(id());
+            _shared_hash_table_context = _shared_hashtable_controller->get_context(node_id());
         }
     }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_build_expr_ctxs, state, _child_x->row_desc()));
@@ -398,7 +401,7 @@ Status HashJoinBuildSinkOperatorX::open(RuntimeState* state) {
 
 Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                         SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
@@ -477,7 +480,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         if (!ret.ok()) {
             if (_shared_hashtable_controller) {
                 _shared_hash_table_context->status = ret;
-                _shared_hashtable_controller->signal(id());
+                _shared_hashtable_controller->signal(node_id());
             }
             return ret;
         }
@@ -493,7 +496,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 local_state._runtime_filter_slots->copy_to_shared_context(
                         _shared_hash_table_context);
             }
-            _shared_hashtable_controller->signal(id());
+            _shared_hashtable_controller->signal(node_id());
         }
     } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
@@ -505,7 +508,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         local_state.profile()->add_info_string(
                 "SharedHashTableFrom",
-                print_id(_shared_hashtable_controller->get_builder_fragment_instance_id(id())));
+                print_id(
+                        _shared_hashtable_controller->get_builder_fragment_instance_id(node_id())));
         local_state._shared_state->_has_null_in_build_side =
                 _shared_hash_table_context->short_circuit_for_null_in_probe_side;
         std::visit(

@@ -179,6 +179,10 @@ public:
             return false;
         }
 
+        DCHECK(sizeof(T) <= statistic.first->size() || Type == TYPE_DATE)
+                << " Type: " << Type << " sizeof(T): " << sizeof(T)
+                << " statistic.first->size(): " << statistic.first->size();
+
         T tmp_min_value {};
         T tmp_max_value {};
         memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
@@ -378,7 +382,7 @@ private:
                            roaring::Roaring* bitmap) const {
         roaring::Roaring roaring;
 
-        if (status.is<ErrorCode::NOT_FOUND>()) {
+        if (status.is<ErrorCode::ENTRY_NOT_FOUND>()) {
             if constexpr (PT == PredicateType::EQ || PT == PredicateType::GT ||
                           PT == PredicateType::GE) {
                 *bitmap &= roaring; // set bitmap to empty

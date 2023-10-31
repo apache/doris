@@ -657,9 +657,10 @@ Status AggSinkLocalState<DependencyType, Derived>::try_spill_disk(bool eos) {
 }
 
 template <typename LocalStateType>
-AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, int operator_id,
+                                                   const TPlanNode& tnode,
                                                    const DescriptorTbl& descs)
-        : DataSinkOperatorX<LocalStateType>(tnode.node_id),
+        : DataSinkOperatorX<LocalStateType>(operator_id, tnode.node_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
@@ -782,7 +783,7 @@ template <typename LocalStateType>
 Status AggSinkOperatorX<LocalStateType>::sink(doris::RuntimeState* state,
                                               vectorized::Block* in_block,
                                               SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.profile()->total_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();

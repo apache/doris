@@ -48,18 +48,6 @@ private:
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
 
-    uint64_t get_date_at(uint16_t idx) {
-        const T val = data[idx];
-        const char* val_ptr = reinterpret_cast<const char*>(&val);
-        uint64_t value = 0;
-        value = *(unsigned char*)(val_ptr + 2);
-        value <<= 8;
-        value |= *(unsigned char*)(val_ptr + 1);
-        value <<= 8;
-        value |= *(unsigned char*)(val_ptr);
-        return value;
-    }
-
     void insert_date_to_res_column(const uint16_t* sel, size_t sel_size,
                                    ColumnVector<Int64>* res_ptr) {
         res_ptr->reserve(sel_size);
@@ -481,6 +469,14 @@ public:
             insert_decimal_to_res_column(sel, sel_size, column);
         } else if (std::is_same_v<T, bool>) {
             insert_byte_to_res_column(sel, sel_size, col_ptr);
+        } else if constexpr (std::is_same_v<T, doris::vectorized::IPv4>) {
+            insert_default_value_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::IPv4>*>(col_ptr));
+        } else if constexpr (std::is_same_v<T, doris::vectorized::IPv6>) {
+            insert_default_value_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnVector<doris::vectorized::IPv6>*>(col_ptr));
         } else {
             return Status::NotSupported("not supported output type in predicate_column, type={}",
                                         type_to_string(Type));

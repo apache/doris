@@ -88,7 +88,8 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         }
         auto agg_state_type = std::make_shared<vectorized::DataTypeAggState>(
                 dataTypes, column.get_result_is_nullable(), column.get_aggregation_name());
-        if (agg_state_type->get_serialized_type()->get_type_as_primitive_type() == TYPE_STRING) {
+        if (agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type ==
+            TYPE_STRING) {
             return std::make_unique<OlapColumnDataConvertorVarChar>(false);
         }
         return std::make_unique<OlapColumnDataConvertorAggState>();
@@ -113,11 +114,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     }
     case FieldType::OLAP_FIELD_TYPE_DATEV2: {
         return std::make_unique<OlapColumnDataConvertorDateV2>();
-        break;
     }
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
         return std::make_unique<OlapColumnDataConvertorDateTimeV2>();
-        break;
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
         return std::make_unique<OlapColumnDataConvertorDecimal>();
@@ -130,6 +129,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
         return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal128I>>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
+        return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal256>>();
     }
     case FieldType::OLAP_FIELD_TYPE_JSONB: {
         return std::make_unique<OlapColumnDataConvertorVarChar>(true);
@@ -150,6 +152,12 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::Int64>>();
     }
     case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
+        return std::make_unique<OlapColumnDataConvertorSimple<vectorized::Int128>>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_IPV4: {
+        return std::make_unique<OlapColumnDataConvertorSimple<vectorized::UInt32>>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_IPV6: {
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::Int128>>();
     }
     case FieldType::OLAP_FIELD_TYPE_FLOAT: {

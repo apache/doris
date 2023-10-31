@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/Status_types.h>
@@ -29,6 +30,7 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <atomic>
 #include <chrono> // IWYU pragma: keep
 #include <ctime>
 #include <functional>
@@ -48,6 +50,7 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_system.h"
+#include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
@@ -1068,9 +1071,6 @@ void TaskWorkerPool::_handle_report(const TReportRequest& request, ReportType ty
                 .error(result.status);
     } else {
         is_report_success = true;
-        LOG_INFO("successfully report {}", TYPE_STRING(type))
-                .tag("host", _master_info.network_address.hostname)
-                .tag("port", _master_info.network_address.port);
     }
     switch (type) {
     case TASK:
@@ -1200,6 +1200,22 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                             .tag("resource_id", resource.id)
                             .tag("resource_name", resource.name)
                             .tag("s3_conf", s3_conf.to_string());
+                    put_storage_resource(resource.id, {std::move(fs), resource.version});
+                }
+            } else if (resource.__isset.hdfs_storage_param) {
+                Status st;
+                std::shared_ptr<io::HdfsFileSystem> fs;
+                if (existed_resource.fs == nullptr) {
+                    st = io::HdfsFileSystem::create(resource.hdfs_storage_param, "", nullptr, &fs);
+                } else {
+                    fs = std::static_pointer_cast<io::HdfsFileSystem>(existed_resource.fs);
+                }
+                if (!st.ok()) {
+                    LOG(WARNING) << "update hdfs resource failed: " << st;
+                } else {
+                    LOG_INFO("successfully update hdfs resource")
+                            .tag("resource_id", resource.id)
+                            .tag("resource_name", resource.name);
                     put_storage_resource(resource.id, {std::move(fs), resource.version});
                 }
             } else {
@@ -1597,12 +1613,18 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     TabletSharedPtr tablet =
                             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
                     if (tablet != nullptr) {
-                        tablet->publised_count++;
-                        if (tablet->publised_count % 10 == 0) {
-                            static_cast<void>(StorageEngine::instance()->submit_compaction_task(
-                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true));
-                            LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
-                                      << ", publised:" << tablet->publised_count;
+                        int64_t published_count =
+                                tablet->published_count.fetch_add(1, std::memory_order_relaxed);
+                        if (published_count % 10 == 0) {
+                            auto st = StorageEngine::instance()->submit_compaction_task(
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+                            if (!st.ok()) [[unlikely]] {
+                                LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
+                                             << ", published=" << published_count << " : " << st;
+                            } else {
+                                LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
+                                          << ", published:" << published_count;
+                            }
                         }
                     } else {
                         LOG(WARNING) << "trigger compaction failed, tablet_id:" << tablet_id;

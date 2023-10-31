@@ -744,8 +744,8 @@ DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 DEFINE_Bool(share_delta_writers, "true");
 // number of brpc stream per load
 DEFINE_Int32(num_streams_per_load, "5");
-// timeout for open stream sink rpc in ms
-DEFINE_Int64(open_stream_sink_timeout_ms, "500");
+// timeout for open load stream rpc in ms
+DEFINE_Int64(open_load_stream_timeout_ms, "500");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -1099,7 +1099,7 @@ DEFINE_Int32(group_commit_sync_wal_batch, "10");
 
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");
-DEFINE_mInt32(group_commit_interval_seconds, "10");
+DEFINE_mInt32(group_commit_interval_ms, "10000");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
@@ -1110,9 +1110,11 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
 DEFINE_String(doris_cgroup_cpu_path, "");
-DEFINE_Bool(enable_cpu_hard_limit, "false");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
+
+// Dir of default timezone files
+DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 
 // clang-format off
 #ifdef BE_TEST
