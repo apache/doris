@@ -442,6 +442,27 @@ void ColumnMap::replicate(const uint32_t* indexs, size_t target_size, IColumn& c
             ->replicate(indexs, target_size, res.values_column->assume_mutable_ref());
 }
 
+MutableColumnPtr ColumnMap::get_shrinked_column() {
+    MutableColumns new_columns(2);
+
+    if (keys_column->is_column_string() || keys_column->is_column_array() ||
+        keys_column->is_column_map() || keys_column->is_column_struct()) {
+        new_columns[0] = keys_column->get_shrinked_column();
+    } else {
+        new_columns[0] = keys_column->get_ptr();
+    }
+
+    if (values_column->is_column_string() || values_column->is_column_array() ||
+        values_column->is_column_map() || values_column->is_column_struct()) {
+        new_columns[1] = values_column->get_shrinked_column();
+    } else {
+        new_columns[1] = values_column->get_ptr();
+    }
+
+    return ColumnMap::create(new_columns[0]->assume_mutable(), new_columns[1]->assume_mutable(),
+                             offsets_column->assume_mutable());
+}
+
 void ColumnMap::reserve(size_t n) {
     get_offsets().reserve(n);
     keys_column->reserve(n);
@@ -449,9 +470,8 @@ void ColumnMap::reserve(size_t n) {
 }
 
 void ColumnMap::resize(size_t n) {
-    get_offsets().resize(n);
-    keys_column->resize(n);
-    values_column->resize(n);
+    auto last_off = get_offsets().back();
+    get_offsets().resize_fill(n, last_off);
 }
 
 size_t ColumnMap::byte_size() const {

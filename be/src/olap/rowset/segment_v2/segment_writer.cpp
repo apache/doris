@@ -427,6 +427,17 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         }
         _maybe_invalid_row_cache(key);
 
+        // mark key with delete sign as deleted.
+        bool have_delete_sign =
+                (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
+        if (have_delete_sign && !_tablet_schema->has_sequence_col() && !have_input_seq_column) {
+            // we can directly use delete bitmap to mark the rows with delete sign as deleted
+            // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
+            _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
+                                              DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
+                                             segment_pos);
+        }
+
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
         RowsetSharedPtr rowset;
@@ -458,16 +469,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         // if the delete sign is marked, it means that the value columns of the row
         // will not be read. So we don't need to read the missing values from the previous rows.
         // But we still need to mark the previous row on delete bitmap
-        if (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0) {
+        if (have_delete_sign) {
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
-            if (!_tablet_schema->has_sequence_col() && !have_input_seq_column) {
-                // we can directly use delete bitmap to mark the rows with delete sign as deleted
-                // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
-                _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
-                                                  DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
-                                                 segment_pos);
-            }
         } else {
             // partial update should not contain invisible columns
             use_default_or_null_flag.emplace_back(false);

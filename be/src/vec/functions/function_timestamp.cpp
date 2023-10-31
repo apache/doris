@@ -74,11 +74,11 @@ struct StrToDate {
     }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        if constexpr (IsDateType<DateType> || IsDateV2Type<DateType>) {
-            return make_nullable(std::make_shared<DataTypeDateV2>());
+        if constexpr (IsDataTypeDateTimeV2<DateType>) {
+            // max scale
+            return make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
         }
-        //datetimev2
-        return make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+        return make_nullable(std::make_shared<DateType>());
     }
 
     static StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
@@ -1276,8 +1276,10 @@ public:
     }
 };
 
-using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate<DataTypeDateV2>>;
-using FunctionStrToDatetime = FunctionOtherTypesToDateType<StrToDate<DataTypeDateTimeV2>>;
+using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate<DataTypeDate>>;
+using FunctionStrToDatetime = FunctionOtherTypesToDateType<StrToDate<DataTypeDateTime>>;
+using FunctionStrToDateV2 = FunctionOtherTypesToDateType<StrToDate<DataTypeDateV2>>;
+using FunctionStrToDatetimeV2 = FunctionOtherTypesToDateType<StrToDate<DataTypeDateTimeV2>>;
 using FunctionMakeDate = FunctionOtherTypesToDateType<MakeDateImpl>;
 using FunctionDateTrunc = FunctionOtherTypesToDateType<DateTrunc<VecDateTimeValue, Int64>>;
 using FunctionDateTruncV2 =
@@ -1286,6 +1288,8 @@ using FunctionDateTruncV2 =
 void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
     factory.register_function<FunctionStrToDatetime>();
+    factory.register_function<FunctionStrToDateV2>();
+    factory.register_function<FunctionStrToDatetimeV2>();
     factory.register_function<FunctionMakeDate>();
     factory.register_function<FromDays>();
     factory.register_function<FunctionDateTrunc>();

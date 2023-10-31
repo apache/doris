@@ -50,6 +50,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/object_pool.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "runtime/define_primitive_type.h"
@@ -339,6 +340,7 @@ Status VNodeChannel::init(RuntimeState* state) {
 
 void VNodeChannel::open() {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    signal::set_signal_task_id(_parent->_load_id);
     PTabletWriterOpenRequest request;
     request.set_allocated_id(&_parent->_load_id);
     request.set_index_id(_index_channel->_index_id);
@@ -696,6 +698,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     SCOPED_ATTACH_TASK(state);
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
+    signal::set_signal_task_id(_parent->_load_id);
     AddBlockReq send_block;
     {
         debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
@@ -1328,7 +1331,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     int filtered_rows = 0;
     {
         SCOPED_RAW_TIMER(&_validate_data_ns);
-        _filter_bitmap.resize(block.rows());
+        _filter_bitmap.clear();
+        _filter_bitmap.resize(block.rows(), 0);
         bool stop_processing = false;
         RETURN_IF_ERROR(
                 _validate_data(state, &block, _filter_bitmap, &filtered_rows, &stop_processing));
