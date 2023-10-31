@@ -81,8 +81,9 @@ public class Count extends AggregateFunction
     public void checkLegalityAfterRewrite() {
         // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
         for (Expression argument : getArguments()) {
-            if (distinct && argument.getDataType().isComplexType()) {
-                throw new AnalysisException("COUNT DISTINCT could not process complex type " + this.toSql());
+            if (distinct && (argument.getDataType().isComplexType()
+                    || argument.getDataType().isObjectType() || argument.getDataType().isJsonType())) {
+                throw new AnalysisException("COUNT DISTINCT could not process type " + this.toSql());
             }
         }
     }
