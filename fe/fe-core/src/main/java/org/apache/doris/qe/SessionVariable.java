@@ -396,6 +396,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
 
+    public static final String ENABLE_INDEX_DATA_READ_OPTIMIZED_ON_ORIGINAL_PLANNER
+            = "enable_index_data_read_opt_on_orig_planner";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1127,6 +1130,9 @@ public class SessionVariable implements Serializable, Writable {
                     + " is a multiple of the minimum total count of the smallest inverted index,"
                     + " use a skiplist to optimize the intersection."})
     public int invertedIndexConjunctionOptThreshold = 1000;
+
+    @VariableMgr.VarAttr(name = ENABLE_INDEX_DATA_READ_OPTIMIZED_ON_ORIGINAL_PLANNER, needForward = true)
+    public boolean enableIndexDataReadOptOnOrigPlanner = false;
 
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;

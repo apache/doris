@@ -475,6 +475,19 @@ public class OriginalPlanner extends Planner {
         }
     }
 
+    private void processExpr(Expr expr, Set<Integer> outputColumnUniqueIds) {
+        if (expr instanceof SlotRef) {
+            SlotRef slotRef = (SlotRef) expr;
+            if (slotRef.getColumn() != null) {
+                outputColumnUniqueIds.add(slotRef.getColumn().getUniqueId());
+            }
+        }
+        ArrayList<Expr> children = expr.getChildren();
+        for (Expr child : children) {
+            processExpr(child, outputColumnUniqueIds);  // Recursive call for each child
+        }
+    }
+
     /**
      * outputColumnUniqueIds contain columns in OrderByExprs and outputExprs,
      * push output column unique id set to olap scan.
@@ -491,19 +504,61 @@ public class OriginalPlanner extends Planner {
     // this opt will only work with nereidsPlanner
     private void pushOutColumnUniqueIdsToOlapScan(PlanFragment rootFragment, Analyzer analyzer) {
         Set<Integer> outputColumnUniqueIds = new HashSet<>();
-        // add '-1' to avoid the optimization incorrect work with OriginalPlanner,
-        // because in the storage layer will skip this optimization if outputColumnUniqueIds contains '-1',
-        // to ensure the optimization only correct work with nereidsPlanner
-        outputColumnUniqueIds.add(-1);
-
-        for (PlanFragment fragment : fragments) {
-            PlanNode node = fragment.getPlanRoot();
-            if (!(node instanceof OlapScanNode)) {
-                continue;
+        if (ConnectContext.get().getSessionVariable().enableIndexDataReadOptOnOrigPlanner) {
+            ArrayList<Expr> outputExprs = rootFragment.getOutputExprs();
+            for (Expr expr : outputExprs) {
+                processExpr(expr, outputColumnUniqueIds);
             }
+            for (PlanFragment fragment : fragments) {
+                PlanNode node = fragment.getPlanRoot();
+                PlanNode parent = null;
+                while (node.getChildren().size() != 0) {
+                    for (PlanNode childNode : node.getChildren()) {
+                        List<SlotId> outputSlotIds = childNode.getOutputSlotIds();
+                        if (outputSlotIds != null) {
+                            for (SlotId sid : outputSlotIds) {
+                                SlotDescriptor slotDesc = analyzer.getSlotDesc(sid);
+                                outputColumnUniqueIds.add(slotDesc.getUniqueId());
+                            }
+                        }
+                    }
+                    // OlapScanNode is the last node.
+                    // So, just get the two node and check if they are SortNode and OlapScan.
+                    parent = node;
+                    node = node.getChildren().get(0);
+                }
 
-            OlapScanNode scanNode = (OlapScanNode) node;
-            scanNode.setOutputColumnUniqueIds(outputColumnUniqueIds);
+                if (parent instanceof SortNode) {
+                    SortNode sortNode = (SortNode) parent;
+                    List<Expr> orderingExprs = sortNode.getSortInfo().getOrigOrderingExprs();
+                    if (orderingExprs != null) {
+                        for (Expr expr : orderingExprs) {
+                            processExpr(expr, outputColumnUniqueIds);
+                        }
+                    }
+                }
+                if (!(node instanceof OlapScanNode)) {
+                    continue;
+                }
+
+                OlapScanNode scanNode = (OlapScanNode) node;
+                scanNode.setOutputColumnUniqueIds(outputColumnUniqueIds);
+            }
+        } else {
+            // add '-1' to avoid the optimization incorrect work with OriginalPlanner,
+            // because in the storage layer will skip this optimization if outputColumnUniqueIds contains '-1',
+            // to ensure the optimization only correct work with nereidsPlanner
+            outputColumnUniqueIds.add(-1);
+
+            for (PlanFragment fragment : fragments) {
+                PlanNode node = fragment.getPlanRoot();
+                if (!(node instanceof OlapScanNode)) {
+                    continue;
+                }
+
+                OlapScanNode scanNode = (OlapScanNode) node;
+                scanNode.setOutputColumnUniqueIds(outputColumnUniqueIds);
+            }
         }
     }
 
