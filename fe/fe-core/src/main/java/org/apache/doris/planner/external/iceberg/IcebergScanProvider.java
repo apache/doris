@@ -263,6 +263,10 @@ public class IcebergScanProvider extends QueryScanProvider {
         return icebergSource.createContext();
     }
 
+    public void updateRequiredSlots(ExternalFileScanNode.ParamCreateContext context) throws UserException {
+        icebergSource.updateRequiredSlots(context);
+    }
+
     @Override
     public TableIf getTargetTable() {
         return icebergSource.getTargetTable();

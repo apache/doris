@@ -355,6 +355,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 this.readPartitionNum = ((HiveScanProvider) scanProvider).getReadPartitionNum();
                 ((HiveScanProvider) scanProvider).updateRequiredSlots(context);
             }
+            if (scanProvider instanceof IcebergScanProvider) {
+                ((IcebergScanProvider) scanProvider).updateRequiredSlots(context);
+            }
         }
     }
 

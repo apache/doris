@@ -94,6 +94,20 @@ public class IcebergApiSource implements IcebergSource {
                 .map(PartitionField::name).collect(Collectors.toList());
         List<Column> columns = icebergExtTable.getBaseSchema(false);
         context.params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
+        updateRequiredSlots(context);
+        return context;
+    }
+
+    @Override
+    public void updateRequiredSlots(ExternalFileScanNode.ParamCreateContext context) throws UserException {
+        updateRequiredSlots(context, null);
+    }
+
+    public void updateRequiredSlots(ExternalFileScanNode.ParamCreateContext context, List<String> partitionKeys) throws UserException {
+        context.params.unsetRequiredSlots();
+        if (partitionKeys == null) {
+            partitionKeys = originTable.spec().fields().stream().map(PartitionField::name).collect(Collectors.toList());
+        }
         for (SlotDescriptor slot : desc.getSlots()) {
             if (!slot.isMaterialized()) {
                 continue;
@@ -103,7 +117,6 @@ public class IcebergApiSource implements IcebergSource {
             slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
             context.params.addToRequiredSlots(slotInfo);
         }
-        return context;
     }
 
     @Override
