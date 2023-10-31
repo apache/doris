@@ -397,6 +397,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
+                } else if (table.getType() == TableType.MATERIALIZED_VIEW) {
+                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table);
                 }
             }
             return Pair.of(result, isTableExist);

@@ -83,6 +83,7 @@ import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
+import org.apache.doris.mtmv.MTMVJobExecutor;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.policy.StoragePolicy;
@@ -223,8 +224,9 @@ public class GsonUtils {
                     .registerSubtype(KafkaDataSourceProperties.class, KafkaDataSourceProperties.class.getSimpleName());
     private static RuntimeTypeAdapterFactory<JobExecutor> jobExecutorRuntimeTypeAdapterFactory =
             RuntimeTypeAdapterFactory.of(
-                            JobExecutor.class, "clazz")
-                    .registerSubtype(SqlJobExecutor.class, SqlJobExecutor.class.getSimpleName());
+                    JobExecutor.class, "clazz")
+                    .registerSubtype(SqlJobExecutor.class, SqlJobExecutor.class.getSimpleName())
+                    .registerSubtype(MTMVJobExecutor.class, MTMVJobExecutor.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     DatabaseIf.class, "clazz")
