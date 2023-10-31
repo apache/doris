@@ -1940,7 +1940,7 @@ public class StmtExecutor {
         context.getState().setOk();
     }
 
-    private void handleAnalyzeStmt() throws DdlException {
+    private void handleAnalyzeStmt() throws DdlException, AnalysisException {
         context.env.getAnalysisManager().createAnalyze((AnalyzeStmt) parsedStmt, isProxy);
     }
 
