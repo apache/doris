@@ -1937,7 +1937,8 @@ public abstract class Type {
                         || t1 == PrimitiveType.VARIANT || t2 == PrimitiveType.VARIANT
                         || t1 == PrimitiveType.LAMBDA_FUNCTION || t2 == PrimitiveType.LAMBDA_FUNCTION
                         || t1 == PrimitiveType.IPV4 || t2 == PrimitiveType.IPV4
-                        || t1 == PrimitiveType.IPV6 || t2 == PrimitiveType.IPV6) {
+                        || t1 == PrimitiveType.IPV6 || t2 == PrimitiveType.IPV6
+                        || t1 == PrimitiveType.GEOMETRY || t2 == PrimitiveType.GEOMETRY) {
                     continue;
                 }
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);

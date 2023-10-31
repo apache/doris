@@ -28,8 +28,8 @@ struct GeometryBinaryValue {
     std::stringstream result_stream;
 
     GeometryBinaryValue() : ptr(nullptr), len(0) {}
-    GeometryBinaryValue(const std::string& s) { from_geometry_string(s.c_str(), s.length()); }
-    GeometryBinaryValue(const char* ptr, size_t len) { from_geometry_string(ptr, len); }
+    GeometryBinaryValue(const std::string& s) { static_cast<void>(from_geometry_string(s.c_str(), s.length())); }
+    GeometryBinaryValue(const char* ptr, size_t len) { static_cast<void>(from_geometry_string(ptr, len)); }
 
     ~GeometryBinaryValue() { delete[] ptr; }
 

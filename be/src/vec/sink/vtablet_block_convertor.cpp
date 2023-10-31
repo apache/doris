@@ -399,8 +399,8 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
     case TYPE_GEOMETRY: {
         const auto column_string =
                 assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
-        for (size_t j = 0; j < column->size(); ++j) {
-            if (!_filter_bitmap.Get(j)) {
+        for (size_t j = 0; j < row_count; ++j) {
+            if (!_filter_map[j]) {
                 if (is_nullable && column_ptr && column_ptr->is_null_at(j)) {
                     continue;
                 }

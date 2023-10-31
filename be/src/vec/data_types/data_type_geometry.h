@@ -34,7 +34,9 @@ public:
 
     const char* get_family_name() const override { return "GEOMETRY"; }
     TypeIndex get_type_id() const override { return TypeIndex::GEOMETRY; }
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_GEOMETRY; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_GEOMETRY);
+    }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::GEOMETRY;
     }

@@ -101,7 +101,7 @@ enum class TypeIndex {
     Decimal256 = 45,
     IPv4 = 46,
     IPv6 = 47,
-    GEOMETRY = 48
+    GEOMETRY = 48,
     Int256
 };
 

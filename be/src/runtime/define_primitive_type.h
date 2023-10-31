@@ -65,8 +65,8 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_AGG_STATE,       /* 34 */
     TYPE_DECIMAL256,      /* 35 */
     TYPE_IPV4,            /* 36 */
-    TYPE_IPV6             /* 37 */
-    TYPE_GEOMETRY,        /* 38 */
+    TYPE_IPV6,            /* 37 */
+    TYPE_GEOMETRY         /* 38 */
 };
 
 constexpr PrimitiveNative BEGIN_OF_PRIMITIVE_TYPE = INVALID_TYPE;
