@@ -107,7 +107,7 @@ Status MultiCastDataStreamerSourceOperator::get_block(RuntimeState* state, vecto
 
     if (!_output_expr_contexts.empty() && output_block->rows() > 0) {
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-                _output_expr_contexts, *output_block, block));
+                _output_expr_contexts, *output_block, block, true));
         materialize_block_inplace(*block);
     }
     if (eos) {
@@ -171,7 +171,7 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
 
     if (!local_state._output_expr_contexts.empty() && output_block->rows() > 0) {
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-                local_state._output_expr_contexts, *output_block, block));
+                local_state._output_expr_contexts, *output_block, block, true));
         materialize_block_inplace(*block);
     }
     COUNTER_UPDATE(local_state._rows_returned_counter, block->rows());
