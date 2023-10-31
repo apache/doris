@@ -376,7 +376,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         List<List<Expr>> materializedConstExprLists = ((UnionNode) sink.getFragment().getPlanRoot())
                     .getMaterializedConstExprLists();
         for (List<Expr> list : materializedConstExprLists) {
-            rows.add(StmtExecutor.getRowStringValue(list));
+            rows.add(GroupCommitPlanner.getRowValue(list));
         }
 
         GroupCommitPlanner groupCommitPlanner = new GroupCommitPlanner(physicalOlapTableSink.getDatabase(),

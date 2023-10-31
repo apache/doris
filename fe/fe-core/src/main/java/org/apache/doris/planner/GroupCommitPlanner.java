@@ -18,7 +18,10 @@
 package org.apache.doris.planner;
 
 
+import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
@@ -61,7 +64,7 @@ public class GroupCommitPlanner {
     private DescriptorTable descTable;
     private TScanRangeParams scanRangeParam;
 
-    public GroupCommitPlanner(Database db, OlapTable table, TUniqueId queryId) throws UserException, TException {
+    public GroupCommitPlanner(Database db, OlapTable table, TUniqueId queryId) throws UserException {
         this.db = db;
         this.table = table;
         TStreamLoadPutRequest streamLoadPutRequest = new TStreamLoadPutRequest();
@@ -108,6 +111,39 @@ public class GroupCommitPlanner {
                 .build()).addAllData(rows)
                 .build();
         return request;
+    }
+
+    public static InternalService.PDataRow getRowValue(List<Expr> cols) throws UserException {
+        if (cols.isEmpty()) {
+            return null;
+        }
+        InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
+        for (Expr expr : cols) {
+            if (!expr.isConstant()) {
+                throw new UserException(
+                    "do not support non-constant expr in transactional insert operation: " + expr.toSql());
+            }
+            if (expr instanceof NullLiteral) {
+                row.addColBuilder().setValue("\\N");
+            } else if (expr instanceof ArrayLiteral) {
+                row.addColBuilder().setValue(expr.getStringValueForArray());
+            } else if (!expr.getChildren().isEmpty()) {
+                expr.getChildren().forEach(child -> processExprVal(child, row));
+            } else {
+                row.addColBuilder().setValue(expr.getStringValue());
+            }
+        }
+        return row.build();
+    }
+
+    private static void processExprVal(Expr expr, InternalService.PDataRow.Builder row) {
+        if (expr.getChildren().isEmpty()) {
+            row.addColBuilder().setValue(expr.getStringValue());
+            return;
+        }
+        for (Expr child : expr.getChildren()) {
+            processExprVal(child, row);
+        }
     }
 
     public TPlan getPlan() {

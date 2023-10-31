@@ -55,8 +55,9 @@ suite("insert_group_commit_with_prepare_stmt_nereids") {
 
         sql """
         CREATE TABLE `${table}` (
-            `id` varchar(11),
-            `name` varchar(1100) NULL
+            `id` int(11),
+            `name` varchar(1100) NULL,
+            `score` int(11) NULL default "-1"
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`, `name`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
@@ -72,9 +73,9 @@ suite("insert_group_commit_with_prepare_stmt_nereids") {
             sql """ use ${db}; """
 
             // insert into 5 rows
-            def insert_sql = """ insert into ${table} values('1', 'a')  """
+            def insert_sql = """ insert into ${table} values(1, 'a', 10)  """
             for (def i in 2..5) {
-                insert_sql += """, ('${i}', 'a') """
+                insert_sql += """, (${i}, 'a', 10) """
             }
             group_commit_insert insert_sql, 5
             getRowCount(5)
