@@ -128,8 +128,6 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     _source_dependency->add_child(_open_dependency);
     _eos_dependency = EosDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
     _source_dependency->add_child(_eos_dependency);
-    _filter_dependency->set_filter_blocked_by_fn(
-            [this]() { return this->runtime_filters_are_ready_or_timeout(); });
     auto& p = _parent->cast<typename Derived::Parent>();
     set_scan_ranges(state, info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
@@ -143,6 +141,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     }
     // init profile for runtime filter
     RuntimeFilterConsumer::_init_profile(profile());
+    init_runtime_filter_dependency(_filter_dependency.get());
 
     // 1: running at not pipeline mode will init profile.
     // 2: the scan node should create scanner at pipeline mode will init profile.

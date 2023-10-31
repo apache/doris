@@ -100,7 +100,7 @@ public:
     virtual Dependency* dependency() { return nullptr; }
 
     FinishDependency* finishdependency() { return _finish_dependency.get(); }
-    FilterDependency* filterdependency() { return _filter_dependency.get(); }
+    RuntimeFilterDependency* filterdependency() { return _filter_dependency.get(); }
 
 protected:
     friend class OperatorXBase;
@@ -134,7 +134,7 @@ protected:
     bool _closed = false;
     vectorized::Block _origin_block;
     std::shared_ptr<FinishDependency> _finish_dependency;
-    std::unique_ptr<FilterDependency> _filter_dependency;
+    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
 };
 
 class OperatorXBase : public OperatorBase {
