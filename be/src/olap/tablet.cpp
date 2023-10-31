@@ -450,7 +450,7 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset) {
         }
     }
     std::vector<RowsetSharedPtr> empty_vec;
-    modify_rowsets(empty_vec, rowsets_to_delete);
+    RETURN_IF_ERROR(modify_rowsets(empty_vec, rowsets_to_delete));
     ++_newly_created_rowset_num;
     return Status::OK();
 }
@@ -2984,7 +2984,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     vectorized::Block ordered_block = block.clone_empty();
     uint32_t pos = 0;
 
-    seg->load_pk_index_and_bf(); // We need index blocks to iterate
+    RETURN_IF_ERROR(seg->load_pk_index_and_bf()); // We need index blocks to iterate
     auto pk_idx = seg->get_primary_key_index();
     int total = pk_idx->num_rows();
     uint32_t row_id = 0;
@@ -3311,7 +3311,7 @@ void Tablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
 Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) {
     int64_t cur_version = rowset->end_version();
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    _load_rowset_segments(rowset, &segments);
+    RETURN_IF_ERROR(_load_rowset_segments(rowset, &segments));
 
     // If this rowset does not have a segment, there is no need for an update.
     if (segments.empty()) {
@@ -3532,7 +3532,7 @@ Status Tablet::check_rowid_conversion(
         return Status::OK();
     }
     std::vector<segment_v2::SegmentSharedPtr> dst_segments;
-    _load_rowset_segments(dst_rowset, &dst_segments);
+    RETURN_IF_ERROR(_load_rowset_segments(dst_rowset, &dst_segments));
     std::unordered_map<RowsetId, std::vector<segment_v2::SegmentSharedPtr>, HashOfRowsetId>
             input_rowsets_segment;
 
@@ -3541,7 +3541,7 @@ Status Tablet::check_rowid_conversion(
         std::vector<segment_v2::SegmentSharedPtr>& segments =
                 input_rowsets_segment[src_rowset->rowset_id()];
         if (segments.empty()) {
-            _load_rowset_segments(src_rowset, &segments);
+            RETURN_IF_ERROR(_load_rowset_segments(src_rowset, &segments));
         }
         for (auto& [src, dst] : locations) {
             std::string src_key;
