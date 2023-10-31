@@ -1344,19 +1344,16 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     SCOPED_TIMER(_close_timer);
     if (_data_ready_dependency) {
         COUNTER_UPDATE(_wait_for_data_timer, _data_ready_dependency->read_watcher_elapse_time());
-        COUNTER_UPDATE(exec_time_counter(),
-                       _data_ready_dependency->read_watcher_elapse_time());
+        COUNTER_UPDATE(exec_time_counter(), _data_ready_dependency->read_watcher_elapse_time());
     }
     if (_eos_dependency) {
         COUNTER_SET(_wait_for_eos_timer, _eos_dependency->read_watcher_elapse_time());
-        COUNTER_UPDATE(exec_time_counter(),
-                       _eos_dependency->read_watcher_elapse_time());
+        COUNTER_UPDATE(exec_time_counter(), _eos_dependency->read_watcher_elapse_time());
     }
     if (_scanner_done_dependency) {
         COUNTER_SET(_wait_for_scanner_done_timer,
                     _scanner_done_dependency->read_watcher_elapse_time());
-        COUNTER_UPDATE(exec_time_counter(),
-                       _scanner_done_dependency->read_watcher_elapse_time());
+        COUNTER_UPDATE(exec_time_counter(), _scanner_done_dependency->read_watcher_elapse_time());
     }
     SCOPED_TIMER(exec_time_counter());
     if (_scanner_ctx.get()) {

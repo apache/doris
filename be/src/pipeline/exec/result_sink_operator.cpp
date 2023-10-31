@@ -175,11 +175,9 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     COUNTER_UPDATE(_wait_for_queue_timer, _queue_dependency->write_watcher_elapse_time());
     COUNTER_UPDATE(exec_time_counter(), _queue_dependency->write_watcher_elapse_time());
     COUNTER_SET(_wait_for_buffer_timer, _buffer_dependency->write_watcher_elapse_time());
-    COUNTER_UPDATE(exec_time_counter(),
-                   _buffer_dependency->write_watcher_elapse_time());
+    COUNTER_UPDATE(exec_time_counter(), _buffer_dependency->write_watcher_elapse_time());
     COUNTER_SET(_wait_for_cancel_timer, _cancel_dependency->write_watcher_elapse_time());
-    COUNTER_UPDATE(exec_time_counter(),
-                   _cancel_dependency->write_watcher_elapse_time());
+    COUNTER_UPDATE(exec_time_counter(), _cancel_dependency->write_watcher_elapse_time());
     SCOPED_TIMER(exec_time_counter());
     Status final_status = exec_status;
     if (_writer) {
