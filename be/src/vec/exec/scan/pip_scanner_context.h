@@ -76,15 +76,18 @@ public:
             if (_blocks_queues[id].empty()) {
                 *eos = _is_finished || _should_stop;
                 return Status::OK();
-            } else {
-                *block = std::move(_blocks_queues[id].front());
-                _blocks_queues[id].pop_front();
+            }
+            if (_process_status.is<ErrorCode::CANCELLED>()) {
+                *eos = true;
+                return Status::OK();
+            }
+            *block = std::move(_blocks_queues[id].front());
+            _blocks_queues[id].pop_front();
 
-                RETURN_IF_ERROR(validate_block_schema((*block).get()));
+            RETURN_IF_ERROR(validate_block_schema((*block).get()));
 
-                if (_blocks_queues[id].empty() && _data_dependency) {
-                    _data_dependency->block_reading();
-                }
+            if (_blocks_queues[id].empty() && _data_dependency) {
+                _data_dependency->block_reading();
             }
         }
         _current_used_bytes -= (*block)->allocated_bytes();
