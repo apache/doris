@@ -167,6 +167,13 @@ void Merger::vertical_split_columns(TabletSchemaSPtr tablet_schema,
         if (delete_sign_idx != -1) {
             key_columns.emplace_back(delete_sign_idx);
         }
+        if (!tablet_schema->cluster_key_idxes().empty()) {
+            for (const auto& cid : tablet_schema->cluster_key_idxes()) {
+                if (cid >= num_key_cols) {
+                    key_columns.emplace_back(cid);
+                }
+            }
+        }
     }
     VLOG_NOTICE << "sequence_col_idx=" << sequence_col_idx
                 << ", delete_sign_idx=" << delete_sign_idx;
@@ -176,7 +183,8 @@ void Merger::vertical_split_columns(TabletSchemaSPtr tablet_schema,
     }
     std::vector<uint32_t> value_columns;
     for (auto i = num_key_cols; i < total_cols; ++i) {
-        if (i == sequence_col_idx || i == delete_sign_idx) {
+        if (i == sequence_col_idx || i == delete_sign_idx ||
+            key_columns.end() != std::find(key_columns.begin(), key_columns.end(), i)) {
             continue;
         }
         if ((i - num_key_cols) % config::vertical_compaction_num_columns_per_group == 0) {
@@ -217,6 +225,9 @@ Status Merger::vertical_compact_one_group(
     }
 
     reader_params.tablet_schema = merge_tablet_schema;
+    if (!tablet->tablet_schema()->cluster_key_idxes().empty()) {
+        reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+    }
 
     if (is_key && stats_output && stats_output->rowid_conversion) {
         reader_params.record_rowids = true;
