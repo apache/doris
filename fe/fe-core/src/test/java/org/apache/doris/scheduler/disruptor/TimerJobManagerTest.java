@@ -21,9 +21,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.scheduler.constants.JobCategory;
+import org.apache.doris.scheduler.constants.JobType;
+import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.ExecutorResult;
 import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 
@@ -51,16 +54,18 @@ public class TimerJobManagerTest {
     private static AtomicInteger testExecuteCount = new AtomicInteger(0);
     Job job = new Job("test", 6000L, null,
             null, new TestExecutor());
+    JobTask jobTask = new JobTask(job.getJobId(), 1L, System.currentTimeMillis());
 
     @BeforeEach
     public void init() {
-        job.setCycleJob(true);
+        job.setJobType(JobType.RECURRING);
         job.setJobCategory(JobCategory.COMMON);
         testExecuteCount.set(0);
         timerJobManager = new TimerJobManager();
         TransientTaskManager transientTaskManager = new TransientTaskManager();
         TaskDisruptor taskDisruptor = new TaskDisruptor(this.timerJobManager, transientTaskManager);
         this.timerJobManager.setDisruptor(taskDisruptor);
+        taskDisruptor.start();
         timerJobManager.start();
     }
 
@@ -153,7 +158,7 @@ public class TimerJobManagerTest {
         long startTimestamp = System.currentTimeMillis() + 3000L;
         job.setIntervalMs(0L);
         job.setStartTimeMs(startTimestamp);
-        job.setCycleJob(false);
+        job.setJobType(JobType.ONE_TIME);
         timerJobManager.registerJob(job);
         //consider the time of the first execution and give some buffer time
         Awaitility.await().atMost(14, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
@@ -166,9 +171,10 @@ public class TimerJobManagerTest {
         timerJobManager.close();
     }
 
-    class TestExecutor implements JobExecutor<Boolean> {
+    class TestExecutor implements JobExecutor<Boolean, String> {
+
         @Override
-        public ExecutorResult execute(Job job) {
+        public ExecutorResult<Boolean> execute(Job job, String dataContext) throws JobException {
             log.info("test execute count:{}", testExecuteCount.incrementAndGet());
             return new ExecutorResult<>(true, true, null, "");
         }

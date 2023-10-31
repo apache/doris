@@ -69,6 +69,11 @@ public class TimerJobRegister implements PersistentJobRegister {
     }
 
     @Override
+    public <T> boolean immediateExecuteTask(Long jobId, T data) throws DdlException {
+        return timerJobManager.immediateExecuteTask(jobId, data);
+    }
+
+    @Override
     public void pauseJob(Long jobId) {
         timerJobManager.pauseJob(jobId);
     }
