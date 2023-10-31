@@ -48,7 +48,7 @@ import java.util.concurrent.TimeUnit;
 public class TaskDisruptor implements Closeable {
 
     private  Disruptor<TaskEvent> disruptor;
-    
+
     private TimerJobManager timerJobManager;
     private TransientTaskManager transientTaskManager;
     private static final int DEFAULT_RING_BUFFER_SIZE = Config.async_task_queen_size;
@@ -78,10 +78,10 @@ public class TaskDisruptor implements Closeable {
             };
 
     public TaskDisruptor(TimerJobManager timerJobManager, TransientTaskManager transientTaskManager) {
-       this.timerJobManager = timerJobManager;
-       this.transientTaskManager = transientTaskManager;
+        this.timerJobManager = timerJobManager;
+        this.transientTaskManager = transientTaskManager;
     }
-    
+
     public void start() {
         ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
         disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,

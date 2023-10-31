@@ -17,6 +17,7 @@
 
 package org.apache.doris.scheduler.job;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -33,6 +34,7 @@ import java.io.IOException;
 import java.util.List;
 
 @Data
+@Slf4j
 public class JobTask<T> implements Writable {
 
     @SerializedName("jobId")
@@ -54,6 +56,9 @@ public class JobTask<T> implements Writable {
     private String executeResult;
     @SerializedName("errorMsg")
     private String errorMsg;
+    
+    @SerializedName("contextDataStr")
+    private String contextDataStr;
 
     @SerializedName("taskType")
     private TaskType taskType = TaskType.SCHEDULER_JOB_TASK;
@@ -77,6 +82,12 @@ public class JobTask<T> implements Writable {
     public JobTask(Long jobId, Long taskId, Long createTimeMs, T contextData) {
         this(jobId, taskId, createTimeMs);
         this.contextData = contextData;
+        try {
+            this.contextDataStr = GsonUtils.GSON.toJson(contextData);
+        } catch (Exception e) {
+            this.contextDataStr = null;
+            log.error("contextData serialize failed, jobId: {}, taskId: {}", jobId, taskId, e);
+        }
     }
 
     public List<String> getShowInfo(String jobName) {
