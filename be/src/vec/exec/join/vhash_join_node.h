@@ -386,6 +386,7 @@ private:
     bool _has_set_need_null_map_for_build = false;
     bool _probe_ignore_null = false;
     int _probe_index = -1;
+    uint32_t _build_index = 0;
     bool _ready_probe = false;
     bool _probe_eos = false;
 

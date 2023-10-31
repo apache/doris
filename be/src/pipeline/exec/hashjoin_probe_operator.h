@@ -99,6 +99,7 @@ private:
     friend struct vectorized::ProcessHashTableProbe;
 
     int _probe_index = -1;
+    uint32_t _build_index = 0;
     bool _ready_probe = false;
     bool _probe_eos = false;
     std::atomic<bool> _probe_inited = false;

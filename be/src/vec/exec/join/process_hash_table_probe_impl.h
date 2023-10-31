@@ -193,6 +193,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
                                                              Block* output_block,
                                                              size_t probe_rows) {
     auto& probe_index = _parent->_probe_index;
+    auto& build_index = _parent->_build_index;
 
     using Mapped = typename HashTableType::Mapped;
 
@@ -233,11 +234,12 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
 
     {
         SCOPED_TIMER(_search_hashtable_timer);
-        auto [new_probe_idx, new_current_offset] =
+        auto [new_probe_idx, new_build_idx, new_current_offset] =
                 hash_table_ctx.hash_table->template find_batch<JoinOpType>(
                         hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), probe_index,
-                        probe_rows, _probe_indexs.data(), _build_indexs.data());
+                        build_index, probe_rows, _probe_indexs.data(), _build_indexs.data());
         probe_index = new_probe_idx;
+        build_index = new_build_idx;
         current_offset = new_current_offset;
         probe_size = probe_index - last_probe_index;
     }
