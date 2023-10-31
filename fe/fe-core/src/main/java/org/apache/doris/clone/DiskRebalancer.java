@@ -188,10 +188,10 @@ public class DiskRebalancer extends Rebalancer {
             beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, medium);
             LOG.info("dx test select before low={} mid={} high={} medium={}", pathLow, pathMid, pathHigh, medium);
             // check if BE has low and high paths for balance after reclassification
-            pathHigh.add(384536254535458899L);
-            pathLow.add(528047762753362128L);
-            pathMid.remove(384536254535458899L);
-            pathMid.remove(528047762753362128L);
+            pathHigh.add(-2606726262674133323L);
+            pathLow.add(1252949013258184268L);
+            pathMid.remove(-2606726262674133323L);
+            pathMid.remove(1252949013258184268L);
             LOG.info("dx test select after low={} mid={} high={} medium={}", pathLow, pathMid, pathHigh, medium);
             if (!checkAndReclassifyPaths(pathLow, pathMid, pathHigh)) {
                 continue;
@@ -351,10 +351,10 @@ public class DiskRebalancer extends Rebalancer {
         beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, tabletCtx.getStorageMedium());
         LOG.info("dx test complete before low={} mid={} high={} medium={}",
                 pathLow, pathMid, pathHigh, tabletCtx.getStorageMedium());
-        pathHigh.add(384536254535458899L);
-        pathLow.add(528047762753362128L);
-        pathMid.remove(384536254535458899L);
-        pathMid.remove(528047762753362128L);
+        pathHigh.add(-2606726262674133323L);
+        pathLow.add(1252949013258184268L);
+        pathMid.remove(-2606726262674133323L);
+        pathMid.remove(1252949013258184268L);
         LOG.info("dx test complete before low={} mid={} high={} medium={}",
                 pathLow, pathMid, pathHigh, tabletCtx.getStorageMedium());
         if (pathHigh.contains(replica.getPathHash())) {
