@@ -39,7 +39,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public abstract class Planner {
@@ -103,6 +105,15 @@ public abstract class Planner {
             str.append(fragment.getExplainStringToProfile(explainLevel, statistics, i));
         }
         return str.toString();
+    }
+
+    public Map<Integer, String> getExplainStringMap() {
+        Map<Integer, String> planNodeMap = new HashMap<Integer, String>();
+        for (int i = 0; i < fragments.size(); ++i) {
+            PlanFragment fragment = fragments.get(i);
+            fragment.getExplainStringMap(planNodeMap);
+        }
+        return planNodeMap;
     }
 
     protected void handleLiteralInFe(LiteralExpr literalExpr, List<String> data) {

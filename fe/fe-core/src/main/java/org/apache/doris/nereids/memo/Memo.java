@@ -50,7 +50,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -114,31 +113,6 @@ public class Memo {
 
     public int getGroupExpressionsSize() {
         return groupExpressions.size();
-    }
-
-    /** just keep LogicalExpression in Memo. */
-    public void removePhysicalExpression() {
-        groupExpressions.entrySet().removeIf(entry -> entry.getValue().getPlan() instanceof PhysicalPlan);
-
-        Iterator<Map.Entry<GroupId, Group>> iterator = groups.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<GroupId, Group> entry = iterator.next();
-            Group group = entry.getValue();
-
-            group.clearPhysicalExpressions();
-            group.clearLowestCostPlans();
-            group.removeParentPhysicalExpressions();
-            group.setExplored(false);
-
-            if (group.getLogicalExpressions().isEmpty() && group.getPhysicalExpressions().isEmpty()) {
-                iterator.remove();
-            }
-        }
-
-        // logical groupExpression reset ruleMask
-        groupExpressions.values().stream()
-                .filter(groupExpression -> groupExpression.getPlan() instanceof LogicalPlan)
-                .forEach(GroupExpression::clearApplied);
     }
 
     private Plan skipProject(Plan plan, Group targetGroup) {
