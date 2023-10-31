@@ -162,7 +162,7 @@ public:
         return Status::OK();
     }
 
-    void insert(std::unordered_map<const vectorized::Block*, std::vector<int>>& datas) {
+    void insert(const std::unordered_set<const vectorized::Block*>& datas) {
         for (int i = 0; i < _build_expr_context.size(); ++i) {
             auto iter = _runtime_filters.find(i);
             if (iter == _runtime_filters.end()) {
@@ -170,29 +170,31 @@ public:
             }
 
             int result_column_id = _build_expr_context[i]->get_last_result_column_id();
-            for (auto it : datas) {
-                auto& column = it.first->get_by_position(result_column_id).column;
+            for (const auto* it : datas) {
+                auto column = it->get_by_position(result_column_id).column;
 
-                if (auto* nullable =
+                std::vector<int> indexs;
+                // indexs start from 1 because the first row is mocked for join hash map
+                if (const auto* nullable =
                             vectorized::check_and_get_column<vectorized::ColumnNullable>(*column)) {
-                    auto& column_nested = nullable->get_nested_column_ptr();
-                    auto& column_nullmap = nullable->get_null_map_column_ptr();
-                    std::vector<int> indexs;
-                    for (int row_num : it.second) {
-                        if (assert_cast<const vectorized::ColumnUInt8*>(column_nullmap.get())
-                                    ->get_bool(row_num)) {
+                    column = nullable->get_nested_column_ptr();
+                    const uint8_t* null_map = assert_cast<const vectorized::ColumnUInt8*>(
+                                                      nullable->get_null_map_column_ptr().get())
+                                                      ->get_data()
+                                                      .data();
+                    for (int i = 1; i < column->size(); i++) {
+                        if (null_map[i]) {
                             continue;
                         }
-                        indexs.push_back(row_num);
+                        indexs.push_back(i);
                     }
-                    for (auto filter : iter->second) {
-                        filter->insert_batch(column_nested, indexs);
-                    }
-
                 } else {
-                    for (auto filter : iter->second) {
-                        filter->insert_batch(column, it.second);
+                    for (int i = 1; i < column->size(); i++) {
+                        indexs.push_back(i);
                     }
+                }
+                for (auto* filter : iter->second) {
+                    filter->insert_batch(column, indexs);
                 }
             }
         }

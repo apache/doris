@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <span>
+
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
@@ -193,9 +195,221 @@ public:
     bool has_null_key_data() const { return false; }
 };
 
+template <typename Key, typename Cell, typename Hash = DefaultHash<Key>,
+          typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>
+class JoinHashMapTable : public HashMapTable<Key, Cell, Hash, Grower, Allocator> {
+public:
+    using Self = JoinHashMapTable;
+    using Base = HashMapTable<Key, Cell, Hash, Grower, Allocator>;
+
+    using key_type = Key;
+    using value_type = typename Cell::value_type;
+    using mapped_type = typename Cell::Mapped;
+
+    using LookupResult = typename Base::LookupResult;
+
+    using HashMapTable<Key, Cell, Hash, Grower, Allocator>::HashMapTable;
+
+    static uint32_t calc_bucket_size(size_t num_elem) {
+        size_t expect_bucket_size = static_cast<size_t>(num_elem) + (num_elem - 1) / 7;
+        return phmap::priv::NormalizeCapacity(expect_bucket_size) + 1;
+    }
+
+    template <int JoinOpType>
+    void prepare_build(size_t num_elem, int batch_size) {
+        max_batch_size = batch_size;
+        bucket_size = calc_bucket_size(num_elem + 1);
+        first.resize(bucket_size, 0);
+        next.resize(num_elem);
+
+        if constexpr (JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
+                      JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN ||
+                      JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN ||
+                      JoinOpType == doris::TJoinOp::RIGHT_SEMI_JOIN) {
+            visited.resize(num_elem, 0);
+        }
+    }
+
+    uint32_t get_bucket_size() const { return bucket_size; }
+
+    void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
+               size_t num_elem) {
+        build_keys = keys;
+        for (size_t i = 1; i < num_elem; i++) {
+            uint32_t bucket_num = bucket_nums[i];
+            next[i] = first[bucket_num];
+            first[bucket_num] = i;
+        }
+    }
+
+    template <int JoinOpType>
+    auto find_batch(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
+                    int probe_idx, int probe_rows, uint32_t* __restrict probe_idxs,
+                    uint32_t* __restrict build_idxs) {
+        if constexpr (JoinOpType == doris::TJoinOp::INNER_JOIN ||
+                      JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
+                      JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
+                      JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN) {
+            return _find_batch_inner_outer_join<JoinOpType>(keys, bucket_nums, probe_idx,
+                                                            probe_rows, probe_idxs, build_idxs);
+        }
+        if constexpr (JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
+                      JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN) {
+            return _find_batch_left_semi_anti<JoinOpType>(keys, bucket_nums, probe_idx, probe_rows,
+                                                          probe_idxs);
+        }
+        if constexpr (JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN ||
+                      JoinOpType == doris::TJoinOp::RIGHT_SEMI_JOIN) {
+            return _find_batch_right_semi_anti(keys, bucket_nums, probe_idx, probe_rows);
+        }
+        return std::pair {0, 0};
+    }
+
+    template <int JoinOpType>
+    bool iterate_map(std::vector<uint32_t>& build_idxs) const {
+        const auto batch_size = max_batch_size;
+        const auto elem_num = visited.size();
+        int count = 0;
+        build_idxs.resize(batch_size);
+
+        while (count < batch_size && iter_idx < elem_num) {
+            const auto matched = visited[iter_idx];
+            build_idxs[count] = iter_idx;
+            if constexpr (JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN) {
+                count += !matched;
+            } else {
+                count += matched;
+            }
+            iter_idx++;
+        }
+
+        build_idxs.resize(count);
+        return iter_idx >= elem_num;
+    }
+
+private:
+    auto _find_batch_right_semi_anti(const Key* __restrict keys,
+                                     const uint32_t* __restrict bucket_nums, int probe_idx,
+                                     int probe_rows) {
+        while (LIKELY(probe_idx < probe_rows)) {
+            auto build_idx = first[bucket_nums[probe_idx]];
+
+            while (build_idx) {
+                if (keys[probe_idx] == build_keys[build_idx]) {
+                    visited[build_idx] = 1;
+                }
+                build_idx = next[build_idx];
+            }
+            probe_idx++;
+        }
+        return std::pair {probe_idx, 0};
+    }
+
+    template <int JoinOpType>
+    auto _find_batch_left_semi_anti(const Key* __restrict keys,
+                                    const uint32_t* __restrict bucket_nums, int probe_idx,
+                                    int probe_rows, uint32_t* __restrict probe_idxs) {
+        auto matched_cnt = 0;
+        const auto batch_size = max_batch_size;
+
+        while (probe_idx < probe_rows && matched_cnt < batch_size) {
+            uint32_t bucket_num = bucket_nums[probe_idx];
+            auto build_idx = first[bucket_num];
+
+            while (build_idx) {
+                if (keys[probe_idx] == build_keys[build_idx]) {
+                    break;
+                }
+                build_idx = next[build_idx];
+            }
+            bool matched =
+                    JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ? build_idx != 0 : build_idx == 0;
+            matched_cnt += matched;
+            probe_idxs[matched_cnt - matched] = probe_idx++;
+        }
+        return std::pair {probe_idx, matched_cnt};
+    }
+
+    template <int JoinOpType>
+    auto _find_batch_inner_outer_join(const Key* __restrict keys,
+                                      const uint32_t* __restrict bucket_nums, int probe_idx,
+                                      int probe_rows, uint32_t* __restrict probe_idxs,
+                                      uint32_t* __restrict build_idxs) {
+        auto matched_cnt = 0;
+        const auto batch_size = max_batch_size;
+        size_t build_idx = 0;
+
+        auto do_the_probe = [&]() {
+            while (build_idx && matched_cnt < batch_size) {
+                if (keys[probe_idx] == build_keys[build_idx]) {
+                    probe_idxs[matched_cnt] = probe_idx;
+                    build_idxs[matched_cnt] = build_idx;
+                    if constexpr (JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN ||
+                                  JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
+                        visited[build_idx] = 1;
+                    }
+                    matched_cnt++;
+                }
+                build_idx = next[build_idx];
+            }
+
+            if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
+                          JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
+                // `(!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)` means not match one build side
+                if (!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx) {
+                    probe_idxs[matched_cnt] = probe_idx;
+                    build_idxs[matched_cnt] = 0;
+                    matched_cnt++;
+                }
+            }
+            probe_idx++;
+        };
+
+        if (probe_idx == current_probe_idx) {
+            current_probe_idx = -1;
+            build_idx = current_build_idx;
+            current_build_idx = 0;
+            do_the_probe();
+        }
+
+        while (probe_idx < probe_rows && matched_cnt < batch_size) {
+            uint32_t bucket_num = bucket_nums[probe_idx];
+            build_idx = first[bucket_num];
+            do_the_probe();
+        }
+
+        if (matched_cnt == batch_size && build_idx) {
+            probe_idx--;
+            current_probe_idx = probe_idx;
+            current_build_idx = build_idx;
+        }
+        return std::pair {probe_idx, matched_cnt};
+    }
+
+    const Key* __restrict build_keys;
+    std::vector<uint8_t> visited;
+
+    uint32_t bucket_size = 0;
+    int max_batch_size = 0;
+
+    int current_probe_idx = -1;
+    uint32_t current_build_idx = 0;
+
+    std::vector<uint32_t> first;
+    std::vector<uint32_t> next;
+
+    // use in iter hash map
+    mutable uint32_t iter_idx = 1;
+    Cell cell;
+    doris::vectorized::Arena* pool;
+};
+
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
           typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>
 using HashMap = HashMapTable<Key, HashMapCell<Key, Mapped, Hash>, Hash, Grower, Allocator>;
+
+template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
+using JoinFixedHashMap = JoinHashMapTable<Key, HashMapCell<Key, Mapped, Hash>, Hash>;
 
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
           typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>

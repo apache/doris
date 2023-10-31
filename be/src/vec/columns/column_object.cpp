@@ -1002,4 +1002,15 @@ void ColumnObject::insert_indices_from(const IColumn& src, const int* indices_be
                                    });
 }
 
+void ColumnObject::insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
+                                            const uint32_t* indices_end) {
+    // insert_indices_from with alignment
+    const ColumnObject& src_column = *check_and_get_column<ColumnObject>(src);
+    align_variant_by_name_and_type(*this, src_column, indices_end - indices_begin,
+                                   [indices_begin, indices_end](const IColumn& src, IColumn* dst) {
+                                       dst->insert_indices_from_join(src, indices_begin,
+                                                                     indices_end);
+                                   });
+}
+
 } // namespace doris::vectorized
