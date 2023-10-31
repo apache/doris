@@ -18,7 +18,6 @@
 package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.scheduler.constants.TaskType;
 import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
@@ -29,6 +28,7 @@ import com.lmax.disruptor.TimeoutException;
 import com.lmax.disruptor.WorkHandler;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
+import com.lmax.disruptor.util.DaemonThreadFactory;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.Closeable;
@@ -47,7 +47,10 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class TaskDisruptor implements Closeable {
 
-    private Disruptor<TaskEvent> disruptor;
+    private  Disruptor<TaskEvent> disruptor;
+    
+    private TimerJobManager timerJobManager;
+    private TransientTaskManager transientTaskManager;
     private static final int DEFAULT_RING_BUFFER_SIZE = Config.async_task_queen_size;
 
     private static final int consumerThreadCount = Config.async_task_consumer_thread_num;
@@ -63,10 +66,6 @@ public class TaskDisruptor implements Closeable {
      */
     private boolean isClosed = false;
 
-    private final TimerJobManager timerJobManager;
-
-    private final TransientTaskManager transientTaskManager;
-
     /**
      * The default {@link EventTranslatorThreeArg} to use for {@link #tryPublish(Long, Long)}.
      * This is used to avoid creating a new object for each publish.
@@ -79,13 +78,13 @@ public class TaskDisruptor implements Closeable {
             };
 
     public TaskDisruptor(TimerJobManager timerJobManager, TransientTaskManager transientTaskManager) {
-        this.timerJobManager = timerJobManager;
-        this.transientTaskManager = transientTaskManager;
+       this.timerJobManager = timerJobManager;
+       this.transientTaskManager = transientTaskManager;
     }
-
+    
     public void start() {
-        ThreadFactory producerThreadFactory = new CustomThreadFactory("task-disruptor-producer");
-        this.disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
+        ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
+        disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
                 ProducerType.SINGLE, new BlockingWaitStrategy());
         WorkHandler<TaskEvent>[] workers = new TaskHandler[consumerThreadCount];
         for (int i = 0; i < consumerThreadCount; i++) {

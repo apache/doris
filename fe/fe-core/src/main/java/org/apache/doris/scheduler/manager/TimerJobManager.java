@@ -91,8 +91,7 @@ public class TimerJobManager implements Closeable, Writable {
     }
 
     public void start() {
-        dorisTimer = new HashedWheelTimer(new CustomThreadFactory("hashed-wheel-timer"),
-                1, TimeUnit.SECONDS, 660);
+        dorisTimer = new HashedWheelTimer(1, TimeUnit.SECONDS, 660);
         dorisTimer.start();
         Long currentTimeMs = System.currentTimeMillis();
         jobMap.forEach((jobId, job) -> {
