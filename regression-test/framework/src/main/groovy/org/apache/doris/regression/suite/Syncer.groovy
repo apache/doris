@@ -350,8 +350,11 @@ class Syncer {
         return isCheckedOK
     }
 
-    Boolean checkSnapshotFinish() {
-        String checkSQL = "SHOW BACKUP FROM " + context.db
+    Boolean checkSnapshotFinish(String dbName = null) {
+        if (dbName == null) {
+            dbName = context.db
+        }
+        String checkSQL = "SHOW BACKUP FROM ${dbName}"
         def records = suite.sql(checkSQL)
         for (row in records) {
             logger.info("BACKUP row is ${row}")
@@ -385,8 +388,11 @@ class Syncer {
         null
     }
 
-    Boolean checkAllRestoreFinish() {
-        String checkSQL = "SHOW RESTORE FROM ${context.db}"
+    Boolean checkAllRestoreFinish(String dbName = null) {
+        if (dbName == null) {
+            dbName = context.db
+        }
+        String checkSQL = "SHOW RESTORE FROM ${dbName}"
         def records = suite.sql(checkSQL)
         for (row in records) {
             logger.info("Restore row is ${row}")
