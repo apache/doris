@@ -211,7 +211,6 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
 Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
                              SourceState& source_state) const {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
     auto& _repeat_id_idx = local_state._repeat_id_idx;
     auto& _child_block = *local_state._child_block;
     auto& _child_eos = local_state._child_eos;
