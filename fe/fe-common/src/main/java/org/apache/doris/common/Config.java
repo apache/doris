@@ -1882,6 +1882,12 @@ public class Config extends ConfigBase {
     public static long hive_metastore_client_timeout_second = 10;
 
     /**
+     * Whether to load default config files when creating hive metastore client.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean load_default_conf_for_hms_client = true;
+
+    /**
      * Used to determined how many statistics collection SQL could run simultaneously.
      */
     @ConfField
