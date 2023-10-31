@@ -566,6 +566,7 @@ public:
                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
     Status _get_segment_column_iterator(
             const BetaRowsetSharedPtr& rowset, uint32_t segid, const TabletColumn& target_column,
+            SegmentCacheHandle* segment_cache_handle,
             std::unique_ptr<segment_v2::ColumnIterator>* column_iterator,
             OlapReaderStatistics* stats);
 

@@ -19,6 +19,7 @@ package org.apache.doris.scheduler.manager;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Writable;
@@ -87,7 +88,8 @@ public class TimerJobManager implements Closeable, Writable {
     }
 
     public void start() {
-        dorisTimer = new HashedWheelTimer(1, TimeUnit.SECONDS, 660);
+        dorisTimer = new HashedWheelTimer(new CustomThreadFactory("hashed-wheel-timer"),
+                1, TimeUnit.SECONDS, 660);
         dorisTimer.start();
         Long currentTimeMs = System.currentTimeMillis();
         jobMap.forEach((jobId, job) -> {
