@@ -68,7 +68,6 @@ public:
     Status process_build_block(RuntimeState* state, vectorized::Block& block, uint8_t offset);
 
     void init_short_circuit_for_probe();
-    HashJoinBuildSinkOperatorX* join_build() { return (HashJoinBuildSinkOperatorX*)_parent; }
 
     bool build_unique() const;
     std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const;
