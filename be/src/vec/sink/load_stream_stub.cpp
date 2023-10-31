@@ -252,6 +252,7 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
             break;
         }
         default:
+            DCHECK(false) << "StreamWrite failed, err = " << ret;
             return Status::InternalError("StreamWrite failed, err = {}", ret);
         }
     }
