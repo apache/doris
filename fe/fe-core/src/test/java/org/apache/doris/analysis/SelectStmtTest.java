@@ -559,7 +559,7 @@ public class SelectStmtTest {
     }
 
     @Test
-    public void testSelectHints() throws Exception {
+    public void testStatementHints() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
 
         // hint with integer literal parameter
@@ -588,7 +588,7 @@ public class SelectStmtTest {
     }
 
     @Test
-    public void testSelectHintSetVar() throws Exception {
+    public void testStatementHintSetVar() throws Exception {
         String sql = "SELECT sleep(3);";
         OriginalPlanner planner = (OriginalPlanner) dorisAssert.query(sql).internalExecuteOneAndGetPlan();
         Assert.assertEquals(VariableMgr.getDefaultSessionVariable().getQueryTimeoutS(),

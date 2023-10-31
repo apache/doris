@@ -806,7 +806,7 @@ nonterminal InlineViewRef inline_view_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
 nonterminal ArrayList<String> opt_sort_hints;
-nonterminal Map<String, Map<String, String>> opt_select_hints;
+nonterminal Map<String, Map<String, String>> opt_statement_hints;
 nonterminal Map<String, Map<String, String>> query_hints;
 nonterminal Map.Entry<String, Map<String, String>> query_hint;
 nonterminal Map<String, String> query_hint_parameters;
@@ -4679,14 +4679,14 @@ insert_overwrite_stmt ::=
 
 // Insert statement
 insert_stmt ::=
-    KW_INSERT opt_select_hints:insert_hints KW_INTO insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
+    KW_INSERT opt_statement_hints:insert_hints KW_INTO insert_target:target opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
         RESULT = new NativeInsertStmt(target, label, cols, source, insert_hints, hints);
     :}
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
     | /* used for group commit */
-    KW_INSERT opt_select_hints:insert_hints KW_INTO KW_DORIS_INTERNAL_TABLE_ID LPAREN INTEGER_LITERAL:table_id RPAREN opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
+    KW_INSERT opt_statement_hints:insert_hints KW_INTO KW_DORIS_INTERNAL_TABLE_ID LPAREN INTEGER_LITERAL:table_id RPAREN opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
         RESULT = new NativeInsertStmt(table_id, label, cols, source, insert_hints, hints);
     :}
@@ -5288,17 +5288,17 @@ args_list ::=
     ;
 
 select_clause ::=
-    KW_SELECT opt_select_hints:hints select_list:l
+    KW_SELECT opt_statement_hints:hints select_list:l
     {:
         l.setOptHints(hints);
         RESULT = l;
     :}
-    | KW_SELECT opt_select_hints:hints KW_ALL select_list:l
+    | KW_SELECT opt_statement_hints:hints KW_ALL select_list:l
     {:
         l.setOptHints(hints);
         RESULT = l;
     :}
-    | KW_SELECT opt_select_hints:hints KW_DISTINCT select_list:l
+    | KW_SELECT opt_statement_hints:hints KW_DISTINCT select_list:l
     {:
         l.setOptHints(hints);
         l.setIsDistinct(true);
@@ -5380,7 +5380,7 @@ literal_or_ident ::=
     :}
     ;
 
-opt_select_hints ::=
+opt_statement_hints ::=
     COMMENTED_PLAN_HINT_START query_hints:map COMMENTED_PLAN_HINT_END
     {:
         RESULT = map;

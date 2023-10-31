@@ -17,31 +17,25 @@
 
 package org.apache.doris.nereids.properties;
 
-import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Objects;
 
 /**
- * select hint.
+ * statement hint.
  * e.g. set_var(query_timeout='1800', exec_mem_limit='2147483648')
  */
-public class SelectHintLeading extends SelectHint {
-    // e.g. query_timeout='1800', exec_mem_limit='2147483648'
-    private final List<String> parameters;
+public class StatementHint {
+    // e.g. set_var
+    private String hintName;
 
-    public SelectHintLeading(String hintName, List<String> parameters) {
-        super(hintName);
-        this.parameters = parameters;
+    public StatementHint(String hintName) {
+        this.hintName = Objects.requireNonNull(hintName, "hintName can not be null");
     }
 
-    public List<String> getParameters() {
-        return parameters;
+    public void setHintName(String hintName) {
+        this.hintName = hintName;
     }
 
-    @Override
-    public String toString() {
-        String leadingString = parameters
-                .stream()
-                .collect(Collectors.joining(" "));
-        return super.getHintName() + "(" + leadingString + ")";
+    public String getHintName() {
+        return hintName;
     }
 }

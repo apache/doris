@@ -208,7 +208,7 @@ public class NativeInsertStmt extends InsertStmt {
         this.label = new LabelName(null, label);
         this.queryStmt = source.getQueryStmt();
         if (insertHints != null) {
-            this.insertHints = insertHints.get(SelectList.SET_VAR_KEY);
+            this.insertHints = insertHints.get(SET_VAR_KEY);
         }
         this.planHints = hints;
         this.targetColumnNames = cols;
