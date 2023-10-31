@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -221,10 +223,24 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         }
 
         public boolean hasCorrelatedSlotsUnderAgg() {
-            if (!correlatedSlots.isEmpty()) {
-                return logicalPlan.anyMatch(planTreeNode -> planTreeNode instanceof LogicalAggregate
-                        && ((LogicalAggregate<?>) planTreeNode)
-                                .containsSlots(ImmutableSet.copyOf(correlatedSlots)));
+            return correlatedSlots.isEmpty() ? false
+                    : findAggContainsCorrelatedSlots(logicalPlan, ImmutableSet.copyOf(correlatedSlots));
+        }
+
+        private boolean findAggContainsCorrelatedSlots(Plan rootPlan, ImmutableSet<Slot> slots) {
+            ArrayDeque<Plan> planQueue = new ArrayDeque<>();
+            planQueue.add(rootPlan);
+            while (!planQueue.isEmpty()) {
+                Plan plan = planQueue.poll();
+                if (plan instanceof LogicalAggregate) {
+                    if (plan.containsSlots(slots)) {
+                        return true;
+                    }
+                } else {
+                    for (Plan child : plan.children()) {
+                        planQueue.add(child);
+                    }
+                }
             }
             return false;
         }
