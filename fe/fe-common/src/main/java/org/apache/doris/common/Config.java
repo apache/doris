@@ -1919,6 +1919,12 @@ public class Config extends ConfigBase {
     public static boolean ssl_force_client_auth = false;
 
     /**
+     * ssl connection needs to authenticate client's certificate store type.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String ssl_trust_store_type = "PKCS12";
+
+    /**
      * Default CA certificate file location for mysql ssl connection.
      */
     @ConfField(mutable = false, masterOnly = false)
@@ -2260,12 +2266,14 @@ public class Config extends ConfigBase {
     public static boolean ignore_unknown_metadata_module = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-        "FE扩容时，从主节点同步元数据的timeout时间，根据${meta_dir}/image文件夹下面的image文件大小和节点间的网络环境调整，"
-            + "单位为秒，默认值300",
-        "The timeout for new FE Follower/Observer synchronizing metadata from the FE Master, "
-            + "adjust by the size of image file in the ${meta_dir}/image and the network environment between nodes. "
-            + "The default values is 300s."
+            "从主节点同步image文件的超时时间，用户可根据${meta_dir}/image文件夹下面的image文件大小和节点间的网络环境调整，"
+                    + "单位为秒，默认值300",
+            "The timeout for FE Follower/Observer synchronizing an image file from the FE Master, can be adjusted by "
+                    + "the user on the size of image file in the ${meta_dir}/image and the network environment between "
+                    + "nodes. The default values is 300."
     })
     public static int sync_image_timeout_second = 300;
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static int publish_topic_info_interval_ms = 30000; // 30s
 }

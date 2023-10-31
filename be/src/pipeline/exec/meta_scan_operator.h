@@ -48,7 +48,8 @@ public:
 private:
     friend class vectorized::NewOlapScanner;
 
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
     Status _process_conjuncts() override;
 

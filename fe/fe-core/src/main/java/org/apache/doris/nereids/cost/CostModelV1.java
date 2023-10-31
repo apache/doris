@@ -22,7 +22,6 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
@@ -68,7 +67,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     // the penalty factor is no more than BROADCAST_JOIN_SKEW_PENALTY_LIMIT
     static final double BROADCAST_JOIN_SKEW_RATIO = 30.0;
     static final double BROADCAST_JOIN_SKEW_PENALTY_LIMIT = 2.0;
-    private int beNumber = 1;
+    private final int beNumber;
 
     public CostModelV1() {
         if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
@@ -303,7 +302,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             }
             // TODO: since the outputs rows may expand a lot, penalty on it will cause bc never be chosen.
             // will refine this in next generation cost model.
-            if (isStatsUnknown(physicalHashJoin, buildStats, probeStats)) {
+            if (!context.isStatsReliable()) {
                 // forbid broadcast join when stats is unknown
                 return CostV1.of(rightRowCount * buildSideFactor + 1 / leftRowCount,
                         rightRowCount,
@@ -315,7 +314,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     0
             );
         }
-        if (isStatsUnknown(physicalHashJoin, buildStats, probeStats)) {
+        if (!context.isStatsReliable()) {
             return CostV1.of(rightRowCount + 1 / leftRowCount,
                     rightRowCount,
                     0);
@@ -326,30 +325,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         );
     }
 
-    private boolean isStatsUnknown(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
-            Statistics build, Statistics probe) {
-        for (Slot slot : join.getConditionSlot()) {
-            if ((build.columnStatistics().containsKey(slot) && !build.columnStatistics().get(slot).isUnKnown)
-                    || (probe.columnStatistics().containsKey(slot) && !probe.columnStatistics().get(slot).isUnKnown)) {
-                continue;
-            }
-            return true;
-        }
-        return false;
-    }
-
-    private boolean isStatsUnknown(PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
-            Statistics build, Statistics probe) {
-        for (Slot slot : join.getConditionSlot()) {
-            if ((build.columnStatistics().containsKey(slot) && !build.columnStatistics().get(slot).isUnKnown)
-                    || (probe.columnStatistics().containsKey(slot) && !probe.columnStatistics().get(slot).isUnKnown)) {
-                continue;
-            }
-            return true;
-        }
-        return false;
-    }
-
     @Override
     public Cost visitPhysicalNestedLoopJoin(
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin,
@@ -358,7 +333,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Preconditions.checkState(context.arity() == 2);
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
-        if (isStatsUnknown(nestedLoopJoin, leftStatistics, rightStatistics)) {
+        if (!context.isStatsReliable()) {
             return CostV1.of(rightStatistics.getRowCount() + 1 / leftStatistics.getRowCount(),
                     rightStatistics.getRowCount(),
                     0);

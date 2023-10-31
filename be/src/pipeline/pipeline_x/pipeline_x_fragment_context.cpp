@@ -450,6 +450,29 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
          * and JoinProbeOperator2.
          */
 
+        // First, set up the parent profile,
+        // then prepare the task profile and add it to operator_id_to_task_profile.
+        std::vector<RuntimeProfile*> operator_id_to_task_profile(
+                max_operator_id(), _runtime_states[i]->runtime_profile());
+        auto prepare_and_set_parent_profile = [&](PipelineXTask* task) {
+            auto sink = task->sink();
+            const auto& dests_id = sink->dests_id();
+            int dest_id = dests_id.front();
+            DCHECK(dest_id < operator_id_to_task_profile.size());
+            task->set_parent_profile(operator_id_to_task_profile[dest_id]);
+
+            RETURN_IF_ERROR(task->prepare(_runtime_states[i].get(), local_params,
+                                          request.fragment.output_sink));
+
+            for (auto o : task->operatorXs()) {
+                int id = o->operator_id();
+                DCHECK(id < operator_id_to_task_profile.size());
+                auto* op_local_state = _runtime_states[i].get()->get_local_state(o->operator_id());
+                operator_id_to_task_profile[id] = op_local_state->profile();
+            }
+            return Status::OK();
+        };
+
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
             DCHECK(task != nullptr);
@@ -462,8 +485,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                             pipeline_id_to_task[dep]->get_downstream_dependency());
                 }
             }
-            RETURN_IF_ERROR(task->prepare(_runtime_states[i].get(), local_params,
-                                          request.fragment.output_sink));
+            RETURN_IF_ERROR(prepare_and_set_parent_profile(task));
         }
 
         {
@@ -577,7 +599,6 @@ Status PipelineXFragmentContext::_add_local_exchange(ObjectPool* pool, OperatorX
 
     auto shared_state = LocalExchangeSharedState::create_shared();
     shared_state->data_queue.resize(_runtime_state->query_parallel_instance_num());
-    shared_state->num_partitions = _runtime_state->query_parallel_instance_num();
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
     return Status::OK();
 }

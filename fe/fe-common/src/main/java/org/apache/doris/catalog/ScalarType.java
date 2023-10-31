@@ -440,6 +440,18 @@ public class ScalarType extends Type {
     }
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createDatetimeV1Type() {
+        Preconditions.checkState(!Config.disable_datev1, "Datev1 is disable in fe.conf!");
+        return new ScalarType(PrimitiveType.DATETIME);
+    }
+
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createDateV1Type() {
+        Preconditions.checkState(!Config.disable_datev1, "Datev1 is disable in fe.conf!");
+        return new ScalarType(PrimitiveType.DATE);
+    }
+
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createTimeType() {
         if (!Config.enable_date_conversion) {
             return new ScalarType(PrimitiveType.TIME);
@@ -630,10 +642,14 @@ public class ScalarType extends Type {
                 return "smallint(6)";
             case INT:
                 return "int(11)";
+            case IPV4:
+                return "ipv4";
             case BIGINT:
                 return "bigint(20)";
             case LARGEINT:
                 return "largeint(40)";
+            case IPV6:
+                return "ipv6";
             case FLOAT:
             case DOUBLE:
             case DATE:

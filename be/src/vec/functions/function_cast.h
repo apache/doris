@@ -75,6 +75,8 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -854,6 +856,12 @@ struct NameToFloat32 {
 struct NameToFloat64 {
     static constexpr auto name = "toFloat64";
 };
+struct NameToIPv4 {
+    static constexpr auto name = "toIPv4";
+};
+struct NameToIPv6 {
+    static constexpr auto name = "toIPv6";
+};
 struct NameToDate {
     static constexpr auto name = "toDate";
 };
@@ -880,6 +888,14 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
     if constexpr (IsDateTimeV2Type<DataType>) {
         UInt32 scale = additions;
         return try_read_datetime_v2_text(x, rb, local_time_zone, scale);
+    }
+
+    if constexpr (IsIPv4Type<DataType>) {
+        return try_read_ipv4_text(x, rb);
+    }
+
+    if constexpr (IsIPv6Type<DataType>) {
+        return try_read_ipv6_text(x, rb);
     }
 
     if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
@@ -1212,6 +1228,8 @@ using FunctionToDecimal128I =
         FunctionConvert<DataTypeDecimal<Decimal128I>, NameToDecimal128I, UnknownMonotonicity>;
 using FunctionToDecimal256 =
         FunctionConvert<DataTypeDecimal<Decimal256>, NameToDecimal256, UnknownMonotonicity>;
+using FunctionToIPv4 = FunctionConvert<DataTypeIPv4, NameToIPv4, UnknownMonotonicity>;
+using FunctionToIPv6 = FunctionConvert<DataTypeIPv6, NameToIPv6, UnknownMonotonicity>;
 using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
 using FunctionToDateTime = FunctionConvert<DataTypeDateTime, NameToDateTime, UnknownMonotonicity>;
 using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate, UnknownMonotonicity>;
@@ -1284,6 +1302,14 @@ struct FunctionTo<DataTypeDecimal<Decimal128I>> {
 template <>
 struct FunctionTo<DataTypeDecimal<Decimal256>> {
     using Type = FunctionToDecimal256;
+};
+template <>
+struct FunctionTo<DataTypeIPv4> {
+    using Type = FunctionToIPv4;
+};
+template <>
+struct FunctionTo<DataTypeIPv6> {
+    using Type = FunctionToIPv6;
 };
 template <>
 struct FunctionTo<DataTypeDate> {
@@ -1446,6 +1472,12 @@ struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128I>, Name>
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal256>, Name>
         : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal256>, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeIPv4, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeIPv4, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeIPv6, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeIPv6, Name> {};
 
 template <typename ToDataType, typename Name>
 class FunctionConvertFromString : public IFunction {
@@ -2144,7 +2176,10 @@ private:
                           std::is_same_v<ToDataType, DataTypeDateTime> ||
                           std::is_same_v<ToDataType, DataTypeDateV2> ||
                           std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
-                          std::is_same_v<ToDataType, DataTypeTimeV2>) {
+                          std::is_same_v<ToDataType, DataTypeTimeV2> ||
+                          std::is_same_v<ToDataType, DataTypeTime> ||
+                          std::is_same_v<ToDataType, DataTypeIPv4> ||
+                          std::is_same_v<ToDataType, DataTypeIPv6>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
                                      requested_result_is_nullable);
                 return true;

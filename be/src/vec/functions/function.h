@@ -699,6 +699,10 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(DateV2, ColumnUInt32)         \
     M(DateTimeV2, ColumnUInt64)
 
+#define IP_TYPE_TO_COLUMN_TYPE(M) \
+    M(IPv4, ColumnIPv4)           \
+    M(IPv6, ColumnIPv6)
+
 #define COMPLEX_TYPE_TO_COLUMN_TYPE(M) \
     M(Array, ColumnArray)              \
     M(Map, ColumnMap)                  \
@@ -710,7 +714,8 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     NUMERIC_TYPE_TO_COLUMN_TYPE(M)   \
     DECIMAL_TYPE_TO_COLUMN_TYPE(M)   \
     STRING_TYPE_TO_COLUMN_TYPE(M)    \
-    TIME_TYPE_TO_COLUMN_TYPE(M)
+    TIME_TYPE_TO_COLUMN_TYPE(M)      \
+    IP_TYPE_TO_COLUMN_TYPE(M)
 
 #define TYPE_TO_COLUMN_TYPE(M)   \
     TYPE_TO_BASIC_COLUMN_TYPE(M) \
