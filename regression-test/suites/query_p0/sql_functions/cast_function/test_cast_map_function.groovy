@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_cast_map_function", "query") {
+    sql """set enable_nereids_planner = false """
     def tableName = "tbl_test_cast_map_function"
     // array functions only supported in vectorized engine
 
@@ -32,10 +33,28 @@ suite("test_cast_map_function", "query") {
             "storage_format" = "V2"
             )
         """
-    // insert into for implicate cast
+    // insert into with implicit cast
     sql """ INSERT INTO ${tableName} VALUES(1, {"aa": 1, "b": 2, "1234567": 77}) """
+    sql """ INSERT INTO ${tableName} VALUES(2, {"b":12, "123":7777}) """
 
     qt_select """ select * from ${tableName} order by k1; """
 
     qt_select " select cast({} as MAP<INT,INT>);"
+    qt_select " select cast(map() as MAP<INT,INT>); "
+    qt_sql1 "select cast(NULL as MAP<string,int>)"
+
+    // literal NONSTRICT_SUPERTYPE_OF cast
+    qt_sql2 "select cast({'':''} as MAP<String,INT>);"
+    qt_sql3 "select cast({1:2} as MAP<String,INT>);"
+
+    // select SUPERTYPE_OF cast
+    qt_sql4 "select cast(k2 as map<varchar, bigint>) from ${tableName} order by k1;"
+
+    // select NONSTRICT_SUPERTYPE_OF cast , this behavior is same with nested scala type
+    qt_sql5 "select cast(k2 as map<char(2), smallint>) from ${tableName} order by k1;"
+    qt_sql6 "select cast(k2 as map<char(1), tinyint>) from ${tableName} order by k1;"
+    qt_sql7 "select cast(k2 as map<char, string>) from ${tableName} order by k1;"
+    qt_sql8 "select cast(k2 as map<int, string>) from ${tableName} order by k1;"
+    qt_sql9 "select cast(k2 as map<largeint, decimal>) from ${tableName} order by k1;"
+    qt_sql10 "select cast(k2 as map<double, datetime>) from ${tableName} order by k1;"
 }
