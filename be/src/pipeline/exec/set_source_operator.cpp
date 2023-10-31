@@ -63,7 +63,7 @@ Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateIn
 
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(PipelineXLocalState<SetDependency>::open(state));
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
@@ -94,7 +94,7 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
                                                    SourceState& source_state) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     _create_mutable_cols(local_state, block);
     auto st = std::visit(
             [&](auto&& arg) -> Status {

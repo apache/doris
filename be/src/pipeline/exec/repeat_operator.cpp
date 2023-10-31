@@ -52,7 +52,7 @@ RepeatLocalState::RepeatLocalState(RuntimeState* state, OperatorXBase* parent)
 
 Status RepeatLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
     _expr_ctxs.resize(p._expr_ctxs.size());
