@@ -305,7 +305,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             if (decommissionTime < 0) {
                 decommissionTime = System.currentTimeMillis();
             }
-            return System.currentTimeMillis() > decommissionTime + 10 * 60 * 1000L;
+            return System.currentTimeMillis() > decommissionTime + Config.decommission_tablet_wait_time_seconds * 1000L;
         } else {
             decommissionTime = -1;
             if (code == SubCode.WAITING_SLOT && type != Type.BALANCE) {
