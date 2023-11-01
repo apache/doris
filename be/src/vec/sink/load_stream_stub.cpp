@@ -101,7 +101,7 @@ LoadStreamStub::~LoadStreamStub() {
     }
 }
 
-// open_stream_sink
+// open_load_stream
 // tablets means
 Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const NodeInfo& node_info, int64_t txn_id,
@@ -124,7 +124,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     if (int ret = StreamCreate(&_stream_id, cntl, &opt)) {
         return Status::Error<true>(ret, "Failed to create stream");
     }
-    cntl.set_timeout_ms(config::open_stream_sink_timeout_ms);
+    cntl.set_timeout_ms(config::open_load_stream_timeout_ms);
     POpenStreamSinkRequest request;
     *request.mutable_load_id() = _load_id;
     request.set_src_id(_src_id);
@@ -138,7 +138,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     // use "pooled" connection to avoid conflicts between streaming rpc and regular rpc,
     // see: https://github.com/apache/brpc/issues/392
     const auto& stub = client_cache->get_new_client_no_cache(host_port, "baidu_std", "pooled");
-    stub->open_stream_sink(&cntl, &request, &response, nullptr);
+    stub->open_load_stream(&cntl, &request, &response, nullptr);
     for (const auto& resp : response.tablet_schemas()) {
         auto tablet_schema = std::make_unique<TabletSchema>();
         tablet_schema->init_from_pb(resp.tablet_schema());

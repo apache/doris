@@ -116,29 +116,29 @@ Status StorageEngine::start_bg_threads() {
         data_dirs.push_back(tmp_store.second);
     }
 
-    static_cast<void>(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
-                              .set_min_threads(config::max_base_compaction_threads)
-                              .set_max_threads(config::max_base_compaction_threads)
-                              .build(&_base_compaction_thread_pool));
-    static_cast<void>(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
-                              .set_min_threads(config::max_cumu_compaction_threads)
-                              .set_max_threads(config::max_cumu_compaction_threads)
-                              .build(&_cumu_compaction_thread_pool));
-    static_cast<void>(ThreadPoolBuilder("SingleReplicaCompactionTaskThreadPool")
-                              .set_min_threads(config::max_single_replica_compaction_threads)
-                              .set_max_threads(config::max_single_replica_compaction_threads)
-                              .build(&_single_replica_compaction_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
+                            .set_min_threads(config::max_base_compaction_threads)
+                            .set_max_threads(config::max_base_compaction_threads)
+                            .build(&_base_compaction_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+                            .set_min_threads(config::max_cumu_compaction_threads)
+                            .set_max_threads(config::max_cumu_compaction_threads)
+                            .build(&_cumu_compaction_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("SingleReplicaCompactionTaskThreadPool")
+                            .set_min_threads(config::max_single_replica_compaction_threads)
+                            .set_max_threads(config::max_single_replica_compaction_threads)
+                            .build(&_single_replica_compaction_thread_pool));
 
     if (config::enable_segcompaction) {
-        static_cast<void>(ThreadPoolBuilder("SegCompactionTaskThreadPool")
-                                  .set_min_threads(config::segcompaction_num_threads)
-                                  .set_max_threads(config::segcompaction_num_threads)
-                                  .build(&_seg_compaction_thread_pool));
+        RETURN_IF_ERROR(ThreadPoolBuilder("SegCompactionTaskThreadPool")
+                                .set_min_threads(config::segcompaction_num_threads)
+                                .set_max_threads(config::segcompaction_num_threads)
+                                .build(&_seg_compaction_thread_pool));
     }
-    static_cast<void>(ThreadPoolBuilder("ColdDataCompactionTaskThreadPool")
-                              .set_min_threads(config::cold_data_compaction_thread_num)
-                              .set_max_threads(config::cold_data_compaction_thread_num)
-                              .build(&_cold_data_compaction_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("ColdDataCompactionTaskThreadPool")
+                            .set_min_threads(config::cold_data_compaction_thread_num)
+                            .set_max_threads(config::cold_data_compaction_thread_num)
+                            .build(&_cold_data_compaction_thread_pool));
 
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
@@ -156,14 +156,14 @@ Status StorageEngine::start_bg_threads() {
     if (max_checkpoint_thread_num < 0) {
         max_checkpoint_thread_num = data_dirs.size();
     }
-    static_cast<void>(ThreadPoolBuilder("TabletMetaCheckpointTaskThreadPool")
-                              .set_max_threads(max_checkpoint_thread_num)
-                              .build(&_tablet_meta_checkpoint_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("TabletMetaCheckpointTaskThreadPool")
+                            .set_max_threads(max_checkpoint_thread_num)
+                            .build(&_tablet_meta_checkpoint_thread_pool));
 
-    static_cast<void>(ThreadPoolBuilder("MultiGetTaskThreadPool")
-                              .set_min_threads(config::multi_get_max_threads)
-                              .set_max_threads(config::multi_get_max_threads)
-                              .build(&_bg_multi_get_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("MultiGetTaskThreadPool")
+                            .set_min_threads(config::multi_get_max_threads)
+                            .set_max_threads(config::multi_get_max_threads)
+                            .build(&_bg_multi_get_thread_pool));
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "tablet_checkpoint_tasks_producer_thread",
             [this, data_dirs]() { this->_tablet_checkpoint_callback(data_dirs); },
@@ -201,10 +201,10 @@ Status StorageEngine::start_bg_threads() {
         LOG(INFO) << "path scan/gc threads started. number:" << get_stores().size();
     }
 
-    static_cast<void>(ThreadPoolBuilder("CooldownTaskThreadPool")
-                              .set_min_threads(config::cooldown_thread_num)
-                              .set_max_threads(config::cooldown_thread_num)
-                              .build(&_cooldown_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("CooldownTaskThreadPool")
+                            .set_min_threads(config::cooldown_thread_num)
+                            .set_max_threads(config::cooldown_thread_num)
+                            .build(&_cooldown_thread_pool));
     LOG(INFO) << "cooldown thread pool started";
 
     RETURN_IF_ERROR(Thread::create(
@@ -226,10 +226,10 @@ Status StorageEngine::start_bg_threads() {
     LOG(INFO) << "cold data compaction producer thread started";
 
     // add tablet publish version thread pool
-    static_cast<void>(ThreadPoolBuilder("TabletPublishTxnThreadPool")
-                              .set_min_threads(config::tablet_publish_txn_max_thread)
-                              .set_max_threads(config::tablet_publish_txn_max_thread)
-                              .build(&_tablet_publish_txn_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("TabletPublishTxnThreadPool")
+                            .set_min_threads(config::tablet_publish_txn_max_thread)
+                            .set_max_threads(config::tablet_publish_txn_max_thread)
+                            .build(&_tablet_publish_txn_thread_pool));
 
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "aync_publish_version_thread",
@@ -281,7 +281,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
     double usage = 1.0;
     // After the program starts, the first round of cleaning starts after min_interval.
     uint32_t curr_interval = min_interval;
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(curr_interval))) {
+    do {
         // Function properties:
         // when usage < 0.6,          ratio close to 1.(interval close to max_interval)
         // when usage at [0.6, 0.75], ratio is rapidly decreasing from 0.87 to 0.27.
@@ -305,7 +305,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
                          << "see previous message for detail. err code=" << res;
             // do nothing. continue next loop.
         }
-    }
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(curr_interval)));
 }
 
 void StorageEngine::_disk_stat_monitor_thread_callback() {

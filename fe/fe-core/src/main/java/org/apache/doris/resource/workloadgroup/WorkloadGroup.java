@@ -25,6 +25,8 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.thrift.TTopicInfoType;
+import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -101,7 +103,12 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             properties.put(ENABLE_MEMORY_OVERCOMMIT, properties.get(ENABLE_MEMORY_OVERCOMMIT).toLowerCase());
         }
         if (properties.containsKey(CPU_HARD_LIMIT)) {
-            this.cpuHardLimit = Integer.parseInt(properties.get(CPU_HARD_LIMIT));
+            String cpuHardLimitStr = properties.get(CPU_HARD_LIMIT);
+            if (cpuHardLimitStr.endsWith("%")) {
+                cpuHardLimitStr = cpuHardLimitStr.substring(0, cpuHardLimitStr.length() - 1);
+            }
+            this.cpuHardLimit = Integer.parseInt(cpuHardLimitStr);
+            this.properties.put(CPU_HARD_LIMIT, cpuHardLimitStr);
         }
     }
 
@@ -191,6 +198,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
         if (properties.containsKey(CPU_HARD_LIMIT)) {
             String cpuHardLimit = properties.get(CPU_HARD_LIMIT);
+            if (cpuHardLimit.endsWith("%")) {
+                cpuHardLimit = cpuHardLimit.substring(0, cpuHardLimit.length() - 1);
+            }
             if (!StringUtils.isNumeric(cpuHardLimit) || Long.parseLong(cpuHardLimit) <= 0) {
                 throw new DdlException(CPU_HARD_LIMIT + " " + cpuHardLimit + " requires a positive integer.");
             }
@@ -269,7 +279,11 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public void getProcNodeData(BaseProcResult result) {
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            result.addRow(Lists.newArrayList(String.valueOf(id), name, entry.getKey(), entry.getValue()));
+            if (CPU_HARD_LIMIT.equals(entry.getKey())) {
+                result.addRow(Lists.newArrayList(String.valueOf(id), name, entry.getKey(), entry.getValue() + "%"));
+            } else {
+                result.addRow(Lists.newArrayList(String.valueOf(id), name, entry.getKey(), entry.getValue()));
+            }
         }
     }
 
@@ -288,6 +302,16 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         HashMap<String, String> clonedHashMap = new HashMap<>();
         clonedHashMap.putAll(properties);
         return new TPipelineWorkloadGroup().setId(id).setName(name).setProperties(clonedHashMap).setVersion(version);
+    }
+
+    public TopicInfo toTopicInfo() {
+        HashMap<String, String> newHashMap = new HashMap<>();
+        newHashMap.put("id", String.valueOf(id));
+        TopicInfo topicInfo = new TopicInfo();
+        topicInfo.setTopicType(TTopicInfoType.WORKLOAD_GROUP);
+        topicInfo.setInfoMap(newHashMap);
+        topicInfo.setTopicKey(name);
+        return topicInfo;
     }
 
     @Override

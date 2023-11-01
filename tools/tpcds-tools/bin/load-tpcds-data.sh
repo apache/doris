@@ -204,8 +204,8 @@ run_sql() {
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
 }
 start=$(date +%s)
-run_sql "analyze database ${DB} with sync;"
+run_sql "analyze database ${DB} with full with sync;"
 end=$(date +%s)
 analyzeTime=$((end - start))
-echo "analyze database ${DB} with sync total time: ${analyzeTime} s"
+echo "analyze database ${DB} with full with sync total time: ${analyzeTime} s"
 echo '============================================'

@@ -83,9 +83,6 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     /* ********** new Plan ********** */
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(newBottomHashConjuncts,
                             newBottomOtherConjuncts, a, c);
-                    newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
-                    newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
-                    newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
                     // merge newTopHashConjuncts newTopOtherConjuncts topJoin.getOutputExprIdSet()
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());

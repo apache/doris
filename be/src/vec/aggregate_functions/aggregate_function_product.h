@@ -134,7 +134,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
         const auto& column = assert_cast<const ColVecType&>(*columns[0]);
-        this->data(place).add(column.get_data()[row_num], multiplier);
+        this->data(place).add(TResult(column.get_data()[row_num]), multiplier);
     }
 
     void reset(AggregateDataPtr place) const override {

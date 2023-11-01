@@ -312,7 +312,8 @@ public:
 template <typename LocalStateType = BlockingAggSinkLocalState>
 class AggSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
-    AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+                     const DescriptorTbl& descs);
     ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -328,6 +329,8 @@ public:
                 SourceState source_state) override;
 
     using DataSinkOperatorX<LocalStateType>::id;
+    using DataSinkOperatorX<LocalStateType>::operator_id;
+    using DataSinkOperatorX<LocalStateType>::get_local_state;
 
 protected:
     using LocalState = LocalStateType;

@@ -98,7 +98,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
                             "Query:{} canceled asyn, after waiting for memory {}ms, {}.",
                             print_id(doris::thread_context()->task_id()), wait_milliseconds,
                             err_msg);
-                    doris::thread_context()->thread_mem_tracker_mgr->cancel_fragment(err_msg);
+                    doris::thread_context()->thread_mem_tracker_mgr->cancel_instance(err_msg);
                 } else {
                     LOG(INFO) << fmt::format(
                             "Query:{} throw exception, after waiting for memory {}ms, {}.",
@@ -131,7 +131,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(siz
             if (!doris::enable_thread_catch_bad_alloc) {
                 LOG(INFO) << fmt::format("query/load:{} canceled asyn, {}.",
                                          print_id(doris::thread_context()->task_id()), err_msg);
-                doris::thread_context()->thread_mem_tracker_mgr->cancel_fragment(err_msg);
+                doris::thread_context()->thread_mem_tracker_mgr->cancel_instance(err_msg);
             } else {
                 LOG(INFO) << fmt::format("query/load:{} throw exception, {}.",
                                          print_id(doris::thread_context()->task_id()), err_msg);
