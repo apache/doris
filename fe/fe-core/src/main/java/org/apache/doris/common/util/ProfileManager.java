@@ -73,7 +73,6 @@ public class ProfileManager {
         private final RuntimeProfile profile;
         // cache the result of getProfileContent method
         private String profileContent = null;
-        private boolean isFinished = false;
         public Map<String, String> infoStrings = Maps.newHashMap();
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
@@ -85,17 +84,22 @@ public class ProfileManager {
          * guarded by {@link org.apache.doris.common.util.ProfileManager#readLock}
          */
         public String getProfileContent() {
-
-            if (profileContent == null || !isFinished) {
-                isFinished = profile.getIsCancel() || profile.getIsDone();
-                // Simple profile will change the structure of the profile.
-                try {
-                    profileContent = profile.getProfileByLevel();
-                } catch (Exception e) {
-                    LOG.warn("profile get error : " + e.toString());
-                }
+            if (profileContent != null) {
+                return profileContent;
             }
-            return profileContent;
+
+            boolean isFinished = profile.getIsCancel() || profile.getIsDone();
+            String tmpProfileContent = null;
+            // Simple profile will change the structure of the profile.
+            try {
+                tmpProfileContent = profile.getProfileByLevel();
+                if (isFinished && tmpProfileContent != null) {
+                    profileContent = tmpProfileContent;
+                }
+            } catch (Exception e) {
+                LOG.warn("profile get error : " + e.toString());
+            }
+            return tmpProfileContent;
         }
 
         public String getProfileBrief() {
