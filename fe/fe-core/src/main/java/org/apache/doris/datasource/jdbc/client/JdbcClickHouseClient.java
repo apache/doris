@@ -72,17 +72,9 @@ public class JdbcClickHouseClient extends JdbcClient {
                 int indexStart = ckType.indexOf('(');
                 int indexEnd = ckType.indexOf(')');
                 if (indexStart != -1 && indexEnd != -1) {
-                    String scaleStr = ckType.substring(indexStart + 1, indexEnd);
-                    int scale;
-                    try {
-                        scale = Integer.parseInt(scaleStr);
-                    } catch (NumberFormatException e) {
-                        // DateTime([timezone])
-                        return ScalarType.createDatetimeV2Type(0);
-                    }
-                    // DateTime64 with [0~9] precision
-                    if (scale > 6) {
-                        scale = 6;
+                    int scale = fieldSchema.getDecimalDigits();
+                    if (scale > JDBC_DATETIME_SCALE) {
+                        scale = JDBC_DATETIME_SCALE;
                     }
                     // return with the actual scale
                     return ScalarType.createDatetimeV2Type(scale);
