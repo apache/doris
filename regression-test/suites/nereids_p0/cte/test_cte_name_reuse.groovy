@@ -32,7 +32,7 @@ suite("test_cte_name_reuse") {
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`id`) BUCKETS 10
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1",
+        "replication_allocation" = "tag.location.default: 1"
         );
     """
 
