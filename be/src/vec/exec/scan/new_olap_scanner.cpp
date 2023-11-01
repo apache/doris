@@ -182,8 +182,8 @@ Status NewOlapScanner::init() {
             {
                 std::shared_lock rdlock(tablet->get_header_lock());
                 auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
-                                                      &read_source.rs_splits,
-                                                      _state->skip_missing_version());
+                                                     &read_source.rs_splits,
+                                                     _state->skip_missing_version());
                 if (!st.ok()) {
                     LOG(WARNING) << "fail to init reader.res=" << st;
                     return Status::InternalError(
