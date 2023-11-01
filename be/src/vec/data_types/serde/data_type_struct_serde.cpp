@@ -42,14 +42,13 @@ std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String
 
 Status DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                      int end_idx, BufferWritable& bw,
-                                                     FormatOptions& options,
-                                                     int nesting_level) const {
+                                                     FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                       BufferWritable& bw, FormatOptions& options,
-                                                       int nesting_level) const {
+                                                       BufferWritable& bw,
+                                                       FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -61,16 +60,15 @@ Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, in
             bw.write(',');
             bw.write(' ');
         }
-        RETURN_IF_ERROR(elemSerDeSPtrs[i]->serialize_one_cell_to_json(
-                struct_column.get_column(i), row_num, bw, options, nesting_level + 1));
+        RETURN_IF_ERROR(elemSerDeSPtrs[i]->serialize_one_cell_to_json(struct_column.get_column(i),
+                                                                      row_num, bw, options));
     }
     bw.write('}');
     return Status::OK();
 }
 
 Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                           const FormatOptions& options,
-                                                           int nesting_level) const {
+                                                           const FormatOptions& options) const {
     if (slice.empty()) {
         return Status::InvalidArgument("slice is empty!");
     }
@@ -198,11 +196,9 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     return Status::OK();
 }
 
-Status DataTypeStructSerDe::deserialize_column_from_json_vector(IColumn& column,
-                                                                std::vector<Slice>& slices,
-                                                                int* num_deserialized,
-                                                                const FormatOptions& options,
-                                                                int nesting_level) const {
+Status DataTypeStructSerDe::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
@@ -219,13 +215,14 @@ void DataTypeStructSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     result.writeEndBinary();
 }
 
-Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
-                                                                const FormatOptions& options,
-                                                                int nesting_level) const {
+Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(
+        IColumn& column, Slice& slice, const FormatOptions& options,
+        int hive_text_complex_type_delimiter_level) const {
     if (slice.empty()) {
         return Status::InvalidArgument("slice is empty!");
     }
-    char struct_delimiter = options.get_collection_delimiter(nesting_level);
+    char struct_delimiter =
+            options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
 
     std::vector<Slice> slices;
     char* data = slice.data;
@@ -238,7 +235,8 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(IColumn& column,
     auto& struct_column = static_cast<ColumnStruct&>(column);
     for (size_t loc = 0; loc < struct_column.get_columns().size(); loc++) {
         Status st = elemSerDeSPtrs[loc]->deserialize_one_cell_from_hive_text(
-                struct_column.get_column(loc), slices[loc], options, nesting_level + 1);
+                struct_column.get_column(loc), slices[loc], options,
+                hive_text_complex_type_delimiter_level + 1);
         if (st != Status::OK()) {
             return st;
         }
@@ -246,32 +244,31 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeStructSerDe::deserialize_column_from_hive_text_vector(IColumn& column,
-                                                                     std::vector<Slice>& slices,
-                                                                     int* num_deserialized,
-                                                                     const FormatOptions& options,
-                                                                     int nesting_level) const {
+Status DataTypeStructSerDe::deserialize_column_from_hive_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options, int hive_text_complex_type_delimiter_level) const {
     DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
 }
 
-void DataTypeStructSerDe::serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
-                                                          BufferWritable& bw,
-                                                          FormatOptions& options,
-                                                          int nesting_level) const {
+void DataTypeStructSerDe::serialize_one_cell_to_hive_text(
+        const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+        int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
     const ColumnStruct& struct_column = assert_cast<const ColumnStruct&>(*ptr);
 
-    char collection_delimiter = options.get_collection_delimiter(nesting_level);
+    char collection_delimiter =
+            options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
     for (int i = 0; i < struct_column.get_columns().size(); i++) {
         if (i != 0) {
             bw.write(collection_delimiter);
         }
-        elemSerDeSPtrs[i]->serialize_one_cell_to_hive_text(struct_column.get_column(i), row_num, bw,
-                                                           options, nesting_level + 1);
+        elemSerDeSPtrs[i]->serialize_one_cell_to_hive_text(
+                struct_column.get_column(i), row_num, bw, options,
+                hive_text_complex_type_delimiter_level + 1);
     }
 }
 
@@ -330,8 +327,13 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
             }
         }
 
+        std::string col_name = "\"" + elemNames[j] + "\": ";
+        if (0 != result.push_string(col_name.c_str(), col_name.length())) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+
         if (col.get_column_ptr(j)->is_null_at(col_index)) {
-            if (0 != result.push_string("NULL", strlen("NULL"))) {
+            if (0 != result.push_string("null", strlen("null"))) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {

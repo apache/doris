@@ -536,7 +536,7 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
     struct_field->type.type = TYPE_STRUCT;
     for (int i = 0; i < num_children; ++i) {
         struct_field->type.add_sub_type(struct_field->children[i].type,
-                                        struct_field->children[0].name);
+                                        struct_field->children[i].name);
     }
     return Status::OK();
 }
