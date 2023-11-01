@@ -2168,7 +2168,7 @@ public class Config extends ConfigBase {
             "控制统计信息的自动触发作业执行记录的持久化行数",
             "Determine the persist number of automatic triggered analyze job execution status"
     })
-    public static long auto_analyze_job_record_count = 20000;
+    public static long analyze_record_limit = 20000;
 
     @ConfField(description = {
             "Auto Buckets中最小的buckets数目",
