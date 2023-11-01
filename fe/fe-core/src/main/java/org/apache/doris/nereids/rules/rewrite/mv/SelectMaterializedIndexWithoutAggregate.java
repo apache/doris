@@ -24,6 +24,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.ReplaceExpressions;
+import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.SlotContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -59,7 +61,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
         return ImmutableList.of(
                 // project with pushdown filter.
                 // Project(Filter(Scan))
-                logicalProject(logicalFilter(logicalOlapScan().when(this::shouldSelectIndex)))
+                logicalProject(logicalFilter(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg)))
                         .thenApply(ctx -> {
                             LogicalProject<LogicalFilter<LogicalOlapScan>> project = ctx.root;
                             LogicalFilter<LogicalOlapScan> filter = project.child();
@@ -79,7 +81,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                 // project with filter that cannot be pushdown.
                 // Filter(Project(Scan))
-                logicalFilter(logicalProject(logicalOlapScan().when(this::shouldSelectIndex)))
+                logicalFilter(logicalProject(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg)))
                         .thenApply(ctx -> {
                             LogicalFilter<LogicalProject<LogicalOlapScan>> filter = ctx.root;
                             LogicalProject<LogicalOlapScan> project = filter.child();
@@ -98,7 +100,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                 // scan with filters could be pushdown.
                 // Filter(Scan)
-                logicalFilter(logicalOlapScan().when(this::shouldSelectIndex))
+                logicalFilter(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg))
                         .thenApply(ctx -> {
                             LogicalFilter<LogicalOlapScan> filter = ctx.root;
                             LogicalOlapScan scan = filter.child();
@@ -116,7 +118,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                 // project and scan.
                 // Project(Scan)
-                logicalProject(logicalOlapScan().when(this::shouldSelectIndex))
+                logicalProject(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg))
                         .thenApply(ctx -> {
                             LogicalProject<LogicalOlapScan> project = ctx.root;
                             LogicalOlapScan scan = project.child();
@@ -135,7 +137,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
 
                 // only scan.
                 logicalOlapScan()
-                        .when(this::shouldSelectIndex)
+                        .when(this::shouldSelectIndexWithoutAgg)
                         .thenApply(ctx -> {
                             LogicalOlapScan scan = ctx.root;
 
@@ -196,7 +198,9 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
                 preAggStatus = PreAggStatus.on();
             } else {
-                preAggStatus = PreAggStatus.off("No aggregate on scan.");
+                // if PreAggStatus is OFF, we use the message from SelectMaterializedIndexWithAggregate
+                preAggStatus = scan.getPreAggStatus().isOff() ? scan.getPreAggStatus()
+                        : PreAggStatus.off("No aggregate on scan.");
             }
             if (table.getIndexIdToMeta().size() == 1) {
                 return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
