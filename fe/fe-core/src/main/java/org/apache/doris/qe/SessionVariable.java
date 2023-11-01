@@ -854,7 +854,7 @@ public class SessionVariable implements Serializable, Writable {
 
 
     @VariableMgr.VarAttr(name = MAX_JOIN_NUMBER_BUSHY_TREE)
-    private int maxJoinNumBushyTree = 5;
+    private int maxJoinNumBushyTree = 8;
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = true;
@@ -1253,7 +1253,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean fasterFloatConvert = false;
 
     @VariableMgr.VarAttr(name = IGNORE_RUNTIME_FILTER_IDS,
-            description = {"the runtime filter id in IGNORE_RUNTIME_FILTER_IDS list will not be generated"})
+            description = {"在IGNORE_RUNTIME_FILTER_IDS列表中的runtime filter将不会被生成",
+                    "the runtime filter id in IGNORE_RUNTIME_FILTER_IDS list will not be generated"})
 
     public String ignoreRuntimeFilterIds = "";
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
@@ -2404,9 +2405,9 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setRepeatMaxNum(repeatMaxNum);
 
-        tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
+        tResult.setExternalSortBytesThreshold(0); // disable for now
 
-        tResult.setExternalAggBytesThreshold(externalAggBytesThreshold);
+        tResult.setExternalAggBytesThreshold(0); // disable for now
 
         tResult.setExternalAggPartitionBits(externalAggPartitionBits);
 

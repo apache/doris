@@ -186,7 +186,7 @@ public class GroupExpressionMatching implements Iterable<Plan> {
                         // Reset the index when it reaches the size of the current child plan list
                         childrenPlanIndex[offset] = 0;
                     } else {
-                        break;  // Break the loop when the index is within the size of the current child plan list
+                        break;
                     }
                 }
             }
