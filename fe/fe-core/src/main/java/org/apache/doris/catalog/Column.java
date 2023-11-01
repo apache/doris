@@ -512,7 +512,7 @@ public class Column implements Writable, GsonPostProcessable {
         return hasOnUpdateDefaultValue;
     }
 
-    public Expr getOnUpdateDefaultValueExpr() throws AnalysisException {
+    public Expr getOnUpdateDefaultValueExpr() {
         return onUpdateDefaultValueExprDef.getExpr(type);
     }
 

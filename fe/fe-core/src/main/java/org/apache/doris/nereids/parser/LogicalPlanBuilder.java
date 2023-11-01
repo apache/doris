@@ -2157,20 +2157,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else if (ctx.nullValue != null) {
                 defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
             } else if (ctx.CURRENT_TIMESTAMP() != null) {
-                if (ctx.precision1 == null) {
+                if (ctx.defaultValuePrecision == null) {
                     defaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
                 } else {
                     defaultValue = Optional.of(DefaultValue
-                            .currentTimeStampDefaultValueWithPrecision(Long.valueOf(ctx.precision1.getText())));
+                            .currentTimeStampDefaultValueWithPrecision(
+                                    Long.valueOf(ctx.defaultValuePrecision.getText())));
                 }
             }
         }
         if (ctx.UPDATE() != null) {
-            if (ctx.precision2 == null) {
+            if (ctx.onUpdateValuePrecision == null) {
                 onUpdateDefaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
             } else {
                 onUpdateDefaultValue = Optional.of(DefaultValue
-                        .currentTimeStampDefaultValueWithPrecision(Long.valueOf(ctx.precision2.getText())));
+                        .currentTimeStampDefaultValueWithPrecision(
+                                Long.valueOf(ctx.onUpdateValuePrecision.getText())));
             }
         }
         AggregateType aggType = null;

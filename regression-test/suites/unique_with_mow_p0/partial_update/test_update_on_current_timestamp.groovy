@@ -23,7 +23,7 @@ suite("test_mow_update_on_current_timestamp", "p0") {
     sql "sync;"
 
 
-    def t1 = "nereids_update_on_current_timestamp1"
+    def t1 = "test_mow_update_on_current_timestamp1"
     sql """ DROP TABLE IF EXISTS ${t1};"""
     sql """ CREATE TABLE ${t1} (
                 `id` int(11) NOT NULL COMMENT "用户 ID",

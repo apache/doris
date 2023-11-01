@@ -228,7 +228,8 @@ public class ColumnDefinition {
                 ColumnDef.validateDefaultValue(type.toCatalogDataType(),
                         onUpdateDefaultValue.get().getValue(), onUpdateDefaultValue.get().getDefaultValueExprDef());
             } catch (Exception e) {
-                throw new AnalysisException(e.getMessage(), e);
+                throw new AnalysisException("meet error when validating the on update value of column["
+                        + name + "], reason: " + e.getMessage());
             }
             if (onUpdateDefaultValue.get().isCurrentTimeStamp()) {
                 if (!defaultValue.isPresent() || !defaultValue.get().isCurrentTimeStamp()) {

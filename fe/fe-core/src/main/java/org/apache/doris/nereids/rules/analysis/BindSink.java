@@ -176,19 +176,19 @@ public class BindSink implements AnalysisRuleFactory {
                                 // If the current load is a partial update, the values of unmentioned
                                 // columns will be filled in SegmentWriter. And the output of sink node
                                 // should not contain these unmentioned columns, so we just skip them.
-                                try {
-                                    if (column.hasOnUpdateDefaultValue()) {
-                                        Expression defualtValueExpression = FunctionBinder.INSTANCE.rewrite(
-                                                new NereidsParser().parseExpression(
-                                                        column.getOnUpdateDefaultValueExpr().toSqlWithoutTbl()),
-                                                new ExpressionRewriteContext(ctx.cascadesContext));
-                                        columnToOutput.put(column.getName(),
-                                                new Alias(defualtValueExpression, column.getName()));
-                                    } else {
-                                        continue;
-                                    }
-                                } catch (Exception e) {
-                                    throw new AnalysisException(e.getMessage(), e.getCause());
+
+                                // But if the column has 'on update value', we should unconditionally
+                                // update the value of the column to the current timestamp whenever there
+                                // is an update on the row
+                                if (column.hasOnUpdateDefaultValue()) {
+                                    Expression defualtValueExpression = FunctionBinder.INSTANCE.rewrite(
+                                            new NereidsParser().parseExpression(
+                                                    column.getOnUpdateDefaultValueExpr().toSqlWithoutTbl()),
+                                            new ExpressionRewriteContext(ctx.cascadesContext));
+                                    columnToOutput.put(column.getName(),
+                                            new Alias(defualtValueExpression, column.getName()));
+                                } else {
+                                    continue;
                                 }
                             } else if (column.getDefaultValue() == null) {
                                 // Otherwise, the unmentioned columns should be filled with default values
