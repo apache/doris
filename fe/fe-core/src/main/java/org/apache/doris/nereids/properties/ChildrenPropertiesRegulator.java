@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -453,7 +454,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
      *
      * @param shuffleType real output shuffle type
      * @param notShuffleSideOutput not shuffle side real output used hash spec
-     * @param shuffleSideOutput  shuffle side real output used hash spec
+     * @param shuffleSideOutput shuffle side real output used hash spec
      * @param notShuffleSideRequired not shuffle side required used hash spec
      * @param shuffleSideRequired shuffle side required hash spec
      * @return shuffle side new required hash spec
@@ -481,7 +482,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     private void updateChildEnforceAndCost(GroupExpression child, PhysicalProperties childOutput,
             DistributionSpec target, Cost currentCost) {
         if (child.getPlan() instanceof PhysicalDistribute) {
-            //To avoid continuous distribute operator, we just enforce the child's child
+            // To avoid continuous distribute operator, we just enforce the child's child
             childOutput = child.getInputPropertiesList(childOutput).get(0);
             Pair<Cost, GroupExpression> newChildAndCost = child.getOwnerGroup().getLowestCostPlan(childOutput).get();
             child = newChildAndCost.second;
@@ -491,8 +492,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         PhysicalProperties newOutputProperty = new PhysicalProperties(target);
         GroupExpression enforcer = target.addEnforcer(child.getOwnerGroup());
         child.getOwnerGroup().addEnforcer(enforcer);
-        Cost totalCost = CostCalculator.addChildCost(enforcer.getPlan(),
-                CostCalculator.calculateCost(enforcer, Lists.newArrayList(childOutput)),
+        ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
+        Cost totalCost = CostCalculator.addChildCost(connectContext, enforcer.getPlan(),
+                CostCalculator.calculateCost(connectContext, enforcer, Lists.newArrayList(childOutput)),
                 currentCost,
                 0);
 

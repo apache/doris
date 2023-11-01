@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Assertions;
 public class MatchingUtils {
 
     public static void assertMatches(Plan plan, PatternDescriptor<? extends Plan> patternDesc) {
-        Memo memo = new Memo(plan);
+        Memo memo = new Memo(null, plan);
         if (plan instanceof PhysicalPlan) {
             assertMatches(memo, () -> new GroupExpressionMatching(patternDesc.pattern,
                     memo.getRoot().getPhysicalExpressions().get(0)).iterator().hasNext(),
