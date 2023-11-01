@@ -207,7 +207,7 @@ private:
     std::string _cancel_msg;
 
     OpentelemetrySpan _span;
-    
+
     DescriptorTbl* _desc_tbl;
 
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
