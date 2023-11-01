@@ -1428,14 +1428,15 @@ public class ShowExecutor {
             resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
             return;
         }
-        long jobId = jobs.get(0).getJobId();
+        Job job = jobs.get(0);
+        long jobId = job.getJobId();
         List<JobTask> jobTasks = Env.getCurrentEnv().getJobTaskManager().getJobTasks(jobId);
         if (CollectionUtils.isEmpty(jobTasks)) {
             resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
             return;
         }
-        for (JobTask job : jobTasks) {
-            rows.add(job.getShowInfo());
+        for (JobTask jobTask : jobTasks) {
+            rows.add(jobTask.getShowInfo(job.getJobName()));
         }
         resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
     }

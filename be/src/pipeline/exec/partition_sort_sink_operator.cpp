@@ -30,7 +30,7 @@ OperatorPtr PartitionSortSinkOperatorBuilder::build_operator() {
 
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortDependency>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     auto& p = _parent->cast<PartitionSortSinkOperatorX>();
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     _partition_expr_ctxs.resize(p._partition_expr_ctxs.size());
@@ -98,7 +98,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                                         SourceState source_state) {
     auto& local_state = get_local_state(state);
     auto current_rows = input_block->rows();
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     if (current_rows > 0) {
         local_state.child_input_rows = local_state.child_input_rows + current_rows;
         if (UNLIKELY(_partition_exprs_num == 0)) {

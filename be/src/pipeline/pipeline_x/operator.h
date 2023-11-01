@@ -86,7 +86,7 @@ public:
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
     RuntimeProfile::Counter* rows_returned_counter() { return _rows_returned_counter; }
     RuntimeProfile::Counter* blocks_returned_counter() { return _blocks_returned_counter; }
-
+    RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     OperatorXBase* parent() { return _parent; }
     RuntimeState* state() { return _state; }
     vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
@@ -120,6 +120,7 @@ protected:
     RuntimeProfile::Counter* _memory_used_counter;
     RuntimeProfile::Counter* _wait_for_finish_dependency_timer;
     RuntimeProfile::Counter* _projection_timer;
+    RuntimeProfile::Counter* _exec_timer;
     // Account for peak memory used by this node
     RuntimeProfile::Counter* _peak_memory_usage_counter;
     RuntimeProfile::Counter* _open_timer = nullptr;
@@ -369,7 +370,7 @@ public:
     }
 
     RuntimeProfile::Counter* rows_input_counter() { return _rows_input_counter; }
-
+    RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     virtual WriteDependency* dependency() { return nullptr; }
 
     FinishDependency* finishdependency() { return _finish_dependency.get(); }
@@ -396,7 +397,7 @@ protected:
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _wait_for_dependency_timer;
     RuntimeProfile::Counter* _wait_for_finish_dependency_timer;
-
+    RuntimeProfile::Counter* _exec_timer;
     std::shared_ptr<FinishDependency> _finish_dependency;
 };
 
