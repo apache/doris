@@ -179,25 +179,25 @@ bool lessOp(A a, B b) {
     }
 
     /// int vs int
-    if constexpr (is_integer<A> && is_integer<B>) {
+    if constexpr (wide::is_integer<A> && wide::is_integer<B>) {
         /// same signedness
-        if constexpr (is_signed_v<A> == is_signed_v<B>) {
+        if constexpr (wide::is_signed_v<A> == wide::is_signed_v<B>) {
             return a < b;
         }
 
         /// different signedness
 
-        if constexpr (is_signed_v<A> && !is_signed_v<B>) {
+        if constexpr (wide::is_signed_v<A> && !wide::is_signed_v<B>) {
             return a < 0 || static_cast<std::make_unsigned_t<A>>(a) < b;
         }
 
-        if constexpr (!is_signed_v<A> && is_signed_v<B>) {
+        if constexpr (!wide::is_signed_v<A> && wide::is_signed_v<B>) {
             return b >= 0 && a < static_cast<std::make_unsigned_t<B>>(b);
         }
     }
 
     /// int vs float
-    if constexpr (is_integer<A> && std::is_floating_point_v<B>) {
+    if constexpr (wide::is_integer<A> && std::is_floating_point_v<B>) {
         if constexpr (sizeof(A) <= 4) {
             return static_cast<double>(a) < static_cast<double>(b);
         }
@@ -205,7 +205,7 @@ bool lessOp(A a, B b) {
         return DecomposedFloat<B>(b).greater(a);
     }
 
-    if constexpr (std::is_floating_point_v<A> && is_integer<B>) {
+    if constexpr (std::is_floating_point_v<A> && wide::is_integer<B>) {
         if constexpr (sizeof(B) <= 4) {
             return static_cast<double>(a) < static_cast<double>(b);
         }
@@ -213,8 +213,8 @@ bool lessOp(A a, B b) {
         return DecomposedFloat<A>(a).less(b);
     }
 
-    static_assert(is_integer<A> || std::is_floating_point_v<A>);
-    static_assert(is_integer<B> || std::is_floating_point_v<B>);
+    static_assert(wide::is_integer<A> || std::is_floating_point_v<A>);
+    static_assert(wide::is_integer<B> || std::is_floating_point_v<B>);
     __builtin_unreachable();
 }
 
@@ -258,25 +258,25 @@ bool equalsOp(A a, B b) {
     }
 
     /// int vs int
-    if constexpr (is_integer<A> && is_integer<B>) {
+    if constexpr (wide::is_integer<A> && wide::is_integer<B>) {
         /// same signedness
-        if constexpr (is_signed_v<A> == is_signed_v<B>) {
+        if constexpr (wide::is_signed_v<A> == wide::is_signed_v<B>) {
             return a == b;
         }
 
         /// different signedness
 
-        if constexpr (is_signed_v<A> && !is_signed_v<B>) {
+        if constexpr (wide::is_signed_v<A> && !wide::is_signed_v<B>) {
             return a >= 0 && static_cast<std::make_unsigned_t<A>>(a) == b;
         }
 
-        if constexpr (!is_signed_v<A> && is_signed_v<B>) {
+        if constexpr (!wide::is_signed_v<A> && wide::is_signed_v<B>) {
             return b >= 0 && a == static_cast<std::make_unsigned_t<B>>(b);
         }
     }
 
     /// int vs float
-    if constexpr (is_integer<A> && std::is_floating_point_v<B>) {
+    if constexpr (wide::is_integer<A> && std::is_floating_point_v<B>) {
         if constexpr (sizeof(A) <= 4) {
             return static_cast<double>(a) == static_cast<double>(b);
         }
@@ -284,7 +284,7 @@ bool equalsOp(A a, B b) {
         return DecomposedFloat<B>(b).equals(a);
     }
 
-    if constexpr (std::is_floating_point_v<A> && is_integer<B>) {
+    if constexpr (std::is_floating_point_v<A> && wide::is_integer<B>) {
         if constexpr (sizeof(B) <= 4) {
             return static_cast<double>(a) == static_cast<double>(b);
         }

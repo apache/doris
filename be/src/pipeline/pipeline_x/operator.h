@@ -86,7 +86,7 @@ public:
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
     RuntimeProfile::Counter* rows_returned_counter() { return _rows_returned_counter; }
     RuntimeProfile::Counter* blocks_returned_counter() { return _blocks_returned_counter; }
-
+    RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     OperatorXBase* parent() { return _parent; }
     RuntimeState* state() { return _state; }
     vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
@@ -99,11 +99,14 @@ public:
 
     virtual Dependency* dependency() { return nullptr; }
 
+    FinishDependency* finishdependency() { return _finish_dependency.get(); }
+    RuntimeFilterDependency* filterdependency() { return _filter_dependency.get(); }
+
 protected:
     friend class OperatorXBase;
 
     ObjectPool* _pool;
-    int64_t _num_rows_returned;
+    int64_t _num_rows_returned {0};
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
@@ -117,6 +120,7 @@ protected:
     RuntimeProfile::Counter* _memory_used_counter;
     RuntimeProfile::Counter* _wait_for_finish_dependency_timer;
     RuntimeProfile::Counter* _projection_timer;
+    RuntimeProfile::Counter* _exec_timer;
     // Account for peak memory used by this node
     RuntimeProfile::Counter* _peak_memory_usage_counter;
     RuntimeProfile::Counter* _open_timer = nullptr;
@@ -130,6 +134,7 @@ protected:
     bool _closed = false;
     vectorized::Block _origin_block;
     std::shared_ptr<FinishDependency> _finish_dependency;
+    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
 };
 
 class OperatorXBase : public OperatorBase {
@@ -151,7 +156,11 @@ public:
     }
 
     OperatorXBase(ObjectPool* pool, int node_id, int operator_id)
-            : OperatorBase(nullptr), _operator_id(operator_id), _node_id(node_id), _pool(pool) {};
+            : OperatorBase(nullptr),
+              _operator_id(operator_id),
+              _node_id(node_id),
+              _pool(pool),
+              _limit(-1) {}
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
     Status init(const TDataSink& tsink) override {
         LOG(FATAL) << "should not reach here!";
@@ -202,11 +211,7 @@ public:
         return true;
     }
 
-    virtual bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const { return true; }
-
     Status close(RuntimeState* state) override;
-
-    virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
 
     [[nodiscard]] virtual const RowDescriptor& intermediate_row_desc() const {
         return _row_descriptor;
@@ -365,8 +370,10 @@ public:
     }
 
     RuntimeProfile::Counter* rows_input_counter() { return _rows_input_counter; }
-
+    RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     virtual WriteDependency* dependency() { return nullptr; }
+
+    FinishDependency* finishdependency() { return _finish_dependency.get(); }
 
 protected:
     DataSinkOperatorXBase* _parent;
@@ -390,7 +397,7 @@ protected:
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _wait_for_dependency_timer;
     RuntimeProfile::Counter* _wait_for_finish_dependency_timer;
-
+    RuntimeProfile::Counter* _exec_timer;
     std::shared_ptr<FinishDependency> _finish_dependency;
 };
 
@@ -468,8 +475,6 @@ public:
         LOG(FATAL) << "should not reach here!";
         return false;
     }
-
-    virtual FinishDependency* finish_blocked_by(RuntimeState* state) const { return nullptr; }
 
     [[nodiscard]] std::string debug_string() const override { return ""; }
 

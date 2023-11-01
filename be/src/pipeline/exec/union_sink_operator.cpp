@@ -96,7 +96,7 @@ Status UnionSinkOperator::close(RuntimeState* state) {
 
 Status UnionSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
     _child_expr.resize(p._child_expr.size());
@@ -146,7 +146,7 @@ Status UnionSinkOperatorX::open(RuntimeState* state) {
 Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                 SourceState source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (local_state._output_block == nullptr) {
         local_state._output_block =

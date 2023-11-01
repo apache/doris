@@ -116,7 +116,8 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {}
+    virtual void set_scan_ranges(RuntimeState* state,
+                                 const std::vector<TScanRangeParams>& scan_ranges) {}
 
     void set_shared_scan(RuntimeState* state, bool shared_scan) {
         _shared_scan_opt = shared_scan;
@@ -305,8 +306,6 @@ protected:
     // so that it will be destroyed uniformly at the end of the query.
     VExprContextSPtrs _stale_expr_ctxs;
     VExprContextSPtrs _common_expr_ctxs_push_down;
-
-    RuntimeState* _state;
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;

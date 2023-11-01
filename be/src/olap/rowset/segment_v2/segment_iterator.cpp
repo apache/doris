@@ -532,8 +532,8 @@ Status SegmentIterator::_apply_bitmap_index() {
 
     std::vector<ColumnPredicate*> remaining_predicates;
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (static_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
-            static_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
+        if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
+            dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
             return true;
         }
 
@@ -1648,8 +1648,11 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         }
         for (auto& range : _split_row_ranges) {
             size_t nrows = range.second - range.first;
-
-            RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
+            {
+                _opts.stats->block_first_read_seek_num += 1;
+                SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
+                RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
+            }
             size_t rows_read = nrows;
             RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
             if (rows_read != nrows) {
@@ -1821,8 +1824,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             auto cid = _schema->column_id(i);
             auto column_desc = _schema->column(cid);
             if (_is_pred_column[cid]) {
-                _current_return_columns[cid] =
-                        Schema::get_predicate_column_ptr(*column_desc, _opts.io_ctx.reader_type);
+                RETURN_IF_CATCH_EXCEPTION(_current_return_columns[cid] =
+                                                  Schema::get_predicate_column_ptr(
+                                                          *column_desc, _opts.io_ctx.reader_type));
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
                 _current_return_columns[cid]->reserve(_opts.block_row_max);

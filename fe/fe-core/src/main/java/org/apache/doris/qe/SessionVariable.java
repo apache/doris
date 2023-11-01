@@ -1252,6 +1252,30 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否启用更快的浮点数转换算法，注意会影响输出格式", "Set true to enable faster float pointer number convert"})
     public boolean fasterFloatConvert = false;
 
+    @VariableMgr.VarAttr(name = IGNORE_RUNTIME_FILTER_IDS,
+            description = {"在IGNORE_RUNTIME_FILTER_IDS列表中的runtime filter将不会被生成",
+                    "the runtime filter id in IGNORE_RUNTIME_FILTER_IDS list will not be generated"})
+
+    public String ignoreRuntimeFilterIds = "";
+    public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
+
+    public Set<Integer> getIgnoredRuntimeFilterIds() {
+        return Arrays.stream(ignoreRuntimeFilterIds.split(",[\\s]*"))
+                .map(v -> {
+                    int res = -1;
+                    try {
+                        res = Integer.valueOf(v);
+                    } catch (Exception e) {
+                        //ignore it
+                    }
+                    return res;
+                }).collect(ImmutableSet.toImmutableSet());
+    }
+
+    public void setIgnoreRuntimeFilterIds(String ignoreRuntimeFilterIds) {
+        this.ignoreRuntimeFilterIds = ignoreRuntimeFilterIds;
+    }
+
     public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
 
     public Set<String> getIgnoreShapePlanNodes() {

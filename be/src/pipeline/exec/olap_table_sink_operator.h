@@ -54,7 +54,7 @@ public:
             : Base(parent, state) {};
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override {
-        SCOPED_TIMER(profile()->total_time_counter());
+        SCOPED_TIMER(exec_time_counter());
         SCOPED_TIMER(_open_timer);
         return Base::open(state);
     }
@@ -95,16 +95,10 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
         auto& local_state = get_local_state(state);
-        SCOPED_TIMER(local_state.profile()->total_time_counter());
+        SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
         return local_state.sink(state, in_block, source_state);
     }
-
-    FinishDependency* finish_blocked_by(RuntimeState* state) const override {
-        auto& local_state =
-                state->get_sink_local_state(operator_id())->cast<OlapTableSinkLocalState>();
-        return local_state._finish_dependency->finish_blocked_by();
-    };
 
 private:
     friend class OlapTableSinkLocalState;

@@ -136,7 +136,8 @@ public:
     [[nodiscard]] virtual int runtime_filter_num() const = 0;
 
     virtual Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
-    virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
+    virtual void set_scan_ranges(RuntimeState* state,
+                                 const std::vector<TScanRangeParams>& scan_ranges) = 0;
 
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
 
@@ -219,7 +220,8 @@ class ScanLocalState : public ScanLocalStateBase {
     }
 
     Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) override;
-    virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override {}
+    virtual void set_scan_ranges(RuntimeState* state,
+                                 const std::vector<TScanRangeParams>& scan_ranges) override {}
 
     TPushAggOp::type get_push_down_agg_type() override;
 
@@ -414,11 +416,7 @@ protected:
 template <typename LocalStateType>
 class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
-    bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const override;
-
     Status try_close(RuntimeState* state) override;
-
-    FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override { return OperatorXBase::prepare(state); }

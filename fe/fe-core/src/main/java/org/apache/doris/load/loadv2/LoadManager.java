@@ -104,6 +104,11 @@ public class LoadManager implements Writable {
         this.mysqlLoadManager = new MysqlLoadManager(tokenManager);
     }
 
+    public void start() {
+        tokenManager.start();
+        mysqlLoadManager.start();
+    }
+
     /**
      * This method will be invoked by the broker load(v2) now.
      */

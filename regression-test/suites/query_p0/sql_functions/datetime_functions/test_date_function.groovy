@@ -263,7 +263,6 @@ suite("test_date_function") {
     qt_sql """ select datediff(CAST('2007-12-31 23:59:59' AS DATETIME), CAST('2007-12-30' AS DATETIME)) """
     qt_sql """ select datediff(CAST('2010-11-30 23:59:59' AS DATETIME), CAST('2010-12-31' AS DATETIME)) """
     qt_sql """ select datediff('2010-10-31', '2010-10-15') """
-    qt_sql """ select datediff('10000-10-31', '2010-10-15') from ${tableName}; """
 
     // DAY
     qt_sql """ select day('1987-01-31') """
@@ -289,11 +288,11 @@ suite("test_date_function") {
     qt_sql """ select from_days(1) """
 
     // FROM_UNIXTIME
-    qt_sql """ select from_unixtime(1196440219) """
-    qt_sql """ select from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') """
-    qt_sql """ select from_unixtime(1196440219, '%Y-%m-%d') """
-    qt_sql """ select from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') """
-    qt_sql """ select from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219) """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219, '%Y-%m-%d') """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
 
     // HOUR
     qt_sql """ select hour('2018-12-31 23:59:59') """

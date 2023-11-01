@@ -181,7 +181,7 @@ public:
         // Create a error status, so that we could print error stack, and
         // we could know which path call cancel.
         LOG(WARNING) << "Task is cancelled, instance: "
-                     << PrintInstanceStandardInfo(_query_id, _fragment_id, _fragment_instance_id)
+                     << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
                      << " st = " << Status::Error<ErrorCode::CANCELLED>(msg);
     }
 

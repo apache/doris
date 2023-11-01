@@ -66,7 +66,8 @@ public:
     Status collect_query_statistics(QueryStatistics* statistics) override;
     Status collect_query_statistics(QueryStatistics* statistics, int sender_id) override;
 
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override;
 
     std::string get_name() override;
 
@@ -192,9 +193,6 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
-
-    // number of created olap scanners
-    RuntimeProfile::Counter* _num_scanners = nullptr;
 
     // number of segment filtered by column stat when creating seg iterator
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;

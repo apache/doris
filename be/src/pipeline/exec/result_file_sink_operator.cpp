@@ -101,7 +101,7 @@ Status ResultFileSinkOperatorX::open(RuntimeState* state) {
 
 Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _sender_id = info.sender_id;
 
@@ -153,7 +153,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
 }
 
 Status ResultFileSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     return Base::open(state);
 }
@@ -163,7 +163,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
         return Status::OK();
     }
     SCOPED_TIMER(_close_timer);
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
 
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     if (_closed) {
@@ -264,15 +264,9 @@ void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelP
 Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                      SourceState source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     return local_state.sink(state, in_block, source_state);
-}
-
-FinishDependency* ResultFileSinkOperatorX::finish_blocked_by(RuntimeState* state) const {
-    auto& local_state =
-            state->get_sink_local_state(operator_id())->cast<ResultFileSinkLocalState>();
-    return local_state._finish_dependency->finish_blocked_by();
 }
 
 } // namespace doris::pipeline

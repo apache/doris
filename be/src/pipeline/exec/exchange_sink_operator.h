@@ -159,6 +159,7 @@ public:
 
     [[nodiscard]] int sender_id() const { return _sender_id; }
 
+    std::string id_name() override;
     segment_v2::CompressionTypePB& compression_type();
 
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
@@ -232,7 +233,6 @@ public:
                            int num_receivers = 1);
 
     Status try_close(RuntimeState* state, Status exec_status) override;
-    FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
 private:
     friend class ExchangeSinkLocalState;
