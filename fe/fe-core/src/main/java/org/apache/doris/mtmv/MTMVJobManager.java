@@ -28,16 +28,16 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.constants.JobCategory;
+import org.apache.doris.scheduler.constants.JobType;
 import org.apache.doris.scheduler.job.Job;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
-import java.util.UUID;
 
 public class MTMVJobManager implements MTMVHookService {
     public static final String MTMV_JOB_PREFIX = "mtmv_";
@@ -48,60 +48,51 @@ public class MTMVJobManager implements MTMVHookService {
                 .equals(RefreshTrigger.SCHEDULE)) {
             createCycleJob(materializedView);
         } else if (materializedView.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
-            createOnceJob(materializedView);
+            createManualJob(materializedView);
         }
 
     }
 
-    private void createOnceJob(MTMV materializedView) throws DdlException {
-        String uid = UUID.randomUUID().toString().replace("-", "_");
+    private void createManualJob(MTMV mtmv) throws DdlException {
         Job job = new Job();
-        job.setCycleJob(false);
-        job.setBaseName(materializedView.getName());
+        job.setJobType(JobType.MANUAL);
+        job.setBaseName(mtmv.getName());
         job.setDbName(ConnectContext.get().getDatabase());
-        job.setJobName(materializedView.getName() + "_" + uid);
-        job.setExecutor(generateJobExecutor(materializedView));
+        job.setJobName(mtmv.getJobInfo().getJobName());
+        job.setExecutor(generateJobExecutor(mtmv));
         job.setImmediatelyStart(true);
         job.setUser(ConnectContext.get().getQualifiedUser());
-        job.setComment("mvName:" + materializedView.getName());
+        job.setComment("mvName:" + mtmv.getName());
         job.setJobCategory(JobCategory.MTMV);
         Env.getCurrentEnv().getJobRegister().registerJob(job);
     }
 
-    private void createCycleJob(MTMV materializedView) throws DdlException {
-        String uid = UUID.randomUUID().toString().replace("-", "_");
+    private void createCycleJob(MTMV mtmv) throws DdlException {
         Job job = new Job();
-        job.setCycleJob(true);
-        job.setBaseName(materializedView.getName());
+        job.setJobType(JobType.RECURRING);
+        job.setBaseName(mtmv.getName());
         job.setDbName(ConnectContext.get().getDatabase());
-        job.setJobName(materializedView.getName() + "_" + uid);
-        job.setExecutor(generateJobExecutor(materializedView));
-        MTMVRefreshSchedule intervalTrigger = materializedView.getRefreshInfo().getRefreshTriggerInfo()
+        job.setJobName(mtmv.getJobInfo().getJobName());
+        job.setExecutor(generateJobExecutor(mtmv));
+        MTMVRefreshSchedule intervalTrigger = mtmv.getRefreshInfo().getRefreshTriggerInfo()
                 .getIntervalTrigger();
         job.setIntervalUnit(intervalTrigger.getTimeUnit());
         job.setOriginInterval(intervalTrigger.getInterval());
-        if (materializedView.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
+        if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
             job.setImmediatelyStart(true);
-        } else if (materializedView.getRefreshInfo().getBuildMode().equals(BuildMode.DEFERRED) && !StringUtils
+        } else if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.DEFERRED) && !StringUtils
                 .isEmpty(intervalTrigger.getStartTime())) {
             job.setStartTimeMs(TimeUtils.timeStringToLong(intervalTrigger.getStartTime()));
         }
         job.setUser(ConnectContext.get().getQualifiedUser());
-        job.setComment("mvName:" + materializedView.getName());
+        job.setComment("mvName:" + mtmv.getName());
         job.setJobCategory(JobCategory.MTMV);
         Env.getCurrentEnv().getJobRegister().registerJob(job);
     }
 
     @Override
-    public void dropMTMV(MTMV table) {
-        List<Job> jobs = Env.getCurrentEnv().getJobRegister()
-                .getJobs(table.getQualifiedDbName(), null, JobCategory.MTMV, null);
-        for (Job job : jobs) {
-            // TODO: 2023/9/12 JobRegister should provide interface filter by baseName
-            if (table.getName().equals(job.getBaseName())) {
-                Env.getCurrentEnv().getJobRegister().stopJob(job.getJobId());
-            }
-        }
+    public void dropMTMV(MTMV mtmv) throws DdlException {
+        Env.getCurrentEnv().getJobRegister().stopJob(null, mtmv.getJobInfo().getJobName(), null);
     }
 
     @Override
@@ -124,11 +115,14 @@ public class MTMVJobManager implements MTMVHookService {
 
     @Override
     public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
-        TableNameInfo mvName = info.getMvName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
-        MTMV mv = (MTMV) db
-                .getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
-        createOnceJob(mv);
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getMvName().getDb());
+        MTMV mtmv = (MTMV) db.getTableOrMetaException(info.getMvName().getTbl(), TableType.MATERIALIZED_VIEW);
+        List<Job> jobs = Env.getCurrentEnv().getJobRegister()
+                .getJobs(null, mtmv.getJobInfo().getJobName(), JobCategory.MTMV, null);
+        if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
+            throw new DdlException("jobs not normal");
+        }
+        Env.getCurrentEnv().getJobRegister().immediateExecuteTask(jobs.get(0).getJobId(), new MTMVTaskParams());
     }
 
     private static String generateSql(MTMV materializedView) {

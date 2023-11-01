@@ -82,7 +82,7 @@ public class MTMVService {
     }
 
     // when drop mtmv,only trigger once
-    public void dropMTMV(MTMV materializedView) {
+    public void dropMTMV(MTMV materializedView) throws DdlException {
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.dropMTMV(materializedView);
         }

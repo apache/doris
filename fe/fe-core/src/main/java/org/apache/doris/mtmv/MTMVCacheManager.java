@@ -131,7 +131,7 @@ public class MTMVCacheManager implements MTMVHookService {
     }
 
     @Override
-    public void dropMTMV(MTMV materializedView) {
+    public void dropMTMV(MTMV materializedView) throws DdlException {
 
     }
 
