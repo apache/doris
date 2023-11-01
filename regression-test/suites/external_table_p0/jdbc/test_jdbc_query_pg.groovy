@@ -20,6 +20,11 @@ import java.nio.charset.Charset;
 suite("test_jdbc_query_pg", "p0,external,pg,external_docker,external_docker_pg") {
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
+
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String pg_14_port = context.config.otherConfigs.get("pg_14_port")
         String jdbcResourcePg14 = "jdbc_resource_pg_14"
@@ -43,8 +48,8 @@ suite("test_jdbc_query_pg", "p0,external,pg,external_docker,external_docker_pg")
                 "type"="jdbc",
                 "user"="postgres",
                 "password"="123456",
-                "jdbc_url"="jdbc:postgresql://127.0.0.1:$pg_14_port/postgres?currentSchema=doris_test",
-                "driver_url"="https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
+                "jdbc_url"="jdbc:postgresql://${externalEnvIp}:$pg_14_port/postgres?currentSchema=doris_test",
+                "driver_url"="${driver_url}",
                 "driver_class"="org.postgresql.Driver"
             );
             """
@@ -616,7 +621,7 @@ suite("test_jdbc_query_pg", "p0,external,pg,external_docker,external_docker_pg")
         order_qt_sql93 """ SELECT CASE k8 WHEN 1 THEN CAST(1 AS decimal(4,1)) WHEN 2 THEN CAST(1 AS decimal(4,2)) 
                             ELSE CAST(1 AS decimal(4,3)) END FROM $jdbcPg14Table1 limit 3"""
         order_qt_sql95 """ SELECT * from (SELECT k8 FROM $jdbcPg14Table1 UNION (SELECT id as k8 FROM ${dorisExTable1}  UNION SELECT k7 as k8 FROM $jdbcPg14Table1) 
-                            UNION ALL SELECT id as k8 FROM $exMysqlTypeTable ORDER BY id limit 3) as a  limit 3"""
+                            UNION ALL SELECT id as k8 FROM $exMysqlTypeTable ORDER BY id limit 3) as a order by k8 limit 3"""
         order_qt_sql100 """ SELECT COUNT(*) FROM $jdbcPg14Table1 WHERE EXISTS(SELECT max(id) FROM ${dorisExTable1}) """
         order_qt_sql103 """ SELECT count(*) FROM $jdbcPg14Table1 n WHERE (SELECT count(*) FROM ${dorisExTable1} r WHERE n.k8 = r.id) > 1 """
         order_qt_sql105 """ SELECT count(*) AS numwait FROM $jdbcPg14Table1 l1 WHERE
