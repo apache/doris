@@ -723,6 +723,10 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"是否启用group间的均衡",
+            "is allow colocate balance between all groups"})
+    public static boolean disable_colocate_balance_between_groups = false;
+
     /**
      * The default user resource publishing timeout.
      */
