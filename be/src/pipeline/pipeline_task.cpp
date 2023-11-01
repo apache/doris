@@ -330,6 +330,7 @@ Status PipelineTask::_collect_query_statistics() {
     if (_pipeline->is_root_pipeline()) {
         // If the current fragment has only one instance, we can collect all of them;
         // otherwise, we need to collect them based on the sender_id.
+        DCHECK(_query_statistics);
         if (_state->num_per_fragment_instances() == 1) {
             _query_statistics->clear();
             RETURN_IF_ERROR(_root->collect_query_statistics(_query_statistics.get()));
