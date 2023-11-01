@@ -72,18 +72,22 @@ public class ProfileManager {
 
         private final RuntimeProfile profile;
         // cache the result of getProfileContent method
-        private volatile String profileContent = null;
+        private String profileContent = null;
+        private boolean isFinished = false;
         public Map<String, String> infoStrings = Maps.newHashMap();
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
 
         public StatsErrorEstimator statsErrorEstimator;
 
-        // lazy load profileContent because sometimes profileContent is very large
+        /**
+         * lazy load profileContent because sometimes profileContent is very large
+         * guarded by {@link org.apache.doris.common.util.ProfileManager#readLock}
+         */
         public String getProfileContent() {
 
-            // no need to lock because the possibility of concurrent read is very low
-            if (profileContent == null) {
+            if (profileContent == null || !isFinished) {
+                isFinished = profile.getIsCancel() || profile.getIsDone();
                 // Simple profile will change the structure of the profile.
                 try {
                     profileContent = profile.getProfileByLevel();

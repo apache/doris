@@ -74,8 +74,8 @@ public class RuntimeProfile {
 
     private Long timestamp = -1L;
 
-    private Boolean isDone = false;
-    private Boolean isCancel = false;
+    private volatile Boolean isDone = false;
+    private volatile Boolean isCancel = false;
     // In pipelineX, we have explicitly split the Operator into sink and operator,
     // and we can distinguish them using tags.
     // In the old pipeline, we can only differentiate them based on their position
