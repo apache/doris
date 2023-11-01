@@ -129,12 +129,12 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     bool get_have_explicit_names() const { return have_explicit_names; }
-    DataTypeSerDeSPtr get_serde() const override {
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         DataTypeSerDeSPtrs ptrs;
         for (auto iter = elems.begin(); iter < elems.end(); ++iter) {
-            ptrs.push_back((*iter)->get_serde());
+            ptrs.push_back((*iter)->get_serde(nesting_level + 1));
         }
-        return std::make_shared<DataTypeStructSerDe>(ptrs, names);
+        return std::make_shared<DataTypeStructSerDe>(ptrs, names, nesting_level);
     };
 };
 
