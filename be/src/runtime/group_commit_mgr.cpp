@@ -19,28 +19,13 @@
 
 #include <gen_cpp/Types_types.h>
 
-#include <memory>
-#include <numeric>
-
 #include "client_cache.h"
-<<<<<<< HEAD
 #include "common/config.h"
-#include "common/object_pool.h"
-#include "exec/data_sink.h"
-#include "io/fs/stream_load_pipe.h"
-=======
->>>>>>> 6031b601b9 ([improvement](insert) refactor group commit insert into)
 #include "olap/wal_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
 #include "util/thrift_rpc_helper.h"
-<<<<<<< HEAD
-#include "vec/core/future_block.h"
-#include "vec/exec/scan/new_file_scan_node.h"
-#include "vec/sink/group_commit_block_sink.h"
-=======
->>>>>>> 6031b601b9 ([improvement](insert) refactor group commit insert into)
 
 namespace doris {
 
