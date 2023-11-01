@@ -58,7 +58,7 @@ public class ColStatsData {
 
     @VisibleForTesting
     public ColStatsData() {
-        statsId = null;
+        statsId = new StatsId();
         count = 0;
         ndv = 0;
         nullCount = 0;

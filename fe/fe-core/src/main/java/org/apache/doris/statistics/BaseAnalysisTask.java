@@ -28,6 +28,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -234,7 +235,7 @@ public abstract class BaseAnalysisTask {
             return new TableSample(true, (long) info.samplePercent);
         } else if (info.sampleRows > 0) {
             return new TableSample(false, info.sampleRows);
-        } else if (info.analysisMethod == AnalysisMethod.FULL
+        } else if (info.jobType.equals(JobType.SYSTEM) && info.analysisMethod == AnalysisMethod.FULL
                 && tbl.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes * 10) {
             // If user doesn't specify sample percent/rows, use auto sample and update sample rows in analysis info.
             return new TableSample(false, (long) Config.huge_table_default_sample_rows);

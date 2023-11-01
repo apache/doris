@@ -19,6 +19,8 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import java.util.StringJoiner;
 
 public class StatsId {
@@ -33,6 +35,17 @@ public class StatsId {
 
     // nullable
     public final String partId;
+
+    @VisibleForTesting
+    public StatsId() {
+        this.id = null;
+        this.catalogId = -1;
+        this.dbId = -1;
+        this.tblId = -1;
+        this.idxId = -1;
+        this.colId = null;
+        this.partId = null;
+    }
 
     public StatsId(ResultRow row) {
         this.id = row.get(0);

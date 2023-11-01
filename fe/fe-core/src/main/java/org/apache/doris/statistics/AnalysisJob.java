@@ -45,9 +45,9 @@ public class AnalysisJob {
 
     protected List<ColStatsData> buf;
 
-    protected int total;
+    protected int totalTaskCount;
 
-    protected int acc;
+    protected int queryFinishedTaskCount;
 
     protected StmtExecutor stmtExecutor;
 
@@ -57,6 +57,8 @@ public class AnalysisJob {
 
     protected AnalysisInfo jobInfo;
 
+    protected AnalysisManager analysisManager;
+
     public AnalysisJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> queryingTask) {
         for (BaseAnalysisTask task : queryingTask) {
             task.job = this;
@@ -64,17 +66,18 @@ public class AnalysisJob {
         this.queryingTask = new HashSet<>(queryingTask);
         this.queryFinished = new HashSet<>();
         this.buf = new ArrayList<>();
-        total = queryingTask.size();
+        totalTaskCount = queryingTask.size();
         start = System.currentTimeMillis();
         this.jobInfo = jobInfo;
+        this.analysisManager = Env.getCurrentEnv().getAnalysisManager();
     }
 
     public synchronized void appendBuf(BaseAnalysisTask task, List<ColStatsData> statsData) {
         queryingTask.remove(task);
         buf.addAll(statsData);
         queryFinished.add(task);
-        acc += 1;
-        if (acc == total) {
+        queryFinishedTaskCount += 1;
+        if (queryFinishedTaskCount == totalTaskCount) {
             writeBuf();
             updateTaskState(AnalysisState.FINISHED, "Cost time in sec: "
                     + (System.currentTimeMillis() - start) / 1000);
@@ -91,11 +94,13 @@ public class AnalysisJob {
         switch (state) {
             case FAILED:
                 for (BaseAnalysisTask task : queryingTask) {
-                    Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(task.info, state, msg, time);
+                    analysisManager.updateTaskStatus(task.info, state, msg, time);
+                    task.cancel();
                 }
+                killed = true;
             case FINISHED:
                 for (BaseAnalysisTask task : queryFinished) {
-                    Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(task.info, state, msg, time);
+                    analysisManager.updateTaskStatus(task.info, state, msg, time);
                 }
             default:
                 // DO NOTHING
@@ -103,6 +108,9 @@ public class AnalysisJob {
     }
 
     protected void writeBuf() {
+        if (killed) {
+            return;
+        }
         // buf could be empty when nothing need to do, for example user submit an analysis task for table with no data
         // change
         if (!buf.isEmpty())  {
@@ -112,13 +120,23 @@ public class AnalysisJob {
                 values.add(data.toSQL(true));
             }
             insertStmt += values.toString();
-            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
-                stmtExecutor = new StmtExecutor(r.connectContext, insertStmt);
-                executeWithExceptionOnFail(stmtExecutor);
-            } catch (Throwable t) {
-                LOG.warn("Failed to write buf: " + insertStmt, t);
-                updateTaskState(AnalysisState.FAILED, t.getMessage());
-                return;
+            int retryTimes = 0;
+            while (retryTimes < StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+                if (killed) {
+                    return;
+                }
+                try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+                    stmtExecutor = new StmtExecutor(r.connectContext, insertStmt);
+                    executeWithExceptionOnFail(stmtExecutor);
+                    break;
+                } catch (Exception t) {
+                    LOG.warn("Failed to write buf: " + insertStmt, t);
+                    retryTimes++;
+                    if (retryTimes >= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+                        updateTaskState(AnalysisState.FAILED, t.getMessage());
+                        return;
+                    }
+                }
             }
         }
         updateTaskState(AnalysisState.FINISHED, "");
@@ -159,7 +177,7 @@ public class AnalysisJob {
     }
 
     public void deregisterJob() {
-        Env.getCurrentEnv().getAnalysisManager().removeJob(jobInfo.jobId);
+        analysisManager.removeJob(jobInfo.jobId);
     }
 
     protected void syncLoadStats() {
@@ -167,7 +185,7 @@ public class AnalysisJob {
         for (BaseAnalysisTask task : queryFinished) {
             String colName = task.col.getName();
             if (!Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tblId, -1, colName)) {
-                Env.getCurrentEnv().getAnalysisManager().removeColStatsStatus(tblId, colName);
+                analysisManager.removeColStatsStatus(tblId, colName);
             }
         }
     }

@@ -60,7 +60,7 @@ public class AnalysisJobTest {
         job.queryingTask.add(olapAnalysisTask);
         job.queryFinished = new HashSet<>();
         job.buf = new ArrayList<>();
-        job.total = 20;
+        job.totalTaskCount = 20;
 
         job.appendBuf(olapAnalysisTask, Arrays.asList(new ColStatsData()));
         new Expectations() {
@@ -91,7 +91,7 @@ public class AnalysisJobTest {
         job.queryingTask.add(olapAnalysisTask);
         job.queryFinished = new HashSet<>();
         job.buf = new ArrayList<>();
-        job.total = 1;
+        job.totalTaskCount = 1;
 
         job.appendBuf(olapAnalysisTask, Arrays.asList(new ColStatsData()));
         new Expectations() {
@@ -128,7 +128,7 @@ public class AnalysisJobTest {
         for (int i = 0; i < StatisticConstants.ANALYZE_JOB_BUF_SIZE; i++) {
             job.buf.add(colStatsData);
         }
-        job.total = 100;
+        job.totalTaskCount = 100;
 
         job.appendBuf(olapAnalysisTask, Arrays.asList(new ColStatsData()));
         new Expectations() {
@@ -202,9 +202,6 @@ public class AnalysisJobTest {
     @Test
     public void testWriteBuf2(@Mocked AnalysisInfo info,
             @Mocked OlapAnalysisTask task1, @Mocked OlapAnalysisTask task2) {
-        AnalysisJob job = new AnalysisJob(info, Collections.singletonList(task1));
-        job.queryFinished = new HashSet<>();
-        job.queryFinished.add(task2);
         new MockUp<AnalysisJob>() {
             @Mock
             public void updateTaskState(AnalysisState state, String msg) {
@@ -219,6 +216,10 @@ public class AnalysisJobTest {
             protected void syncLoadStats() {
             }
         };
+        AnalysisJob job = new AnalysisJob(info, Collections.singletonList(task1));
+        job.buf.add(new ColStatsData());
+        job.queryFinished = new HashSet<>();
+        job.queryFinished.add(task2);
         job.writeBuf();
         Assertions.assertEquals(1, job.queryFinished.size());
     }

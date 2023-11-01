@@ -2068,7 +2068,7 @@ public class Config extends ConfigBase {
      * FE OOM.
      */
     @ConfField
-    public static long stats_cache_size = 10_0000;
+    public static long stats_cache_size = 50_0000;
 
     /**
      * This configuration is used to enable the statistics of query information, which will record
