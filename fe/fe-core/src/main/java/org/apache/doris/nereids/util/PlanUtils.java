@@ -55,7 +55,7 @@ public class PlanUtils {
      * normalize comparison predicate on a binary plan to its two sides are corresponding to the child's output.
      */
     public static ComparisonPredicate maybeCommuteComparisonPredicate(ComparisonPredicate expression, Plan left) {
-        Set<Slot> slots = expression.left().getInputSlots();
+        Set<Slot> slots = expression.left().collect(Slot.class::isInstance);
         Set<Slot> leftSlots = left.getOutputSet();
         Set<Slot> buffer = Sets.newHashSet(slots);
         buffer.removeAll(leftSlots);

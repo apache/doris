@@ -43,9 +43,9 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -113,25 +113,22 @@ public class PhysicalHashJoin<
      * Return pair of left used slots and right used slots.
      */
     public Pair<List<ExprId>, List<ExprId>> getHashConjunctsExprIds() {
-        int size = hashJoinConjuncts.size();
-
-        List<ExprId> exprIds1 = new ArrayList<>(size);
-        List<ExprId> exprIds2 = new ArrayList<>(size);
+        List<ExprId> exprIds1 = Lists.newArrayListWithCapacity(hashJoinConjuncts.size());
+        List<ExprId> exprIds2 = Lists.newArrayListWithCapacity(hashJoinConjuncts.size());
 
         Set<ExprId> leftExprIds = left().getOutputExprIdSet();
         Set<ExprId> rightExprIds = right().getOutputExprIdSet();
 
         for (Expression expr : hashJoinConjuncts) {
-            for (ExprId exprId : expr.getInputSlotExprIds()) {
+            expr.getInputSlotExprIds().forEach(exprId -> {
                 if (leftExprIds.contains(exprId)) {
                     exprIds1.add(exprId);
                 } else if (rightExprIds.contains(exprId)) {
                     exprIds2.add(exprId);
                 } else {
-                    throw new RuntimeException("Invalid ExprId found: " + exprId
-                            + ". Cannot generate valid equal on clause slot pairs for join.");
+                    throw new RuntimeException("Could not generate valid equal on clause slot pairs for join");
                 }
-            }
+            });
         }
         return Pair.of(exprIds1, exprIds2);
     }

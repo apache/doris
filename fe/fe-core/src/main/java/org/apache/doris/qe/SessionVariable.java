@@ -1253,7 +1253,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean fasterFloatConvert = false;
 
     @VariableMgr.VarAttr(name = IGNORE_RUNTIME_FILTER_IDS,
-            description = {"the runtime filter id in IGNORE_RUNTIME_FILTER_IDS list will not be generated"})
+            description = {"在IGNORE_RUNTIME_FILTER_IDS列表中的runtime filter将不会被生成",
+                    "the runtime filter id in IGNORE_RUNTIME_FILTER_IDS list will not be generated"})
 
     public String ignoreRuntimeFilterIds = "";
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
