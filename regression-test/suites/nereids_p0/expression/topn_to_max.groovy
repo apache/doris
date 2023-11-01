@@ -31,7 +31,7 @@ suite("test_topn_to_max") {
     group by k1;
     '''
     res = sql '''
-    explain rewritten plan select k1, topn(k2, 1)
+    explain rewritten plan select k1, max(k2)
     from test_topn_to_max
     group by k1;
     '''
@@ -42,7 +42,7 @@ suite("test_topn_to_max") {
     from test_topn_to_max;
     '''
     res = sql '''
-    explain rewritten plan select topn(k2, 1)
+    explain rewritten plan select max(k2)
     from test_topn_to_max;
     '''
     assertTrue(res.toString().contains("max"))

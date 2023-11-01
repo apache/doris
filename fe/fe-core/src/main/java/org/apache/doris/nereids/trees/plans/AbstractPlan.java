@@ -24,11 +24,9 @@ import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.MutableState.EmptyMutableState;
 import org.apache.doris.nereids.util.TreeStringUtils;
-import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Supplier;
@@ -47,7 +45,6 @@ import javax.annotation.Nullable;
  */
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
     public static final String FRAGMENT_ID = "fragment";
-    protected final ObjectId id = StatementScopeIdGenerator.newObjectId();
 
     protected final Statistics statistics;
     protected final PlanType type;
@@ -170,13 +167,5 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public void setMutableState(String key, Object state) {
         this.mutableState = this.mutableState.set(key, state);
-    }
-
-    /**
-     * used for PhysicalPlanTranslator only
-     * @return PlanNodeId
-     */
-    public PlanNodeId translatePlanNodeId() {
-        return id.toPlanNodeId();
     }
 }

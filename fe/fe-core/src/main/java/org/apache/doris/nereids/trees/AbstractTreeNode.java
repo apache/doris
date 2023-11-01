@@ -17,6 +17,10 @@
 
 package org.apache.doris.nereids.trees;
 
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.planner.PlanNodeId;
+
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -29,6 +33,7 @@ import java.util.List;
  */
 public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
         implements TreeNode<NODE_TYPE> {
+    protected final ObjectId id = StatementScopeIdGenerator.newObjectId();
     protected final List<NODE_TYPE> children;
     // TODO: Maybe we should use a GroupPlan to avoid TreeNode hold the GroupExpression.
     // https://github.com/apache/doris/pull/9807#discussion_r884829067
@@ -53,5 +58,13 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
 
     public int arity() {
         return children.size();
+    }
+
+    /**
+     * used for PhysicalPlanTranslator only
+     * @return PlanNodeId
+     */
+    public PlanNodeId translatePlanNodeId() {
+        return id.toPlanNodeId();
     }
 }

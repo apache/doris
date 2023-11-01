@@ -45,6 +45,11 @@ public class GroupMatching {
                     matchingPlans.add(plan);
                 }
             }
+            for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
+                for (Plan plan : new GroupExpressionMatching(pattern, groupExpression)) {
+                    matchingPlans.add(plan);
+                }
+            }
         }
         return matchingPlans;
     }
