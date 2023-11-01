@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_jdbc_query_mysql", "p0") {
+suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docker_mysql") {
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {

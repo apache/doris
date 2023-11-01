@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_catalog_hive_parquet", "p0") {
+suite("test_catalog_hive_parquet", "p0,external,hive,external_docker,external_docker_hive") {
 
     String enable_file_cache = "false"
 

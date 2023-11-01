@@ -14,6 +14,7 @@
 -- KIND, either express or implied.  See the License for the
 -- specific language governing permissions and limitations
 -- under the License.
+use doris_test;
 
 Insert into dbo.student values (1, 'doris', 18), (2, 'alice', 19), (3, 'bob', 20);
 
