@@ -36,6 +36,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -63,6 +64,7 @@
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/arrow/row_batch.h"
 #include "util/defer_op.h"
+#include "util/threadpool.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
 
@@ -79,6 +81,272 @@ class TTransportException;
 
 namespace doris {
 
+namespace {
+constexpr uint64_t kMaxTimeoutMs = 3000; // 3s
+struct IngestBinlogArg {
+    int64_t txn_id;
+    int64_t partition_id;
+    int64_t local_tablet_id;
+    TabletSharedPtr local_tablet;
+    TIngestBinlogRequest request;
+};
+
+void _ingest_binlog(IngestBinlogArg* arg) {
+    auto txn_id = arg->txn_id;
+    auto partition_id = arg->partition_id;
+    auto local_tablet_id = arg->local_tablet_id;
+    const auto& local_tablet = arg->local_tablet;
+
+    auto& request = arg->request;
+
+    TStatus tstatus;
+    Defer defer {[&tstatus]() {
+        LOG(INFO) << "ingest binlog. result: " << apache::thrift::ThriftDebugString(tstatus);
+    }};
+
+    auto set_tstatus = [&tstatus](TStatusCode::type code, std::string error_msg) {
+        tstatus.__set_status_code(code);
+        tstatus.__isset.error_msgs = true;
+        tstatus.error_msgs.push_back(std::move(error_msg));
+    };
+
+    // Step 3: get binlog info
+    auto binlog_api_url = fmt::format("http://{}:{}/api/_binlog/_download", request.remote_host,
+                                      request.remote_port);
+    constexpr int max_retry = 3;
+
+    auto get_binlog_info_url =
+            fmt::format("{}?method={}&tablet_id={}&binlog_version={}", binlog_api_url,
+                        "get_binlog_info", request.remote_tablet_id, request.binlog_version);
+    std::string binlog_info;
+    auto get_binlog_info_cb = [&get_binlog_info_url, &binlog_info](HttpClient* client) {
+        RETURN_IF_ERROR(client->init(get_binlog_info_url));
+        client->set_timeout_ms(kMaxTimeoutMs);
+        return client->execute(&binlog_info);
+    };
+    auto status = HttpClient::execute_with_retry(max_retry, 1, get_binlog_info_cb);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
+                     << ", status=" << status.to_string();
+        status.to_thrift(&tstatus);
+        return;
+    }
+
+    std::vector<std::string> binlog_info_parts = strings::Split(binlog_info, ":");
+    // TODO(Drogon): check binlog info content is right
+    DCHECK(binlog_info_parts.size() == 2);
+    const std::string& remote_rowset_id = binlog_info_parts[0];
+    int64_t num_segments = std::stoll(binlog_info_parts[1]);
+
+    // Step 4: get rowset meta
+    auto get_rowset_meta_url = fmt::format(
+            "{}?method={}&tablet_id={}&rowset_id={}&binlog_version={}", binlog_api_url,
+            "get_rowset_meta", request.remote_tablet_id, remote_rowset_id, request.binlog_version);
+    std::string rowset_meta_str;
+    auto get_rowset_meta_cb = [&get_rowset_meta_url, &rowset_meta_str](HttpClient* client) {
+        RETURN_IF_ERROR(client->init(get_rowset_meta_url));
+        client->set_timeout_ms(kMaxTimeoutMs);
+        return client->execute(&rowset_meta_str);
+    };
+    status = HttpClient::execute_with_retry(max_retry, 1, get_rowset_meta_cb);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to get rowset meta from " << get_rowset_meta_url
+                     << ", status=" << status.to_string();
+        status.to_thrift(&tstatus);
+        return;
+    }
+    RowsetMetaPB rowset_meta_pb;
+    if (!rowset_meta_pb.ParseFromString(rowset_meta_str)) {
+        LOG(WARNING) << "failed to parse rowset meta from " << get_rowset_meta_url;
+        status = Status::InternalError("failed to parse rowset meta");
+        status.to_thrift(&tstatus);
+        return;
+    }
+    // rewrite rowset meta
+    rowset_meta_pb.set_tablet_id(local_tablet_id);
+    rowset_meta_pb.set_partition_id(partition_id);
+    rowset_meta_pb.set_tablet_schema_hash(local_tablet->tablet_meta()->schema_hash());
+    rowset_meta_pb.set_txn_id(txn_id);
+    rowset_meta_pb.set_rowset_state(RowsetStatePB::COMMITTED);
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    if (!rowset_meta->init_from_pb(rowset_meta_pb)) {
+        LOG(WARNING) << "failed to init rowset meta from " << get_rowset_meta_url;
+        status = Status::InternalError("failed to init rowset meta");
+        status.to_thrift(&tstatus);
+        return;
+    }
+    RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
+    rowset_meta->set_rowset_id(new_rowset_id);
+    rowset_meta->set_tablet_uid(local_tablet->tablet_uid());
+
+    // Step 5: get all segment files
+    // Step 5.1: get all segment files size
+    std::vector<std::string> segment_file_urls;
+    segment_file_urls.reserve(num_segments);
+    std::vector<uint64_t> segment_file_sizes;
+    segment_file_sizes.reserve(num_segments);
+    for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+        auto get_segment_file_size_url = fmt::format(
+                "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}", binlog_api_url,
+                "get_segment_file", request.remote_tablet_id, remote_rowset_id, segment_index);
+        uint64_t segment_file_size;
+        auto get_segment_file_size_cb = [&get_segment_file_size_url,
+                                         &segment_file_size](HttpClient* client) {
+            RETURN_IF_ERROR(client->init(get_segment_file_size_url));
+            client->set_timeout_ms(kMaxTimeoutMs);
+            RETURN_IF_ERROR(client->head());
+            return client->get_content_length(&segment_file_size);
+        };
+
+        status = HttpClient::execute_with_retry(max_retry, 1, get_segment_file_size_cb);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to get segment file size from " << get_segment_file_size_url
+                         << ", status=" << status.to_string();
+            status.to_thrift(&tstatus);
+            return;
+        }
+
+        segment_file_sizes.push_back(segment_file_size);
+        segment_file_urls.push_back(std::move(get_segment_file_size_url));
+    }
+
+    // Step 5.2: check data capacity
+    uint64_t total_size = std::accumulate(segment_file_sizes.begin(), segment_file_sizes.end(), 0);
+    if (!local_tablet->can_add_binlog(total_size)) {
+        LOG(WARNING) << "failed to add binlog, no enough space, total_size=" << total_size
+                     << ", tablet=" << local_tablet->tablet_id();
+        status = Status::InternalError("no enough space");
+        status.to_thrift(&tstatus);
+        return;
+    }
+
+    // Step 5.3: get all segment files
+    for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
+        auto segment_file_size = segment_file_sizes[segment_index];
+        auto get_segment_file_url = segment_file_urls[segment_index];
+
+        uint64_t estimate_timeout =
+                segment_file_size / config::download_low_speed_limit_kbps / 1024;
+        if (estimate_timeout < config::download_low_speed_time) {
+            estimate_timeout = config::download_low_speed_time;
+        }
+
+        auto local_segment_path = BetaRowset::segment_file_path(
+                local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
+        LOG(INFO) << fmt::format("download segment file from {} to {}", get_segment_file_url,
+                                 local_segment_path);
+        auto get_segment_file_cb = [&get_segment_file_url, &local_segment_path, segment_file_size,
+                                    estimate_timeout](HttpClient* client) {
+            RETURN_IF_ERROR(client->init(get_segment_file_url));
+            client->set_timeout_ms(estimate_timeout * 1000);
+            RETURN_IF_ERROR(client->download(local_segment_path));
+
+            std::error_code ec;
+            // Check file length
+            uint64_t local_file_size = std::filesystem::file_size(local_segment_path, ec);
+            if (ec) {
+                LOG(WARNING) << "download file error" << ec.message();
+                return Status::IOError("can't retrive file_size of {}, due to {}",
+                                       local_segment_path, ec.message());
+            }
+            if (local_file_size != segment_file_size) {
+                LOG(WARNING) << "download file length error"
+                             << ", get_segment_file_url=" << get_segment_file_url
+                             << ", file_size=" << segment_file_size
+                             << ", local_file_size=" << local_file_size;
+                return Status::InternalError("downloaded file size is not equal");
+            }
+            chmod(local_segment_path.c_str(), S_IRUSR | S_IWUSR);
+            return Status::OK();
+        };
+
+        auto status = HttpClient::execute_with_retry(max_retry, 1, get_segment_file_cb);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to get segment file from " << get_segment_file_url
+                         << ", status=" << status.to_string();
+            status.to_thrift(&tstatus);
+            return;
+        }
+    }
+
+    // Step 6: create rowset && calculate delete bitmap && commit
+    // Step 6.1: create rowset
+    RowsetSharedPtr rowset;
+    status = RowsetFactory::create_rowset(local_tablet->tablet_schema(),
+                                          local_tablet->tablet_path(), rowset_meta, &rowset);
+
+    if (!status) {
+        LOG(WARNING) << "failed to create rowset from rowset meta for remote tablet"
+                     << ". rowset_id: " << rowset_meta_pb.rowset_id()
+                     << ", rowset_type: " << rowset_meta_pb.rowset_type()
+                     << ", remote_tablet_id=" << rowset_meta_pb.tablet_id() << ", txn_id=" << txn_id
+                     << ", status=" << status.to_string();
+        status.to_thrift(&tstatus);
+        return;
+    }
+
+    // Step 6.2 calculate delete bitmap before commit
+    auto calc_delete_bitmap_token =
+            StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
+    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(local_tablet_id);
+    RowsetIdUnorderedSet pre_rowset_ids;
+    if (local_tablet->enable_unique_key_merge_on_write()) {
+        auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        status = beta_rowset->load_segments(&segments);
+        if (!status) {
+            LOG(WARNING) << "failed to load segments from rowset"
+                         << ". rowset_id: " << beta_rowset->rowset_id() << ", txn_id=" << txn_id
+                         << ", status=" << status.to_string();
+            status.to_thrift(&tstatus);
+            return;
+        }
+        if (segments.size() > 1) {
+            // calculate delete bitmap between segments
+            status = local_tablet->calc_delete_bitmap_between_segments(rowset, segments,
+                                                                       delete_bitmap);
+            if (!status) {
+                LOG(WARNING) << "failed to calculate delete bitmap"
+                             << ". tablet_id: " << local_tablet->tablet_id()
+                             << ". rowset_id: " << rowset->rowset_id() << ", txn_id=" << txn_id
+                             << ", status=" << status.to_string();
+                status.to_thrift(&tstatus);
+                return;
+            }
+        }
+
+        static_cast<void>(local_tablet->commit_phase_update_delete_bitmap(
+                rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
+                calc_delete_bitmap_token.get(), nullptr));
+        static_cast<void>(calc_delete_bitmap_token->wait());
+    }
+
+    // Step 6.3: commit txn
+    Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
+            local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
+            rowset_meta->txn_id(), rowset_meta->tablet_id(), local_tablet->tablet_uid(),
+            rowset_meta->load_id(), rowset, false);
+    if (!commit_txn_status && !commit_txn_status.is<ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST>()) {
+        auto err_msg = fmt::format(
+                "failed to commit txn for remote tablet. rowset_id: {}, remote_tablet_id={}, "
+                "txn_id={}, status={}",
+                rowset_meta->rowset_id().to_string(), rowset_meta->tablet_id(),
+                rowset_meta->txn_id(), commit_txn_status.to_string());
+        LOG(WARNING) << err_msg;
+        set_tstatus(TStatusCode::RUNTIME_ERROR, std::move(err_msg));
+        return;
+    }
+
+    if (local_tablet->enable_unique_key_merge_on_write()) {
+        StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
+                partition_id, txn_id, local_tablet_id, local_tablet->tablet_uid(), true,
+                delete_bitmap, pre_rowset_ids, nullptr);
+    }
+
+    tstatus.__set_status_code(TStatusCode::OK);
+}
+} // namespace
+
 using apache::thrift::TException;
 using apache::thrift::TProcessor;
 using apache::thrift::TMultiplexedProcessor;
@@ -90,19 +358,33 @@ BackendService::BackendService(ExecEnv* exec_env)
 
 Status BackendService::create_service(ExecEnv* exec_env, int port,
                                       std::unique_ptr<ThriftServer>* server) {
-    std::shared_ptr<BackendService> handler(new BackendService(exec_env));
+    auto service = std::make_shared<BackendService>(exec_env);
     // TODO: do we want a BoostThreadFactory?
     // TODO: we want separate thread factories here, so that fe requests can't starve
     // be requests
-    std::shared_ptr<ThreadFactory> thread_factory(new ThreadFactory());
-
-    std::shared_ptr<TProcessor> be_processor(new BackendServiceProcessor(handler));
+    // std::shared_ptr<TProcessor> be_processor = std::make_shared<BackendServiceProcessor>(service);
+    auto be_processor = std::make_shared<BackendServiceProcessor>(service);
 
     *server = std::make_unique<ThriftServer>("backend", be_processor, port,
                                              config::be_service_threads);
 
     LOG(INFO) << "Doris BackendService listening on " << port;
 
+    auto thread_num = config::ingest_binlog_work_pool_size;
+    if (thread_num < 0) {
+        LOG(INFO) << fmt::format("ingest binlog thread pool size is {}, so we will in sync mode",
+                                 thread_num);
+        return Status::OK();
+    }
+
+    if (thread_num == 0) {
+        thread_num = std::thread::hardware_concurrency();
+    }
+    static_cast<void>(doris::ThreadPoolBuilder("IngestBinlog")
+                              .set_min_threads(thread_num)
+                              .set_max_threads(thread_num * 2)
+                              .build(&(service->_ingest_binlog_workers)));
+    LOG(INFO) << fmt::format("ingest binlog thread pool size is {}, in async mode", thread_num);
     return Status::OK();
 }
 
@@ -396,8 +678,6 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
                                    const TIngestBinlogRequest& request) {
     LOG(INFO) << "ingest binlog. request: " << apache::thrift::ThriftDebugString(request);
 
-    constexpr uint64_t kMaxTimeoutMs = 1000;
-
     TStatus tstatus;
     Defer defer {[&result, &tstatus]() {
         result.__set_status(tstatus);
@@ -452,6 +732,12 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
         return;
     }
+    if (!request.__isset.local_tablet_id) {
+        auto error_msg = "local_tablet_id is empty";
+        LOG(WARNING) << error_msg;
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
+        return;
+    }
     if (!request.__isset.load_id) {
         auto error_msg = "load_id is empty";
         LOG(WARNING) << error_msg;
@@ -486,239 +772,101 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         return;
     }
 
-    // Step 3: get binlog info
-    auto binlog_api_url = fmt::format("http://{}:{}/api/_binlog/_download", request.remote_host,
-                                      request.remote_port);
-    constexpr int max_retry = 3;
+    bool is_async = (_ingest_binlog_workers != nullptr);
+    result.__set_is_async(is_async);
 
-    auto get_binlog_info_url =
-            fmt::format("{}?method={}&tablet_id={}&binlog_version={}", binlog_api_url,
-                        "get_binlog_info", request.remote_tablet_id, request.binlog_version);
-    std::string binlog_info;
-    auto get_binlog_info_cb = [&get_binlog_info_url, &binlog_info](HttpClient* client) {
-        RETURN_IF_ERROR(client->init(get_binlog_info_url));
-        client->set_timeout_ms(kMaxTimeoutMs);
-        return client->execute(&binlog_info);
-    };
-    status = HttpClient::execute_with_retry(max_retry, 1, get_binlog_info_cb);
-    if (!status.ok()) {
-        LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
-                     << ", status=" << status.to_string();
-        status.to_thrift(&tstatus);
-        return;
-    }
+    auto ingest_binlog_func = [=]() {
+        IngestBinlogArg ingest_binlog_arg = {
+                .txn_id = txn_id,
+                .partition_id = partition_id,
+                .local_tablet_id = local_tablet_id,
+                .local_tablet = local_tablet,
 
-    std::vector<std::string> binlog_info_parts = strings::Split(binlog_info, ":");
-    // TODO(Drogon): check binlog info content is right
-    DCHECK(binlog_info_parts.size() == 2);
-    const std::string& remote_rowset_id = binlog_info_parts[0];
-    int64_t num_segments = std::stoll(binlog_info_parts[1]);
-
-    // Step 4: get rowset meta
-    auto get_rowset_meta_url = fmt::format(
-            "{}?method={}&tablet_id={}&rowset_id={}&binlog_version={}", binlog_api_url,
-            "get_rowset_meta", request.remote_tablet_id, remote_rowset_id, request.binlog_version);
-    std::string rowset_meta_str;
-    auto get_rowset_meta_cb = [&get_rowset_meta_url, &rowset_meta_str](HttpClient* client) {
-        RETURN_IF_ERROR(client->init(get_rowset_meta_url));
-        client->set_timeout_ms(kMaxTimeoutMs);
-        return client->execute(&rowset_meta_str);
-    };
-    status = HttpClient::execute_with_retry(max_retry, 1, get_rowset_meta_cb);
-    if (!status.ok()) {
-        LOG(WARNING) << "failed to get rowset meta from " << get_rowset_meta_url
-                     << ", status=" << status.to_string();
-        status.to_thrift(&tstatus);
-        return;
-    }
-    RowsetMetaPB rowset_meta_pb;
-    if (!rowset_meta_pb.ParseFromString(rowset_meta_str)) {
-        LOG(WARNING) << "failed to parse rowset meta from " << get_rowset_meta_url;
-        status = Status::InternalError("failed to parse rowset meta");
-        status.to_thrift(&tstatus);
-        return;
-    }
-    // rewrite rowset meta
-    rowset_meta_pb.set_tablet_id(local_tablet_id);
-    rowset_meta_pb.set_partition_id(partition_id);
-    rowset_meta_pb.set_tablet_schema_hash(local_tablet->tablet_meta()->schema_hash());
-    rowset_meta_pb.set_txn_id(txn_id);
-    rowset_meta_pb.set_rowset_state(RowsetStatePB::COMMITTED);
-    auto rowset_meta = std::make_shared<RowsetMeta>();
-    if (!rowset_meta->init_from_pb(rowset_meta_pb)) {
-        LOG(WARNING) << "failed to init rowset meta from " << get_rowset_meta_url;
-        status = Status::InternalError("failed to init rowset meta");
-        status.to_thrift(&tstatus);
-        return;
-    }
-    RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
-    rowset_meta->set_rowset_id(new_rowset_id);
-    rowset_meta->set_tablet_uid(local_tablet->tablet_uid());
-
-    // Step 5: get all segment files
-    // Step 5.1: get all segment files size
-    std::vector<std::string> segment_file_urls;
-    segment_file_urls.reserve(num_segments);
-    std::vector<uint64_t> segment_file_sizes;
-    segment_file_sizes.reserve(num_segments);
-    for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
-        auto get_segment_file_size_url = fmt::format(
-                "{}?method={}&tablet_id={}&rowset_id={}&segment_index={}", binlog_api_url,
-                "get_segment_file", request.remote_tablet_id, remote_rowset_id, segment_index);
-        uint64_t segment_file_size;
-        auto get_segment_file_size_cb = [&get_segment_file_size_url,
-                                         &segment_file_size](HttpClient* client) {
-            RETURN_IF_ERROR(client->init(get_segment_file_size_url));
-            client->set_timeout_ms(kMaxTimeoutMs);
-            RETURN_IF_ERROR(client->head());
-            return client->get_content_length(&segment_file_size);
+                .request = std::move(request),
         };
 
-        status = HttpClient::execute_with_retry(max_retry, 1, get_segment_file_size_cb);
+        _ingest_binlog(&ingest_binlog_arg);
+    };
+
+    if (is_async) {
+        status = _ingest_binlog_workers->submit_func(std::move(ingest_binlog_func));
         if (!status.ok()) {
-            LOG(WARNING) << "failed to get segment file size from " << get_segment_file_size_url
-                         << ", status=" << status.to_string();
             status.to_thrift(&tstatus);
             return;
         }
-
-        segment_file_sizes.push_back(segment_file_size);
-        segment_file_urls.push_back(std::move(get_segment_file_size_url));
+    } else {
+        ingest_binlog_func();
     }
+}
 
-    // Step 5.2: check data capacity
-    uint64_t total_size = std::accumulate(segment_file_sizes.begin(), segment_file_sizes.end(), 0);
-    if (!local_tablet->can_add_binlog(total_size)) {
-        LOG(WARNING) << "failed to add binlog, no enough space, total_size=" << total_size
-                     << ", tablet=" << local_tablet->tablet_id();
-        status = Status::InternalError("no enough space");
-        status.to_thrift(&tstatus);
+void BackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
+                                         const TQueryIngestBinlogRequest& request) {
+    LOG(INFO) << "query ingest binlog. request: " << apache::thrift::ThriftDebugString(request);
+
+    auto set_result = [&](TIngestBinlogStatus::type status, std::string error_msg) {
+        result.__set_status(status);
+        result.__set_err_msg(std::move(error_msg));
+    };
+
+    /// Check args: txn_id, partition_id, tablet_id, load_id
+    if (!request.__isset.txn_id) {
+        auto error_msg = "txn_id is empty";
+        LOG(WARNING) << error_msg;
+        set_result(TIngestBinlogStatus::ANALYSIS_ERROR, error_msg);
+        return;
+    }
+    if (!request.__isset.partition_id) {
+        auto error_msg = "partition_id is empty";
+        LOG(WARNING) << error_msg;
+        set_result(TIngestBinlogStatus::ANALYSIS_ERROR, error_msg);
+        return;
+    }
+    if (!request.__isset.tablet_id) {
+        auto error_msg = "tablet_id is empty";
+        LOG(WARNING) << error_msg;
+        set_result(TIngestBinlogStatus::ANALYSIS_ERROR, error_msg);
+        return;
+    }
+    if (!request.__isset.load_id) {
+        auto error_msg = "load_id is empty";
+        LOG(WARNING) << error_msg;
+        set_result(TIngestBinlogStatus::ANALYSIS_ERROR, error_msg);
         return;
     }
 
-    // Step 5.3: get all segment files
-    for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
-        auto segment_file_size = segment_file_sizes[segment_index];
-        auto get_segment_file_url = segment_file_urls[segment_index];
+    auto partition_id = request.partition_id;
+    auto txn_id = request.txn_id;
+    auto tablet_id = request.tablet_id;
 
-        uint64_t estimate_timeout =
-                segment_file_size / config::download_low_speed_limit_kbps / 1024;
-        if (estimate_timeout < config::download_low_speed_time) {
-            estimate_timeout = config::download_low_speed_time;
-        }
-
-        auto local_segment_path = BetaRowset::segment_file_path(
-                local_tablet->tablet_path(), rowset_meta->rowset_id(), segment_index);
-        LOG(INFO) << fmt::format("download segment file from {} to {}", get_segment_file_url,
-                                 local_segment_path);
-        auto get_segment_file_cb = [&get_segment_file_url, &local_segment_path, segment_file_size,
-                                    estimate_timeout](HttpClient* client) {
-            RETURN_IF_ERROR(client->init(get_segment_file_url));
-            client->set_timeout_ms(estimate_timeout * 1000);
-            RETURN_IF_ERROR(client->download(local_segment_path));
-
-            std::error_code ec;
-            // Check file length
-            uint64_t local_file_size = std::filesystem::file_size(local_segment_path, ec);
-            if (ec) {
-                LOG(WARNING) << "download file error" << ec.message();
-                return Status::IOError("can't retrive file_size of {}, due to {}",
-                                       local_segment_path, ec.message());
-            }
-            if (local_file_size != segment_file_size) {
-                LOG(WARNING) << "download file length error"
-                             << ", get_segment_file_url=" << get_segment_file_url
-                             << ", file_size=" << segment_file_size
-                             << ", local_file_size=" << local_file_size;
-                return Status::InternalError("downloaded file size is not equal");
-            }
-            chmod(local_segment_path.c_str(), S_IRUSR | S_IWUSR);
-            return Status::OK();
-        };
-
-        auto status = HttpClient::execute_with_retry(max_retry, 1, get_segment_file_cb);
-        if (!status.ok()) {
-            LOG(WARNING) << "failed to get segment file from " << get_segment_file_url
-                         << ", status=" << status.to_string();
-            status.to_thrift(&tstatus);
-            return;
-        }
-    }
-
-    // Step 6: create rowset && calculate delete bitmap && commit
-    // Step 6.1: create rowset
-    RowsetSharedPtr rowset;
-    status = RowsetFactory::create_rowset(local_tablet->tablet_schema(),
-                                          local_tablet->tablet_path(), rowset_meta, &rowset);
-
-    if (!status) {
-        LOG(WARNING) << "failed to create rowset from rowset meta for remote tablet"
-                     << ". rowset_id: " << rowset_meta_pb.rowset_id()
-                     << ", rowset_type: " << rowset_meta_pb.rowset_type()
-                     << ", remote_tablet_id=" << rowset_meta_pb.tablet_id() << ", txn_id=" << txn_id
-                     << ", status=" << status.to_string();
-        status.to_thrift(&tstatus);
+    // Step 1: get local tablet
+    auto local_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+    if (local_tablet == nullptr) {
+        auto error_msg = fmt::format("tablet {} not found", tablet_id);
+        LOG(WARNING) << error_msg;
+        set_result(TIngestBinlogStatus::NOT_FOUND, std::move(error_msg));
         return;
     }
 
-    // Step 6.2 calculate delete bitmap before commit
-    auto calc_delete_bitmap_token =
-            StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
-    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(local_tablet_id);
-    RowsetIdUnorderedSet pre_rowset_ids;
-    if (local_tablet->enable_unique_key_merge_on_write()) {
-        auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
-        std::vector<segment_v2::SegmentSharedPtr> segments;
-        status = beta_rowset->load_segments(&segments);
-        if (!status) {
-            LOG(WARNING) << "failed to load segments from rowset"
-                         << ". rowset_id: " << beta_rowset->rowset_id() << ", txn_id=" << txn_id
-                         << ", status=" << status.to_string();
-            status.to_thrift(&tstatus);
-            return;
-        }
-        if (segments.size() > 1) {
-            // calculate delete bitmap between segments
-            status = local_tablet->calc_delete_bitmap_between_segments(rowset, segments,
-                                                                       delete_bitmap);
-            if (!status) {
-                LOG(WARNING) << "failed to calculate delete bitmap"
-                             << ". tablet_id: " << local_tablet->tablet_id()
-                             << ". rowset_id: " << rowset->rowset_id() << ", txn_id=" << txn_id
-                             << ", status=" << status.to_string();
-                status.to_thrift(&tstatus);
-                return;
-            }
-        }
-
-        static_cast<void>(local_tablet->commit_phase_update_delete_bitmap(
-                rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
-                calc_delete_bitmap_token.get(), nullptr));
-        static_cast<void>(calc_delete_bitmap_token->wait());
+    // Step 2: get txn state
+    auto tablet_uid = local_tablet->tablet_uid();
+    auto txn_state = StorageEngine::instance()->txn_manager()->get_txn_state(partition_id, txn_id,
+                                                                             tablet_id, tablet_uid);
+    switch (txn_state) {
+    case TxnState::NOT_FOUND:
+        result.__set_status(TIngestBinlogStatus::NOT_FOUND);
+        break;
+    case TxnState::PREPARED:
+        result.__set_status(TIngestBinlogStatus::DOING);
+        break;
+    case TxnState::COMMITTED:
+        result.__set_status(TIngestBinlogStatus::OK);
+        break;
+    case TxnState::ROLLEDBACK:
+        result.__set_status(TIngestBinlogStatus::FAILED);
+        break;
+    case TxnState::DELETED:
+        result.__set_status(TIngestBinlogStatus::FAILED);
+        break;
     }
-
-    // Step 6.3: commit txn
-    Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
-            local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
-            rowset_meta->txn_id(), rowset_meta->tablet_id(), local_tablet->tablet_uid(),
-            rowset_meta->load_id(), rowset, false);
-    if (!commit_txn_status && !commit_txn_status.is<ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST>()) {
-        auto err_msg = fmt::format(
-                "failed to commit txn for remote tablet. rowset_id: {}, remote_tablet_id={}, "
-                "txn_id={}, status={}",
-                rowset_meta->rowset_id().to_string(), rowset_meta->tablet_id(),
-                rowset_meta->txn_id(), commit_txn_status.to_string());
-        LOG(WARNING) << err_msg;
-        set_tstatus(TStatusCode::RUNTIME_ERROR, std::move(err_msg));
-        return;
-    }
-
-    if (local_tablet->enable_unique_key_merge_on_write()) {
-        StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
-                partition_id, txn_id, local_tablet_id, local_tablet->tablet_uid(), true,
-                delete_bitmap, pre_rowset_ids, nullptr);
-    }
-
-    tstatus.__set_status_code(TStatusCode::OK);
 }
 } // namespace doris

@@ -51,6 +51,14 @@ class DeltaWriter;
 class OlapMeta;
 struct TabletPublishStatistics;
 
+enum class TxnState {
+    NOT_FOUND = 0,
+    PREPARED = 1,
+    COMMITTED = 2,
+    ROLLEDBACK = 3,
+    DELETED = 4,
+};
+
 struct TabletTxnInfo {
     PUniqueId load_id;
     RowsetSharedPtr rowset;
@@ -61,6 +69,9 @@ struct TabletTxnInfo {
     int64_t creation_time;
     bool ingest {false};
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
+    TxnState state {TxnState::PREPARED};
+
+    TabletTxnInfo() = default;
 
     TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset)
             : load_id(load_id), rowset(rowset), creation_time(UnixSeconds()) {}
@@ -77,7 +88,9 @@ struct TabletTxnInfo {
               rowset_ids(ids),
               creation_time(UnixSeconds()) {}
 
-    TabletTxnInfo() {}
+    void prepare() { state = TxnState::PREPARED; }
+    void commit() { state = TxnState::COMMITTED; }
+    void rollback() { state = TxnState::ROLLEDBACK; }
 };
 
 struct CommitTabletTxnInfo {
@@ -163,10 +176,6 @@ public:
 
     void get_all_related_tablets(std::set<TabletInfo>* tablet_infos);
 
-    // Just check if the txn exists.
-    bool has_txn(TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
-                 TabletUid tablet_uid);
-
     // Get all expired txns and save them in expire_txn_map.
     // This is currently called before reporting all tablet info, to avoid iterating txn map for every tablets.
     void build_expire_txn_map(std::map<TabletInfo, std::vector<int64_t>>* expire_txn_map);
@@ -194,6 +203,9 @@ public:
 
     int64_t get_txn_by_tablet_version(int64_t tablet_id, int64_t version);
     void update_tablet_version_txn(int64_t tablet_id, int64_t version, int64_t txn_id);
+
+    TxnState get_txn_state(TPartitionId partition_id, TTransactionId transaction_id,
+                           TTabletId tablet_id, TabletUid tablet_uid);
 
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
