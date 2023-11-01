@@ -148,6 +148,12 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
 
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+    if (config::share_delta_writers) {
+        _delta_writer_for_tablet =
+                ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(_load_id);
+    } else {
+        _delta_writer_for_tablet = std::make_shared<DeltaWriterV2Map>(_load_id);
+    }
     return Status::OK();
 }
 
@@ -159,12 +165,6 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     signal::set_signal_task_id(_load_id);
 
-    if (config::share_delta_writers) {
-        _delta_writer_for_tablet =
-                ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(_load_id);
-    } else {
-        _delta_writer_for_tablet = std::make_shared<DeltaWriterV2Map>(_load_id);
-    }
     _build_tablet_node_mapping();
     RETURN_IF_ERROR(_open_streams(state->backend_id()));
 
