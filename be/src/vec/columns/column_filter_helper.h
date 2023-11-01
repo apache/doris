@@ -15,14 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "hashjoin_build_sink.h"
+#pragma once
 
-#include <string>
+#include "column_nullable.h"
 
-#include "pipeline/exec/operator.h"
+namespace doris::vectorized {
+class ColumnFilterHelper {
+public:
+    ColumnFilterHelper(IColumn&);
 
-namespace doris::pipeline {
+    void resize_fill(size_t size, UInt8 value);
+    void insert_null();
+    void insert_value(UInt8 value);
+    void reserve(size_t size);
 
-OPERATOR_CODE_GENERATOR(HashJoinBuildSink, StreamingOperator)
+    [[nodiscard]] size_t size() const { return _column.size(); }
 
-} // namespace doris::pipeline
+private:
+    ColumnNullable& _column;
+    ColumnUInt8& _value_column;
+    ColumnUInt8& _null_map_column;
+};
+} // namespace doris::vectorized
