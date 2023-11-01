@@ -168,6 +168,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block() {
 
     block = vectorized::Block::create_unique(_output_tuple_desc->slots(), _batch_size,
                                              true /*ignore invalid slots*/);
+
     COUNTER_UPDATE(_newly_create_free_blocks_num, 1);
 
     _serving_blocks_num++;
