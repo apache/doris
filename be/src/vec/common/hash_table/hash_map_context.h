@@ -20,6 +20,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/compiler_util.h"
 #include "runtime/descriptors.h"
 #include "util/stack_util.h"
 #include "vec/columns/column_nullable.h"
@@ -85,6 +86,7 @@ struct MethodBase {
             hash_values[k] = hash_table->hash(keys[k]);
         }
     }
+
     void init_hash_values(size_t num_rows) {
         hash_values.resize(num_rows);
         for (size_t k = 0; k < num_rows; ++k) {
@@ -93,21 +95,22 @@ struct MethodBase {
     }
 
     template <bool read>
-    void prefetch(int current) {
-        if (LIKELY(current + HASH_MAP_PREFETCH_DIST < hash_values.size())) {
-            hash_table->template prefetch<read>(keys[current + HASH_MAP_PREFETCH_DIST],
-                                                hash_values[current + HASH_MAP_PREFETCH_DIST]);
+    ALWAYS_INLINE void prefetch(size_t i) {
+        if (LIKELY(i + HASH_MAP_PREFETCH_DIST < hash_values.size())) {
+            hash_table->template prefetch<read>(keys[i + HASH_MAP_PREFETCH_DIST],
+                                                hash_values[i + HASH_MAP_PREFETCH_DIST]);
         }
     }
 
     template <typename State>
-    auto find(State& state, size_t i) {
+    ALWAYS_INLINE auto find(State& state, size_t i) {
         prefetch<true>(i);
         return state.find_key_with_hash(*hash_table, hash_values[i], keys[i]);
     }
 
     template <typename State, typename F, typename FF>
-    auto& lazy_emplace(State& state, size_t i, F&& creator, FF&& creator_for_null_key) {
+    ALWAYS_INLINE auto& lazy_emplace(State& state, size_t i, F&& creator,
+                                     FF&& creator_for_null_key) {
         prefetch<false>(i);
         return state.lazy_emplace_key(*hash_table, i, keys[i], hash_values[i], creator,
                                       creator_for_null_key);
@@ -134,6 +137,11 @@ struct MethodBase {
                                           size_t num_rows) = 0;
 };
 
+// FIXME: parameter 'keys' shadows member inherited from type `MethodBase`
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
 template <typename TData>
 struct MethodSerialized : public MethodBase<TData> {
     using Base = MethodBase<TData>;
@@ -464,7 +472,6 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
     using Base = SingleColumnMethod;
     using State = ColumnsHashing::HashMethodSingleLowNullableColumn<typename Base::State,
                                                                     typename Base::Mapped>;
-
     void insert_keys_into_columns(std::vector<typename Base::Key>& keys,
                                   MutableColumns& key_columns, const size_t num_rows) override {
         auto* col = key_columns[0].get();
@@ -476,6 +483,9 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
         }
     }
 };
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 template <typename RowRefListType>
 using SerializedHashTableContext = MethodSerialized<PartitionedHashMap<StringRef, RowRefListType>>;

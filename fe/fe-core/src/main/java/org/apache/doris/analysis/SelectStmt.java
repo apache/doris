@@ -199,6 +199,16 @@ public class SelectStmt extends QueryStmt {
     }
 
     @Override
+    public void forbiddenMVRewrite() {
+        super.forbiddenMVRewrite();
+        for (TableRef ref : fromClause.getTableRefs()) {
+            if (ref instanceof InlineViewRef) {
+                ((InlineViewRef) ref).getQueryStmt().forbiddenMVRewrite();
+            }
+        }
+    }
+
+    @Override
     public void reset() {
         super.reset();
         selectList.reset();
@@ -545,7 +555,8 @@ public class SelectStmt extends QueryStmt {
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer));
                     String columnLabel = null;
                     Class<? extends StatementBase> statementClazz = analyzer.getRootStatementClazz();
-                    if (statementClazz != null && !QueryStmt.class.isAssignableFrom(statementClazz)) {
+                    if (statementClazz != null
+                            && (!QueryStmt.class.isAssignableFrom(statementClazz) || hasOutFileClause())) {
                         // Infer column name when item is expr
                         columnLabel = item.toColumnLabel(i);
                     }

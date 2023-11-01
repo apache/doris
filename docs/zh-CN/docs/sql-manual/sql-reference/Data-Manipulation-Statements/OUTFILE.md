@@ -34,7 +34,7 @@ OURFILE
 
  `SELECT INTO OUTFILE` 命令用于将查询结果导出为文件。目前支持通过 Broker 进程, S3 协议或HDFS 协议，导出到远端存储，如 HDFS，S3，BOS，COS（腾讯云）上。
 
-语法：
+#### 语法：
 
 ```
 query_stmt
@@ -43,7 +43,7 @@ INTO OUTFILE "file_path"
 [properties]
 ```
 
-说明：
+#### 说明：
 
 1. file_path
 
@@ -132,6 +132,55 @@ INTO OUTFILE "file_path"
     select * from tbl1 limit 10 
     INTO OUTFILE "file:///home/work/path/result_";
     ```
+
+#### 数据类型映射
+
+parquet、orc文件格式拥有自己的数据类型，Doris的导出功能能够自动将Doris的数据类型导出到parquet/orc文件格式的对应数据类型，以下是Doris数据类型和parquet/orc文件格式的数据类型映射关系表：
+
+1. Doris导出到Orc文件格式的数据类型映射表：
+
+    | Doris Type | Orc Type |
+    | --- | --- |
+    | boolean | boolean  |
+    | tinyint | tinyint |
+    | smallint | smallint |
+    | int | int |
+    | bigint | bigint |
+    | largeInt | string |
+    | date | string |
+    | datev2 | string |
+    | datetime | string |
+    | datetimev2 | timestamp |
+    | float | float |
+    | double | double |
+    | char / varchar / string | string |
+    | decimal | decimal |
+    | struct | struct |
+    | map | map  |
+    | array | array |
+
+
+2. Doris导出到Parquet文件格式时，会先将Doris内存数据转换为arrow内存数据格式，然后由arrow写出到parquet文件格式。Doris数据类型到arrow数据类的映射关系为：
+
+    | Doris Type | Arrow Type |
+    | --- | --- |
+    | boolean  | boolean |
+    | tinyint  | int8 |
+    | smallint  | int16 |
+    | int  | int32 |
+    | bigint  | int64 |
+    | largeInt | utf8 |
+    | date | utf8 |
+    | datev2 | utf8 |
+    | datetime | utf8 |
+    | datetimev2 | utf8 |
+    | float  | float32 |
+    | double | float64 |
+    | char / varchar / string | utf8 |
+    | decimal | decimal128 |
+    | struct | struct |
+    | map | map |
+    | array | list |
 
 ### example
 

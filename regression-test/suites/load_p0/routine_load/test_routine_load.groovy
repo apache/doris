@@ -31,6 +31,11 @@ suite("test_routine_load","p0") {
                   "dup_tbl_basic_multi_table",
                  ]
 
+    def multiTables1 = [
+                  "dup_tbl_basic",
+                  "uniq_tbl_basic",
+                 ]
+
     def jobs =   [
                   "dup_tbl_basic_job",
                   "uniq_tbl_basic_job",
@@ -125,6 +130,11 @@ suite("test_routine_load","p0") {
     def multiTableJobName = [
                     "multi_table_csv",
                     "multi_table_json",
+                  ]
+
+    def multiTableJobName1 = [
+                    "multi_table_csv1",
+                    "multi_table_json1",
                   ]
 
     def formats = [
@@ -974,6 +984,85 @@ suite("test_routine_load","p0") {
             } finally {
                 sql "stop routine load for ${jobName}"
                 for (String tableName in multiTables) {
+                    sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                }
+            }
+            j++
+        }
+    }
+
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def j = 0
+        for (String jobName in multiTableJobName1) {
+            try {
+                for (String tableName in multiTables1) {
+                    sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
+                    sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
+                }
+
+                sql """
+                    CREATE ROUTINE LOAD ${jobName}
+                    COLUMNS TERMINATED BY "|"
+                    PROPERTIES
+                    (
+                        "max_batch_interval" = "5",
+                        "format" = "${formats[j]}",
+                        "max_batch_rows" = "300000",
+                        "max_batch_size" = "209715200"
+                    )
+                    FROM KAFKA
+                    (
+                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                        "kafka_topic" = "${jobName}",
+                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                    );
+                """
+                sql "sync"
+
+                i = 0
+                for (String tableName in multiTables1) {
+                    while (true) {
+                        sleep(1000)
+                        def res = sql "show routine load for ${jobName}"
+                        def state = res[0][8].toString()
+                        if (state == "NEED_SCHEDULE") {
+                            continue;
+                        }
+                        assertEquals(res[0][8].toString(), "RUNNING")
+                        break;
+                    }
+
+                    def count = 0
+                    def tableName1 =  "routine_load_" + tableName
+                    while (true) {
+                        def res = sql "select count(*) from ${tableName1}"
+                        def state = sql "show routine load for ${jobName}"
+                        log.info("routine load state: ${state[0][8].toString()}".toString())
+                        log.info("routine load statistic: ${state[0][14].toString()}".toString())
+                        log.info("reason of state changed: ${state[0][17].toString()}".toString())
+                        if (res[0][0] > 0) {
+                            break
+                        }
+                        if (count >= 120) {
+                            log.error("routine load can not visible for long time")
+                            assertEquals(20, res[0][0])
+                            break
+                        }
+                        sleep(5000)
+                        count++
+                    }
+                    
+                    if (i <= 3) {
+                        qt_sql_multi_table "select * from ${tableName1} order by k00,k01"
+                    } else {
+                        qt_sql_multi_table "select * from ${tableName1} order by k00"
+                    }
+                    
+                    i++
+                }
+            } finally {
+                sql "stop routine load for ${jobName}"
+                for (String tableName in multiTables1) {
                     sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
                 }
             }

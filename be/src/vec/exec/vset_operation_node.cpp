@@ -105,6 +105,7 @@ Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeStat
 
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::alloc_resource(RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     // open result expr lists.
     for (const VExprContextSPtrs& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
@@ -155,17 +156,22 @@ template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_TIMER(_exec_timer);
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
     _pull_timer = ADD_TIMER(runtime_profile(), "PullTime");
+    auto output_data_types = VectorizedUtils::get_data_types(_row_descriptor);
+    auto column_nums = _child_expr_lists[0].size();
+    DCHECK_EQ(output_data_types.size(), column_nums)
+            << output_data_types.size() << " " << column_nums;
+    // the nullable is not depend on child, it's should use _row_descriptor from FE plan
+    // some case all not nullable column from children, but maybe need output nullable.
+    vector<bool> nullable_flags(column_nums, false);
+    for (int i = 0; i < column_nums; ++i) {
+        nullable_flags[i] = output_data_types[i]->is_nullable();
+    }
 
-    // Prepare result expr lists.
-    vector<bool> nullable_flags;
-    nullable_flags.resize(_child_expr_lists[0].size(), false);
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
-        for (int j = 0; j < _child_expr_lists[i].size(); ++j) {
-            nullable_flags[j] = nullable_flags[j] || _child_expr_lists[i][j]->root()->is_nullable();
-        }
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
     for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
@@ -223,6 +229,7 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
 
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::sink(RuntimeState* state, Block* block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
     if (block->rows() != 0) {
@@ -259,6 +266,7 @@ Status VSetOperationNode<is_intersect>::sink(RuntimeState* state, Block* block, 
 
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::pull(RuntimeState* state, Block* output_block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_pull_timer);
     create_mutable_cols(output_block);
     auto st = std::visit(
@@ -352,6 +360,7 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::sink_probe(RuntimeState* state, int child_id, Block* block,
                                                    bool eos) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_probe_timer);
     CHECK(_build_finished) << "cannot sink probe data before build finished";
     if (child_id > 1) {
@@ -461,9 +470,6 @@ Status VSetOperationNode<is_intersect>::extract_probe_column(Block& block, Colum
             }
 
         } else {
-            if (i == 0) {
-                LOG(WARNING) << "=========1 " << _build_not_ignore_null[i];
-            }
             if (_build_not_ignore_null[i]) {
                 auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);
                 _probe_column_inserted_id.emplace_back(block.columns());

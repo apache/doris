@@ -53,8 +53,8 @@ class PushdownAliasThroughJoinTest implements MemoPatternMatchSupported {
                 .matches(
                     logicalProject(
                         logicalJoin(
-                            logicalProject().when(project -> project.getProjects().get(1).toSql().equals("name AS `1name`")),
-                            logicalProject().when(project -> project.getProjects().get(1).toSql().equals("name AS `2name`"))
+                            logicalProject().when(project -> project.getProjects().get(1).toSql().equals("name") && project.getProjects().get(2).toSql().equals("name AS `1name`")),
+                            logicalProject().when(project -> project.getProjects().get(1).toSql().equals("name") && project.getProjects().get(2).toSql().equals("name AS `2name`"))
                         )
                     ).when(project -> project.getProjects().get(0).toSql().equals("1name") && project.getProjects().get(1).toSql().equals("2name"))
                 );
@@ -74,10 +74,10 @@ class PushdownAliasThroughJoinTest implements MemoPatternMatchSupported {
                     logicalProject(
                         logicalJoin(
                             logicalProject().when(
-                                    project -> project.getProjects().get(0).toSql().equals("id AS `1id`")
-                                            && project.getProjects().get(1).toSql().equals("name AS `1name`")),
+                                    project -> project.getProjects().get(2).toSql().equals("id AS `1id`")
+                                            && project.getProjects().get(3).toSql().equals("name AS `1name`")),
                             logicalProject().when(
-                                    project -> project.getProjects().get(1).toSql().equals("name AS `2name`"))
+                                    project -> project.getProjects().get(2).toSql().equals("name AS `2name`"))
                         ).when(join -> join.getHashJoinConjuncts().get(0).toSql().equals("(1id = id)"))
                     ).when(project -> project.getProjects().get(0).toSql().equals("1id")
                         && project.getProjects().get(1).toSql().equals("1name")

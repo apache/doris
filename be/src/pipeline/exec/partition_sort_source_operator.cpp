@@ -31,7 +31,7 @@ OperatorPtr PartitionSortSourceOperatorBuilder::build_operator() {
 
 Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<PartitionSortDependency>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
     _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
@@ -42,8 +42,8 @@ Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
 Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* output_block,
                                                SourceState& source_state) {
     RETURN_IF_CANCELLED(state);
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_TIMER(local_state._get_next_timer);
     output_block->clear_column_data();
     {
@@ -77,11 +77,6 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
         }
     }
     return Status::OK();
-}
-
-Dependency* PartitionSortSourceOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->read_blocked_by();
 }
 
 Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
