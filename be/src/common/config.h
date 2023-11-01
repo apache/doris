@@ -1186,6 +1186,9 @@ DECLARE_Bool(ignore_always_true_predicate_for_segment);
 // Dir of default timezone files
 DECLARE_String(default_tzfiles_path);
 
+// Max size(bytes) of group commit queues, used for mem back pressure.
+DECLARE_Int32(group_commit_max_queue_size);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
