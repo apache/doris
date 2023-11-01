@@ -75,7 +75,6 @@ Status BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
         return Status::InternalError("BlockedTaskScheduler shutdown");
     }
     if (task->is_pipelineX() && avoid_using_blocked_queue(task->get_state())) {
-        
         return Status::OK();
     }
     std::unique_lock<std::mutex> lock(_task_mutex);

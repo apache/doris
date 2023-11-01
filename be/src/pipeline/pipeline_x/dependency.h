@@ -151,12 +151,13 @@ public:
     }
 
     virtual void set_ready_for_write() {
-        try_to_wake_up_task();
         if (_ready_for_write) {
+            try_to_wake_up_task();
             return;
         }
         _write_dependency_watcher.stop();
         _ready_for_write = true;
+        try_to_wake_up_task();
     }
 
     virtual void block_writing() { _ready_for_write = false; }
