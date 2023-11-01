@@ -26,6 +26,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
@@ -72,7 +73,7 @@ import java.util.concurrent.TimeUnit;
 public class MysqlLoadManager {
     private static final Logger LOG = LogManager.getLogger(MysqlLoadManager.class);
 
-    private final ThreadPoolExecutor mysqlLoadPool;
+    private  ThreadPoolExecutor mysqlLoadPool;
     private final TokenManager tokenManager;
 
     private static class MySqlLoadContext {
@@ -137,14 +138,20 @@ public class MysqlLoadManager {
     }
 
     private final Map<String, MySqlLoadContext> loadContextMap = new ConcurrentHashMap<>();
-    private final EvictingQueue<MySqlLoadFailRecord> failedRecords;
-    private ScheduledExecutorService periodScheduler = Executors.newScheduledThreadPool(1);
+    private  EvictingQueue<MySqlLoadFailRecord> failedRecords;
+    private ScheduledExecutorService periodScheduler;
 
     public MysqlLoadManager(TokenManager tokenManager) {
+        this.tokenManager = tokenManager;
+    }
+
+    public void start() {
+        this.periodScheduler = Executors.newScheduledThreadPool(1,
+                new CustomThreadFactory("mysql-load-fail-record-cleaner"));
         int poolSize = Config.mysql_load_thread_pool;
         // MySqlLoad pool can accept 4 + 4 * 5 = 24  requests by default.
-        this.mysqlLoadPool = ThreadPoolManager.newDaemonFixedThreadPool(poolSize, poolSize * 5, "Mysql Load", true);
-        this.tokenManager = tokenManager;
+        this.mysqlLoadPool = ThreadPoolManager.newDaemonFixedThreadPool(poolSize, poolSize * 5,
+                "Mysql Load", true);
         this.failedRecords = EvictingQueue.create(Config.mysql_load_in_memory_record);
         this.periodScheduler.scheduleAtFixedRate(this::cleanFailedRecords, 1, 24, TimeUnit.HOURS);
     }

@@ -18,7 +18,7 @@ import org.junit.Assert
 // under the License.
 
 // This suit test the `backends` tvf
-suite("test_local_tvf_with_complex_type_insertinto_doris", "p0") {
+suite("test_local_tvf_with_complex_type_insertinto_doris","external,hive,tvf,external_docker") {
     sql """set enable_nereids_planner=false"""
     List<List<Object>> backends =  sql """ select * from backends(); """
     assertTrue(backends.size() > 0)
