@@ -84,8 +84,6 @@ public:
             *block = std::move(_blocks_queues[id].front());
             _blocks_queues[id].pop_front();
 
-            RETURN_IF_ERROR(validate_block_schema((*block).get()));
-
             if (_blocks_queues[id].empty() && _data_dependency) {
                 _data_dependency->block_reading();
             }
@@ -108,6 +106,10 @@ public:
         if (_need_colocate_distribute) {
             std::vector<uint32_t> hash_vals;
             for (const auto& block : blocks) {
+                auto st = validate_block_schema(block.get());
+                if (!st.ok()) {
+                    set_status_on_error(st, false);
+                }
                 // vectorized calculate hash
                 int rows = block->rows();
                 const auto element_size = _num_parallel_instances;
@@ -141,6 +143,10 @@ public:
             }
         } else {
             for (const auto& block : blocks) {
+                auto st = validate_block_schema(block.get());
+                if (!st.ok()) {
+                    set_status_on_error(st, false);
+                }
                 local_bytes += block->allocated_bytes();
             }
 
