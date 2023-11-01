@@ -54,22 +54,19 @@ class NewOlapScanner : public VScanner {
     ENABLE_FACTORY_CREATOR(NewOlapScanner);
 
 public:
-    NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
-                   const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
-                   RuntimeProfile* profile);
+    struct Params {
+        RuntimeState* state;
+        RuntimeProfile* profile;
+        std::vector<OlapScanRange*> key_ranges;
+        BaseTabletSPtr tablet;
+        int64_t version;
+        TabletReader::ReadSource read_source;
+        int64_t limit;
+        bool aggregation;
+    };
 
-    NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
-                   const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
-                   TabletReader::ReadSource read_source, RuntimeProfile* profile);
-
-    NewOlapScanner(RuntimeState* state, pipeline::ScanLocalStateBase* parent, int64_t limit,
-                   bool aggregation, const TPaloScanRange& scan_range,
-                   const std::vector<OlapScanRange*>& key_ranges, RuntimeProfile* profile);
-
-    NewOlapScanner(RuntimeState* state, pipeline::ScanLocalStateBase* parent, int64_t limit,
-                   bool aggregation, const TPaloScanRange& scan_range,
-                   const std::vector<OlapScanRange*>& key_ranges,
-                   TabletReader::ReadSource read_source, RuntimeProfile* profile);
+    template <class T>
+    NewOlapScanner(T* parent, Params&& params);
 
     Status init() override;
 
@@ -97,12 +94,6 @@ private:
 
     [[nodiscard]] Status _init_return_columns();
 
-    bool _aggregation;
-
-    TabletSchemaSPtr _tablet_schema;
-    BaseTabletSPtr _tablet;
-    int64_t _version;
-    const TPaloScanRange& _scan_range;
     std::vector<OlapScanRange*> _key_ranges;
 
     TabletReader::ReaderParams _tablet_reader_params;
