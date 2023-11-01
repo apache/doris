@@ -116,10 +116,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             agg.getGroupByExpressions(),
                             new HashSet<>(agg.getExpressions()));
 
-                    if (result.indexId == scan.getTable().getBaseIndexId()) {
-                        return ctx.root;
-                    }
-
                     LogicalOlapScan mvPlan = scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId);
                     SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
 
@@ -166,10 +162,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     requiredExpr
                             );
 
-                            if (result.indexId == scan.getTable().getBaseIndexId()) {
-                                return ctx.root;
-                            }
-
                             LogicalOlapScan mvPlan =
                                     scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId);
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
@@ -214,10 +206,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                             project.getAliasToProducer()),
                                     collectRequireExprWithAggAndProject(agg.getExpressions(), project.getProjects())
                             );
-
-                            if (result.indexId == scan.getTable().getBaseIndexId()) {
-                                return ctx.root;
-                            }
 
                             LogicalOlapScan mvPlan =
                                     scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId);
@@ -277,10 +265,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     requiredExpr
                             );
 
-                            if (result.indexId == scan.getTable().getBaseIndexId()) {
-                                return ctx.root;
-                            }
-
                             LogicalOlapScan mvPlan =
                                     scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId);
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
@@ -338,10 +322,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     requiredExpr
                             );
 
-                            if (result.indexId == scan.getTable().getBaseIndexId()) {
-                                return ctx.root;
-                            }
-
                             LogicalOlapScan mvPlan =
                                     scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId);
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
@@ -388,10 +368,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             extractAggFunctionAndReplaceSlot(agg, Optional.empty()),
                             nonVirtualGroupByExprs(agg),
                             new HashSet<>(agg.getExpressions()));
-
-                    if (result.indexId == scan.getTable().getBaseIndexId()) {
-                        return ctx.root;
-                    }
 
                     LogicalOlapScan mvPlan = scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId);
                     SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
@@ -446,10 +422,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     requiredExpr
                             );
 
-                            if (result.indexId == scan.getTable().getBaseIndexId()) {
-                                return ctx.root;
-                            }
-
                             LogicalOlapScan mvPlan =
                                     scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId);
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
@@ -501,10 +473,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                             project.getAliasToProducer()),
                                     collectRequireExprWithAggAndProject(agg.getExpressions(), project.getProjects())
                             );
-
-                            if (result.indexId == scan.getTable().getBaseIndexId()) {
-                                return ctx.root;
-                            }
 
                             LogicalOlapScan mvPlan =
                                     scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId);
@@ -571,10 +539,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     requiredExpr
                             );
 
-                            if (result.indexId == scan.getTable().getBaseIndexId()) {
-                                return ctx.root;
-                            }
-
                             LogicalOlapScan mvPlan =
                                     scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId);
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
@@ -640,10 +604,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                             project.getAliasToProducer()),
                                     requiredExpr
                             );
-
-                            if (result.indexId == scan.getTable().getBaseIndexId()) {
-                                return ctx.root;
-                            }
 
                             LogicalOlapScan mvPlan =
                                     scan.withMaterializedIndexSelected(result.preAggStatus, result.indexId);
