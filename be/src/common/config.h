@@ -103,7 +103,7 @@ DECLARE_Int32(brpc_num_threads);
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
-// If no ip match this rule, will choose one randomly.
+// If no ip matches this rule, will choose one randomly.
 DECLARE_String(priority_networks);
 
 // performance moderate or or compact, only tcmalloc compile
