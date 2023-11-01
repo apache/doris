@@ -62,10 +62,12 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 // create a user define function
 public class CreateFunctionStmt extends DdlStmt {
@@ -527,45 +529,56 @@ public class CreateFunctionStmt extends DdlStmt {
             URL[] urls = {new URL("jar:" + userFile + "!/")};
             try (URLClassLoader cl = URLClassLoader.newInstance(urls)) {
                 Class udfClass = cl.loadClass(clazz);
-
-                Method eval = null;
-                for (Method m : udfClass.getMethods()) {
-                    if (!m.getDeclaringClass().equals(udfClass)) {
-                        continue;
-                    }
-                    String name = m.getName();
-                    if (EVAL_METHOD_KEY.equals(name) && eval == null) {
-                        eval = m;
-                    } else if (EVAL_METHOD_KEY.equals(name)) {
-                        throw new AnalysisException(String.format(
-                                "UDF class '%s' has multiple methods with name '%s' ", udfClass.getCanonicalName(),
-                                EVAL_METHOD_KEY));
-                    }
-                }
-                if (eval == null) {
+                List<Method> evalList = Arrays.stream(udfClass.getMethods())
+                        .filter(m -> m.getDeclaringClass().equals(udfClass) && EVAL_METHOD_KEY.equals(m.getName()))
+                        .collect(Collectors.toList());
+                if (evalList.size() == 0) {
                     throw new AnalysisException(String.format(
-                            "No method '%s' in class '%s'!", EVAL_METHOD_KEY, udfClass.getCanonicalName()));
+                        "No method '%s' in class '%s'!", EVAL_METHOD_KEY, udfClass.getCanonicalName()));
                 }
-                if (Modifier.isStatic(eval.getModifiers())) {
+                List<Method> evalNonStaticAndPublicList = evalList.stream()
+                        .filter(m -> !Modifier.isStatic(m.getModifiers()) && Modifier.isPublic(m.getModifiers()))
+                        .collect(Collectors.toList());
+                if (evalNonStaticAndPublicList.size() == 0) {
                     throw new AnalysisException(
-                            String.format("Method '%s' in class '%s' should be non-static", eval.getName(),
-                                    udfClass.getCanonicalName()));
+                        String.format("Method '%s' in class '%s' should be non-static and public", EVAL_METHOD_KEY,
+                            udfClass.getCanonicalName()));
                 }
-                if (!Modifier.isPublic(eval.getModifiers())) {
+                List<Method> evalArgLengthMatchList = evalNonStaticAndPublicList.stream().filter(
+                        m -> m.getParameters().length == argsDef.getArgTypes().length).collect(Collectors.toList());
+                if (evalArgLengthMatchList.size() == 0) {
                     throw new AnalysisException(
-                            String.format("Method '%s' in class '%s' should be public", eval.getName(),
-                                    udfClass.getCanonicalName()));
-                }
-                if (eval.getParameters().length != argsDef.getArgTypes().length) {
-                    throw new AnalysisException(
-                            String.format("The number of parameters for method '%s' in class '%s' should be %d",
-                                    eval.getName(), udfClass.getCanonicalName(), argsDef.getArgTypes().length));
-                }
-
-                checkUdfType(udfClass, eval, returnType.getType(), eval.getReturnType(), "return");
-                for (int i = 0; i < eval.getParameters().length; i++) {
-                    Parameter p = eval.getParameters()[i];
-                    checkUdfType(udfClass, eval, argsDef.getArgTypes()[i], p.getType(), p.getName());
+                        String.format("The number of parameters for method '%s' in class '%s' should be %d",
+                            EVAL_METHOD_KEY, udfClass.getCanonicalName(), argsDef.getArgTypes().length));
+                } else if (evalArgLengthMatchList.size() == 1) {
+                    Method method = evalArgLengthMatchList.get(0);
+                    checkUdfType(udfClass, method, returnType.getType(), method.getReturnType(), "return");
+                    for (int i = 0; i < method.getParameters().length; i++) {
+                        Parameter p = method.getParameters()[i];
+                        checkUdfType(udfClass, method, argsDef.getArgTypes()[i], p.getType(), p.getName());
+                    }
+                } else {
+                    // If multiple methods have the same parameters,
+                    // the error message returned cannot be as specific as a single method
+                    boolean hasError = false;
+                    for (Method method : evalArgLengthMatchList) {
+                        try {
+                            checkUdfType(udfClass, method, returnType.getType(), method.getReturnType(), "return");
+                            for (int i = 0; i < method.getParameters().length; i++) {
+                                Parameter p = method.getParameters()[i];
+                                checkUdfType(udfClass, method, argsDef.getArgTypes()[i], p.getType(), p.getName());
+                            }
+                            hasError = false;
+                            break;
+                        } catch (AnalysisException e) {
+                            hasError = true;
+                        }
+                    }
+                    if (hasError) {
+                        throw new AnalysisException(String.format(
+                            "Multi methods '%s' in class '%s' and no one passed parameter matching verification",
+                            EVAL_METHOD_KEY, udfClass.getCanonicalName()));
+                    }
                 }
             } catch (ClassNotFoundException e) {
                 throw new AnalysisException("Class [" + clazz + "] not found in file :" + userFile);
