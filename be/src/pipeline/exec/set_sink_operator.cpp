@@ -90,7 +90,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
                         },
                         *local_state._shared_state->hash_table_variants);
             }
-            local_state._shared_state->probe_finished_children_index[_cur_child_id] = true;
+            local_state._shared_state->set_probe_finished_children(_cur_child_id);
             if (_child_quantity == 1) {
                 local_state._dependency->set_ready_for_read();
             }

@@ -202,7 +202,6 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
         SetProbeSinkLocalState<is_intersect>& local_state) {
     auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
     auto& hash_table_variants = local_state._shared_state->hash_table_variants;
-    auto& probe_finished_children_index = local_state._shared_state->probe_finished_children_index;
 
     if (_cur_child_id != (local_state._shared_state->child_quantity - 1)) {
         _refresh_hash_table(local_state);
@@ -223,7 +222,7 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
     } else {
         local_state._dependency->set_ready_for_read();
     }
-    probe_finished_children_index[_cur_child_id] = true;
+    local_state._shared_state->set_probe_finished_children(_cur_child_id);
 }
 
 template <bool is_intersect>

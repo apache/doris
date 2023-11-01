@@ -21,9 +21,32 @@
 #include <mutex>
 
 #include "common/logging.h"
+#include "pipeline/pipeline_task.h"
+#include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "runtime/memory/mem_tracker.h"
 
 namespace doris::pipeline {
+
+void Dependency::add_block_task(PipelineXTask* task) {
+    std::unique_lock<std::mutex> lc(_task_lock);
+    DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
+    DCHECK(avoid_using_blocked_queue(task->get_state()));
+    _block_task.push_back(task);
+}
+
+void Dependency::try_to_wake_up_task() {
+    std::unique_lock<std::mutex> lc(_task_lock);
+    if (_block_task.empty()) {
+        return;
+    }
+    for (auto* task : _block_task) {
+        DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
+        if (task->try_wake_up(this)) {
+            _wake_up_task_counter++;
+        }
+    }
+    _block_task.clear();
+}
 
 template Status HashJoinDependency::extract_join_column<true>(
         vectorized::Block&,
@@ -292,6 +315,18 @@ std::vector<uint16_t> HashJoinDependency::convert_block_to_null(vectorized::Bloc
         }
     }
     return results;
+}
+
+void SetSharedState::set_probe_finished_children(int child_id) {
+    {
+        std::unique_lock<std::mutex> lc(child_lock);
+        probe_finished_children_index[child_id] = true;
+    }
+    for (SetDependency* dep : probe_finished_children_dependency) {
+        if (dep->write_blocked_by() == nullptr) {
+            dep->set_ready_for_write();
+        }
+    }
 }
 
 template <bool BuildSide>

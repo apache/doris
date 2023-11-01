@@ -43,6 +43,7 @@
 namespace doris {
 namespace pipeline {
 class Dependency;
+class PipelineXTask;
 using DependencySPtr = std::shared_ptr<Dependency>;
 
 static constexpr auto SLOW_DEPENDENCY_THRESHOLD = 10 * 1000L * 1000L * 1000L;
@@ -101,6 +102,10 @@ public:
 
     void remove_first_child() { _children.erase(_children.begin()); }
 
+    void add_block_task(PipelineXTask* task);
+
+    void try_to_wake_up_task();
+
 protected:
     int _id;
     std::string _name;
@@ -110,6 +115,11 @@ protected:
     std::weak_ptr<Dependency> _parent;
 
     std::list<std::shared_ptr<Dependency>> _children;
+
+    std::vector<PipelineXTask*> _block_task;
+    std::mutex _task_lock;
+
+    int64_t _wake_up_task_counter;
 };
 
 class WriteDependency : public Dependency {
@@ -141,6 +151,7 @@ public:
     }
 
     virtual void set_ready_for_write() {
+        try_to_wake_up_task();
         if (_ready_for_write) {
             return;
         }
@@ -190,7 +201,6 @@ public:
     }
 
     void block_finishing() { _ready_to_finish = false; }
-
     void* shared_state() override { return nullptr; }
 
 protected:
@@ -357,19 +367,6 @@ public:
     [[nodiscard]] int64_t write_watcher_elapse_time() override { return 0; }
 };
 
-class AsyncWriterSinkDependency : public WriteDependency {
-public:
-    AsyncWriterSinkDependency(int id) : WriteDependency(id, "AsyncWriterSinkDependency") {}
-    using SharedState = FakeSharedState;
-    void* shared_state() override { return nullptr; }
-    [[nodiscard]] Dependency* read_blocked_by() override { return nullptr; }
-    [[nodiscard]] WriteDependency* write_blocked_by() override { return _call_func(); }
-    void set_write_blocked_by(std::function<WriteDependency*()> call_func) {
-        _call_func = call_func;
-    }
-    std::function<WriteDependency*()> _call_func;
-};
-
 struct AggSharedState {
 public:
     AggSharedState() {
@@ -530,7 +527,6 @@ public:
     void set_shared_state(std::shared_ptr<UnionSharedState> union_state) {
         _union_state = union_state;
     }
-    void set_ready_for_write() override {}
     void set_ready_for_read() override {
         if (!_union_state->data_queue.is_all_finish()) {
             return;
@@ -748,6 +744,8 @@ public:
     void* shared_state() override { return nullptr; }
 };
 
+class SetDependency;
+
 struct SetSharedState {
     /// default init
     //record memory during running
@@ -774,6 +772,8 @@ struct SetSharedState {
     int child_quantity;
     vectorized::VExprContextSPtrs build_child_exprs;
     std::vector<bool> probe_finished_children_index; // use in probe side
+    std::vector<SetDependency*> probe_finished_children_dependency;
+    std::mutex child_lock;
 
     /// init in probe side
     std::vector<vectorized::VExprContextSPtrs> probe_child_exprs_lists;
@@ -781,6 +781,8 @@ struct SetSharedState {
     std::atomic<bool> ready_for_read = false;
 
 public:
+    void set_probe_finished_children(int child_id);
+
     /// called in setup_local_state
     void hash_table_init() {
         if (child_exprs_lists[0].size() == 1 && (!build_not_ignore_null[0])) {
@@ -840,7 +842,10 @@ public:
     ~SetDependency() override = default;
     void* shared_state() override { return (void*)_set_state.get(); }
 
-    void set_shared_state(std::shared_ptr<SetSharedState> set_state) { _set_state = set_state; }
+    void set_shared_state(std::shared_ptr<SetSharedState> set_state) {
+        _set_state = set_state;
+        _set_state->probe_finished_children_dependency.push_back(this);
+    }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
     [[nodiscard]] Dependency* read_blocked_by() override {

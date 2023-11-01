@@ -479,9 +479,6 @@ Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkState
         RETURN_IF_ERROR(
                 _parent->cast<Parent>()._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
     }
-    static_cast<AsyncWriterSinkDependency*>(_dependency)->set_write_blocked_by([this]() {
-        return this->write_blocked_by();
-    });
     _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
     _async_writer_dependency = AsyncWriterDependency::create_shared(_parent->operator_id());
     _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());

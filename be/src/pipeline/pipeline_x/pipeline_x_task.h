@@ -70,54 +70,75 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status) override;
 
-    bool source_can_read() override {
-        if (_dry_run) {
-            return true;
-        }
+    Dependency* read_blocked_dependency() {
         for (auto* op_dep : _read_dependencies) {
             auto* dep = op_dep->read_blocked_by();
             if (dep != nullptr) {
                 dep->start_read_watcher();
-                push_blocked_task_to_dependency(dep);
-                return false;
+                set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
+                return dep;
             }
         }
-        return true;
+        return nullptr;
+    }
+
+    bool source_can_read() override {
+        if (_dry_run) {
+            return true;
+        }
+        auto* dep = read_blocked_dependency();
+        return dep == nullptr;
+    }
+
+    RuntimeFilterDependency* filter_blocked_dependency() {
+        auto* dep = _filter_dependency->filter_blocked_by();
+        if (dep != nullptr) {
+            set_state(PipelineTaskState::BLOCKED_FOR_RF);
+            return dep;
+        }
+        return nullptr;
     }
 
     bool runtime_filters_are_ready_or_timeout() override {
-        auto* dep = _filter_dependency->filter_blocked_by();
-        if (dep != nullptr) {
-            push_blocked_task_to_dependency(dep);
-            return false;
-        }
-        return true;
+        auto* dep = filter_blocked_dependency();
+        return dep == nullptr;
     }
 
-    bool sink_can_write() override {
+    WriteDependency* write_blocked_dependency() {
         auto* dep = _write_dependencies->write_blocked_by();
         if (dep != nullptr) {
             dep->start_write_watcher();
-            push_blocked_task_to_dependency(dep);
-            return false;
+            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
+            dep->add_block_task(this);
+            return dep;
         }
-        return true;
+        return nullptr;
+    }
+
+    bool sink_can_write() override {
+        auto* dep = write_blocked_dependency();
+        return dep == nullptr;
     }
 
     Status finalize() override;
 
     std::string debug_string() override;
 
-    bool is_pending_finish() override {
+    FinishDependency* finish_blocked_dependency() {
         for (auto* fin_dep : _finish_dependencies) {
             auto* dep = fin_dep->finish_blocked_by();
             if (dep != nullptr) {
                 dep->start_finish_watcher();
-                push_blocked_task_to_dependency(dep);
-                return true;
+                set_state(PipelineTaskState::PENDING_FINISH);
+                return dep;
             }
         }
-        return false;
+        return nullptr;
+    }
+
+    bool is_pending_finish() override {
+        auto* dep = finish_blocked_dependency();
+        return dep != nullptr;
     }
 
     std::vector<DependencySPtr>& get_downstream_dependency() { return _downstream_dependency; }
@@ -149,7 +170,9 @@ public:
 
     Status extract_dependencies();
 
-    void push_blocked_task_to_dependency(Dependency* dep) {}
+    bool is_pipelineX() const override { return true; }
+
+    [[nodiscard]] bool try_wake_up(Dependency* wake_up_dep);
 
     DataSinkOperatorXPtr sink() const { return _sink; }
 
@@ -158,6 +181,7 @@ public:
     OperatorXs operatorXs() { return _operators; }
 
 private:
+    [[nodiscard]] bool _make_run(PipelineTaskState state = PipelineTaskState::RUNNABLE);
     void set_close_pipeline_time() override {}
     void _init_profile() override;
     void _fresh_profile_counter() override;

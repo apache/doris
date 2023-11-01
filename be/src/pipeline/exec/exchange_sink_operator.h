@@ -88,9 +88,18 @@ public:
         return _available_block > 0 ? nullptr : this;
     }
 
-    void set_available_block(int available_block) { _available_block = available_block; }
+    void set_available_block(int available_block) {
+        _available_block = available_block;
+        if (_available_block > 0) {
+            try_to_wake_up_task();
+        }
+    }
 
-    void return_available_block() { _available_block++; }
+    void return_available_block() {
+        _available_block++;
+        DCHECK(_available_block >= 0);
+        try_to_wake_up_task();
+    }
 
     void take_available_block() { _available_block--; }
 
