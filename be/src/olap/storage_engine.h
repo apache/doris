@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/calc_delete_bitmap_executor.h"
+#include "olap/check_primary_keys_executor.h"
 #include "olap/compaction_permit_limiter.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
@@ -147,6 +148,9 @@ public:
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
     CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() {
         return _calc_delete_bitmap_executor.get();
+    }
+    CheckPrimaryKeysExecutor* check_primary_keys_executor() {
+        return _check_primary_keys_executor.get();
     }
 
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
@@ -435,6 +439,7 @@ private:
 
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
+    std::unique_ptr<CheckPrimaryKeysExecutor> _check_primary_keys_executor;
 
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data

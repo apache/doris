@@ -129,6 +129,10 @@ public:
     Status fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
                                 const std::vector<bool>& use_default_or_null_flag,
                                 bool has_default_or_nullable, const size_t& segment_start_pos);
+    // used for unique-key with merge on write and segment min_max key
+    std::string full_encode_keys(
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
+            bool null_first = true);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -148,9 +152,7 @@ private:
     std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                              size_t pos, bool null_first = true);
     // used for unique-key with merge on write and segment min_max key
-    std::string _full_encode_keys(
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
-            bool null_first = true);
+
     // used for unique-key with merge on write
     void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
                             string* encoded_keys);
