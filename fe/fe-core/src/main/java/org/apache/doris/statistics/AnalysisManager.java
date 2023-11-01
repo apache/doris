@@ -449,7 +449,6 @@ public class AnalysisManager extends Daemon implements Writable {
      */
     private Map<String, Set<String>> validateAndGetPartitions(TableIf table, Set<String> columnNames,
             Set<String> partitionNames, AnalysisType analysisType) throws DdlException {
-        long tableId = table.getId();
 
         Map<String, Set<String>> columnToPartitions = columnNames.stream()
                 .collect(Collectors.toMap(
@@ -468,27 +467,6 @@ public class AnalysisManager extends Daemon implements Writable {
             // One reason is external table partition id couldn't convert to a Long value.
             // Will solve this problem later.
             return columnToPartitions;
-        }
-
-        // Get the partition granularity statistics that have been collected
-        Map<String, Set<String>> existColAndPartsForStats = StatisticsRepository
-                .fetchColAndPartsForStats(tableId);
-
-        if (existColAndPartsForStats.isEmpty()) {
-            // There is no historical statistical information, no need to do validation
-            return columnToPartitions;
-        }
-
-        Set<String> existPartIdsForStats = new HashSet<>();
-        existColAndPartsForStats.values().forEach(existPartIdsForStats::addAll);
-        Set<String> idToPartition = StatisticsUtil.getPartitionIds(table);
-        // Get an invalid set of partitions (those partitions were deleted)
-        Set<String> invalidPartIds = existPartIdsForStats.stream()
-                .filter(id -> !idToPartition.contains(id)).collect(Collectors.toSet());
-
-        if (!invalidPartIds.isEmpty()) {
-            // Delete invalid partition statistics to avoid affecting table statistics
-            StatisticsRepository.dropStatistics(invalidPartIds);
         }
 
         if (analysisType == AnalysisType.FUNDAMENTALS) {

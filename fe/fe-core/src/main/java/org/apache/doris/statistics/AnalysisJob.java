@@ -103,19 +103,23 @@ public class AnalysisJob {
     }
 
     protected void writeBuf() {
-        String insertStmt = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_STATS_TBL_NAME + " VALUES ";
-        StringJoiner values = new StringJoiner(",");
-        for (ColStatsData data : buf) {
-            values.add(data.toSQL(true));
-        }
-        insertStmt += values.toString();
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
-            stmtExecutor = new StmtExecutor(r.connectContext, insertStmt);
-            executeWithExceptionOnFail(stmtExecutor);
-        } catch (Throwable t) {
-            LOG.warn("Failed to write buf: " + insertStmt, t);
-            updateTaskState(AnalysisState.FAILED, t.getMessage());
-            return;
+        // buf could be empty when nothing need to do, for example user submit an analysis task for table with no data
+        // change
+        if (!buf.isEmpty())  {
+            String insertStmt = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_STATS_TBL_NAME + " VALUES ";
+            StringJoiner values = new StringJoiner(",");
+            for (ColStatsData data : buf) {
+                values.add(data.toSQL(true));
+            }
+            insertStmt += values.toString();
+            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+                stmtExecutor = new StmtExecutor(r.connectContext, insertStmt);
+                executeWithExceptionOnFail(stmtExecutor);
+            } catch (Throwable t) {
+                LOG.warn("Failed to write buf: " + insertStmt, t);
+                updateTaskState(AnalysisState.FAILED, t.getMessage());
+                return;
+            }
         }
         updateTaskState(AnalysisState.FINISHED, "");
         syncLoadStats();

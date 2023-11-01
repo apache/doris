@@ -20,7 +20,6 @@ package org.apache.doris.statistics;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 
@@ -45,10 +44,9 @@ public class OlapAnalysisTaskTest {
         OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
         olapAnalysisTask.info = analysisInfoBuilder.build();
         olapAnalysisTask.tbl = tableIf;
-        Config.enable_auto_sample = true;
         TableSample tableSample = olapAnalysisTask.getTableSample();
-        Assertions.assertEquals(4194304, tableSample.getSampleValue());
-        Assertions.assertFalse(tableSample.isPercent());
+        Assertions.assertNull(tableSample);
+
 
         new Expectations() {
             {

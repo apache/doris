@@ -80,8 +80,8 @@ public abstract class BaseAnalysisTask {
             + "${row_count} AS row_count, "
             + "${ndv} AS ndv, "
             + "${null_count} AS null_count, "
-            + "to_base64('${min}') AS min, "
-            + "to_base64('${max}') AS max, "
+            + "'${min}' AS min, "
+            + "'${max}' AS max, "
             + "${data_size} AS data_size, "
             + "NOW() ";
 
@@ -235,8 +235,7 @@ public abstract class BaseAnalysisTask {
         } else if (info.sampleRows > 0) {
             return new TableSample(false, info.sampleRows);
         } else if (info.analysisMethod == AnalysisMethod.FULL
-                && Config.enable_auto_sample
-                && tbl.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes) {
+                && tbl.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes * 10) {
             // If user doesn't specify sample percent/rows, use auto sample and update sample rows in analysis info.
             return new TableSample(false, (long) Config.huge_table_default_sample_rows);
         } else {

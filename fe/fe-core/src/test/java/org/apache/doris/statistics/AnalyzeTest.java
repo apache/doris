@@ -154,6 +154,12 @@ public class AnalyzeTest extends TestWithFeService {
             @Mock
             public void execSQLs(List<String> partitionAnalysisSQLs, Map<String, String> params) throws Exception {}
         };
+
+        new MockUp<BaseAnalysisTask>() {
+
+            @Mock
+            protected void runQuery(String sql) {}
+        };
         HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
         colToPartitions.put("col1", Collections.singleton("t1"));
         AnalysisInfo analysisJobInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)

@@ -90,6 +90,19 @@ suite("test_analyze") {
     """
 
     sql """
+        SET enable_nereids_planner=true;
+        
+    """
+
+    sql """
+        SET forbid_unknown_col_stats=false;
+    """
+
+    sql """
+        SELECT * FROM ${tbl}
+    """
+
+    sql """
         ANALYZE DATABASE ${db}
     """
 
@@ -97,10 +110,6 @@ suite("test_analyze") {
         ANALYZE DATABASE ${db} WITH SYNC
     """
 
-    sql """
-        SET enable_nereids_planner=true;
-        
-        """
     sql """
         SET enable_fallback_to_original_planner=false;
         """
@@ -891,8 +900,24 @@ PARTITION `p599` VALUES IN (599)
     }
 
     assert expected_col_stats(id_col_stats, 600, 1)
-    assert expected_col_stats(id_col_stats, 599, 7)
+    assert (int) Double.parseDouble(id_col_stats[0][2]) < 700
+            && (int) Double.parseDouble(id_col_stats[0][2]) > 500
+    assert expected_col_stats(id_col_stats, 0, 3)
+    assert expected_col_stats(id_col_stats, 2400, 4)
+    assert expected_col_stats(id_col_stats, 4, 5)
     assert expected_col_stats(id_col_stats, 0, 6)
+    assert expected_col_stats(id_col_stats, 599, 7)
+
+    def update_time = id_col_stats[0][8]
+
+    sql """ANALYZE TABLE test_600_partition_table_analyze WITH SYNC"""
+
+    // Data has no change, update time shouldn't be update since this table don't need to analyze again
+    id_col_stats_2 = sql """
+        SHOW COLUMN CACHED STATS test_600_partition_table_analyze(id);
+    """
+
+    assert update_time == id_col_stats_2[0][8]
 
     sql """DROP TABLE IF EXISTS increment_analyze_test"""
     sql """
@@ -1151,4 +1176,8 @@ PARTITION `p599` VALUES IN (599)
         return (r[0][7]).equals(expected_value)
     }
     expected_max(max, "测试")
+
+    sql """
+        SHOW ANALYZE 
+    """
 }

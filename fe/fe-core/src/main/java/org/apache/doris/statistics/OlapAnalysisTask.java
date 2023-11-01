@@ -127,6 +127,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     protected void doFull() throws Exception {
         Set<String> partitionNames = info.colToPartitions.get(info.colName);
         if (partitionNames.isEmpty()) {
+            job.appendBuf(this, Collections.emptyList());
             return;
         }
         Map<String, String> params = new HashMap<>();
