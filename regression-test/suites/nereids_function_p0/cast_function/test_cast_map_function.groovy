@@ -17,7 +17,8 @@
 
 suite("test_cast_map_function", "query") {
     sql """ set enable_nereids_planner = true; """
-    def tableName = "tbl_test_cast_map_function"
+    sql """ set enable_fallback_to_original_planner=false; """ 
+    def tableName = "tbl_test_cast_map_function_nereids"
 
     sql """DROP TABLE IF EXISTS ${tableName}"""
     sql """
