@@ -342,9 +342,13 @@ public class CastExpr extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (isImplicit) {
-            return;
-        }
+        // The implicit cast may not be analyzed due to a bug in the reset function of Expr.
+        // The bug is as follows:
+        //     The reset function returns the updated expr,
+        //     but the caller mistakenly assumes that it updates itself.
+        // if (isImplicit) {
+        //     return;
+        // }
         // When cast target type is string and it's length is default -1, the result length
         // of cast is decided by child.
         if (targetTypeDef.getType().isScalarType()) {
