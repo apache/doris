@@ -18,6 +18,11 @@
 suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docker_mysql") {
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String mysql_57_port = context.config.otherConfigs.get("mysql_57_port")
         String jdbcResourceMysql57 = "jdbc_resource_mysql_57_x"
@@ -25,10 +30,10 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
         String exMysqlTable = "doris_ex_tb";
         String exMysqlTable1 = "doris_ex_tb1";
         String exMysqlTable2 = "doris_ex_tb2";
-	String exMysqlTypeTable = "doris_ex_type_tb";
-        String inDorisTable = "doris_in_tb";
-        String inDorisTable1 = "doris_in_tb1";
-        String inDorisTable2 = "doris_in_tb2";
+	    String exMysqlTypeTable = "doris_ex_type_tb";
+        String inDorisTable = "test_jdbc_mysql_doris_in_tb";
+        String inDorisTable1 = "test_jdbc_mysql_doris_in_tb1";
+        String inDorisTable2 = "test_jdbc_mysql_doris_in_tb2";
 
         sql """drop resource if exists $jdbcResourceMysql57;"""
         sql """
@@ -37,8 +42,8 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
                 "type"="jdbc",
                 "user"="root",
                 "password"="123456",
-                "jdbc_url"="jdbc:mysql://127.0.0.1:$mysql_57_port/doris_test",
-                "driver_url"="https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+                "jdbc_url"="jdbc:mysql://${externalEnvIp}:$mysql_57_port/doris_test",
+                "driver_url"="${driver_url}",
                 "driver_class"="com.mysql.cj.jdbc.Driver"
             );
             """
@@ -669,22 +674,22 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
               sum(case when capital_type = '2' and petty_cash_type = '2' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_recharge_amount,
               sum(case when capital_type = '2' and petty_cash_type = '3' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_return_amount,
               sum(case when capital_type = '3' then IFNULL(need_actual_amount, 0.00) else 0.00 end) as return_goods_amount,
-              GROUP_CONCAT(distinct cast(supplier_id as varchar (12))) supplier_id_list
+              GROUP_CONCAT(cast(supplier_id as varchar (12)) order by supplier_id) supplier_id_list
        from tmp_media_purchase group by media_order_id),
-        t2 as (select media_order_id, GROUP_CONCAT(distinct (case agent_policy_type 
+        t2 as (select media_order_id, GROUP_CONCAT((case agent_policy_type 
         when '1' then 'A' when '2' then 'B' when '3' then 'C' when '4' then 'D' when '5' then 'E' when '6' then 'F'
         when '7' then 'G' when '8' then 'H' when '9' then 'I' when '10' then 'J' when '11' then 'K' when '12' then 'L'
-        when '13' then 'M'  else agent_policy_type end)) agent_policy_type_list
+        when '13' then 'M'  else agent_policy_type end) order by agent_policy_type) agent_policy_type_list
        from tmp_media_purchase group by media_order_id),
-       t3 as (select media_order_id, GROUP_CONCAT(distinct cast(agent_policy as varchar (12))) agent_policy_list
+       t3 as (select media_order_id, GROUP_CONCAT(cast(agent_policy as varchar (12)) order by agent_policy) agent_policy_list
        from tmp_media_purchase group by media_order_id),
-       t4 as (select media_order_id, GROUP_CONCAT(distinct (case capital_type
-        when '1' then 'A' when '2' then 'B' when '3' then 'C' else capital_type end)) capital_type_list
+       t4 as (select media_order_id, GROUP_CONCAT((case capital_type
+        when '1' then 'A' when '2' then 'B' when '3' then 'C' else capital_type end) order by capital_type) capital_type_list
        from tmp_media_purchase group by media_order_id),
-       t5 as (select media_order_id, GROUP_CONCAT(distinct (case petty_cash_type
-        when '1' then 'A' when '2' then 'B' when '3' then 'C' else petty_cash_type end)) petty_cash_type_list
+       t5 as (select media_order_id, GROUP_CONCAT((case petty_cash_type
+        when '1' then 'A' when '2' then 'B' when '3' then 'C' else petty_cash_type end) order by petty_cash_type) petty_cash_type_list
        from tmp_media_purchase group by media_order_id),
-       t6 as (select media_order_id, GROUP_CONCAT(distinct `name`) company_name_list
+       t6 as (select media_order_id, GROUP_CONCAT(`name` order by `name`) company_name_list
             from tmp_media_purchase group by media_order_id)
         select distinct tmp_media_purchase.`media_order_id`,
                 first_payment_date,
@@ -913,7 +918,7 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
         order_qt_sql93 """ SELECT CASE k8 WHEN 1 THEN CAST(1 AS decimal(4,1)) WHEN 2 THEN CAST(1 AS decimal(4,2)) 
                             ELSE CAST(1 AS decimal(4,3)) END FROM $jdbcMysql57Table1 limit 3"""
         order_qt_sql95 """ SELECT * from (SELECT k8 FROM $jdbcMysql57Table1 UNION (SELECT id as k8 FROM ${exMysqlTable}  UNION SELECT k7 as k8 FROM $jdbcMysql57Table1) 
-                            UNION ALL SELECT products_id as k8 FROM $exMysqlTable1 ORDER BY k8 limit 3) as a  limit 3"""
+                            UNION ALL SELECT products_id as k8 FROM $exMysqlTable1 ORDER BY k8 limit 3) as a  order by k8 limit 3"""
         order_qt_sql100 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 WHERE EXISTS(SELECT max(id) FROM ${exMysqlTable}) """
         order_qt_sql103 """ SELECT count(*) FROM $jdbcMysql57Table1 n WHERE (SELECT count(*) FROM ${exMysqlTable} r WHERE n.k8 = r.id) > 1 """
         order_qt_sql105 """ SELECT count(*) AS numwait FROM $jdbcMysql57Table1 l1 WHERE

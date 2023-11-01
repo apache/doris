@@ -200,6 +200,8 @@ private:
     // If this is set to false, and '_is_report_success' is false as well,
     // This executor will not report status to FE on being cancelled.
     bool _is_report_on_cancel;
+
+    DescriptorTbl* _desc_tbl;
 };
 } // namespace pipeline
 } // namespace doris
