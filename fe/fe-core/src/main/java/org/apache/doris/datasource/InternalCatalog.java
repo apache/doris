@@ -1574,9 +1574,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.storeRowColumn(),
                     binlogConfig, dataProperty.isStorageMediumSpecified());
 
-            // check again
-            olapTable = db.getOlapTableOrDdlException(tableName);
+            // check again.
+            // if we have lock outside, skip the check cuz the table wouldn'tbe delete.
             if (!skipLock) {
+                olapTable = db.getOlapTableOrDdlException(tableName);
                 olapTable.writeLockOrDdlException();
             }
             try {
@@ -1632,8 +1633,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                         }
                     }
                 }
-
-
 
                 if (metaChanged) {
                     throw new DdlException("Table[" + tableName + "]'s meta has been changed. try again.");

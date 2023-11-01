@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TStringLiteral;
 
+import com.github.javaparser.quality.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -119,9 +120,14 @@ public class PartitionExprUtil {
     // different partition name because we have timestamp suffix here.
     // Should check existence of partitions in this table. so need at least readlock
     // first.
+    // @return <newName, newPartitionClause>
+    // @return existPartitionIds will save exist partition's id.
     public static Map<String, AddPartitionClause> getNonExistPartitionAddClause(OlapTable olapTable,
-            ArrayList<TStringLiteral> partitionValues, PartitionInfo partitionInfo)
+            ArrayList<TStringLiteral> partitionValues, PartitionInfo partitionInfo, ArrayList<Long> existPartitionIds)
             throws AnalysisException {
+        Preconditions.checkArgument(!partitionInfo.isMultiColumnPartition(),
+                "now dont support multi key columns in auto-partition.");
+
         Map<String, AddPartitionClause> result = Maps.newHashMap();
         ArrayList<Expr> partitionExprs = partitionInfo.getPartitionExprs();
         PartitionType partitionType = partitionInfo.getType();
@@ -140,7 +146,9 @@ public class PartitionExprUtil {
             filterPartitionValues.add(value);
 
             // check if this key value has been covered by some partition.
-            if (partitionInfo.contains(partitionValue, partitionType)) {
+            Long id = partitionInfo.contains(partitionValue, partitionType);
+            if (id != null) { // found
+                existPartitionIds.add(id);
                 continue;
             }
 

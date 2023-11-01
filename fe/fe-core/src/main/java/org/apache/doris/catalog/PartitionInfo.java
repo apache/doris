@@ -153,61 +153,97 @@ public class PartitionInfo implements Writable {
         }
     }
 
-    // for auto partition. now only support one column.
-    public boolean contains(TStringLiteral key, PartitionType partitionType) throws AnalysisException {
+    // only for auto partition. now only support one column.
+    // @return: null for not contain. otherwise partition id.
+    public Long contains(TStringLiteral key, PartitionType partitionType) throws AnalysisException {
+        if (idToItem.isEmpty() && idToTempItem.isEmpty()) {
+            return null;
+        }
+
         if (partitionType == PartitionType.LIST) {
             PartitionValue keyValue = new PartitionValue(key.getValue());
 
-            List<ListPartitionItem> existPartitions = Stream.of(idToItem, idToTempItem)
-                    .flatMap(map -> map.values().stream())
-                    .map(item -> (ListPartitionItem) item)
-                    .collect(Collectors.toList());
-            if (existPartitions.isEmpty()) {
-                return false;
+            PrimitiveType toType;
+            if (!idToItem.isEmpty()) {
+                PartitionItem aItem = idToItem.values().iterator().next();
+                toType = ((ListPartitionItem) aItem).getItems().get(0).getTypes().get(0);
+            } else {
+                PartitionItem aItem = idToTempItem.values().iterator().next();
+                toType = ((ListPartitionItem) aItem).getItems().get(0).getTypes().get(0);
             }
-            // keyExpr is to check.
-            Preconditions.checkArgument(existPartitions.get(0).getItems().get(0).getKeys().size() == 1);
-            PrimitiveType toType = existPartitions.get(0).getItems().get(0).getTypes().get(0);
             LiteralExpr detectExpr = LiteralExpr.create(keyValue.getStringValue(), Type.fromPrimitiveType(toType));
 
-            for (ListPartitionItem item : existPartitions) {
-                List<PartitionKey> keysListInOneItem = item.getItems(); // a partition item may have multi partition key
-                for (PartitionKey oneKeyForColumns : keysListInOneItem) {
-                    // now only support 1 partition column
-                    LiteralExpr keyExprInItem = oneKeyForColumns.getKeys().get(0);
-                    if (detectExpr.compareLiteral(keyExprInItem) == 0) {
-                        return true;
+            for (Map.Entry<Long, PartitionItem> entry : idToItem.entrySet()) {
+                Long id = entry.getKey();
+                ListPartitionItem item = (ListPartitionItem) (entry.getValue()); // a item is a partiton
+                // in one list partition, there's maybe many acceptable value
+                for (PartitionKey keysInItem : item.getItems()) {
+                    Preconditions.checkArgument(keysInItem.getKeys().size() == 1,
+                            "only support 1 column in auto partition now");
+                    if (detectExpr.compareLiteral(keysInItem.getKeys().get(0)) == 0) {
+                        return id;
+                    }
+                }
+            }
+            for (Map.Entry<Long, PartitionItem> entry : idToTempItem.entrySet()) {
+                Long id = entry.getKey();
+                ListPartitionItem item = (ListPartitionItem) (entry.getValue()); // a item is a partiton
+                // in one list partition, there's maybe many acceptable value
+                for (PartitionKey keysInItem : item.getItems()) {
+                    Preconditions.checkArgument(keysInItem.getKeys().size() == 1,
+                            "only support 1 column in auto partition now");
+                    if (detectExpr.compareLiteral(keysInItem.getKeys().get(0)) == 0) {
+                        return id;
                     }
                 }
             }
         } else if (partitionType == PartitionType.RANGE) {
             PartitionValue keyValue = new PartitionValue(key.getValue());
 
-            List<RangePartitionItem> existPartitions = Stream.of(idToItem, idToTempItem)
-                    .flatMap(map -> map.values().stream())
-                    .map(item -> (RangePartitionItem) item)
-                    .collect(Collectors.toList());
-            if (existPartitions.isEmpty()) {
-                return false;
+            PrimitiveType toType;
+            if (!idToItem.isEmpty()) {
+                PartitionItem aItem = idToItem.values().iterator().next();
+                toType = ((RangePartitionItem) aItem).getItems().lowerEndpoint().getTypes().get(0);
+            } else {
+                PartitionItem aItem = idToTempItem.values().iterator().next();
+                toType = ((RangePartitionItem) aItem).getItems().lowerEndpoint().getTypes().get(0);
             }
-            // keyExpr is to check.
-            Preconditions.checkArgument(existPartitions.get(0).getItems().lowerEndpoint().getKeys().size() == 1);
-            PrimitiveType toType = existPartitions.get(0).getItems().lowerEndpoint().getTypes().get(0);
             LiteralExpr detectExpr = LiteralExpr.create(keyValue.getStringValue(), Type.fromPrimitiveType(toType));
 
-            for (RangePartitionItem item : existPartitions) {
-                Range<PartitionKey> keysListInOneItem = item.getItems();
-                LiteralExpr lowerKey = keysListInOneItem.lowerEndpoint().getKeys().get(0);
-                LiteralExpr upperKey = keysListInOneItem.upperEndpoint().getKeys().get(0);
-                if (upperKey instanceof MaxLiteral
-                        || (detectExpr.compareLiteral(lowerKey) >= 0 && detectExpr.compareLiteral(upperKey) < 0)) {
-                    return true;
+            for (Map.Entry<Long, PartitionItem> entry : idToItem.entrySet()) {
+                Long id = entry.getKey();
+                RangePartitionItem item = (RangePartitionItem) (entry.getValue());
+                // lower/upper for each columns
+                PartitionKey lower = item.getItems().lowerEndpoint();
+                PartitionKey upper = item.getItems().lowerEndpoint();
+                Preconditions.checkArgument(lower.getKeys().size() == 1 && upper.getKeys().size() == 1,
+                        "only support 1 column in auto partition now");
+                LiteralExpr lowerKey = lower.getKeys().get(0);
+                LiteralExpr upperKey = lower.getKeys().get(0);
+                if (detectExpr.compareLiteral(lowerKey) >= 0
+                        && (detectExpr.compareLiteral(upperKey) < 0 || upperKey instanceof MaxLiteral)) {
+                    return id;
+                }
+            }
+            for (Map.Entry<Long, PartitionItem> entry : idToTempItem.entrySet()) {
+                Long id = entry.getKey();
+                RangePartitionItem item = (RangePartitionItem) (entry.getValue());
+                // lower/upper for each columns
+                PartitionKey lower = item.getItems().lowerEndpoint();
+                PartitionKey upper = item.getItems().lowerEndpoint();
+                Preconditions.checkArgument(lower.getKeys().size() == 1 && upper.getKeys().size() == 1,
+                        "only support 1 column in auto partition now");
+                LiteralExpr lowerKey = lower.getKeys().get(0);
+                LiteralExpr upperKey = lower.getKeys().get(0);
+                if (detectExpr.compareLiteral(lowerKey) >= 0
+                        && (detectExpr.compareLiteral(upperKey) < 0 || upperKey instanceof MaxLiteral)) {
+                    return id;
                 }
             }
         } else {
-            throw new AnalysisException("Only support IN/FIXED on checking partition's inclusion");
+            throw new AnalysisException("Only support List/Range on checking partition's inclusion");
         }
-        return false;
+        return null;
     }
 
     public PartitionItem handleNewSinglePartitionDesc(SinglePartitionDesc desc,
