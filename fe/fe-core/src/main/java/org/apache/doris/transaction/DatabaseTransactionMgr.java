@@ -674,6 +674,33 @@ public class DatabaseTransactionMgr {
                     + "] is prepare, not pre-committed.");
         }
 
+        if (transactionState.isPartialUpdate()) {
+            if (is2PC) {
+                Iterator<TableCommitInfo> tableCommitInfoIterator
+                        = transactionState.getIdToTableCommitInfos().values().iterator();
+                while (tableCommitInfoIterator.hasNext()) {
+                    TableCommitInfo tableCommitInfo = tableCommitInfoIterator.next();
+                    long tableId = tableCommitInfo.getTableId();
+                    OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                    if (table != null && table instanceof OlapTable) {
+                        if (!transactionState.checkSchemaCompatibility((OlapTable) table)) {
+                            throw new TransactionCommitFailedException("transaction [" + transactionId
+                                    + "] check schema compatibility failed");
+                        }
+                    }
+                }
+            } else {
+                for (Table table : tableList) {
+                    if (table instanceof OlapTable) {
+                        if (!transactionState.checkSchemaCompatibility((OlapTable) table)) {
+                            throw new TransactionCommitFailedException("transaction [" + transactionId
+                                    + "] check schema compatibility failed");
+                        }
+                    }
+                }
+            }
+        }
+
         Set<Long> errorReplicaIds = Sets.newHashSet();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         Map<Long, Set<Long>> tableToPartition = new HashMap<>();

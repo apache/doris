@@ -45,7 +45,7 @@ suite("test_partial_update_2pc_schema_change", "p0") {
         v3 varchar(20),
         v4 varchar(20),
         v5 varchar(20))
-        UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1
+        UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 4
         PROPERTIES(
             "replication_num" = "1",
             "light_schema_change" = "true",
@@ -151,6 +151,15 @@ suite("test_partial_update_2pc_schema_change", "p0") {
     sql """ alter table ${tableName} modify column v2 varchar(40);"""
     wait_for_schema_change()
 
+    sql """ alter table ${tableName} drop column v3;"""
+    wait_for_schema_change()
+
+    sql """ alter table ${tableName} add column v6 varchar(50);"""
+    wait_for_schema_change()
+
+    sql """ alter table ${tableName} rename column v4 renamed_v4;"""
+    wait_for_schema_change()
+
     streamLoad {
         table "${tableName}"
         set 'column_separator', ','
@@ -167,4 +176,6 @@ suite("test_partial_update_2pc_schema_change", "p0") {
     do_streamload_2pc(txnId, "commit", tableName)
     
     qt_sql """ select * from ${tableName} order by k1;"""
+
+    sql "drop table if exists ${tableName};"
 }

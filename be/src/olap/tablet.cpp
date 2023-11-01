@@ -3109,10 +3109,6 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     }
 
     if (pos > 0) {
-        LOG_INFO(
-                "[Tablet::calc_segment_delete_bitmap] generate_new_block_for_partial_update, pos: "
-                "{}",
-                pos);
         auto partial_update_info = rowset_writer->get_partial_update_info();
         DCHECK(partial_update_info);
         RETURN_IF_ERROR(generate_new_block_for_partial_update(

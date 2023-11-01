@@ -17,7 +17,9 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
@@ -45,8 +47,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -264,6 +268,24 @@ public class TransactionState implements Writable {
     // this msg will be shown in show proc "/transactions/dbId/";
     // no need to persist.
     private String errMsg = "";
+
+    public class SchemaInfo {
+        public List<Column> schema;
+        public int schemaVersion;
+
+        public SchemaInfo(OlapTable olapTable) {
+            Map<Long, MaterializedIndexMeta> indexIdToMeta = olapTable.getIndexIdToMeta();
+            for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
+                schema = indexMeta.getSchema();
+                schemaVersion = indexMeta.getSchemaVersion();
+                break;
+            }
+        }
+    }
+
+    private boolean isPartialUpdate = false;
+    // table id -> schema info
+    private Map<Long, SchemaInfo> txnSchemas = new HashMap<>();
 
     public TransactionState() {
         this.dbId = -1;
@@ -724,5 +746,46 @@ public class TransactionState implements Writable {
 
     public String getErrMsg() {
         return this.errMsg;
+    }
+
+    public void setSchemaForPartialUpdate(OlapTable olapTable) {
+        // the caller should hold the read lock of the table
+        isPartialUpdate = true;
+        txnSchemas.put(olapTable.getId(), new SchemaInfo(olapTable));
+    }
+
+    public boolean isPartialUpdate() {
+        return isPartialUpdate;
+    }
+
+    public SchemaInfo getTxnSchema(long id) {
+        return txnSchemas.get(id);
+    }
+
+    public boolean checkSchemaCompatibility(OlapTable olapTable) {
+        SchemaInfo currentSchemaInfo = new SchemaInfo(olapTable);
+        SchemaInfo txnSchemaInfo = txnSchemas.get(olapTable.getId());
+        if (txnSchemaInfo == null) {
+            return true;
+        }
+        if (txnSchemaInfo.schemaVersion >= currentSchemaInfo.schemaVersion) {
+            return true;
+        }
+        for (Column txnCol : txnSchemaInfo.schema) {
+            if (!txnCol.isVisible() || !txnCol.getType().isStringType()) {
+                continue;
+            }
+            int uniqueId = txnCol.getUniqueId();
+            Optional<Column> currentCol = currentSchemaInfo.schema.stream()
+                    .filter(col -> col.getUniqueId() == uniqueId).findFirst();
+            if (currentCol.isPresent() && currentCol.get().getType().isStringType()) {
+                if (currentCol.get().getStrLen() != txnCol.getStrLen()) {
+                    LOG.warn("Check schema compatibility failed, txnId={}, table={}",
+                            transactionId, olapTable.getName());
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 }
