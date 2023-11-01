@@ -122,7 +122,6 @@ Status DataDir::init() {
                                        "check file exist failed");
     }
 
-    update_trash_capacity();
     RETURN_NOT_OK_STATUS_WITH_WARN(update_capacity(), "update_capacity failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_cluster_id(), "_init_cluster_id failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_capacity_and_create_shards(),
