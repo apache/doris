@@ -19,35 +19,35 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[customer]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((j.i_category = i.i_category))otherCondition=((cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(cast(i_current_price as DECIMALV3(9, 4))))))
-----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN] hashCondition=((s.ss_item_sk = i.i_item_sk))otherCondition=()
---------------------------------------PhysicalDistribute
-----------------------------------------hashJoin[INNER_JOIN] hashCondition=((s.ss_sold_date_sk = d.d_date_sk))otherCondition=()
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[store_sales]
-------------------------------------------PhysicalDistribute
---------------------------------------------hashJoin[INNER_JOIN] hashCondition=((d.d_month_seq = date_dim.d_month_seq))otherCondition=()
-----------------------------------------------PhysicalProject
-------------------------------------------------PhysicalOlapScan[date_dim]
-----------------------------------------------PhysicalDistribute
-------------------------------------------------PhysicalAssertNumRows
---------------------------------------------------PhysicalDistribute
-----------------------------------------------------hashAgg[GLOBAL]
-------------------------------------------------------PhysicalDistribute
---------------------------------------------------------hashAgg[LOCAL]
-----------------------------------------------------------PhysicalProject
-------------------------------------------------------------filter((date_dim.d_moy = 3) and (date_dim.d_year = 2002))
---------------------------------------------------------------PhysicalOlapScan[date_dim]
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[item]
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((s.ss_item_sk = i.i_item_sk))otherCondition=()
 ----------------------------------PhysicalDistribute
-------------------------------------hashAgg[GLOBAL]
+------------------------------------PhysicalProject
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((s.ss_sold_date_sk = d.d_date_sk))otherCondition=()
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------------PhysicalDistribute
+------------------------------------------hashJoin[INNER_JOIN] hashCondition=((d.d_month_seq = date_dim.d_month_seq))otherCondition=()
+--------------------------------------------PhysicalProject
+----------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------------PhysicalDistribute
+----------------------------------------------PhysicalAssertNumRows
+------------------------------------------------PhysicalDistribute
+--------------------------------------------------hashAgg[GLOBAL]
+----------------------------------------------------PhysicalDistribute
+------------------------------------------------------hashAgg[LOCAL]
+--------------------------------------------------------PhysicalProject
+----------------------------------------------------------filter((date_dim.d_moy = 3) and (date_dim.d_year = 2002))
+------------------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalDistribute
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((j.i_category = i.i_category))otherCondition=((cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(cast(i_current_price as DECIMALV3(9, 4))))))
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[item]
 --------------------------------------PhysicalDistribute
-----------------------------------------hashAgg[LOCAL]
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[item]
+----------------------------------------hashAgg[GLOBAL]
+------------------------------------------PhysicalDistribute
+--------------------------------------------hashAgg[LOCAL]
+----------------------------------------------PhysicalProject
+------------------------------------------------PhysicalOlapScan[item]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer_address]

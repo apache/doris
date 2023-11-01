@@ -106,6 +106,6 @@ order by c_last_name
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.24"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
-    
-     assertEquals("RF5[sr_item_sk->[ss_item_sk],RF6[sr_ticket_number->[ss_ticket_number],RF4[i_item_sk->[ss_item_sk],RF2[ca_zip->[s_zip],RF3[ca_address_sk->[c_current_addr_sk],RF1[c_customer_sk->[ss_customer_sk],RF0[s_store_sk->[ss_store_sk]", getRuntimeFilters(plan))
+
+     assertEquals("RF5[sr_item_sk->[ss_item_sk],RF6[sr_ticket_number->[ss_ticket_number],RF4[i_item_sk->[ss_item_sk],RF2[ca_zip->[s_zip],RF3[c_customer_sk->[ss_customer_sk],RF1[s_store_sk->[ss_store_sk],RF0[ca_address_sk->[c_current_addr_sk]", getRuntimeFilters(plan))
 }
