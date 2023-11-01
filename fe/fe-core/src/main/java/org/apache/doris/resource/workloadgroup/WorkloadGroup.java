@@ -103,7 +103,12 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             properties.put(ENABLE_MEMORY_OVERCOMMIT, properties.get(ENABLE_MEMORY_OVERCOMMIT).toLowerCase());
         }
         if (properties.containsKey(CPU_HARD_LIMIT)) {
-            this.cpuHardLimit = Integer.parseInt(properties.get(CPU_HARD_LIMIT));
+            String cpuHardLimitStr = properties.get(CPU_HARD_LIMIT);
+            if (cpuHardLimitStr.endsWith("%")) {
+                cpuHardLimitStr = cpuHardLimitStr.substring(0, cpuHardLimitStr.length() - 1);
+            }
+            this.cpuHardLimit = Integer.parseInt(cpuHardLimitStr);
+            this.properties.put(CPU_HARD_LIMIT, cpuHardLimitStr);
         }
     }
 
@@ -193,6 +198,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
         if (properties.containsKey(CPU_HARD_LIMIT)) {
             String cpuHardLimit = properties.get(CPU_HARD_LIMIT);
+            if (cpuHardLimit.endsWith("%")) {
+                cpuHardLimit = cpuHardLimit.substring(0, cpuHardLimit.length() - 1);
+            }
             if (!StringUtils.isNumeric(cpuHardLimit) || Long.parseLong(cpuHardLimit) <= 0) {
                 throw new DdlException(CPU_HARD_LIMIT + " " + cpuHardLimit + " requires a positive integer.");
             }
@@ -271,7 +279,11 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public void getProcNodeData(BaseProcResult result) {
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            result.addRow(Lists.newArrayList(String.valueOf(id), name, entry.getKey(), entry.getValue()));
+            if (CPU_HARD_LIMIT.equals(entry.getKey())) {
+                result.addRow(Lists.newArrayList(String.valueOf(id), name, entry.getKey(), entry.getValue() + "%"));
+            } else {
+                result.addRow(Lists.newArrayList(String.valueOf(id), name, entry.getKey(), entry.getValue()));
+            }
         }
     }
 
