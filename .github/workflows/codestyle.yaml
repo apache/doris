@@ -22,8 +22,8 @@ on:
   pull_request:
 
 jobs:
-  java-codestyle:
-    name: "Code Style"
+  java-checkstyle:
+    name: "CheckStyle"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
