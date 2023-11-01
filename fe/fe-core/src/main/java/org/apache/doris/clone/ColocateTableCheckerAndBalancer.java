@@ -442,11 +442,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 if (relocateAndBalance(groupId, tag, unavailableBeIdsInGroup, availableBeIds, colocateIndex,
                         infoService, statistic, globalColocateStatistic, balancedBackendsPerBucketSeq,
                         balanceBetweenGroups)) {
-                    if (!colocateIndex.addBackendsPerBucketSeqByTag(groupId, tag, balancedBackendsPerBucketSeq)) {
-                        LOG.warn("relocate group {} succ, but replica allocation has change, old replica alloc {}",
-                                groupId, replicaAlloc);
-                        continue;
-                    }
+                    colocateIndex.addBackendsPerBucketSeqByTag(groupId, tag, balancedBackendsPerBucketSeq);
                     changeGroups.add(groupId);
                     Map<Tag, List<List<Long>>> balancedBackendsPerBucketSeqMap = Maps.newHashMap();
                     balancedBackendsPerBucketSeqMap.put(tag, balancedBackendsPerBucketSeq);

@@ -294,6 +294,7 @@ public class UtFrameUtils {
         diskInfo1.setTotalCapacityB(10L << 30);
         diskInfo1.setAvailableCapacityB(5L << 30);
         diskInfo1.setDataUsedCapacityB(480000);
+        diskInfo1.setPathHash(be.getId());
         disks.put(diskInfo1.getRootPath(), diskInfo1);
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(true);
