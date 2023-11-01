@@ -48,7 +48,7 @@ public class GroupExpressionMatchingTest {
     public void testLeafNode() {
         Pattern pattern = new Pattern<>(PlanType.LOGICAL_UNBOUND_RELATION);
 
-        Memo memo = new Memo(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test")));
+        Memo memo = new Memo(null, new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test")));
 
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
@@ -69,7 +69,7 @@ public class GroupExpressionMatchingTest {
         LogicalProject root = new LogicalProject(ImmutableList
                 .of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 leaf);
-        Memo memo = new Memo(root);
+        Memo memo = new Memo(null, root);
 
         Plan anotherLeaf = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test2"));
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
@@ -100,7 +100,7 @@ public class GroupExpressionMatchingTest {
         LogicalProject root = new LogicalProject(ImmutableList
                 .of(new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 leaf);
-        Memo memo = new Memo(root);
+        Memo memo = new Memo(null, root);
 
         Plan anotherLeaf = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test2"));
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
@@ -122,7 +122,7 @@ public class GroupExpressionMatchingTest {
     public void testLeafAny() {
         Pattern pattern = Pattern.ANY;
 
-        Memo memo = new Memo(new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test")));
+        Memo memo = new Memo(null, new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test")));
 
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
@@ -140,7 +140,7 @@ public class GroupExpressionMatchingTest {
                 ImmutableList.of(new SlotReference("name", StringType.INSTANCE, true,
                         ImmutableList.of("test"))),
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test")));
-        Memo memo = new Memo(root);
+        Memo memo = new Memo(null, root);
 
         Plan anotherLeaf = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("test2"));
         memo.copyIn(anotherLeaf, memo.getRoot().getLogicalExpression().child(0), false);
@@ -165,7 +165,7 @@ public class GroupExpressionMatchingTest {
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("b"))
         );
 
-        Memo memo = new Memo(root);
+        Memo memo = new Memo(null, root);
 
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(patterns().innerLogicalJoin().pattern,
@@ -187,7 +187,7 @@ public class GroupExpressionMatchingTest {
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("b"))
         );
 
-        Memo memo = new Memo(root);
+        Memo memo = new Memo(null, root);
 
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(patterns().innerLogicalJoin().pattern,
@@ -204,7 +204,7 @@ public class GroupExpressionMatchingTest {
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("b"))
         );
 
-        Memo memo = new Memo(root);
+        Memo memo = new Memo(null, root);
 
         Pattern pattern = patterns()
                 .innerLogicalJoin(patterns().logicalFilter(), patterns().any()).pattern;
@@ -332,7 +332,7 @@ public class GroupExpressionMatchingTest {
     }
 
     private Iterator<Plan> match(Plan root, Pattern pattern) {
-        Memo memo = new Memo(root);
+        Memo memo = new Memo(null, root);
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(pattern, memo.getRoot().getLogicalExpression());
         return groupExpressionMatching.iterator();
