@@ -307,6 +307,18 @@ public:
 
     int num_per_fragment_instances() const { return _num_per_fragment_instances; }
 
+    void set_load_stream_per_node(int load_stream_per_node) {
+        _load_stream_per_node = load_stream_per_node;
+    }
+
+    int load_stream_per_node() const { return _load_stream_per_node; }
+
+    void set_total_load_streams(int total_load_streams) {
+        _total_load_streams = total_load_streams;
+    }
+
+    int total_load_streams() const { return _total_load_streams; }
+
     bool disable_stream_preaggregations() const {
         return _query_options.disable_stream_preaggregations;
     }
@@ -539,6 +551,8 @@ private:
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;
+    int _load_stream_per_node = 0;
+    int _total_load_streams = 0;
 
     // The backend id on which this fragment instance runs
     int64_t _backend_id = -1;

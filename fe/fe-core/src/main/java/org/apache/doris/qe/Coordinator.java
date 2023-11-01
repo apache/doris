@@ -78,6 +78,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerScanRange;
+import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TErrorTabletInfo;
@@ -705,6 +706,7 @@ public class Coordinator implements CoordInterface {
             int backendIdx = 0;
             int profileFragmentId = 0;
             long memoryLimit = queryOptions.getMemLimit();
+            Set<Long> backendsWithOlapTableSink = Sets.newHashSet();
             beToExecStates.clear();
             // If #fragments >=2, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
             // else use exec_plan_fragments directly.
@@ -772,7 +774,22 @@ public class Coordinator implements CoordInterface {
                         beToExecStates.putIfAbsent(execState.backend.getId(), states);
                     }
                     states.addState(execState);
+                    if (tParam.getFragment().getOutputSink() != null
+                            && tParam.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK) {
+                        backendsWithOlapTableSink.add(execState.backend.getId());
+                    }
                     ++backendIdx;
+                }
+                int loadStreamPerNode = 1;
+                if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
+                    loadStreamPerNode = ConnectContext.get().getSessionVariable().getLoadStreamPerNode();
+                }
+                for (TExecPlanFragmentParams tParam : tParams) {
+                    if (tParam.getFragment().getOutputSink() != null
+                            && tParam.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK) {
+                        tParam.setLoadStreamPerNode(loadStreamPerNode);
+                        tParam.setTotalLoadStreams(backendsWithOlapTableSink.size() * loadStreamPerNode);
+                    }
                 }
                 profileFragmentId += 1;
             } // end for fragments
@@ -862,6 +879,7 @@ public class Coordinator implements CoordInterface {
                     }
                 }
 
+                Set<Long> backendsWithOlapTableSink = Sets.newHashSet();
                 // 3. group PipelineExecContext by BE.
                 // So that we can use one RPC to send all fragment instances of a BE.
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
@@ -895,7 +913,24 @@ public class Coordinator implements CoordInterface {
                     }
                     ctxs.addContext(pipelineExecContext);
 
+                    if (entry.getValue().getFragment().getOutputSink() != null
+                            && entry.getValue().getFragment().getOutputSink().getType()
+                            == TDataSinkType.OLAP_TABLE_SINK) {
+                        backendsWithOlapTableSink.add(backendId);
+                    }
                     ++backendIdx;
+                }
+                int loadStreamPerNode = 1;
+                if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
+                    loadStreamPerNode = ConnectContext.get().getSessionVariable().getLoadStreamPerNode();
+                }
+                for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
+                    if (entry.getValue().getFragment().getOutputSink() != null
+                            && entry.getValue().getFragment().getOutputSink().getType()
+                            == TDataSinkType.OLAP_TABLE_SINK) {
+                        entry.getValue().setLoadStreamPerNode(loadStreamPerNode);
+                        entry.getValue().setTotalLoadStreams(backendsWithOlapTableSink.size() * loadStreamPerNode);
+                    }
                 }
 
                 profileFragmentId += 1;

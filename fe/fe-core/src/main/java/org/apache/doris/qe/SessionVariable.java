@@ -409,6 +409,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
             "enable_memtable_on_sink_node";
 
+    public static final String LOAD_STREAM_PER_NODE = "load_stream_per_node";
+
     public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
 
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
@@ -1219,6 +1221,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
     public boolean enableMemtableOnSinkNode = false;
+
+    @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
+    public int loadStreamPerNode = 20;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_GROUP_COMMIT)
     public boolean enableInsertGroupCommit = false;
@@ -2345,6 +2350,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableUniqueKeyPartialUpdate(boolean enableUniqueKeyPartialUpdate) {
         this.enableUniqueKeyPartialUpdate = enableUniqueKeyPartialUpdate;
+    }
+
+    public int getLoadStreamPerNode() {
+        return loadStreamPerNode;
+    }
+
+    public void setLoadStreamPerNode(int loadStreamPerNode) {
+        this.loadStreamPerNode = loadStreamPerNode;
     }
 
     /**

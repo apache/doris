@@ -749,6 +749,7 @@ message POpenStreamSinkRequest {
     optional POlapTableSchemaParam schema = 4;
     repeated PTabletID tablets = 5;
     optional bool enable_profile = 6 [default = false];
+    optional int64 total_streams = 7;
 }
 
 message PTabletSchemaWithIndex {

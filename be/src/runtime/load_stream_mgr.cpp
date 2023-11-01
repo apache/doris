@@ -60,7 +60,6 @@ Status LoadStreamMgr::open_load_stream(const POpenStreamSinkRequest* request,
             RETURN_IF_ERROR(load_stream->init(request));
             _load_streams_map[load_id] = load_stream;
         }
-        load_stream->add_source(request->src_id());
     }
     return Status::OK();
 }

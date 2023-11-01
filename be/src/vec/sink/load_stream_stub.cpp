@@ -102,11 +102,11 @@ LoadStreamStub::~LoadStreamStub() {
 }
 
 // open_load_stream
-// tablets means
 Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const NodeInfo& node_info, int64_t txn_id,
                             const OlapTableSchemaParam& schema,
-                            const std::vector<PTabletID>& tablets_for_schema, bool enable_profile) {
+                            const std::vector<PTabletID>& tablets_for_schema, int total_streams,
+                            bool enable_profile) {
     _num_open++;
     std::unique_lock<bthread::Mutex> lock(_mutex);
     if (_is_init.load()) {
@@ -130,6 +130,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     request.set_src_id(_src_id);
     request.set_txn_id(txn_id);
     request.set_enable_profile(enable_profile);
+    request.set_total_streams(total_streams);
     schema.to_protobuf(request.mutable_schema());
     for (auto& tablet : tablets_for_schema) {
         *request.add_tablets() = tablet;
