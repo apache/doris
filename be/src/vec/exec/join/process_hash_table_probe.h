@@ -68,23 +68,12 @@ struct ProcessHashTableProbe {
     // and output block may be different
     // The output result is determined by the other join conjunct result and same_to_prev struct
     Status do_other_join_conjuncts(Block* output_block, bool is_mark_join,
-                                   int multi_matched_output_row_count, bool is_the_last_sub_block);
-
-    void _process_splited_equal_matched_tuples(int start_row_idx, int row_count,
-                                               const UInt8* __restrict other_hit_column,
-                                               UInt8* __restrict null_map_data,
-                                               UInt8* __restrict filter_map, Block* output_block);
-
-    void _emplace_element(int32_t block_row, int& current_offset);
+                                   bool is_the_last_sub_block, std::vector<uint8_t>& visited);
 
     template <typename HashTableType>
     typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
                                                    bool with_other_join_conjuncts,
                                                    const uint8_t* null_map);
-
-    template <typename Mapped, bool with_other_join_conjuncts>
-    ForwardIterator<Mapped>& _probe_row_match(int& current_offset, int& probe_index,
-                                              size_t& probe_size, bool& all_match_one);
 
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
@@ -111,12 +100,8 @@ struct ProcessHashTableProbe {
     std::unique_ptr<Arena> _serialize_key_arena;
     std::vector<char> _probe_side_find_result;
 
-    std::vector<bool*> _visited_map;
-    std::vector<bool> _same_to_prev;
-
     int _right_col_idx;
     int _right_col_len;
-    int _row_count_from_last_probe;
 
     bool _have_other_join_conjunct;
     bool _is_right_semi_anti;
