@@ -6020,7 +6020,7 @@ true
 11	{12:"string3"}
 
 -- !sql_array_agg --
-\N	[NULL]
+\N	[null]
 0	[1]
 1	[2]
 2	[3]

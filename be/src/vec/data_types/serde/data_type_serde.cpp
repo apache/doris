@@ -21,7 +21,6 @@
 
 namespace doris {
 namespace vectorized {
-DataTypeSerDe::DataTypeSerDe() = default;
 DataTypeSerDe::~DataTypeSerDe() = default;
 
 DataTypeSerDeSPtrs create_data_type_serdes(const DataTypes& types) {
