@@ -278,8 +278,9 @@ TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
         formatOptions.map_key_delim = '\003';
 
         string str =
-                "10\003key10\005100\004abcd\0051\002100\003key100\005100\004abcd\0052\0021000\003ke"
-                "y1000\0051000\004abcd\0053";
+                "10\003\"key10\"\005100\004\"abcd\"\0051\002100\003\"key100\"\005100\004\"abcd\""
+                "\0052\0021000\003\"ke"
+                "y1000\"\0051000\004\"abcd\"\0053";
 
         DataTypePtr data_type_ptr = std::make_shared<DataTypeMap>(
                 make_nullable(std::make_shared<DataTypeInt32>()),
@@ -309,7 +310,7 @@ TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
         formatOptions.collection_delim = '\002';
         formatOptions.map_key_delim = '\003';
 
-        string str = "500\005true\00410\005true\004100\005true";
+        string str = "500\005\"true\"\00410\005\"true\"\004100\005\"true\"";
 
         DataTypePtr data_type_ptr = make_nullable(std::make_shared<DataTypeArray>(make_nullable(
                 std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeMap>(
@@ -337,7 +338,8 @@ TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
         formatOptions.map_key_delim = '\003';
 
         string str =
-                "5\0023\004value3\0034\004value4\0035\004value5\002true\003false\0037\0021\0032\003"
+                "5\0023\004\"value3\"\0034\004\"value4\"\0035\004\"value5\"\002\"true\"\003\"false"
+                "\"\0037\0021\0032\003"
                 "3";
         DataTypes substruct_dataTypes;
         substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
@@ -378,7 +380,7 @@ TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
         formatOptions.collection_delim = '\002';
         formatOptions.map_key_delim = '\003';
 
-        string str = "6\003false\004example";
+        string str = "6\003\"false\"\004\"example\"";
         DataTypes substruct_dataTypes;
         substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
         substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));

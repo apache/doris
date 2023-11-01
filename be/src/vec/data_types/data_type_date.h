@@ -77,7 +77,9 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeDate64SerDe>(); }
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeDate64SerDe>(nesting_level);
+    }
 };
 
 } // namespace doris::vectorized

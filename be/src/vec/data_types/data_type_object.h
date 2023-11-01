@@ -83,8 +83,8 @@ public:
         LOG(FATAL) << "Unimplemented get_field for object";
     }
 
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeObjectSerDe>();
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeObjectSerDe>(nesting_level);
     };
 };
 } // namespace doris::vectorized

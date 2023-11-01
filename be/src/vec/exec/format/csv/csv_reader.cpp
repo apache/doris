@@ -628,7 +628,7 @@ Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
     }
     static DataTypeStringSerDe stringSerDe;
     auto st = stringSerDe.deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
-                                                         _options, 1);
+                                                         _options);
     if (!st.ok()) {
         // fill null if fail
         null_column.insert_data(nullptr, 0); // 0 is meaningless here

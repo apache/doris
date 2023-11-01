@@ -35,34 +35,31 @@ class Arena;
 
 Status DataTypeStringSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
                                                      int end_idx, BufferWritable& bw,
-                                                     FormatOptions& options,
-                                                     int nesting_level) const {
+                                                     FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 Status DataTypeStringSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                       BufferWritable& bw, FormatOptions& options,
-                                                       int nesting_level) const {
+                                                       BufferWritable& bw,
+                                                       FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    if (nesting_level > 1) {
+    if (_nesting_level > 1) {
         bw.write('"');
     }
     const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
     bw.write(value.data, value.size);
-    if (nesting_level > 1) {
+    if (_nesting_level > 1) {
         bw.write('"');
     }
     return Status::OK();
 }
 
-Status DataTypeStringSerDe::deserialize_column_from_json_vector(IColumn& column,
-                                                                std::vector<Slice>& slices,
-                                                                int* num_deserialized,
-                                                                const FormatOptions& options,
-                                                                int nesting_level) const {
+Status DataTypeStringSerDe::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
@@ -90,8 +87,7 @@ static void escape_string(const char* src, size_t& len, char escape_char) {
 }
 
 Status DataTypeStringSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                           const FormatOptions& options,
-                                                           int nesting_level) const {
+                                                           const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnString&>(column);
 
     /*
@@ -105,7 +101,7 @@ Status DataTypeStringSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
      * remove the double quotes to display { "abc" : 1, "hello",2 }.
      *
      */
-    if (nesting_level >= 2) {
+    if (_nesting_level >= 2) {
         slice.trim_quote();
     }
     if (options.escape_char != 0) {

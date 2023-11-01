@@ -93,7 +93,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
-    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeJsonbSerDe>(); };
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeJsonbSerDe>(nesting_level);
+    };
 
 private:
     DataTypeString data_type_string;
