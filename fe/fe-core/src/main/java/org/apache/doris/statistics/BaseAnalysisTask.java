@@ -242,7 +242,7 @@ public abstract class BaseAnalysisTask {
     // Min value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
     protected String getMinFunction() {
         if (tableSample == null) {
-            return "MIN(CAST(min AS ${type}))";
+            return "CAST(MIN(`${colName}`) as ${type}) ";
         } else {
             return "NULL ";
         }
@@ -251,7 +251,7 @@ public abstract class BaseAnalysisTask {
     // Max value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
     protected String getMaxFunction() {
         if (tableSample == null) {
-            return "MAX(CAST(min AS ${type}))";
+            return "CAST(MAX(`${colName}`) as ${type}) ";
         } else {
             return "NULL ";
         }
