@@ -690,5 +690,6 @@ private:
     int64_t _tb_id;
     int64_t _db_id;
     int64_t _wal_id;
+    uint32_t _version = 0;
 };
 } // namespace doris::vectorized

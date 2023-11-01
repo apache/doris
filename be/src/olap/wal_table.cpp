@@ -23,6 +23,8 @@
 #include <event2/http.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <thread>
+
 #include "evhttp.h"
 #include "http/action/stream_load.h"
 #include "http/ev_http_server.h"
@@ -87,6 +89,12 @@ Status WalTable::replay_wals() {
         std::sort(need_replay_wals.begin(), need_replay_wals.end());
     }
     for (const auto& wal : need_replay_wals) {
+        {
+            std::lock_guard<std::mutex> lock(_replay_wal_lock);
+            if (_stop) {
+                break;
+            }
+        }
         auto st = replay_wal_internal(wal);
         if (!st.ok()) {
             std::lock_guard<std::mutex> lock(_replay_wal_lock);
@@ -137,6 +145,26 @@ bool WalTable::need_replay(const doris::WalTable::replay_wal_info& info) {
 #endif
 }
 
+Status WalTable::abort_txn(int64_t db_id, int64_t wal_id) {
+    TLoadTxnRollbackRequest request;
+    request.__set_auth_code(0); // this is a fake, fe not check it now
+    request.__set_db_id(db_id);
+    request.__set_txnId(wal_id);
+    std::string reason = "relay wal " + std::to_string(wal_id);
+    request.__set_reason(reason);
+    TLoadTxnRollbackResult result;
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    auto st = ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, &result](FrontendServiceConnection& client) {
+                client->loadTxnRollback(result, request);
+            },
+            10000L);
+    auto result_status = Status::create(result.status);
+    LOG(INFO) << "abort txn " << wal_id << ",st:" << st << ",result_status:" << result_status;
+    return result_status;
+}
+
 Status WalTable::replay_wal_internal(const std::string& wal) {
     LOG(INFO) << "Start replay wal for db=" << _db_id << ", table=" << _table_id << ", wal=" << wal;
     // start a new stream load
@@ -153,24 +181,48 @@ Status WalTable::replay_wal_internal(const std::string& wal) {
             return Status::OK();
         }
     }
-    auto pair = get_wal_info(wal);
-    auto wal_id = pair.first;
-    auto label = pair.second;
+    // check whether wal need to do recover or not
+    std::shared_ptr<std::pair<int64_t, std::string>> pair = nullptr;
+    RETURN_IF_ERROR(get_wal_info(wal, pair));
+    auto wal_id = pair->first;
+    auto label = pair->second;
+#ifndef BE_TEST
+    bool needRecovery = true;
+    RETURN_IF_ERROR(check_wal_recovery(wal_id, needRecovery));
+    if (!needRecovery) {
+        LOG(INFO) << "wal is already committed, skip recovery, wal=" << wal_id;
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(wal_id));
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(_table_id, wal_id));
+        std::lock_guard<std::mutex> lock(_replay_wal_lock);
+        _replay_wal_map.erase(wal);
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(abort_txn(_db_id, wal_id));
+#endif
     RETURN_IF_ERROR(send_request(wal_id, wal, label));
     return Status::OK();
 }
 
-std::pair<int64_t, std::string> WalTable::get_wal_info(const std::string& wal) {
+Status WalTable::get_wal_info(const std::string& wal,
+                              std::shared_ptr<std::pair<int64_t, std::string>>& pair) {
     std::vector<std::string> path_element;
     doris::vectorized::WalReader::string_split(wal, "/", path_element);
     auto pos = path_element[path_element.size() - 1].find("_");
-    int64_t wal_id =
-            std::strtoll(path_element[path_element.size() - 1].substr(0, pos).c_str(), NULL, 10);
-    auto label = path_element[path_element.size() - 1].substr(pos + 1);
-    return std::make_pair(wal_id, label);
+    try {
+        int64_t wal_id = std::strtoll(path_element[path_element.size() - 1].substr(0, pos).c_str(),
+                                      NULL, 10);
+        auto label = path_element[path_element.size() - 1].substr(pos + 1);
+        pair = std::make_shared<std::pair<int64_t, std::string>>(std::make_pair(wal_id, label));
+    } catch (const std::invalid_argument& e) {
+        return Status::InvalidArgument("Invalid format, {}", e.what());
+    }
+    return Status::OK();
 }
 
 void http_request_done(struct evhttp_request* req, void* arg) {
+    LOG(INFO) << "Start sleeping...";
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+    LOG(INFO) << "Wake up!";
     event_base_loopbreak((struct event_base*)arg);
 }
 
@@ -251,10 +303,57 @@ Status WalTable::send_request(int64_t wal_id, const std::string& wal, const std:
     } else {
         LOG(INFO) << "success to replay wal =" << wal << ",status:" << status << ",msg:" << msg;
         RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(wal_id));
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(_table_id, wal_id));
         std::lock_guard<std::mutex> lock(_replay_wal_lock);
         _replay_wal_map.erase(wal);
     }
     return Status::OK();
+}
+
+void WalTable::stop() {
+    bool done = true;
+    do {
+        std::lock_guard<std::mutex> lock(_replay_wal_lock);
+        if (!_stop) {
+            _stop = true;
+        }
+        auto it = _replay_wal_map.begin();
+        for (; it != _replay_wal_map.end(); it++) {
+            auto& [retry_num, start_time, replaying] = it->second;
+            LOG(INFO) << "id:" << it->first << ",replaying:" << replaying;
+            if (replaying) {
+                break;
+            }
+        }
+        if (it != _replay_wal_map.end()) {
+            done = false;
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        } else {
+            done = true;
+        }
+
+    } while (!done);
+}
+
+Status WalTable::check_wal_recovery(int64_t wal_id, bool& needRecovery) {
+    TCheckWalRecoveryRequest request;
+    request.__set_wal_id(wal_id);
+    request.__set_db_id(_db_id);
+    TCheckWalRecoveryResult result;
+    Status status;
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    if (master_addr.hostname.empty() || master_addr.port == 0) {
+        status = Status::InternalError("Have not get FE Master heartbeat yet");
+    } else {
+        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->checkWalRecovery(result, request);
+                }));
+        needRecovery = result.need_recovery;
+        status = Status::create(result.status);
+    }
+    return status;
 }
 
 size_t WalTable::size() {

@@ -91,4 +91,24 @@ Status WalWriter::append_blocks(const PBlockArray& blocks) {
     return Status::OK();
 }
 
+Status WalWriter::append_header(uint32_t version, std::string col_ids) {
+    size_t total_size = 0;
+    unsigned long length = col_ids.size();
+    total_size += VERSION_SIZE;
+    total_size += LENGTH_SIZE;
+    total_size += length;
+    std::string binary(total_size, '\0');
+    char* row_binary = binary.data();
+    size_t offset = 0;
+    memcpy(row_binary + offset, &version, VERSION_SIZE);
+    offset += VERSION_SIZE;
+    memcpy(row_binary + offset, &length, LENGTH_SIZE);
+    offset += LENGTH_SIZE;
+    memcpy(row_binary + offset, col_ids.data(), length);
+    offset += length;
+    DCHECK(offset == total_size);
+    RETURN_IF_ERROR(_file_writer->append({row_binary, offset}));
+    return Status::OK();
+}
+
 } // namespace doris

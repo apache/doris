@@ -40,11 +40,13 @@ public:
 
     Status append_blocks(const PBlockArray& blocks);
     size_t disk_bytes() const { return _disk_bytes.load(std::memory_order_relaxed); };
+    Status append_header(uint32_t version, std::string col_ids);
 
     std::string file_name() { return _file_name; };
     static const int64_t LENGTH_SIZE = 8;
     static const int64_t CHECKSUM_SIZE = 4;
     doris::ConditionVariable cv;
+    static const int64_t VERSION_SIZE = 4;
 
 private:
     static constexpr size_t MAX_WAL_WRITE_WAIT_TIME = 1000;

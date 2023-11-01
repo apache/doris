@@ -1225,6 +1225,14 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
         RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_wal_path(_db_id, _tb_id, _wal_id,
                                                                     _state->import_label()));
         RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->create_wal_writer(_wal_id, _wal_writer));
+        state->exec_env()->wal_mgr()->add_wal_status_queue(_tb_id, _wal_id,
+                                                           WalManager::WAL_STATUS::CREATE);
+        std::stringstream ss;
+        for (auto slot_desc : _output_tuple_desc->slots()) {
+            ss << std::to_string(slot_desc->col_unique_id()) << ",";
+        }
+        std::string col_ids = ss.str().substr(0, ss.str().size() - 1);
+        RETURN_IF_ERROR(_wal_writer->append_header(_version, col_ids));
     }
 
     RETURN_IF_ERROR(_init_row_distribution());

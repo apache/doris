@@ -329,10 +329,6 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
         }
-        if (_params->format_type == TFileFormatType::FORMAT_WAL) {
-            block->swap(*_src_block_ptr);
-            break;
-        }
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
         if (read_rows > 0) {
@@ -566,6 +562,34 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     size_t rows = _src_block_ptr->rows();
     auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
+    if (_params->format_type == TFileFormatType::FORMAT_WAL) {
+        auto* wal_reader = dynamic_cast<vectorized::WalReader*>(_cur_reader.get());
+        for (auto slot_desc : _output_tuple_desc->slots()) {
+            auto cid = slot_desc->col_unique_id();
+            auto index = wal_reader->get_index(cid);
+            vectorized::ColumnPtr column_ptr;
+            if (index != -1) {
+                DCHECK(index < _src_block.columns());
+                column_ptr = _src_block.get_by_position(index).column;
+
+            } else {
+                auto& ctx = _dest_vexpr_ctx[ctx_idx];
+                int result_column_id = -1;
+                RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
+                column_ptr = _src_block.get_by_position(result_column_id).column;
+                column_ptr = column_ptr->convert_to_full_column_if_const();
+                if (slot_desc->is_nullable()) {
+                    column_ptr = make_nullable(column_ptr);
+                }
+            }
+            block->insert(ctx_idx, vectorized::ColumnWithTypeAndName(std::move(column_ptr),
+                                                                     slot_desc->get_data_type_ptr(),
+                                                                     slot_desc->col_name()));
+            ctx_idx++;
+        }
+        _src_block_ptr->clear();
+        return Status::OK();
+    }
 
     // After convert, the column_ptr should be copied into output block.
     // Can not use block->insert() because it may cause use_count() non-zero bug

@@ -20,6 +20,7 @@
 #include "common/logging.h"
 #include "olap/wal_manager.h"
 #include "runtime/runtime_state.h"
+#include "vec/data_types/data_type_string.h"
 namespace doris::vectorized {
 WalReader::WalReader(RuntimeState* state) : _state(state) {
     _wal_id = state->wal_id();
@@ -71,7 +72,28 @@ void WalReader::string_split(const std::string& str, const std::string& splits,
 
 Status WalReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                               std::unordered_set<std::string>* missing_cols) {
+    RETURN_IF_ERROR(_wal_reader->read_header(_version, _col_ids));
+    std::vector<std::string> col_element;
+    string_split(_col_ids, ",", col_element);
+    int32_t index = 0;
+    for (auto col : col_element) {
+        try {
+            auto col_id = std::stoi(col);
+            _col_id_to_index_map.emplace(col_id, index);
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid format, {}", e.what());
+        }
+        index++;
+    }
     return Status::OK();
+}
+
+int32_t WalReader::get_index(int32_t col_id) {
+    auto it = _col_id_to_index_map.find(col_id);
+    if (it != _col_id_to_index_map.end()) {
+        return it->second;
+    }
+    return -1;
 }
 
 } // namespace doris::vectorized

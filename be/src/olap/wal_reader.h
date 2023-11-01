@@ -32,6 +32,7 @@ public:
     Status finalize();
 
     Status read_block(PBlock& block);
+    Status read_header(uint32_t& version, std::string& col_ids);
 
 private:
     Status _deserialize(PBlock& block, std::string& buf);

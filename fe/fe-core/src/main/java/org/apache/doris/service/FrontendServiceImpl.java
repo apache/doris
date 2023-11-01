@@ -116,6 +116,8 @@ import org.apache.doris.thrift.TBeginTxnResult;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TCheckAuthRequest;
 import org.apache.doris.thrift.TCheckAuthResult;
+import org.apache.doris.thrift.TCheckWalRecoveryRequest;
+import org.apache.doris.thrift.TCheckWalRecoveryResult;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
@@ -3477,6 +3479,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Throwable e) {
             throw e;
         }
+    }
+
+    @Override
+    public TCheckWalRecoveryResult checkWalRecovery(TCheckWalRecoveryRequest request) {
+        TCheckWalRecoveryResult result = new TCheckWalRecoveryResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        boolean res = true;
+        try {
+            res = Env.getCurrentEnv().getGroupCommitManager()
+                    .needRecovery(request.getDbId(), request.getWalId());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+        result.setNeedRecovery(res);
+        return result;
     }
 
     public TGetBackendMetaResult getBackendMeta(TGetBackendMetaRequest request) throws TException {

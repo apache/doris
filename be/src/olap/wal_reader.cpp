@@ -71,6 +71,25 @@ Status WalReader::read_block(PBlock& block) {
     return Status::OK();
 }
 
+Status WalReader::read_header(uint32_t& version, std::string& col_ids) {
+    size_t bytes_read = 0;
+    uint8_t version_buf[WalWriter::VERSION_SIZE];
+    RETURN_IF_ERROR(
+            file_reader->read_at(_offset, {version_buf, WalWriter::VERSION_SIZE}, &bytes_read));
+    _offset += WalWriter::VERSION_SIZE;
+    memcpy(&version, version_buf, WalWriter::VERSION_SIZE);
+    uint8_t len_buf[WalWriter::LENGTH_SIZE];
+    RETURN_IF_ERROR(file_reader->read_at(_offset, {len_buf, WalWriter::LENGTH_SIZE}, &bytes_read));
+    _offset += WalWriter::LENGTH_SIZE;
+    size_t len;
+    memcpy(&len, len_buf, WalWriter::LENGTH_SIZE);
+    col_ids.resize(len);
+    RETURN_IF_ERROR(file_reader->read_at(_offset, col_ids, &bytes_read));
+    _offset += len;
+    DCHECK(len == bytes_read);
+    return Status::OK();
+}
+
 Status WalReader::_deserialize(PBlock& block, std::string& buf) {
     if (UNLIKELY(!block.ParseFromString(buf))) {
         return Status::InternalError("failed to deserialize row");

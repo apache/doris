@@ -47,6 +47,7 @@ import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.GroupCommitManager.SchemaChangeStatus;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -322,7 +323,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 } else {
                     // only show at most 3 results
                     List<String> subList = countDownLatch.getLeftMarks().stream().limit(3)
-                            .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
+                            .map(item -> "(backendId = " + item.getKey() + ", tabletId = " + item.getValue() + ")")
                             .collect(Collectors.toList());
                     errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
                 }
@@ -344,6 +345,20 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.watershedTxnId = Env.getCurrentGlobalTransactionMgr()
                 .getTransactionIDGenerator().getNextTransactionId();
         this.jobState = JobState.WAITING_TXN;
+        // wait wal done here
+        List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        boolean walFinished = Env.getCurrentEnv().getGroupCommitManager()
+                .isPreviousWalFinished(tableId, watershedTxnId, aliveBeIds);
+        while (!walFinished) {
+            LOG.info("wai for wal queue size to be empty");
+            walFinished = Env.getCurrentEnv().getGroupCommitManager()
+                    .isPreviousWalFinished(tableId, watershedTxnId, aliveBeIds);
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException ie) {
+                LOG.info("schema change job sleep wait InterruptedException: ", ie);
+            }
+        }
 
         // write edit log
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
@@ -529,7 +544,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     int failedTaskCount = failedAgentTasks.get(task.getTabletId()).size();
                     if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
                         throw new AlterCancelException("schema change tasks failed on same tablet reach threshold "
-                                    + failedAgentTasks.get(task.getTabletId()));
+                                + failedAgentTasks.get(task.getTabletId()));
                     }
                 }
             }
@@ -596,6 +611,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
+        Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.NORMAL);
     }
 
     private void onFinished(OlapTable tbl) {
@@ -700,6 +716,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when cancel, table id: {}, job id: {}", tableId, jobId);
+        Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.NORMAL);
 
         return true;
     }
@@ -776,6 +793,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
             // set table state
             olapTable.setState(OlapTableState.SCHEMA_CHANGE);
+            Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.BLOCK);
         } finally {
             olapTable.writeUnlock();
         }
@@ -783,6 +801,20 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.watershedTxnId = replayedJob.watershedTxnId;
         jobState = JobState.PENDING;
         LOG.info("replay pending schema change job: {}, table id: {}", jobId, tableId);
+        // wait wal done here
+        List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        boolean walFinished = Env.getCurrentEnv().getGroupCommitManager()
+                .isPreviousWalFinished(tableId, watershedTxnId, aliveBeIds);
+        while (!walFinished) {
+            LOG.info("wai for wal queue size to be empty");
+            walFinished = Env.getCurrentEnv().getGroupCommitManager()
+                    .isPreviousWalFinished(tableId, watershedTxnId, aliveBeIds);
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException ie) {
+                LOG.info("schema change job sleep wait InterruptedException: ", ie);
+            }
+        }
     }
 
     /**
@@ -828,6 +860,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("replay finished schema change job: {} table id: {}", jobId, tableId);
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when replay finished, table id: {}, job id: {}", tableId, jobId);
+        Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.NORMAL);
     }
 
     /**
@@ -841,6 +874,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("replay cancelled schema change job: {}", jobId);
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when replay cancelled, table id: {}, job id: {}", tableId, jobId);
+        Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.NORMAL);
     }
 
     @Override

@@ -37,11 +37,14 @@ public:
     void add_wals(std::vector<std::string> wals);
     Status replay_wals();
     size_t size();
+    void stop();
 
 private:
-    std::pair<int64_t, std::string> get_wal_info(const std::string& wal);
+    Status get_wal_info(const std::string& wal, std::shared_ptr<std::pair<int64_t, std::string>>&);
     std::string get_tmp_path(const std::string wal);
     Status send_request(int64_t wal_id, const std::string& wal, const std::string& label);
+    Status abort_txn(int64_t _db_id, int64_t wal_id);
+    Status check_wal_recovery(int64_t wal_id, bool& needRecovery);
 
 private:
     ExecEnv* _exec_env;
@@ -54,5 +57,6 @@ private:
     std::map<std::string, replay_wal_info> _replay_wal_map;
     bool need_replay(const replay_wal_info& info);
     Status replay_wal_internal(const std::string& wal);
+    bool _stop = false;
 };
 } // namespace doris
