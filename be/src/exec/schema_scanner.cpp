@@ -60,8 +60,6 @@
 namespace doris {
 class ObjectPool;
 
-DorisServer* SchemaScanner::_s_doris_server;
-
 SchemaScanner::SchemaScanner(const std::vector<ColumnDesc>& columns)
         : _is_init(false),
           _param(nullptr),

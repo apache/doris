@@ -193,13 +193,13 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
             RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, null_datas));
         }
     }
-    //     table_id
+    //  table_id
     {
         int64_t srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             if (_table_result.tables[i].__isset.id) {
                 srcs[i] = _table_result.tables[i].id;
-                datas[i] = &srcs;
+                datas[i] = srcs + i;
             } else {
                 datas[i] = nullptr;
             }
