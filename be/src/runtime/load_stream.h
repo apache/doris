@@ -131,6 +131,7 @@ private:
     int32_t _total_streams = 0;
     int32_t _close_load_cnt = 0;
     std::atomic<int32_t> _close_rpc_cnt = 0;
+    std::vector<PTabletID> _tablets_to_commit;
     bthread::Mutex _lock;
     int64_t _txn_id = 0;
     std::shared_ptr<OlapTableSchemaParam> _schema;

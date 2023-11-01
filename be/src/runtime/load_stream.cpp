@@ -266,7 +266,10 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
     _close_load_cnt++;
     LOG(INFO) << "received CLOSE_LOAD from sender " << src_id << ", remaining "
               << _total_streams - _close_load_cnt << " senders";
-    
+
+    _tablets_to_commit.insert(_tablets_to_commit.end(), tablets_to_commit.begin(),
+                              tablets_to_commit.end());
+
     if (_close_load_cnt < _total_streams) {
         // do not return commit info if there is remaining streams.
         return Status::OK();
@@ -277,25 +280,24 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
         bthread::Mutex mutex;
         std::unique_lock<bthread::Mutex> lock(mutex);
         bthread::ConditionVariable cond;
-        bool ret = _load_stream_mgr->heavy_work_pool()->try_offer([this, &success_tablet_ids,
-                                                                   &failed_tablet_ids,
-                                                                   &tablets_to_commit, &mutex,
-                                                                   &cond, &st]() {
-            signal::set_signal_task_id(_load_id);
-            for (auto& it : _index_streams_map) {
-                st = it.second->close(tablets_to_commit, success_tablet_ids, failed_tablet_ids);
-                if (!st.ok()) {
+        bool ret = _load_stream_mgr->heavy_work_pool()->try_offer(
+                [this, &success_tablet_ids, &failed_tablet_ids, &mutex, &cond, &st]() {
+                    signal::set_signal_task_id(_load_id);
+                    for (auto& it : _index_streams_map) {
+                        st = it.second->close(_tablets_to_commit, success_tablet_ids,
+                                              failed_tablet_ids);
+                        if (!st.ok()) {
+                            std::unique_lock<bthread::Mutex> lock(mutex);
+                            cond.notify_one();
+                            return;
+                        }
+                    }
+                    LOG(INFO) << "close load " << *this
+                              << ", failed_tablet_num=" << failed_tablet_ids->size()
+                              << ", success_tablet_num=" << success_tablet_ids->size();
                     std::unique_lock<bthread::Mutex> lock(mutex);
                     cond.notify_one();
-                    return;
-                }
-            }
-            LOG(INFO) << "close load " << *this
-                      << ", failed_tablet_num=" << failed_tablet_ids->size()
-                      << ", success_tablet_num=" << success_tablet_ids->size();
-            std::unique_lock<bthread::Mutex> lock(mutex);
-            cond.notify_one();
-        });
+                });
         if (ret) {
             cond.wait(lock);
         } else {
