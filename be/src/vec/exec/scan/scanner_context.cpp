@@ -187,6 +187,12 @@ void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block> block)
 }
 
 void ScannerContext::append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks) {
+    for (auto& b : blocks) {
+        auto st = validate_block_schema(b.get());
+        if (!st.ok()) {
+            set_status_on_error(st, false);
+        }
+    }
     std::lock_guard l(_transfer_lock);
     auto old_bytes_in_queue = _cur_bytes_in_queue;
     for (auto& b : blocks) {
@@ -245,8 +251,6 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     if (!_blocks_queue.empty()) {
         *block = std::move(_blocks_queue.front());
         _blocks_queue.pop_front();
-
-        RETURN_IF_ERROR(validate_block_schema((*block).get()));
 
         auto block_bytes = (*block)->allocated_bytes();
         _cur_bytes_in_queue -= block_bytes;
