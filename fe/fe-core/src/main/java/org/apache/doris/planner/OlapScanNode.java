@@ -965,6 +965,8 @@ public class OlapScanNode extends ScanNode {
                 continue;
             }
 
+            // It is assumed here that all tablets row count is uniformly distributed
+            // TODO Use `p.getBaseIndex().getTablet(n).getRowCount()` to get each tablet row count to compute sample.
             long avgRowsPerTablet = Math.max(p.getBaseIndex().getRowCount() / ids.size(), 1);
             long tabletCounts = Math.max(
                     avgRowsPerPartition / avgRowsPerTablet + (avgRowsPerPartition % avgRowsPerTablet != 0 ? 1 : 0), 1);
@@ -1021,19 +1023,28 @@ public class OlapScanNode extends ScanNode {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
             final List<Tablet> tablets = Lists.newArrayList();
-            final Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
+            Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
             LOG.debug("distribution prune tablets: {}", tabletIds);
-            if (tabletIds != null && sampleTabletIds.size() != 0) {
-                tabletIds.retainAll(sampleTabletIds);
+            if (sampleTabletIds.size() != 0) {
+                if (tabletIds != null) {
+                    tabletIds.retainAll(sampleTabletIds);
+                } else {
+                    tabletIds = sampleTabletIds;
+                }
                 LOG.debug("after sample tablets: {}", tabletIds);
             }
 
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             if (tabletIds != null) {
                 for (Long id : tabletIds) {
-                    tablets.add(selectedTable.getTablet(id));
+                    if (selectedTable.getTablet(id) != null) {
+                        tablets.add(selectedTable.getTablet(id));
+                        scanTabletIds.add(id);
+                    } else {
+                        // The tabletID specified in query does not exist in this partition, skip scan partition.
+                        Preconditions.checkState(sampleTabletIds.size() != 0);
+                    }
                 }
-                scanTabletIds.addAll(tabletIds);
             } else {
                 tablets.addAll(selectedTable.getTablets());
                 scanTabletIds.addAll(allTabletIds);
