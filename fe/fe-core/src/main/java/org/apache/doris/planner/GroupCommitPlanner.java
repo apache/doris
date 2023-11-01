@@ -23,17 +23,25 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
+import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.proto.Types;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.RpcException;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMergeType;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -48,8 +56,10 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 // Used to generate a plan fragment for a group commit
@@ -61,6 +71,7 @@ public class GroupCommitPlanner {
     private OlapTable table;
     private TUniqueId loadId;
     private TPlan plan;
+    private Backend backend;
     private DescriptorTable descTable;
     private TScanRangeParams scanRangeParam;
 
@@ -97,9 +108,18 @@ public class GroupCommitPlanner {
         scanRangeParam = scanRangeParams.get(0);
     }
 
-
-    public PGroupCommitInsertRequest createPGroupCommitInsertRequest(List<InternalService.PDataRow> rows)
-            throws TException {
+    public Future<PGroupCommitInsertResponse> prepareGroupCommitInsertRequest(ConnectContext ctx,
+            List<InternalService.PDataRow> rows) throws TException, DdlException, RpcException {
+        backend = ctx.getInsertGroupCommit(this.table.getId());
+        if (backend == null || !backend.isAlive()) {
+            List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+            if (allBackendIds.isEmpty()) {
+                throw new DdlException("No alive backend");
+            }
+            Collections.shuffle(allBackendIds);
+            backend = Env.getCurrentSystemInfo().getBackend(allBackendIds.get(0));
+            ctx.setInsertGroupCommit(this.table.getId(), backend);
+        }
         PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
                 .setDbId(db.getId())
                 .setTableId(table.getId())
@@ -110,7 +130,9 @@ public class GroupCommitPlanner {
                 .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
                 .build()).addAllData(rows)
                 .build();
-        return request;
+        Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
+                .groupCommitInsert(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
+        return future;
     }
 
     public static InternalService.PDataRow getRowValue(List<Expr> cols) throws UserException {
@@ -119,7 +141,7 @@ public class GroupCommitPlanner {
         }
         InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
         for (Expr expr : cols) {
-            if (!expr.isConstant()) {
+            if (!expr.isConstant() || !expr.isAnalyzed()) {
                 throw new UserException(
                     "do not support non-constant expr in transactional insert operation: " + expr.toSql());
             }
@@ -156,6 +178,10 @@ public class GroupCommitPlanner {
 
     public TScanRangeParams getScanRangeParam() {
         return scanRangeParam;
+    }
+
+    public Backend getBackend() {
+        return backend;
     }
 }
 

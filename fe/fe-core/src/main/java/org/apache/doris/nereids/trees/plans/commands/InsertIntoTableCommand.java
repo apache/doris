@@ -50,16 +50,12 @@ import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
-import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -73,7 +69,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -360,39 +355,27 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     private void handleGroupCommit(ConnectContext ctx, OlapTableSink sink,
                 PhysicalOlapTableSink<?> physicalOlapTableSink)
                 throws UserException, RpcException, TException, ExecutionException, InterruptedException {
-        Backend backend = ctx.getInsertGroupCommit(physicalOlapTableSink.getTargetTable().getId());
-        if (backend == null || !backend.isAlive()) {
-            List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-            if (allBackendIds.isEmpty()) {
-                throw new DdlException("No alive backend");
-            }
-            Collections.shuffle(allBackendIds);
-            backend = Env.getCurrentSystemInfo().getBackend(allBackendIds.get(0));
-            ctx.setInsertGroupCommit(physicalOlapTableSink.getTargetTable().getId(), backend);
-        }
-        // TODO `select constant` and `union` or `union all`
-        // Currently, only `inert into values` are processed
+
         List<InternalService.PDataRow> rows = new ArrayList<>();
         List<List<Expr>> materializedConstExprLists = ((UnionNode) sink.getFragment().getPlanRoot())
-                    .getMaterializedConstExprLists();
+                .getMaterializedConstExprLists();
         for (List<Expr> list : materializedConstExprLists) {
             rows.add(GroupCommitPlanner.getRowValue(list));
         }
 
         GroupCommitPlanner groupCommitPlanner = new GroupCommitPlanner(physicalOlapTableSink.getDatabase(),
                 physicalOlapTableSink.getTargetTable(), ctx.queryId());
-        PGroupCommitInsertRequest request = groupCommitPlanner.createPGroupCommitInsertRequest(rows);
-        Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
-                .groupCommitInsert(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
+        Future<PGroupCommitInsertResponse> future = groupCommitPlanner.prepareGroupCommitInsertRequest(ctx, rows);
         PGroupCommitInsertResponse response = future.get();
         TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
         if (code == TStatusCode.DATA_QUALITY_ERROR) {
             LOG.info("group commit insert failed. query id: {}, backend id: {}, status: {}, "
                     + "schema version: {}", ctx.queryId(),
-                    backend.getId(), response.getStatus(),
+                    groupCommitPlanner.getBackend(), response.getStatus(),
                     physicalOlapTableSink.getTargetTable().getBaseSchemaVersion());
         } else if (code != TStatusCode.OK) {
-            String errMsg = "group commit insert failed. backend id: " + backend.getId() + ", status: "
+            String errMsg = "group commit insert failed. backend id: "
+                    + groupCommitPlanner.getBackend().getId() + ", status: "
                     + response.getStatus();
             ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
         }

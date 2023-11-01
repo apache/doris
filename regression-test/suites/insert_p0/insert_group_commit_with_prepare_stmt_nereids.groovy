@@ -68,7 +68,8 @@ suite("insert_group_commit_with_prepare_stmt_nereids") {
 
         connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
             sql """ set enable_nereids_dml = true; """
-            sql """ set experimental_enable_nereids_planner=true; """
+            sql """ set enable_nereids_planner=true; """
+            sql """ set enable_fallback_to_original_planner=false; """
             sql """ set enable_insert_group_commit = true; """
             sql """ use ${db}; """
 
@@ -79,6 +80,30 @@ suite("insert_group_commit_with_prepare_stmt_nereids") {
             }
             group_commit_insert insert_sql, 5
             getRowCount(5)
+        }
+
+        // expression
+        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+            sql """ set enable_nereids_dml = true; """
+            sql """ set enable_nereids_planner=true; """
+            sql """ set enable_fallback_to_original_planner=false; """
+            sql """ set enable_insert_group_commit = true; """
+            sql """ use ${db}; """
+
+            group_commit_insert """ insert into ${table} values(50000, 'a', 10 + 10)  """, 1
+            getRowCount(1)
+        }
+
+        // select
+        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+            sql """ set enable_nereids_dml = true; """
+            sql """ set enable_nereids_planner=true; """
+            sql """ set enable_fallback_to_original_planner=false; """
+            sql """ set enable_insert_group_commit = true; """
+            sql """ use ${db}; """
+
+            group_commit_insert """ insert into ${table} select 50000, 'a', 10 + 20 * 3  """, 1
+            getRowCount(1)
         }
     } finally {
         // try_sql("DROP TABLE ${table}")

@@ -1076,10 +1076,10 @@ public class NativeInsertStmt extends InsertStmt {
         return isGroupCommit;
     }
 
-    public void planForGroupCommit(TUniqueId queryId) throws UserException, TException {
+    public GroupCommitPlanner planForGroupCommit(TUniqueId queryId) throws UserException, TException {
         OlapTable olapTable = (OlapTable) getTargetTable();
         if (planBytes != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
-            return;
+            return null;
         }
         if (!targetColumns.isEmpty()) {
             Analyzer analyzerTmp = analyzer;
@@ -1100,6 +1100,7 @@ public class NativeInsertStmt extends InsertStmt {
         tableBytes = ByteString.copyFrom(new TSerializer().serialize(groupCommitPlanner.getDescTable().toThrift()));
         rangeBytes = ByteString.copyFrom(new TSerializer().serialize(groupCommitPlanner.getScanRangeParam()));
         baseSchemaVersion = olapTable.getBaseSchemaVersion();
+        return groupCommitPlanner;
     }
 
     public TUniqueId getLoadId() {
