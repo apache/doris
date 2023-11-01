@@ -346,9 +346,13 @@ public class CastExpr extends Expr {
         // The bug is as follows:
         //     The reset function returns the updated expr,
         //     but the caller mistakenly assumes that it updates itself.
-        // if (isImplicit) {
-        //     return;
-        // }
+        if (isImplicit) {
+            if (!isAnalyzed) {
+                // implicit cast's target type is null
+                analyze();
+            }
+            return;
+        }
         // When cast target type is string and it's length is default -1, the result length
         // of cast is decided by child.
         if (targetTypeDef.getType().isScalarType()) {
