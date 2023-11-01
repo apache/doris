@@ -40,7 +40,7 @@ import java.util.Set;
 public class ColumnStatistic {
 
     public static final double STATS_ERROR = 0.1D;
-
+    public static final double ALMOST_UNIQUE_FACTOR = 0.9;
     public static final StatsType NDV = StatsType.NDV;
     public static final StatsType AVG_SIZE = StatsType.AVG_SIZE;
     public static final StatsType MAX_SIZE = StatsType.MAX_SIZE;
@@ -211,7 +211,7 @@ public class ColumnStatistic {
     }
 
     public static boolean isAlmostUnique(double ndv, double rowCount) {
-        return rowCount * 0.9 < ndv && ndv < rowCount * 1.1;
+        return rowCount * ALMOST_UNIQUE_FACTOR < ndv;
     }
 
     public ColumnStatistic updateByLimit(long limit, double rowCount) {

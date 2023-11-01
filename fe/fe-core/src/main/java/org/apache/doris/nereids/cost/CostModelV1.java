@@ -56,6 +56,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     // the penalty factor is no more than BROADCAST_JOIN_SKEW_PENALTY_LIMIT
     static final double BROADCAST_JOIN_SKEW_RATIO = 30.0;
     static final double BROADCAST_JOIN_SKEW_PENALTY_LIMIT = 2.0;
+    static final double RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR = 0.1;
     private final int beNumber;
 
     public CostModelV1(ConnectContext connectContext) {
@@ -217,10 +218,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         }
 
         // any
+        // cost of randome shuffle is lower than hash shuffle.
         return CostV1.of(context.getSessionVariable(),
-                intputRowCount,
                 0,
-                0);
+                0,
+                intputRowCount * childStatistics.dataSizeFactor() * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumber);
     }
 
     @Override

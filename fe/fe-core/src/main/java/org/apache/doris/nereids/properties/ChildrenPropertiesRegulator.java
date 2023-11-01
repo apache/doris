@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -114,6 +115,16 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         if (agg.getAggMode() == AggMode.INPUT_TO_BUFFER
                 && requiredProperties.get(0).getDistributionSpec() instanceof DistributionSpecHash
                 && children.get(0).getPlan() instanceof PhysicalDistribute) {
+            return false;
+        }
+
+        // agg(group by x)-union all(A, B)
+        // no matter x.ndv is high or not, it is not worthwhile to shuffle A and B by x
+        // and hence we forbid one phase agg
+        if (agg.getAggMode() == AggMode.INPUT_TO_RESULT
+                && requiredProperties.get(0).getDistributionSpec() instanceof DistributionSpecHash
+                && children.get(0).getPlan() instanceof PhysicalUnion
+                && !((PhysicalUnion) children.get(0).getPlan()).isDistinct()) {
             return false;
         }
         // forbid multi distinct opt that bad than multi-stage version when multi-stage can be executed in one fragment
