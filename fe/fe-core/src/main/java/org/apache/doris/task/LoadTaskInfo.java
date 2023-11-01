@@ -125,6 +125,10 @@ public interface LoadTaskInfo {
         return false;
     }
 
+    default int getStreamPerNode() {
+        return 20;
+    }
+
     class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();
         public boolean isColumnDescsRewrited = false;
