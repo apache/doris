@@ -54,7 +54,7 @@ ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
           _max_def_level(field_schema->definition_level),
           _stream_reader(reader),
           _metadata(column_chunk->meta_data),
-          _ctz(ctz),
+          //          _ctz(ctz),
           _io_ctx(io_ctx) {}
 
 Status ColumnChunkReader::init() {
@@ -194,7 +194,7 @@ Status ColumnChunkReader::load_page_data() {
         // Set type length
         page_decoder->set_type_length(_get_type_length());
         // Initialize the time convert context
-        page_decoder->init(_field_schema, _ctz);
+        //        page_decoder->init(_field_schema, _ctz);
         _decoders[static_cast<int>(encoding)] = std::move(page_decoder);
         _page_decoder = _decoders[static_cast<int>(encoding)].get();
     }
@@ -242,7 +242,7 @@ Status ColumnChunkReader::_decode_dict_page() {
     // Set type length
     page_decoder->set_type_length(_get_type_length());
     // Initialize the time convert context
-    page_decoder->init(_field_schema, _ctz);
+    //    page_decoder->init(_field_schema, _ctz);
     // Set the dictionary data
     RETURN_IF_ERROR(page_decoder->set_dict(dict_data, uncompressed_size,
                                            header.dictionary_page_header.num_values));

@@ -193,7 +193,7 @@ private:
 
     io::BufferedStreamReader* _stream_reader;
     tparquet::ColumnMetaData _metadata;
-    cctz::time_zone* _ctz;
+    //    cctz::time_zone* _ctz;
     io::IOContext* _io_ctx;
 
     std::unique_ptr<PageReader> _page_reader = nullptr;
