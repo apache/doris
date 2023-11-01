@@ -21,6 +21,7 @@
 #include "process_hash_table_probe.h"
 #include "runtime/thread_context.h" // IWYU pragma: keep
 #include "util/simd/bits.h"
+#include "vec/columns/column_filter_helper.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vhash_join_node.h"
 
@@ -212,6 +213,11 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     size_t probe_size = 0;
     auto& probe_row_match_iter =
             std::get<ForwardIterator<Mapped>>(_join_node->_probe_row_match_iter);
+
+    std::unique_ptr<ColumnFilterHelper> mark_column;
+    if (is_mark_join) {
+        mark_column = std::make_unique<ColumnFilterHelper>(*mcol[mcol.size() - 1]);
+    }
     {
         SCOPED_TIMER(_search_hashtable_timer);
         if constexpr (!is_right_semi_anti_join) {
@@ -285,9 +291,14 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                               JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
                     if (is_mark_join) {
                         ++current_offset;
-                        assert_cast<doris::vectorized::ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
-                                .get_data()
-                                .template push_back(!find_result.is_found());
+                        bool null_result =
+                                (*null_map)[probe_index] ||
+                                (!find_result.is_found() && _join_node->_has_null_in_build_side);
+                        if (null_result) {
+                            mark_column->insert_null();
+                        } else {
+                            mark_column->insert_value(!find_result.is_found());
+                        }
                     } else {
                         if (!find_result.is_found()) {
                             ++current_offset;
@@ -297,9 +308,14 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                 } else if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
                     if (is_mark_join) {
                         ++current_offset;
-                        assert_cast<doris::vectorized::ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
-                                .get_data()
-                                .template push_back(find_result.is_found());
+                        bool null_result =
+                                (*null_map)[probe_index] ||
+                                (!find_result.is_found() && _join_node->_has_null_in_build_side);
+                        if (null_result) {
+                            mark_column->insert_null();
+                        } else {
+                            mark_column->insert_value(find_result.is_found());
+                        }
                     } else {
                         if (find_result.is_found()) {
                             ++current_offset;
@@ -840,20 +856,20 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                 }
 
                 if (is_mark_join) {
-                    auto& matched_map = assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
-                                                *(output_block->get_by_position(num_cols - 1)
-                                                          .column->assume_mutable()))
-                                                .get_data();
+                    /// FIXME: incorrect result of semi mark join with other conjuncts(null value missed).
+                    auto mark_column =
+                            output_block->get_by_position(num_cols - 1).column->assume_mutable();
+                    ColumnFilterHelper helper(*mark_column);
 
                     // For mark join, we only filter rows which have duplicate join keys.
                     // And then, we set matched_map to the join result to do the mark join's filtering.
                     for (size_t i = 1; i < row_count; ++i) {
                         if (!same_to_prev[i]) {
-                            matched_map.push_back(filter_map[i - 1]);
+                            helper.insert_value(filter_map[i - 1]);
                             filter_map[i - 1] = true;
                         }
                     }
-                    matched_map.push_back(filter_map[filter_map.size() - 1]);
+                    helper.insert_value(filter_map[filter_map.size() - 1]);
                     filter_map[filter_map.size() - 1] = true;
                 }
 
@@ -913,17 +929,20 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                 }
 
                 if (is_mark_join) {
-                    auto& matched_map = assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
-                                                *(output_block->get_by_position(num_cols - 1)
-                                                          .column->assume_mutable()))
-                                                .get_data();
-                    for (int i = 1; i < row_count; ++i) {
+                    /// FIXME: incorrect result of semi mark join with other conjuncts(null value missed).
+                    auto mark_column =
+                            output_block->get_by_position(num_cols - 1).column->assume_mutable();
+                    ColumnFilterHelper helper(*mark_column);
+
+                    // For mark join, we only filter rows which have duplicate join keys.
+                    // And then, we set matched_map to the join result to do the mark join's filtering.
+                    for (size_t i = 1; i < row_count; ++i) {
                         if (!same_to_prev[i]) {
-                            matched_map.push_back(!filter_map[i - 1]);
+                            helper.insert_value(filter_map[i - 1]);
                             filter_map[i - 1] = true;
                         }
                     }
-                    matched_map.push_back(!filter_map[row_count - 1]);
+                    helper.insert_value(filter_map[row_count - 1]);
                     filter_map[row_count - 1] = true;
                 } else {
                     int end_row_idx;

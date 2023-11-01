@@ -31,8 +31,10 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AbstractFileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DecimalType;
+import org.apache.paimon.types.MapType;
 
 import java.util.HashMap;
 import java.util.List;
@@ -111,6 +113,14 @@ public class PaimonExternalTable extends ExternalTable {
             case TIMESTAMP_WITHOUT_TIME_ZONE:
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
                 return ScalarType.createDatetimeV2Type(PAIMON_DATETIME_SCALE_MS);
+            case ARRAY:
+                ArrayType arrayType = (ArrayType) dataType;
+                Type innerType = paimonPrimitiveTypeToDorisType(arrayType.getElementType());
+                return org.apache.doris.catalog.ArrayType.create(innerType, true);
+            case MAP:
+                MapType mapType = (MapType) dataType;
+                return new org.apache.doris.catalog.MapType(
+                        paimonTypeToDorisType(mapType.getKeyType()), paimonTypeToDorisType(mapType.getValueType()));
             case TIME_WITHOUT_TIME_ZONE:
                 return Type.UNSUPPORTED;
             default:
