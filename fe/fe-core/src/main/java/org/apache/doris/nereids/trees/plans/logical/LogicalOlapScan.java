@@ -159,7 +159,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         this.manuallySpecifiedPartitions = ImmutableList.copyOf(specifiedPartitions);
         this.selectedPartitionIds = selectedPartitionIds.stream()
                 .filter(partitionId -> this.getTable().getPartition(partitionId) != null)
-                .filter(partitionId -> this.getTable().getPartition(partitionId).hasData())
                 .collect(Collectors.toList());
         this.hints = Objects.requireNonNull(hints, "hints can not be null");
         this.cacheSlotWithSlotName = Objects.requireNonNull(cacheSlotWithSlotName,
@@ -179,12 +178,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalOlapScan",
-                "qualified", qualifiedName(),
-                "indexName", getSelectedMaterializedIndexName().orElse("<index_not_selected>"),
-                "selectedIndexId", selectedIndexId,
-                "preAgg", preAggStatus
-        );
+        return Utils.toSqlString("LogicalOlapScan", "qualified", qualifiedName(), "indexName",
+                getSelectedMaterializedIndexName(), "selectedIndexId", selectedIndexId, "preAgg", preAggStatus);
     }
 
     @Override
@@ -292,9 +287,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     }
 
     @VisibleForTesting
-    public Optional<String> getSelectedMaterializedIndexName() {
-        return indexSelected ? Optional.ofNullable(((OlapTable) table).getIndexNameById(selectedIndexId))
-                : Optional.empty();
+    public String getSelectedMaterializedIndexName() {
+        return ((OlapTable) table).getIndexNameById(selectedIndexId);
     }
 
     @Override

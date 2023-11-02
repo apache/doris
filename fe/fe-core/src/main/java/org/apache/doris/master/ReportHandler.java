@@ -306,6 +306,7 @@ public class ReportHandler extends Daemon {
         // do the diff. find out (intersection) / (be - meta) / (meta - be)
         List<Policy> policiesInFe = Env.getCurrentEnv().getPolicyMgr().getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
         List<Resource> resourcesInFe = Env.getCurrentEnv().getResourceMgr().getResource(ResourceType.S3);
+        resourcesInFe.addAll(Env.getCurrentEnv().getResourceMgr().getResource(ResourceType.HDFS));
 
         List<Resource> resourceToPush = new ArrayList<>();
         List<Policy> policyToPush = new ArrayList<>();
@@ -589,6 +590,7 @@ public class ReportHandler extends Daemon {
     private static void sync(Map<Long, TTablet> backendTablets, ListMultimap<Long, Long> tabletSyncMap,
                              long backendId, long backendReportVersion) {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        OUTER:
         for (Long dbId : tabletSyncMap.keySet()) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
@@ -611,11 +613,11 @@ public class ReportHandler extends Daemon {
                     continue;
                 }
 
-                if (backendReportVersion < Env.getCurrentSystemInfo().getBackendReportVersion(backendId)) {
-                    break;
-                }
-
                 try {
+                    if (backendReportVersion < Env.getCurrentSystemInfo().getBackendReportVersion(backendId)) {
+                        break OUTER;
+                    }
+
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {

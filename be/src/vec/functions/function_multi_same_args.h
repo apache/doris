@@ -18,7 +18,6 @@
 #pragma once
 
 #include "udf/udf.h"
-#include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
@@ -36,6 +35,8 @@ public:
     String get_name() const override { return name; }
 
     bool use_default_implementation_for_nulls() const override { return true; }
+
+    bool use_default_implementation_for_constants() const override { return false; }
 
     bool is_variadic() const override { return true; }
 

@@ -181,6 +181,7 @@ public class AliasFunction extends Function {
                     case DECIMAL32:
                     case DECIMAL64:
                     case DECIMAL128:
+                    case DECIMAL256:
                     case DECIMALV2:
                         if (!Strings.isNullOrEmpty(scalarType.getScalarPrecisionStr())) {
                             typeDefParams.add(scalarType.getScalarPrecisionStr());

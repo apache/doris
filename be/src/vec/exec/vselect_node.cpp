@@ -74,6 +74,7 @@ Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool
 }
 
 Status VSelectNode::pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     reached_limit(output_block, eos);

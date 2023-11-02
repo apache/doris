@@ -27,6 +27,7 @@
 #include "vec/core/accurate_comparison.h"
 #include "vec/core/block.h"
 #include "vec/core/call_on_type_index.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/functions/function_helpers.h" /// todo core should not depend on function"
 
@@ -52,6 +53,10 @@ struct ConstructDecInt<8> {
 template <>
 struct ConstructDecInt<16> {
     using Type = Int128;
+};
+template <>
+struct ConstructDecInt<32> {
+    using Type = Int256;
 };
 
 template <typename T, typename U>
@@ -99,18 +104,22 @@ public:
     }
 
     static bool compare(A a, B b, UInt32 scale_a, UInt32 scale_b) {
-        static const UInt32 max_scale = max_decimal_precision<Decimal128>();
+        static const UInt32 max_scale = max_decimal_precision<Decimal256>();
         if (scale_a > max_scale || scale_b > max_scale) {
             LOG(FATAL) << "Bad scale of decimal field";
         }
 
         Shift shift;
-        if (scale_a < scale_b)
+        if (scale_a < scale_b) {
             shift.a = DataTypeDecimal<B>(max_decimal_precision<B>(), scale_b)
-                              .get_scale_multiplier(scale_b - scale_a);
-        if (scale_a > scale_b)
+                              .get_scale_multiplier(scale_b - scale_a)
+                              .value;
+        }
+        if (scale_a > scale_b) {
             shift.b = DataTypeDecimal<A>(max_decimal_precision<A>(), scale_a)
-                              .get_scale_multiplier(scale_a - scale_b);
+                              .get_scale_multiplier(scale_a - scale_b)
+                              .value;
+        }
 
         return apply_with_scale(a, b, shift);
     }
@@ -145,12 +154,12 @@ private:
             using Type = std::conditional_t<sizeof(T) >= sizeof(U), T, U>;
             auto type_ptr = decimal_result_type(*decimal0, *decimal1, false, false, false);
             const DataTypeDecimal<Type>* result_type = check_decimal<Type>(*type_ptr);
-            shift.a = result_type->scale_factor_for(*decimal0, false);
-            shift.b = result_type->scale_factor_for(*decimal1, false);
+            shift.a = result_type->scale_factor_for(*decimal0, false).value;
+            shift.b = result_type->scale_factor_for(*decimal1, false).value;
         } else if (decimal0) {
-            shift.b = decimal0->get_scale_multiplier();
+            shift.b = decimal0->get_scale_multiplier().value;
         } else if (decimal1) {
-            shift.a = decimal1->get_scale_multiplier();
+            shift.a = decimal1->get_scale_multiplier().value;
         }
 
         return shift;
@@ -161,7 +170,9 @@ private:
     static Shift getScales(const DataTypePtr& left_type, const DataTypePtr&) {
         Shift shift;
         const DataTypeDecimal<T>* decimal0 = check_decimal<T>(*left_type);
-        if (decimal0) shift.b = decimal0->get_scale_multiplier();
+        if (decimal0) {
+            shift.b = decimal0->get_scale_multiplier().value;
+        }
         return shift;
     }
 
@@ -170,7 +181,9 @@ private:
     static Shift getScales(const DataTypePtr&, const DataTypePtr& right_type) {
         Shift shift;
         const DataTypeDecimal<U>* decimal1 = check_decimal<U>(*right_type);
-        if (decimal1) shift.a = decimal1->get_scale_multiplier();
+        if (decimal1) {
+            shift.a = decimal1->get_scale_multiplier().value;
+        }
         return shift;
     }
 

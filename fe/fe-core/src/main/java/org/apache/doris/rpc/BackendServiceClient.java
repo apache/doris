@@ -27,6 +27,7 @@ import io.grpc.CallOptions;
 import io.grpc.Channel;
 import io.grpc.ClientCall;
 import io.grpc.ClientInterceptor;
+import io.grpc.ConnectivityState;
 import io.grpc.ForwardingClientCall;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
@@ -62,6 +63,14 @@ public class BackendServiceClient {
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
         // execPlanTimeout should be greater than future.get timeout, otherwise future will throw ExecutionException
         execPlanTimeout = Config.remote_fragment_exec_timeout_ms + 5000;
+    }
+
+    // Is the underlying channel in a normal state? (That means the RPC call will not fail immediately)
+    public boolean isNormalState() {
+        ConnectivityState state = channel.getState(false);
+        return state == ConnectivityState.CONNECTING
+            || state == ConnectivityState.IDLE
+            || state == ConnectivityState.READY;
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(

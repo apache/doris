@@ -21,11 +21,28 @@ import org.apache.doris.nereids.util.ExpressionParseChecker;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanParseChecker;
 import org.apache.doris.nereids.util.TrinoDialectPlanParseChecker;
+import org.apache.doris.qe.ConnectContext;
+
+import mockit.Mock;
+import mockit.MockUp;
+import org.junit.jupiter.api.BeforeAll;
 
 /**
  * Base class to check SQL parsing result.
  */
 public abstract class ParserTestBase implements MemoPatternMatchSupported {
+
+    @BeforeAll
+    public static void init() {
+        ConnectContext ctx = new ConnectContext();
+        new MockUp<ConnectContext>() {
+            @Mock
+            public ConnectContext get() {
+                return ctx;
+            }
+        };
+    }
+
     public PlanParseChecker parsePlan(String sql) {
         return new PlanParseChecker(sql);
     }

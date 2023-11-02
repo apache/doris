@@ -58,6 +58,12 @@ public:
     [[nodiscard]] int sender_id() const { return _sender_id; }
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
+    RuntimeProfile::Counter* local_send_timer() { return _local_send_timer; }
+    RuntimeProfile::Counter* brpc_send_timer() { return _brpc_send_timer; }
+    RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
+    RuntimeProfile::Counter* split_block_distribute_by_channel_timer() {
+        return _split_block_distribute_by_channel_timer;
+    }
 
 private:
     friend class ResultFileSinkOperatorX;
@@ -73,14 +79,20 @@ private:
     vectorized::BlockSerializer<ResultFileSinkLocalState> _serializer;
     std::unique_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
     RuntimeProfile::Counter* _brpc_wait_timer;
+    RuntimeProfile::Counter* _local_send_timer;
+    RuntimeProfile::Counter* _brpc_send_timer;
+    RuntimeProfile::Counter* _merge_block_timer;
+    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer;
 
     int _sender_id;
 };
 
 class ResultFileSinkOperatorX final : public DataSinkOperatorX<ResultFileSinkLocalState> {
 public:
-    ResultFileSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr);
-    ResultFileSinkOperatorX(const RowDescriptor& row_desc, const TResultFileSink& sink,
+    ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+                            const std::vector<TExpr>& t_output_expr);
+    ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+                            const TResultFileSink& sink,
                             const std::vector<TPlanFragmentDestination>& destinations,
                             bool send_query_statistics_with_every_batch,
                             const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
@@ -91,10 +103,6 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override;
-
-    FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
 private:
     friend class ResultFileSinkLocalState;

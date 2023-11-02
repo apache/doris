@@ -230,7 +230,8 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I: {
+    case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256: {
         return column_type->to_string(*column_ptr, 0);
     }
     case TYPE_ARRAY:

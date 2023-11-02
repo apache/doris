@@ -108,7 +108,7 @@ Status BackendService::create_service(ExecEnv* exec_env, int port,
 
 void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
                                         const TExecPlanFragmentParams& params) {
-    LOG(INFO) << "exec_plan_fragment() instance_id=" << params.params.fragment_instance_id
+    LOG(INFO) << "exec_plan_fragment() instance_id=" << print_id(params.params.fragment_instance_id)
               << " coord=" << params.coord << " backend#=" << params.backend_num;
     start_plan_fragment_execution(params).set_t_status(&return_val);
 }
@@ -122,7 +122,7 @@ Status BackendService::start_plan_fragment_execution(const TExecPlanFragmentPara
 
 void BackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
                                           const TCancelPlanFragmentParams& params) {
-    LOG(INFO) << "cancel_plan_fragment(): instance_id=" << params.fragment_instance_id;
+    LOG(INFO) << "cancel_plan_fragment(): instance_id=" << print_id(params.fragment_instance_id);
     _exec_env->fragment_mgr()->cancel_instance(params.fragment_instance_id,
                                                PPlanFragmentCancelReason::INTERNAL_ERROR);
 }
@@ -695,7 +695,6 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
                 rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
                 calc_delete_bitmap_token.get(), nullptr));
         static_cast<void>(calc_delete_bitmap_token->wait());
-        static_cast<void>(calc_delete_bitmap_token->get_delete_bitmap(delete_bitmap));
     }
 
     // Step 6.3: commit txn
