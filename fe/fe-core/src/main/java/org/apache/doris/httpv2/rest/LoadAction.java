@@ -277,7 +277,7 @@ public class LoadAction extends RestBaseController {
     private boolean checkClusterToken(HttpServletRequest request) {
         LOG.info("Checking cluser token, request {}", request.toString());
         String authToken = request.getHeader("token");
-    
+
         if (Strings.isNullOrEmpty(authToken)) {
             return false;
         }
@@ -330,7 +330,7 @@ public class LoadAction extends RestBaseController {
 
             TNetworkAddress redirectAddr = selectRedirectBackend(clusterName);
 
-            LOG.info("Redirect load action with auth token to destination={}," 
+            LOG.info("Redirect load action with auth token to destination={},"
                         + "stream: {}, db: {}, tbl: {}, label: {}",
                     redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
 
