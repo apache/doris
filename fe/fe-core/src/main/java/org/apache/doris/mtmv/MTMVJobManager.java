@@ -56,7 +56,7 @@ public class MTMVJobManager implements MTMVHookService {
     private void createManualJob(MTMV mtmv) throws DdlException {
         Job job = new Job();
         job.setJobType(JobType.MANUAL);
-        job.setBaseName(mtmv.getName());
+        job.setBaseName(mtmv.getId() + "");
         job.setDbName(ConnectContext.get().getDatabase());
         job.setJobName(mtmv.getJobInfo().getJobName());
         job.setExecutor(generateJobExecutor(mtmv));
@@ -70,7 +70,7 @@ public class MTMVJobManager implements MTMVHookService {
     private void createCycleJob(MTMV mtmv) throws DdlException {
         Job job = new Job();
         job.setJobType(JobType.RECURRING);
-        job.setBaseName(mtmv.getName());
+        job.setBaseName(mtmv.getId() + "");
         job.setDbName(ConnectContext.get().getDatabase());
         job.setJobName(mtmv.getJobInfo().getJobName());
         job.setExecutor(generateJobExecutor(mtmv));
@@ -139,8 +139,7 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     private MTMVJobExecutor generateJobExecutor(MTMV materializedView) {
-        return new MTMVJobExecutor(materializedView.getQualifiedDbName(), materializedView.getName(),
-                generateSql(materializedView));
+        return new MTMVJobExecutor(materializedView.getQualifiedDbName(), materializedView.getId());
     }
 
 }

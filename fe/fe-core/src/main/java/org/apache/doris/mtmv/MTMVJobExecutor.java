@@ -18,14 +18,19 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.exception.JobException;
-import org.apache.doris.scheduler.executor.JobExecutor;
+import org.apache.doris.scheduler.executor.AbstractJobExecutor;
 import org.apache.doris.scheduler.job.ExecutorResult;
 import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.annotations.SerializedName;
@@ -36,7 +41,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.UUID;
 
-public class MTMVJobExecutor implements JobExecutor<MTMVTaskResult, MTMVTaskParams> {
+public class MTMVJobExecutor extends AbstractJobExecutor<MTMVTaskResult, MTMVTaskParams> {
     private static final Logger LOG = LogManager.getLogger(MTMVJobExecutor.class);
 
     @Getter
@@ -46,18 +51,12 @@ public class MTMVJobExecutor implements JobExecutor<MTMVTaskResult, MTMVTaskPara
 
     @Getter
     @Setter
-    @SerializedName(value = "tn")
-    private String tableName;
+    @SerializedName(value = "mi")
+    private long mtmvId;
 
-    @Getter
-    @Setter
-    @SerializedName(value = "sql")
-    private String sql;
-
-    public MTMVJobExecutor(String dbName, String tableName, String sql) {
-        this.sql = sql;
+    public MTMVJobExecutor(String dbName, long mtmvId) {
         this.dbName = dbName;
-        this.tableName = tableName;
+        this.mtmvId = mtmvId;
     }
 
     protected void afterExecute(ExecutorResult result, long taskStartTime, long lastRefreshFinishedTime,
@@ -76,15 +75,19 @@ public class MTMVJobExecutor implements JobExecutor<MTMVTaskResult, MTMVTaskPara
 
     @Override
     public ExecutorResult<MTMVTaskResult> execute(Job job, MTMVTaskParams dataContext) throws JobException {
+        MTMV mtmv;
+        try {
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+            mtmv = (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
+        } catch (MetaNotFoundException | DdlException e) {
+            throw new JobException(e);
+        }
+
         long taskStartTime = System.currentTimeMillis();
-        ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCluster(ClusterNamespace.getClusterNameFromFullName(job.getDbName()));
-        ctx.setDatabase(job.getDbName());
-        ctx.setQualifiedUser(job.getUser());
-        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(job.getUser(), "%"));
-        ctx.getState().reset();
-        ctx.setThreadLocalInfo();
+
+        ConnectContext ctx = createContext(job,mtmv);
+
+
         String taskIdString = UUID.randomUUID().toString();
         UUID taskId = UUID.fromString(taskIdString);
         TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
@@ -104,6 +107,13 @@ public class MTMVJobExecutor implements JobExecutor<MTMVTaskResult, MTMVTaskPara
         long lastRefreshFinishedTime = System.currentTimeMillis();
         afterExecute(executorResult, taskStartTime, lastRefreshFinishedTime, taskIdString);
         return executorResult;
+    }
+
+    private ConnectContext createContext(Job job, MTMV mtmv) {
+        ConnectContext context = super.createContext(job);
+        context.changeDefaultCatalog(mtmv.getEnvInfo().getCtlName());
+        context.setDatabase(mtmv.getEnvInfo().getDbName());
+        return context;
     }
 
     private String convertExecuteResult(ConnectContext ctx, String queryId) throws JobException {
