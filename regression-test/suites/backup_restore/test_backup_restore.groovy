@@ -56,7 +56,7 @@ suite("test_backup_restore", "backup_restore") {
         Thread.sleep(3000)
     }
 
-    snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
+    def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
     sql "TRUNCATE TABLE ${dbName}.${tableName}"
