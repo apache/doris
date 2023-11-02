@@ -297,19 +297,20 @@ private:
     friend struct ProcessHashTableProbe;
 
     void _init_short_circuit_for_probe() {
+        bool empty_block = !_build_block || _build_block->empty();
         _short_circuit_for_probe =
                 (_has_null_in_build_side && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                  !_is_mark_join) ||
-                (!_build_block && _join_op == TJoinOp::INNER_JOIN && !_is_mark_join) ||
-                (!_build_block && _join_op == TJoinOp::LEFT_SEMI_JOIN && !_is_mark_join) ||
-                (!_build_block && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
-                (!_build_block && _join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
-                (!_build_block && _join_op == TJoinOp::RIGHT_ANTI_JOIN);
+                (empty_block && _join_op == TJoinOp::INNER_JOIN && !_is_mark_join) ||
+                (empty_block && _join_op == TJoinOp::LEFT_SEMI_JOIN && !_is_mark_join) ||
+                (empty_block && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
+                (empty_block && _join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
+                (empty_block && _join_op == TJoinOp::RIGHT_ANTI_JOIN);
 
         //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
         //we could get the result is probe table + null-column(if need output)
         _empty_right_table_need_probe_dispose =
-                (!_build_block && !_have_other_join_conjunct && !_is_mark_join) &&
+                (empty_block && !_have_other_join_conjunct && !_is_mark_join) &&
                 (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN ||
                  _join_op == TJoinOp::LEFT_ANTI_JOIN);
     }
@@ -401,9 +402,6 @@ private:
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
 
-    // for cases when a probe row matches more than batch size build rows.
-    bool _is_any_probe_match_row_output = false;
-    uint8_t _build_block_idx = 0;
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
     MutableBlock _build_side_mutable_block;
@@ -438,8 +436,7 @@ private:
     void _add_tuple_is_null_column(Block* block) override;
 
     Status _filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
-                                         bool* eos, Block* temp_block,
-                                         bool check_rows_count = true);
+                                         bool* eos, Block* temp_block);
 
     template <class HashTableContext, typename Parent>
     friend struct ProcessHashTableBuild;

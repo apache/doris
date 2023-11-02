@@ -221,7 +221,7 @@ public:
     void prepare_build(size_t num_elem, int batch_size) {
         max_batch_size = batch_size;
         bucket_size = calc_bucket_size(num_elem + 1);
-        first.resize(bucket_size, 0);
+        first.resize(bucket_size + 1);
         next.resize(num_elem);
 
         if constexpr (JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
@@ -282,7 +282,8 @@ public:
         while (count < batch_size && iter_idx < elem_num) {
             const auto matched = visited[iter_idx];
             build_idxs[count] = iter_idx;
-            if constexpr (JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN) {
+            if constexpr (JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN ||
+                          JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
                 count += !matched;
             } else {
                 count += matched;
@@ -374,12 +375,9 @@ private:
 
             if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                           JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
-                // `(!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)` means not match one build side
-                if (!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx) {
-                    probe_idxs[matched_cnt] = probe_idx;
-                    build_idxs[matched_cnt] = 0;
-                    matched_cnt++;
-                }
+                probe_idxs[matched_cnt] = probe_idx;
+                build_idxs[matched_cnt] = 0;
+                matched_cnt++;
             }
             probe_idx++;
         };
@@ -401,11 +399,11 @@ private:
     const Key* __restrict build_keys;
     std::vector<uint8_t> visited;
 
-    uint32_t bucket_size = 0;
-    int max_batch_size = 0;
+    uint32_t bucket_size = 1;
+    int max_batch_size = 1;
 
-    std::vector<uint32_t> first;
-    std::vector<uint32_t> next;
+    std::vector<uint32_t> first = {0};
+    std::vector<uint32_t> next = {0};
 
     // use in iter hash map
     mutable uint32_t iter_idx = 1;

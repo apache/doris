@@ -52,7 +52,9 @@ ProcessHashTableProbe<JoinOpType, Parent>::ProcessHashTableProbe(Parent* parent,
           _search_hashtable_timer(parent->_search_hashtable_timer),
           _build_side_output_timer(parent->_build_side_output_timer),
           _probe_side_output_timer(parent->_probe_side_output_timer),
-          _probe_process_hashtable_timer(parent->_probe_process_hashtable_timer) {}
+          _probe_process_hashtable_timer(parent->_probe_process_hashtable_timer),
+          _right_col_idx(_parent->left_table_data_types().size()),
+          _right_col_len(_parent->right_table_data_types().size()) {}
 
 template <int JoinOpType, typename Parent>
 void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
@@ -122,13 +124,12 @@ template <typename HashTableType>
 typename HashTableType::State ProcessHashTableProbe<JoinOpType, Parent>::_init_probe_side(
         HashTableType& hash_table_ctx, size_t probe_rows, bool with_other_join_conjuncts,
         const uint8_t* null_map) {
-    _right_col_idx = _is_right_semi_anti && !with_other_join_conjuncts
-                             ? 0
-                             : _parent->left_table_data_types().size();
-    _right_col_len = _parent->right_table_data_types().size();
+    if (_is_right_semi_anti && !with_other_join_conjuncts) {
+        _right_col_idx = 0;
+    }
 
-    _probe_indexs.resize(_batch_size);
-    _build_indexs.resize(_batch_size);
+    _probe_indexs.resize(_batch_size + 1); // may over batch size 1 for some outer join case
+    _build_indexs.resize(_batch_size + 1);
 
     if (!_parent->_ready_probe) {
         _parent->_ready_probe = true;
@@ -147,6 +148,10 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
                                                              MutableBlock& mutable_block,
                                                              Block* output_block,
                                                              size_t probe_rows) {
+    if (_right_col_len && !_build_block) {
+        return Status::InternalError("build block is nullptr");
+    }
+
     auto& probe_index = _parent->_probe_index;
     auto& build_index = _parent->_build_index;
     auto last_probe_index = probe_index;
@@ -239,33 +244,28 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
 
         // process equal-conjuncts-matched tuples that are newly generated
         // in this run if there are any.
+        int last_probe_match = -1;
         for (int i = 0; i < row_count; ++i) {
-            auto join_hit = _build_indexs[i];
-            auto other_hit = filter_column_ptr[i];
+            bool join_hit = _build_indexs[i];
+            bool other_hit = filter_column_ptr[i];
 
-            if (!other_hit) {
-                for (size_t j = 0; j < _right_col_len; ++j) {
-                    typeid_cast<ColumnNullable*>(
-                            std::move(*output_block->get_by_position(j + _right_col_idx).column)
-                                    .assume_mutable()
-                                    .get())
-                            ->get_null_map_data()[i] = true;
-                }
-            }
             null_map_data[i] = !join_hit || !other_hit;
+            filter_map[i] = other_hit || !join_hit;
 
-            if (join_hit) {
-                filter_map[i] = other_hit;
-            } else {
+            if (!join_hit) {
+                filter_map[i] = last_probe_match != _probe_indexs[i];
+            } else if (other_hit) {
                 filter_map[i] = true;
+            }
+            if (filter_map[i]) {
+                last_probe_match = _probe_indexs[i];
             }
         }
 
         for (size_t i = 0; i < row_count; ++i) {
             if (filter_map[i]) {
                 _tuple_is_null_right_flags->emplace_back(null_map_data[i]);
-                if constexpr (JoinOpType == TJoinOp::FULL_OUTER_JOIN ||
-                              JoinOpType == TJoinOp::RIGHT_OUTER_JOIN) {
+                if constexpr (JoinOpType == TJoinOp::FULL_OUTER_JOIN) {
                     visited[_build_indexs[i]] = 1;
                 }
             }

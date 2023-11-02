@@ -91,7 +91,6 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _hash_output_slot_ids(tnode.hash_join_node.__isset.hash_output_slot_ids
                                         ? tnode.hash_join_node.hash_output_slot_ids
                                         : std::vector<SlotId> {}),
-          _build_block_idx(0),
           _build_side_mem_used(0),
           _build_side_last_mem_used(0) {
     _runtime_filter_descs = tnode.runtime_filters;
@@ -288,11 +287,6 @@ Status HashJoinNode::close(RuntimeState* state) {
                              if (process_hashtable_ctx._arena) {
                                  process_hashtable_ctx._arena.reset();
                              }
-
-                             if (process_hashtable_ctx._serialize_key_arena) {
-                                 process_hashtable_ctx._serialize_key_arena.reset();
-                                 process_hashtable_ctx._serialized_key_buffer_size = 0;
-                             }
                          }},
                *_process_hashtable_ctx_variants);
     return VJoinNodeBase::close(state);
@@ -393,8 +387,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
 
         /// No need to check the block size in `_filter_data_and_build_output` because here dose not
         /// increase the output rows count(just same as `_probe_block`'s rows count).
-        RETURN_IF_ERROR(
-                _filter_data_and_build_output(state, output_block, eos, &temp_block, false));
+        RETURN_IF_ERROR(_filter_data_and_build_output(state, output_block, eos, &temp_block));
         temp_block.clear();
         release_block_memory(_probe_block);
         return Status::OK();
@@ -470,13 +463,9 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
 
 Status HashJoinNode::_filter_data_and_build_output(RuntimeState* state,
                                                    vectorized::Block* output_block, bool* eos,
-                                                   Block* temp_block, bool check_rows_count) {
+                                                   Block* temp_block) {
     if (_is_outer_join) {
         _add_tuple_is_null_column(temp_block);
-    }
-    auto output_rows = temp_block->rows();
-    if (check_rows_count) { // If the join node does not increase the number of output rows, no need to check.
-        DCHECK(output_rows <= state->batch_size());
     }
     {
         SCOPED_TIMER(_join_filter_timer);
@@ -575,11 +564,11 @@ void HashJoinNode::_add_tuple_is_null_column(Block* block) {
     auto right_size = right_null_map.size();
 
     if (left_size == 0) {
-        DCHECK_EQ(right_size, block->rows());
+        DCHECK_EQ(right_size, block->rows()) << block->dump_structure();
         left_null_map.get_data().resize_fill(right_size, 0);
     }
     if (right_size == 0) {
-        DCHECK_EQ(left_size, block->rows());
+        DCHECK_EQ(left_size, block->rows()) << block->dump_structure();
         right_null_map.get_data().resize_fill(left_size, 0);
     }
 
@@ -734,12 +723,13 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         // data from probe side.
         _build_side_mem_used += in_block->allocated_bytes();
 
+        if (_build_side_mutable_block.empty()) {
+            RETURN_IF_ERROR(_build_side_mutable_block.merge(
+                    *(in_block->create_same_struct_block(1, false))));
+        }
+
         if (in_block->rows() != 0) {
             SCOPED_TIMER(_build_side_merge_block_timer);
-            if (_build_side_mutable_block.empty()) {
-                RETURN_IF_ERROR(_build_side_mutable_block.merge(
-                        *(in_block->create_same_struct_block(1, false))));
-            }
             RETURN_IF_ERROR(_build_side_mutable_block.merge(*in_block));
             if (_build_side_mutable_block.rows() > std::numeric_limits<uint32_t>::max()) {
                 return Status::NotSupported(
@@ -955,6 +945,14 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
     RETURN_IF_ERROR(_do_evaluate(block, _build_expr_ctxs, *_build_expr_call_timer, res_col_ids));
     if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
         _convert_block_to_null(block);
+        // first row is mocked
+        for (int i = 0; i < block.columns(); i++) {
+            assert_cast<ColumnNullable*>(
+                    (*std::move(block.safe_get_by_position(i).column)).mutate().get())
+                    ->get_null_map_column()
+                    .get_data()
+                    .data()[0] = 1;
+        }
     }
     // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
     //  so we have to initialize this flag by the first build block.

@@ -78,8 +78,7 @@ public:
     void add_tuple_is_null_column(vectorized::Block* block) override;
     void init_for_probe(RuntimeState* state);
     Status filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
-                                        SourceState& source_state, vectorized::Block* temp_block,
-                                        bool check_rows_count = true);
+                                        SourceState& source_state, vectorized::Block* temp_block);
 
     bool have_other_join_conjunct() const;
     bool is_right_semi_anti() const;
@@ -116,8 +115,7 @@ private:
     bool _need_null_map_for_probe = false;
     bool _has_set_need_null_map_for_probe = false;
     vectorized::ColumnUInt8::MutablePtr _null_map_column;
-    // for cases when a probe row matches more than batch size build rows.
-    bool _is_any_probe_match_row_output = false;
+
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
             std::make_unique<HashTableCtxVariants>();
 

@@ -95,13 +95,7 @@ struct ProcessHashTableProbe {
     // only need set the tuple is null in LEFT_OUTER_JOIN and FULL_OUTER_JOIN
     ColumnUInt8::Container* _tuple_is_null_right_flags;
 
-    size_t _serialized_key_buffer_size {0};
-    uint8_t* _serialized_key_buffer;
     std::unique_ptr<Arena> _serialize_key_arena;
-    std::vector<char> _probe_side_find_result;
-
-    int _right_col_idx;
-    int _right_col_len;
 
     bool _have_other_join_conjunct;
     bool _is_right_semi_anti;
@@ -114,6 +108,9 @@ struct ProcessHashTableProbe {
     RuntimeProfile::Counter* _build_side_output_timer;
     RuntimeProfile::Counter* _probe_side_output_timer;
     RuntimeProfile::Counter* _probe_process_hashtable_timer;
+
+    int _right_col_idx;
+    int _right_col_len;
     static constexpr int PROBE_SIDE_EXPLODE_RATE = 1;
 };
 

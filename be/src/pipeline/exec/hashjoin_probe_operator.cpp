@@ -133,12 +133,6 @@ Status HashJoinProbeLocalState::close(RuntimeState* state) {
                                              if (process_hashtable_ctx._arena) {
                                                  process_hashtable_ctx._arena.reset();
                                              }
-
-                                             if (process_hashtable_ctx._serialize_key_arena) {
-                                                 process_hashtable_ctx._serialize_key_arena.reset();
-                                                 process_hashtable_ctx._serialized_key_buffer_size =
-                                                         0;
-                                             }
                                          }},
                    *_process_hashtable_ctx_variants);
     }
@@ -319,7 +313,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         /// No need to check the block size in `_filter_data_and_build_output` because here dose not
         /// increase the output rows count(just same as `_probe_block`'s rows count).
         RETURN_IF_ERROR(local_state.filter_data_and_build_output(state, output_block, source_state,
-                                                                 &temp_block, false));
+                                                                 &temp_block));
         temp_block.clear();
         local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
         return Status::OK();
@@ -405,15 +399,10 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
 Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state,
                                                              vectorized::Block* output_block,
                                                              SourceState& source_state,
-                                                             vectorized::Block* temp_block,
-                                                             bool check_rows_count) {
+                                                             vectorized::Block* temp_block) {
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
     if (p._is_outer_join) {
         add_tuple_is_null_column(temp_block);
-    }
-    auto output_rows = temp_block->rows();
-    if (check_rows_count) {
-        DCHECK(output_rows <= state->batch_size());
     }
     {
         SCOPED_TIMER(_join_filter_timer);
