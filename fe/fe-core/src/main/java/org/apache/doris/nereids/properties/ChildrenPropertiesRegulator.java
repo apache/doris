@@ -122,7 +122,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         // no matter x.ndv is high or not, it is not worthwhile to shuffle A and B by x
         // and hence we forbid one phase agg
         if (agg.getAggMode() == AggMode.INPUT_TO_RESULT
-                && requiredProperties.get(0).getDistributionSpec() instanceof DistributionSpecHash
                 && children.get(0).getPlan() instanceof PhysicalUnion
                 && !((PhysicalUnion) children.get(0).getPlan()).isDistinct()) {
             return false;
