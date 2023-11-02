@@ -17,20 +17,20 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.UserException;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.AbstractJobExecutor;
 import org.apache.doris.scheduler.job.ExecutorResult;
 import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.annotations.SerializedName;
@@ -39,9 +39,7 @@ import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.UUID;
-
-public class MTMVJobExecutor extends AbstractJobExecutor<MTMVTaskResult, MTMVTaskParams> {
+public class MTMVJobExecutor extends AbstractJobExecutor<String, MTMVTaskParams> {
     private static final Logger LOG = LogManager.getLogger(MTMVJobExecutor.class);
 
     @Getter
@@ -54,59 +52,61 @@ public class MTMVJobExecutor extends AbstractJobExecutor<MTMVTaskResult, MTMVTas
     @SerializedName(value = "mi")
     private long mtmvId;
 
+    private MTMV mtmv;
+    private String sql;
+
     public MTMVJobExecutor(String dbName, long mtmvId) {
         this.dbName = dbName;
         this.mtmvId = mtmvId;
     }
 
-    protected void afterExecute(ExecutorResult result, long taskStartTime, long lastRefreshFinishedTime,
-            String taskId) {
-        try {
-            MTMVTaskResult taskResult = new MTMVTaskResult(result.getErrorMsg(), result.getExecutorSql(),
-                    result.isSuccess(),
-                    taskStartTime, lastRefreshFinishedTime, taskId);
-            System.out.println(taskResult);
-            // Env.getCurrentEnv().alterMTMVStatus(new TableNameInfo(dbName, tableName), taskResult);
-        } catch (Exception e) {
-            e.printStackTrace();
-            LOG.warn("afterExecute failed: {} ", e.getMessage());
-        }
-    }
-
     @Override
-    public ExecutorResult<MTMVTaskResult> execute(Job job, MTMVTaskParams dataContext) throws JobException {
-        MTMV mtmv;
-        try {
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-            mtmv = (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
-        } catch (MetaNotFoundException | DdlException e) {
-            throw new JobException(e);
-        }
-
+    public ExecutorResult<String> execute(Job job, MTMVTaskParams dataContext) throws JobException {
+        beforeExecute();
         long taskStartTime = System.currentTimeMillis();
-
-        ConnectContext ctx = createContext(job,mtmv);
-
-
-        String taskIdString = UUID.randomUUID().toString();
-        UUID taskId = UUID.fromString(taskIdString);
-        TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-        ctx.setQueryId(queryId);
+        ConnectContext ctx = createContext(job, mtmv);
+        String taskIdString = generateTaskId();
+        TUniqueId queryId = generateQueryId(taskIdString);
         ExecutorResult executorResult;
         try {
             StmtExecutor executor = new StmtExecutor(ctx, sql);
             executor.execute(queryId);
-            String result = convertExecuteResult(ctx, taskIdString);
-
+            String result = convertExecuteResult(ctx, taskIdString, sql);
             executorResult = new ExecutorResult<>(result, true, null, sql);
         } catch (Exception e) {
-            executorResult = new ExecutorResult<>(null, false, e.getMessage(), sql);
             LOG.warn("execute sql job failed, job id :{}, sql: {}, error: {}", job.getJobId(), sql, e);
-            return new ExecutorResult<>(null, false, e.getMessage(), sql);
+            executorResult = new ExecutorResult<>(null, false, e.getMessage(), sql);
         }
-        long lastRefreshFinishedTime = System.currentTimeMillis();
-        afterExecute(executorResult, taskStartTime, lastRefreshFinishedTime, taskIdString);
+        long taskEndTime = System.currentTimeMillis();
+        afterExecute(executorResult, taskStartTime, taskEndTime, taskIdString);
         return executorResult;
+
+    }
+
+    private void beforeExecute() throws JobException {
+        try {
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+            mtmv = (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
+            sql = generateSql(mtmv);
+            MTMVStatus status = new MTMVStatus(MTMVRefreshState.REFRESHING);
+            Env.getCurrentEnv().alterMTMVStatus(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), status);
+        } catch (UserException e) {
+            throw new JobException(e);
+        }
+    }
+
+    private void afterExecute(ExecutorResult result, long taskStartTime, long taskEndTime,
+            String taskId) {
+        try {
+            MTMVTaskResult taskResult = new MTMVTaskResult(result.getErrorMsg(), result.getExecutorSql(),
+                    result.isSuccess(),
+                    taskStartTime, taskEndTime, taskId);
+            Env.getCurrentEnv()
+                    .alterMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), taskResult);
+        } catch (Exception e) {
+            e.printStackTrace();
+            LOG.warn("afterExecute failed: {} ", e.getMessage());
+        }
     }
 
     private ConnectContext createContext(Job job, MTMV mtmv) {
@@ -116,7 +116,7 @@ public class MTMVJobExecutor extends AbstractJobExecutor<MTMVTaskResult, MTMVTas
         return context;
     }
 
-    private String convertExecuteResult(ConnectContext ctx, String queryId) throws JobException {
+    private String convertExecuteResult(ConnectContext ctx, String queryId, String sql) throws JobException {
         if (null == ctx.getState()) {
             throw new JobException("execute sql job failed, sql: " + sql + ", error:  response state is null");
         }
@@ -127,4 +127,18 @@ public class MTMVJobExecutor extends AbstractJobExecutor<MTMVTaskResult, MTMVTas
         return "queryId:" + queryId + ",affectedRows : " + ctx.getState().getAffectedRows() + ", warningRows: "
                 + ctx.getState().getWarningRows() + ",infoMsg" + ctx.getState().getInfoMessage();
     }
+
+    private static String generateSql(MTMV mtmv) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("INSERT OVERWRITE TABLE ");
+        builder.append(mtmv.getDatabase().getCatalog().getName());
+        builder.append(".");
+        builder.append(ClusterNamespace.getNameFromFullName(mtmv.getQualifiedDbName()));
+        builder.append(".");
+        builder.append(mtmv.getName());
+        builder.append(" ");
+        builder.append(mtmv.getQuerySql());
+        return builder.toString();
+    }
+
 }

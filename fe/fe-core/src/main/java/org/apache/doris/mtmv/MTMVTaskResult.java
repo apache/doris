@@ -27,8 +27,8 @@ public class MTMVTaskResult {
     private String refreshErrorMsg;
     @SerializedName("executorSql")
     private String executorSql;
-    @SerializedName("refreshState")
-    private boolean refreshState;
+    @SerializedName("success")
+    private boolean success;
     @SerializedName("refreshFinishedTime")
     private long refreshFinishedTime;
     @SerializedName("refreshStartTime")
@@ -42,11 +42,11 @@ public class MTMVTaskResult {
     /**
      * Constructor
      */
-    public MTMVTaskResult(String refreshErrorMsg, String executorSql, boolean refreshState, long refreshFinishedTime,
+    public MTMVTaskResult(String refreshErrorMsg, String executorSql, boolean success, long refreshFinishedTime,
             long refreshStartTime, String refreshTaskId) {
         this.refreshErrorMsg = refreshErrorMsg;
         this.executorSql = executorSql;
-        this.refreshState = refreshState;
+        this.success = success;
         this.refreshFinishedTime = refreshFinishedTime;
         this.refreshStartTime = refreshStartTime;
         this.refreshTaskId = refreshTaskId;
@@ -60,8 +60,8 @@ public class MTMVTaskResult {
         return executorSql;
     }
 
-    public boolean isRefreshState() {
-        return refreshState;
+    public boolean isSuccess() {
+        return success;
     }
 
     public long getRefreshFinishedTime() {

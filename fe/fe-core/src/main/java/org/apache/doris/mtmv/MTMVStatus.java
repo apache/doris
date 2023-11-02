@@ -43,6 +43,10 @@ public class MTMVStatus {
         this.schemaChangeDetail = schemaChangeDetail;
     }
 
+    public MTMVStatus(MTMVRefreshState refreshState) {
+        this.refreshState = refreshState;
+    }
+
     public MTMVState getState() {
         return state;
     }
@@ -53,6 +57,18 @@ public class MTMVStatus {
 
     public MTMVRefreshState getRefreshState() {
         return refreshState;
+    }
+
+    public void setState(MTMVState state) {
+        this.state = state;
+    }
+
+    public void setSchemaChangeDetail(String schemaChangeDetail) {
+        this.schemaChangeDetail = schemaChangeDetail;
+    }
+
+    public void setRefreshState(MTMVRefreshState refreshState) {
+        this.refreshState = refreshState;
     }
 
     public MTMVStatus updateNotNull(MTMVStatus status) {

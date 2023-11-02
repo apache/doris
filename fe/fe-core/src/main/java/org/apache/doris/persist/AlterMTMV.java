@@ -21,6 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.MTMVTaskResult;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -43,6 +44,8 @@ public class AlterMTMV implements Writable {
     private boolean needRebuildJob = false;
     @SerializedName("mp")
     private Map<String, String> mvProperties;
+    @SerializedName("tr")
+    private MTMVTaskResult taskResult;
 
     public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
@@ -88,6 +91,18 @@ public class AlterMTMV implements Writable {
 
     public Map<String, String> getMvProperties() {
         return mvProperties;
+    }
+
+    public void setNeedRebuildJob(boolean needRebuildJob) {
+        this.needRebuildJob = needRebuildJob;
+    }
+
+    public MTMVTaskResult getTaskResult() {
+        return taskResult;
+    }
+
+    public void setTaskResult(MTMVTaskResult taskResult) {
+        this.taskResult = taskResult;
     }
 
     @Override

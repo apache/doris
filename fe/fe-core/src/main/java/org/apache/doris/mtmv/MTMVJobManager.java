@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
@@ -123,19 +122,6 @@ public class MTMVJobManager implements MTMVHookService {
             throw new DdlException("jobs not normal");
         }
         Env.getCurrentEnv().getJobRegister().immediateExecuteTask(jobs.get(0).getJobId(), new MTMVTaskParams());
-    }
-
-    private static String generateSql(MTMV materializedView) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("INSERT OVERWRITE TABLE ");
-        builder.append(materializedView.getDatabase().getCatalog().getName());
-        builder.append(".");
-        builder.append(ClusterNamespace.getNameFromFullName(materializedView.getQualifiedDbName()));
-        builder.append(".");
-        builder.append(materializedView.getName());
-        builder.append(" ");
-        builder.append(materializedView.getQuerySql());
-        return builder.toString();
     }
 
     private MTMVJobExecutor generateJobExecutor(MTMV materializedView) {

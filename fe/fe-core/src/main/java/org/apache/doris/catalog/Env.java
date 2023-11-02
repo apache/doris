@@ -174,12 +174,12 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.MTMVTaskResult;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
@@ -5800,6 +5800,12 @@ public class Env {
     public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) throws UserException {
         AlterMTMV alter = new AlterMTMV(mvName);
         alter.setStatus(status);
+        this.alter.processAlterMTMV(alter, false);
+    }
+
+    public void alterMTMVTaskResult(TableNameInfo mvName, MTMVTaskResult taskResult) throws UserException {
+        AlterMTMV alter = new AlterMTMV(mvName);
+        alter.setTaskResult(taskResult);
         this.alter.processAlterMTMV(alter, false);
     }
 }

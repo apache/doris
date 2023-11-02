@@ -18,5 +18,4 @@
 package org.apache.doris.mtmv;
 
 public class MTMVTaskParams {
-
 }

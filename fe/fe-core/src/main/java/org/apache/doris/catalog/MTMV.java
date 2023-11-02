@@ -23,8 +23,11 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.MTMVTaskResult;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -98,6 +101,16 @@ public class MTMV extends OlapTable {
 
     public MTMVStatus alterStatus(MTMVStatus status) {
         return status.updateNotNull(status);
+    }
+
+    public void alterTaskResult(MTMVTaskResult taskResult) {
+        if (taskResult.isSuccess()) {
+            status.setState(MTMVState.NORMAL);
+            status.setRefreshState(MTMVRefreshState.SUCCESS);
+        } else {
+            status.setRefreshState(MTMVRefreshState.FAIL);
+        }
+        jobInfo.setLastTaskResult(taskResult);
     }
 
     public Map<String, String> alterMvProperties(Map<String, String> mvProperties) {
