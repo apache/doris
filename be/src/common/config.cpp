@@ -1551,7 +1551,7 @@ Status set_config(const std::string& field, const std::string& value, bool need_
 }
 
 void update_config(const std::string& field, const std::string& value) {
-    if("sys_log_level" == field) {
+    if ("sys_log_level" == field) {
         // update log level
         update_logging(field, value);
     }
