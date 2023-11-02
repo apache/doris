@@ -94,6 +94,7 @@ public:
         auto* dep = _filter_dependency->filter_blocked_by();
         if (dep != nullptr) {
             set_state(PipelineTaskState::BLOCKED_FOR_RF);
+            dep->add_block_task(this);
             return dep;
         }
         return nullptr;
