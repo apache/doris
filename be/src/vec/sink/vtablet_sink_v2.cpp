@@ -116,6 +116,8 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
     _num_senders = state->num_per_fragment_instances();
     _stream_per_node = state->load_stream_per_node();
     _total_streams = state->total_load_streams();
+    DCHECK(_stream_per_node > 0) << "load stream per node should be greator than 0";
+    DCHECK(_total_streams > 0) << "total load streams should be greator than 0";
     LOG(INFO) << "num senders: " << _num_senders << ", stream per node: " << _stream_per_node
               << ", total_streams " << _total_streams;
     _is_high_priority =
