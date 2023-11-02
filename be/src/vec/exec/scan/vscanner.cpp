@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -166,7 +167,6 @@ void VScanner::_update_counters_before_close() {
         COUNTER_UPDATE(_parent->_byte_read_counter, _num_byte_read);
     }
     if (!_state->enable_profile() && !_is_load) return;
-    COUNTER_UPDATE(_parent->_rows_read_counter, _num_rows_read);
     // Update stats for load
     _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
     _state->update_num_rows_load_unselected(_counter.num_rows_unselected);

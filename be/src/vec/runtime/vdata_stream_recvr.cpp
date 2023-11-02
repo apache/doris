@@ -407,6 +407,11 @@ Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     }
 }
 
+void VDataStreamRecvr::remove_sender(int sender_id, int be_number) {
+    int use_sender_id = _is_merging ? sender_id : 0;
+    _sender_queues[use_sender_id]->decrement_senders(be_number);
+}
+
 void VDataStreamRecvr::remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics) {
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->decrement_senders(be_number);

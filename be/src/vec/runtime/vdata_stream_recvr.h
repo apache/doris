@@ -97,6 +97,8 @@ public:
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.
 
+    void remove_sender(int sender_id, int be_number);
+
     void remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics);
 
     void cancel_stream();
