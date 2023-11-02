@@ -28,6 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.common.IntervalUnit;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.constants.JobStatus;
+import org.apache.doris.scheduler.constants.JobType;
 import org.apache.doris.scheduler.executor.SqlJobExecutor;
 import org.apache.doris.scheduler.job.Job;
 
@@ -41,22 +42,21 @@ import java.util.HashSet;
 /**
  * syntax:
  * CREATE
- *     [DEFINER = user]
- *     JOB
- *     event_name
- *     ON SCHEDULE schedule
- *     [COMMENT 'string']
- *     DO event_body;
+ * [DEFINER = user]
+ * JOB
+ * event_name
+ * ON SCHEDULE schedule
+ * [COMMENT 'string']
+ * DO event_body;
  * schedule: {
- *    [STREAMING] AT timestamp
- *   | EVERY interval
- *     [STARTS timestamp ]
- *     [ENDS timestamp ]
+ * [STREAMING] AT timestamp
+ * | EVERY interval
+ * [STARTS timestamp ]
+ * [ENDS timestamp ]
  * }
  * interval:
- *     quantity { DAY | HOUR | MINUTE |
- *               WEEK | SECOND }
- *
+ * quantity { DAY | HOUR | MINUTE |
+ * WEEK | SECOND }
  */
 @Slf4j
 public class CreateJobStmt extends DdlStmt {
@@ -90,7 +90,7 @@ public class CreateJobStmt extends DdlStmt {
 
     private static HashSet<String> supportStmtClassNamesCache = new HashSet<>(16);
 
-    public CreateJobStmt(LabelName labelName, String onceJobStartTimestamp, Boolean isStreamingJob,
+    public CreateJobStmt(LabelName labelName, String jobTypeName, String onceJobStartTimestamp,
                          Long interval, String intervalTimeUnit,
                          String startsTimeStamp, String endsTimeStamp, String comment, StatementBase doStmt) {
         this.labelName = labelName;
@@ -102,7 +102,8 @@ public class CreateJobStmt extends DdlStmt {
         this.comment = comment;
         this.stmt = doStmt;
         this.job = new Job();
-        job.setStreamingJob(isStreamingJob);
+        JobType jobType = JobType.valueOf(jobTypeName.toUpperCase());
+        job.setJobType(jobType);
     }
 
     private String parseExecuteSql(String sql) throws AnalysisException {
@@ -136,7 +137,7 @@ public class CreateJobStmt extends DdlStmt {
         job.setTimezone(timezone);
         job.setComment(comment);
         //todo support user define
-        job.setUser("root");
+        job.setUser(ConnectContext.get().getQualifiedUser());
         job.setJobStatus(JobStatus.RUNNING);
         job.setJobCategory(JobCategory.SQL);
         analyzerSqlStmt();
@@ -172,7 +173,6 @@ public class CreateJobStmt extends DdlStmt {
 
 
     private void analyzerCycleJob() throws UserException {
-        job.setCycleJob(true);
         if (null == interval) {
             throw new AnalysisException("interval is null");
         }
@@ -214,8 +214,6 @@ public class CreateJobStmt extends DdlStmt {
 
 
     private void analyzerOnceTimeJob() throws UserException {
-        job.setCycleJob(false);
-
         job.setIntervalMs(0L);
 
         long executeAtTimeMillis = TimeUtils.timeStringToLong(onceJobStartTimestamp);

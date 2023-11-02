@@ -14,13 +14,23 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Common/HashTable/HashTable.h
-// and modified by Doris
 
-#pragma once
+suite("test_backend") {
+    def address = "127.0.0.1"
+    def notExistPort = 12346
 
-template <typename T>
-struct HashTableTraits {
-    static constexpr bool is_phmap = false;
-};
+    for (int i = 0; i < 2; i++) {
+        def result = sql """SHOW BACKENDS;"""
+        logger.info("result:${result}")
+
+        sql """ALTER SYSTEM ADD BACKEND "${address}:${notExistPort}";"""
+
+        result = sql """SHOW BACKENDS;"""
+        logger.info("result:${result}")
+
+        sql """ALTER SYSTEM DROPP BACKEND "${address}:${notExistPort}";"""
+
+        result = sql """SHOW BACKENDS;"""
+        logger.info("result:${result}")
+    }
+}

@@ -68,6 +68,7 @@ public class Memo {
     private static final EventProducer GROUP_MERGE_TRACER = new EventProducer(GroupMergeEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
     private static long stateId = 0;
+    private final ConnectContext connectContext;
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
@@ -76,11 +77,13 @@ public class Memo {
 
     // FOR TEST ONLY
     public Memo() {
-        root = null;
+        this.root = null;
+        this.connectContext = null;
     }
 
-    public Memo(Plan plan) {
-        root = init(plan);
+    public Memo(ConnectContext connectContext, Plan plan) {
+        this.root = init(plan);
+        this.connectContext = connectContext;
     }
 
     public static long getStateId() {
@@ -214,8 +217,7 @@ public class Memo {
     }
 
     private void maybeAddStateId(CopyInResult result) {
-        if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
+        if (connectContext != null && connectContext.getSessionVariable().isEnableNereidsTrace()
                 && result.generateNewExpression) {
             stateId++;
         }
@@ -850,11 +852,12 @@ public class Memo {
 
             List<Pair<Long, List<Integer>>> childrenId = new ArrayList<>();
             permute(children, 0, childrenId, new ArrayList<>());
-            Cost cost = CostCalculator.calculateCost(groupExpression, inputProperties);
+            Cost cost = CostCalculator.calculateCost(connectContext, groupExpression, inputProperties);
             for (Pair<Long, List<Integer>> c : childrenId) {
                 Cost totalCost = cost;
                 for (int i = 0; i < children.size(); i++) {
-                    totalCost = CostCalculator.addChildCost(groupExpression.getPlan(),
+                    totalCost = CostCalculator.addChildCost(connectContext,
+                            groupExpression.getPlan(),
                             totalCost,
                             children.get(i).get(c.second.get(i)).second,
                             i);
@@ -942,7 +945,7 @@ public class Memo {
 
         // return any if exits except RequirePropertiesSupplier and SetOperators
         // Because PropRegulator could change their input properties
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(prop);
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(connectContext, prop);
         List<List<PhysicalProperties>> requestList = requestPropertyDeriver
                 .getRequestChildrenPropertyList(groupExpression);
         Optional<List<PhysicalProperties>> any = requestList.stream()

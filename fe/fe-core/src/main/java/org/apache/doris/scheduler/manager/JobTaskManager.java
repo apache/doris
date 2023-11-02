@@ -51,17 +51,20 @@ public class JobTaskManager implements Writable {
      * used to record the start time of the task to be executed
      * will clear when the task is executed
      */
-    private static ConcurrentHashMap<Long, Map<Long, Long>> prepareTaskCreateMsMap = new ConcurrentHashMap<>(16);
+    private static ConcurrentHashMap<Long, Map<Long, JobTask>> prepareTaskCreateMsMap = new ConcurrentHashMap<>(16);
 
-    public static void addPrepareTaskStartTime(Long jobId, Long taskId, Long startTime) {
+    public static void addPrepareTask(JobTask jobTask) {
+        long jobId = jobTask.getJobId();
+        long taskId = jobTask.getTaskId();
         prepareTaskCreateMsMap.computeIfAbsent(jobId, k -> new HashMap<>());
-        prepareTaskCreateMsMap.get(jobId).put(taskId, startTime);
+        prepareTaskCreateMsMap.get(jobId).put(taskId, jobTask);
     }
 
-    public static Long pollPrepareTaskByTaskId(Long jobId, Long taskId) {
-        if (!prepareTaskCreateMsMap.containsKey(jobId)) {
-            // if the job is not in the map, return current time
-            return System.currentTimeMillis();
+    public static JobTask pollPrepareTaskByTaskId(Long jobId, Long taskId) {
+        if (!prepareTaskCreateMsMap.containsKey(jobId) || !prepareTaskCreateMsMap.get(jobId).containsKey(taskId)) {
+            // if the job is not in the map, return new JobTask
+            // return new JobTask(jobId, taskId, System.currentTimeMillis()); fixme
+            return null;
         }
         return prepareTaskCreateMsMap.get(jobId).remove(taskId);
     }
