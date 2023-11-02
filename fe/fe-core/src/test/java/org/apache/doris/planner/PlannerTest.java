@@ -81,7 +81,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
-        String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+        String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan1, "UNION"));
         String sql2 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl1 where k1='a' and k4=1\n"
                 + "union distinct\n"
@@ -105,7 +105,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
         stmtExecutor2.execute();
         Planner planner2 = stmtExecutor2.planner();
-        String plan2 = planner2.getExplainString(new ExplainOptions(false, false));
+        String plan2 = planner2.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(4, StringUtils.countMatches(plan2, "UNION"));
 
         // intersect
@@ -120,7 +120,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor3 = new StmtExecutor(connectContext, sql3);
         stmtExecutor3.execute();
         Planner planner3 = stmtExecutor3.planner();
-        String plan3 = planner3.getExplainString(new ExplainOptions(false, false));
+        String plan3 = planner3.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan3, "INTERSECT"));
         String sql4 = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl1 where k1='a' and k4=1\n"
                 + "intersect distinct\n"
@@ -145,7 +145,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor4 = new StmtExecutor(connectContext, sql4);
         stmtExecutor4.execute();
         Planner planner4 = stmtExecutor4.planner();
-        String plan4 = planner4.getExplainString(new ExplainOptions(false, false));
+        String plan4 = planner4.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(3, StringUtils.countMatches(plan4, "INTERSECT"));
 
         // except
@@ -160,7 +160,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor5 = new StmtExecutor(connectContext, sql5);
         stmtExecutor5.execute();
         Planner planner5 = stmtExecutor5.planner();
-        String plan5 = planner5.getExplainString(new ExplainOptions(false, false));
+        String plan5 = planner5.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan5, "EXCEPT"));
 
         String sql6 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl1 where k1='a' and k4=1\n"
@@ -174,7 +174,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor6 = new StmtExecutor(connectContext, sql6);
         stmtExecutor6.execute();
         Planner planner6 = stmtExecutor6.planner();
-        String plan6 = planner6.getExplainString(new ExplainOptions(false, false));
+        String plan6 = planner6.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan6, "EXCEPT"));
 
         String sql7 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl1 where k1='a' and k4=1\n"
@@ -188,7 +188,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor7 = new StmtExecutor(connectContext, sql7);
         stmtExecutor7.execute();
         Planner planner7 = stmtExecutor7.planner();
-        String plan7 = planner7.getExplainString(new ExplainOptions(false, false));
+        String plan7 = planner7.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan7, "EXCEPT"));
 
         // mixed
@@ -203,7 +203,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor8 = new StmtExecutor(connectContext, sql8);
         stmtExecutor8.execute();
         Planner planner8 = stmtExecutor8.planner();
-        String plan8 = planner8.getExplainString(new ExplainOptions(false, false));
+        String plan8 = planner8.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(1, StringUtils.countMatches(plan8, "UNION"));
         Assertions.assertEquals(1, StringUtils.countMatches(plan8, "INTERSECT"));
         Assertions.assertEquals(1, StringUtils.countMatches(plan8, "EXCEPT"));
@@ -231,7 +231,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor9 = new StmtExecutor(connectContext, sql9);
         stmtExecutor9.execute();
         Planner planner9 = stmtExecutor9.planner();
-        String plan9 = planner9.getExplainString(new ExplainOptions(false, false));
+        String plan9 = planner9.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertEquals(2, StringUtils.countMatches(plan9, "UNION"));
         Assertions.assertEquals(3, StringUtils.countMatches(plan9, "INTERSECT"));
         Assertions.assertEquals(2, StringUtils.countMatches(plan9, "EXCEPT"));
@@ -341,7 +341,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
-        String plan1 = planner1.getExplainString(new ExplainOptions(true, false));
+        String plan1 = planner1.getExplainString(new ExplainOptions(true, false, false));
         Assertions.assertEquals(2, StringUtils.countMatches(plan1, "nullable=true"));
     }
 
@@ -391,7 +391,7 @@ public class PlannerTest extends TestWithFeService {
                 e.printStackTrace();
             }
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
 
             StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
             try {
@@ -400,7 +400,7 @@ public class PlannerTest extends TestWithFeService {
                 e.printStackTrace();
             }
             Planner planner2 = stmtExecutor2.planner();
-            String plan2 = planner2.getExplainString(new ExplainOptions(false, false));
+            String plan2 = planner2.getExplainString(new ExplainOptions(false, false, false));
 
             Assertions.assertEquals(plan1, plan2);
         };
@@ -435,7 +435,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
-        String plan = planner.getExplainString(new ExplainOptions(false, false));
+        String plan = planner.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1\n"));
     }
 
@@ -446,7 +446,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
-        String plan = planner.getExplainString(new ExplainOptions(false, false));
+        String plan = planner.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertFalse(plan.contains("PREDICATES:"));
     }
 
@@ -457,7 +457,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
-        String plan = planner.getExplainString(new ExplainOptions(false, false));
+        String plan = planner.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1 AND `k2` = 1\n"));
     }
 
@@ -469,7 +469,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
-        String plan = planner.getExplainString(new ExplainOptions(false, false));
+        String plan = planner.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1\n"));
     }
 
@@ -508,7 +508,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
-        String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+        String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
         Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
         Assertions.assertFalse(plan1.contains("TOPN OPT"));
@@ -519,7 +519,7 @@ public class PlannerTest extends TestWithFeService {
         stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         planner1 = stmtExecutor1.planner();
-        plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+        plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertFalse(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
         Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
         Assertions.assertFalse(plan1.contains("TOPN OPT"));
@@ -530,7 +530,7 @@ public class PlannerTest extends TestWithFeService {
         stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         planner1 = stmtExecutor1.planner();
-        plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+        plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
         Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
         Assertions.assertTrue(plan1.contains("TOPN OPT"));
@@ -542,7 +542,7 @@ public class PlannerTest extends TestWithFeService {
             stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             planner1 = stmtExecutor1.planner();
-            plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertTrue(plan1.contains("SORT INFO:\n          `k1`\n          `k2`"));
             Assertions.assertTrue(plan1.contains("SORT LIMIT:"));
             Assertions.assertTrue(plan1.contains("TOPN OPT"));
@@ -553,7 +553,7 @@ public class PlannerTest extends TestWithFeService {
         StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
         stmtExecutor2.execute();
         Planner planner2 = stmtExecutor2.planner();
-        String plan2 = planner2.getExplainString(new ExplainOptions(false, false));
+        String plan2 = planner2.getExplainString(new ExplainOptions(false, false, false));
         Assertions.assertFalse(plan2.contains("SORT INFO:"));
         Assertions.assertFalse(plan2.contains("SORT LIMIT:"));
     }
@@ -566,7 +566,7 @@ public class PlannerTest extends TestWithFeService {
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertTrue(plan1.contains("order by:"));
             }
 
@@ -576,7 +576,7 @@ public class PlannerTest extends TestWithFeService {
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertTrue(plan1.contains("order by:"));
             }
 
@@ -586,7 +586,7 @@ public class PlannerTest extends TestWithFeService {
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertTrue(plan1.contains("order by:"));
             }
 
@@ -596,7 +596,7 @@ public class PlannerTest extends TestWithFeService {
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertTrue(plan1.contains("order by:"));
             }
 
@@ -606,7 +606,7 @@ public class PlannerTest extends TestWithFeService {
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertTrue(plan1.contains("order by:"));
             }
 
@@ -617,7 +617,7 @@ public class PlannerTest extends TestWithFeService {
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertTrue(plan1.contains("order by:"));
             }
 
@@ -627,7 +627,7 @@ public class PlannerTest extends TestWithFeService {
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertTrue(plan1.contains("order by:"));
             }
 
@@ -637,7 +637,7 @@ public class PlannerTest extends TestWithFeService {
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertFalse(plan1.contains("order by:"));
             }
 
@@ -647,7 +647,7 @@ public class PlannerTest extends TestWithFeService {
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertFalse(plan1.contains("order by:"));
             }
 
@@ -657,7 +657,7 @@ public class PlannerTest extends TestWithFeService {
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertFalse(plan1.contains("order by:"));
             }
 
@@ -667,7 +667,7 @@ public class PlannerTest extends TestWithFeService {
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertFalse(plan1.contains("order by:"));
             }
 
@@ -678,7 +678,7 @@ public class PlannerTest extends TestWithFeService {
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             stmtExecutor1.execute();
             Planner planner1 = stmtExecutor1.planner();
-            String plan1 = planner1.getExplainString(new ExplainOptions(false, false));
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertFalse(plan1.contains("order by:"));
             }
     }

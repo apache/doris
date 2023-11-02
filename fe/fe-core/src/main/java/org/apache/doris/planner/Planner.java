@@ -70,6 +70,17 @@ public abstract class Planner {
             }
             return PlanTreePrinter.printPlanExplanation(builder.getTreeRoot());
         }
+        if (explainOptions.isTree()) {
+            // print the plan tree
+            PlanTreeBuilder builder = new PlanTreeBuilder(fragments);
+            try {
+                builder.build();
+            } catch (UserException e) {
+                LOG.warn("Failed to build explain plan tree", e);
+                return e.getMessage();
+            }
+            return PlanTreePrinter.printPlanTree(builder.getTreeRoot());
+        }
 
         // print text plan
         org.apache.doris.thrift.TExplainLevel

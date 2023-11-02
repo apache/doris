@@ -40,6 +40,7 @@ public class ExplainCommand extends Command implements NoForward {
         NONE(false),
         NORMAL(false),
         VERBOSE(false),
+        TREE(false),
         GRAPH(false),
         PARSED_PLAN(true),
         ANALYZED_PLAN(true),
