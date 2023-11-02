@@ -18,11 +18,6 @@
 suite("test_alter_table_column_rename") {
     def tbName = "alter_table_column_rename"
 
-    def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-        return jobStateResult[0][9]
-    }
-
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName} (
