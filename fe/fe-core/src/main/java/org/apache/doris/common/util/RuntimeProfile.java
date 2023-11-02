@@ -357,25 +357,48 @@ public class RuntimeProfile {
         return brief;
     }
 
+    private void printActimeCounter(StringBuilder builder, boolean isPipelineX) {
+        if (!isPipelineX) {
+            Counter counter = this.counterMap.get("TotalTime");
+            Preconditions.checkState(counter != null);
+            if (counter.getValue() != 0) {
+                try (Formatter fmt = new Formatter()) {
+                    builder.append("(Active: ")
+                            .append(RuntimeProfile.printCounter(counter.getValue(), counter.getType()))
+                            .append(", % non-child: ").append(fmt.format("%.2f", localTimePercent))
+                            .append("%)");
+                }
+            }
+        } else {
+            Counter counter = this.counterMap.get("ExecTime");
+            if (counter == null) {
+                counter = this.counterMap.get("TotalTime");
+            }
+            if (counter.getValue() != 0) {
+                try (Formatter fmt = new Formatter()) {
+                    builder.append("(ExecTime: ")
+                            .append(RuntimeProfile.printCounter(counter.getValue(), counter.getType()))
+                            .append(")");
+                }
+            }
+        }
+    }
+
     // Print the profile:
     // 1. Profile Name
     // 2. Info Strings
     // 3. Counters
     // 4. Children
     public void prettyPrint(StringBuilder builder, String prefix) {
-        Counter counter = this.counterMap.get("TotalTime");
-        Preconditions.checkState(counter != null);
+        prettyPrint(builder, prefix, false);
+    }
+
+    public void prettyPrint(StringBuilder builder, String prefix, boolean isPipelineX) {
         // 1. profile name
         builder.append(prefix).append(name).append(":");
         // total time
-        if (counter.getValue() != 0) {
-            try (Formatter fmt = new Formatter()) {
-                builder.append("(Active: ")
-                        .append(this.printCounter(counter.getValue(), counter.getType()))
-                        .append(", % non-child: ").append(fmt.format("%.2f", localTimePercent))
-                        .append("%)");
-            }
-        }
+        printActimeCounter(builder, isPipelineX);
+
         builder.append("\n");
 
         // plan node info
@@ -408,7 +431,7 @@ public class RuntimeProfile {
                 Pair<RuntimeProfile, Boolean> pair = childList.get(i);
                 boolean indent = pair.second;
                 RuntimeProfile profile = pair.first;
-                profile.prettyPrint(builder, prefix + (indent ? "  " : ""));
+                profile.prettyPrint(builder, prefix + (indent ? "  " : ""), isPipelineX);
             }
         } finally {
             childLock.readLock().unlock();
@@ -573,7 +596,7 @@ public class RuntimeProfile {
 
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        prettyPrint(builder, "");
+        prettyPrint(builder, "", isPipelineX);
         return builder.toString();
     }
 
