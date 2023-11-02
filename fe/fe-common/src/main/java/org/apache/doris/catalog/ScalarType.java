@@ -381,6 +381,40 @@ public class ScalarType extends Type {
         return type;
     }
 
+    public static ScalarType createDecimalV2Type() {
+        Preconditions.checkState(!Config.disable_decimalv2, "DecimalV2 is disable in fe.conf!");
+        return DEFAULT_DECIMALV2;
+    }
+
+    public static ScalarType createDecimalV2Type(int precision) {
+        Preconditions.checkState(!Config.disable_decimalv2, "DecimalV2 is disable in fe.conf!");
+        return createDecimalV2Type(precision, DEFAULT_SCALE);
+    }
+
+    public static ScalarType createDecimalV2Type(int precision, int scale) {
+        Preconditions.checkState(!Config.disable_decimalv2, "DecimalV2 is disable in fe.conf!");
+        ScalarType type = new ScalarType(PrimitiveType.DECIMALV2);
+        type.precision = precision;
+        type.scale = scale;
+        return type;
+    }
+
+    public static ScalarType createDecimalV2Type(String precisionStr) {
+        Preconditions.checkState(!Config.disable_decimalv2, "DecimalV2 is disable in fe.conf!");
+        ScalarType type = new ScalarType(PrimitiveType.DECIMALV2);
+        type.precisionStr = precisionStr;
+        type.scaleStr = null;
+        return type;
+    }
+
+    public static ScalarType createDecimalV2Type(String precisionStr, String scaleStr) {
+        Preconditions.checkState(!Config.disable_decimalv2, "DecimalV2 is disable in fe.conf!");
+        ScalarType type = new ScalarType(PrimitiveType.DECIMALV2);
+        type.precisionStr = precisionStr;
+        type.scaleStr = scaleStr;
+        return type;
+    }
+
     public static PrimitiveType getSuitableDecimalType(int precision, boolean decimalV2) {
         if (decimalV2 && !Config.enable_decimal_conversion) {
             return PrimitiveType.DECIMALV2;
