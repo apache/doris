@@ -182,7 +182,7 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
 }
 
 Status FragmentMgr::trigger_pipeline_context_report(
-        const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
+        const ReportStatusRequest& req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
     return _async_report_thread_pool->submit_func([this, req, ctx]() {
         coordinator_callback(req);
         if (!req.done) {
@@ -202,7 +202,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     FrontendServiceConnection coord(_exec_env->frontend_client_cache(), req.coord_addr,
                                     &coord_status);
     if (!coord_status.ok()) {
-        std::stringstream ss;
         UniqueId uid(req.query_id.hi, req.query_id.lo);
         static_cast<void>(req.update_fn(Status::InternalError(
                 "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
@@ -372,7 +371,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
         // Send new errors to coordinator
         req.runtime_state->get_unreported_errors(&(params.error_log));
-        params.__isset.error_log = (params.error_log.size() > 0);
+        params.__isset.error_log = !params.error_log.empty();
     }
 
     if (_exec_env->master_info()->__isset.backend_id) {
@@ -423,7 +422,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     }
 }
 
-static void empty_function(RuntimeState*, Status*) {}
+static void empty_function(RuntimeState* /*unused*/, Status* /*unused*/) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                                const FinishCallback& cb) {
@@ -535,9 +534,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
 
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
         return Status::OK();
-    } else {
-        return exec_plan_fragment(params, empty_function);
     }
+    return exec_plan_fragment(params, empty_function);
 }
 
 Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* request) {
@@ -934,36 +932,21 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
         int target_size = params.local_params.size();
         if (target_size > 1) {
-            int prepare_done = {0};
             Status prepare_status[target_size];
-            std::mutex m;
-            std::condition_variable cv;
 
             for (size_t i = 0; i < target_size; i++) {
-                static_cast<void>(_thread_pool->submit_func([&, i]() {
-                    prepare_status[i] = pre_and_submit(i);
-                    std::unique_lock<std::mutex> lock(m);
-                    prepare_done++;
-                    if (prepare_done == target_size) {
-                        cv.notify_one();
-                    }
-                }));
+                static_cast<void>(_thread_pool->submit_func(
+                        [&, i]() { prepare_status[i] = pre_and_submit(i); }));
             }
 
-            std::unique_lock<std::mutex> lock(m);
-            if (prepare_done != target_size) {
-                cv.wait(lock);
-
-                for (size_t i = 0; i < target_size; i++) {
-                    if (!prepare_status[i].ok()) {
-                        return prepare_status[i];
-                    }
+            for (size_t i = 0; i < target_size; i++) {
+                if (!prepare_status[i].ok()) {
+                    return prepare_status[i];
                 }
             }
             return Status::OK();
-        } else {
-            return pre_and_submit(0);
         }
+        return pre_and_submit(0);
     }
     return Status::OK();
 }
@@ -1172,7 +1155,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
         return Status::InvalidArgument(msg.str());
     }
     TQueryPlanInfo t_query_plan_info;
-    const uint8_t* buf = (const uint8_t*)query_plan_info.data();
+    const auto* buf = (const uint8_t*)query_plan_info.data();
     uint32_t len = query_plan_info.size();
     // deserialize TQueryPlanInfo
     auto st = deserialize_thrift_msg(buf, &len, false, &t_query_plan_info);
@@ -1317,7 +1300,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
     int64_t start_apply = MonotonicMillis();
 
     const auto& fragment_instance_ids = request->fragment_instance_ids();
-    if (fragment_instance_ids.size() > 0) {
+    if (!fragment_instance_ids.empty()) {
         UniqueId fragment_instance_id = fragment_instance_ids[0];
         TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
 
@@ -1362,7 +1345,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
         RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(filter_id, filters));
 
         IRuntimeFilter* first_filter = nullptr;
-        for (auto filter : filters) {
+        for (auto* filter : filters) {
             if (!first_filter) {
                 RETURN_IF_ERROR(filter->update_filter(&params, start_apply));
                 first_filter = filter;
@@ -1427,7 +1410,7 @@ void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TExecPlanFrag
         params.fragment.plan.nodes.empty()) {
         return;
     }
-    for (auto& node : params.fragment.plan.nodes) {
+    for (const auto& node : params.fragment.plan.nodes) {
         if (node.node_type != TPlanNodeType::HASH_JOIN_NODE ||
             !node.hash_join_node.__isset.is_broadcast_join ||
             !node.hash_join_node.is_broadcast_join) {
@@ -1453,7 +1436,7 @@ void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(
         params.fragment.plan.nodes.empty()) {
         return;
     }
-    for (auto& node : params.fragment.plan.nodes) {
+    for (const auto& node : params.fragment.plan.nodes) {
         if (node.node_type != TPlanNodeType::HASH_JOIN_NODE ||
             !node.hash_join_node.__isset.is_broadcast_join ||
             !node.hash_join_node.is_broadcast_join) {
@@ -1478,14 +1461,14 @@ void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TPipelineFrag
         params.fragment.plan.nodes.empty()) {
         return;
     }
-    for (auto& node : params.fragment.plan.nodes) {
+    for (const auto& node : params.fragment.plan.nodes) {
         if (node.node_type != TPlanNodeType::HASH_JOIN_NODE ||
             !node.hash_join_node.__isset.is_broadcast_join ||
             !node.hash_join_node.is_broadcast_join) {
             continue;
         }
 
-        for (auto& local_param : params.local_params) {
+        for (const auto& local_param : params.local_params) {
             if (local_param.build_hash_table_for_broadcast_join) {
                 query_ctx->get_shared_hash_table_controller()->set_builder_and_consumers(
                         local_param.fragment_instance_id, node.node_id);

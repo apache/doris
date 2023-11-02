@@ -17,10 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/types.pb.h>
-#include <stdint.h>
-
 #include <condition_variable>
 #include <functional>
 #include <iosfwd>
@@ -82,8 +78,7 @@ public:
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params);
 
-    void remove_pipeline_context(
-            std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
+    void remove_pipeline_context(std::shared_ptr<pipeline::PipelineFragmentContext> f_context);
 
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
@@ -92,7 +87,7 @@ public:
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
-    Status trigger_pipeline_context_report(const ReportStatusRequest,
+    Status trigger_pipeline_context_report(const ReportStatusRequest&,
                                            std::shared_ptr<pipeline::PipelineFragmentContext>&&);
 
     // Cancel instance (pipeline or nonpipeline).
