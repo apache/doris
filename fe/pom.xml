@@ -1454,6 +1454,9 @@ under the License.
                             </licenseHeader>
                             <removeUnusedImports />
                             <trimTrailingWhitespace />
+                            <importOrder>
+                                <order>org.apache.doris,org.apache,org,com,java|javax,,</order>
+                            </importOrder>
                         </java>
                         <pom>
                             <sortPom>
