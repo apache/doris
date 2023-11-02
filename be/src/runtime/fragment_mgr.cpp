@@ -377,11 +377,12 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     FrontendServiceConnection coord(_exec_env->frontend_client_cache(), req.coord_addr,
                                     &coord_status);
     if (!coord_status.ok()) {
-        std::stringstream ss;
         UniqueId uid(req.query_id.hi, req.query_id.lo);
-        req.update_fn(Status::InternalError(
-                "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
-                PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string()));
+        std::stringstream ss;
+        req.coord_addr.printTo(ss);
+        req.update_fn(
+                Status::InternalError("query_id: {}, couldn't get a client for {}, reason is {}",
+                                      uid.to_string(), ss.str(), coord_status.to_string()));
         return;
     }
 
@@ -503,8 +504,10 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
         rpc_status = Status::create<false>(res.status);
     } catch (TException& e) {
-        rpc_status = Status::InternalError("ReportExecStatus() to {} failed: {}",
-                                           PrintThriftNetworkAddress(req.coord_addr), e.what());
+        std::stringstream ss;
+        req.coord_addr.printTo(ss);
+        rpc_status =
+                Status::InternalError("ReportExecStatus() to {} failed: {}", ss.str(), e.what());
     }
 
     if (!rpc_status.ok()) {
