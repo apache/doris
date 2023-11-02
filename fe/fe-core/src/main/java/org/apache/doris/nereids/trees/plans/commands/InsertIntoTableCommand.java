@@ -364,7 +364,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         }
 
         GroupCommitPlanner groupCommitPlanner = new GroupCommitPlanner(physicalOlapTableSink.getDatabase(),
-                physicalOlapTableSink.getTargetTable(), ctx.queryId());
+                physicalOlapTableSink.getTargetTable(), null, ctx.queryId());
         Future<PGroupCommitInsertResponse> future = groupCommitPlanner.prepareGroupCommitInsertRequest(ctx, rows);
         PGroupCommitInsertResponse response = future.get();
         TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());

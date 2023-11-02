@@ -58,7 +58,6 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.tablefunction.GroupCommitTableValuedFunction;
 import org.apache.doris.thrift.TQueryOptions;
-import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -159,6 +158,7 @@ public class NativeInsertStmt extends InsertStmt {
     // true if be generates an insert from group commit tvf stmt and executes to load data
     public boolean isGroupCommitTvf = false;
     public boolean isGroupCommitStreamLoadSql = false;
+    private GroupCommitPlanner groupCommitPlanner;
 
     private boolean isFromDeleteOrUpdateStmt = false;
 
@@ -1079,7 +1079,7 @@ public class NativeInsertStmt extends InsertStmt {
     public GroupCommitPlanner planForGroupCommit(TUniqueId queryId) throws UserException, TException {
         OlapTable olapTable = (OlapTable) getTargetTable();
         if (planBytes != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
-            return null;
+            return groupCommitPlanner;
         }
         if (!targetColumns.isEmpty()) {
             Analyzer analyzerTmp = analyzer;
@@ -1087,12 +1087,7 @@ public class NativeInsertStmt extends InsertStmt {
             this.analyzer = analyzerTmp;
         }
         analyzeSubquery(analyzer, true);
-        TStreamLoadPutRequest streamLoadPutRequest = new TStreamLoadPutRequest();
-        if (targetColumnNames != null) {
-            streamLoadPutRequest.setColumns(String.join(",", targetColumnNames));
-        }
-
-        GroupCommitPlanner groupCommitPlanner = new GroupCommitPlanner((Database) db, olapTable, queryId);
+        groupCommitPlanner = new GroupCommitPlanner((Database) db, olapTable, targetColumnNames, queryId);
 
         // save plan message to be reused for prepare stmt
         loadId = queryId;

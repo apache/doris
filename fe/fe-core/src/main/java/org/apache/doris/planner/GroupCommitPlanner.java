@@ -75,10 +75,14 @@ public class GroupCommitPlanner {
     private DescriptorTable descTable;
     private TScanRangeParams scanRangeParam;
 
-    public GroupCommitPlanner(Database db, OlapTable table, TUniqueId queryId) throws UserException {
+    public GroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames, TUniqueId queryId)
+                throws UserException {
         this.db = db;
         this.table = table;
         TStreamLoadPutRequest streamLoadPutRequest = new TStreamLoadPutRequest();
+        if (targetColumnNames != null) {
+            streamLoadPutRequest.setColumns(String.join(",", targetColumnNames));
+        }
         streamLoadPutRequest
                 .setDb(db.getFullName())
                 .setMaxFilterRatio(1)
