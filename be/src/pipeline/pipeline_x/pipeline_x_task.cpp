@@ -182,9 +182,9 @@ Status PipelineXTask::_open() {
         auto* local_state = _state->get_local_state(o->operator_id());
         auto st = local_state->open(_state);
         if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
-            auto* filer_dep = local_state->filterdependency();
+            auto* filter_dep = local_state->filterdependency();
             set_state(PipelineTaskState::BLOCKED_FOR_RF);
-            filer_dep->add_block_task(this);
+            push_block_task_to_dependency(filter_dep);
         } else if (st.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
         }
@@ -365,20 +365,26 @@ bool PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
     Dependency* block_dep = nullptr;
     if (state == PipelineTaskState::PENDING_FINISH) {
         block_dep = finish_blocked_dependency();
-    } else if (query_context()->is_cancelled()) {
+        if (block_dep == nullptr) {
+            return _make_run(PipelineTaskState::PENDING_FINISH);
+        }
+        return false;
+    }
+    if (query_context()->is_cancelled()) {
         return _make_run();
-    } else if (query_context()->is_timeout(now)) {
+    }
+    if (query_context()->is_timeout(now)) {
         query_context()->cancel(true, "", Status::Cancelled(""));
         return _make_run();
-    } else {
-        if (state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
-            block_dep = read_blocked_dependency();
-        } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
-            block_dep = filter_blocked_dependency();
-        } else if (state == PipelineTaskState::BLOCKED_FOR_SINK) {
-            block_dep = write_blocked_dependency();
-        }
     }
+    if (state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
+        block_dep = read_blocked_dependency();
+    } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
+        block_dep = filter_blocked_dependency();
+    } else if (state == PipelineTaskState::BLOCKED_FOR_SINK) {
+        block_dep = write_blocked_dependency();
+    }
+
     if (block_dep == nullptr) {
         return _make_run();
     }

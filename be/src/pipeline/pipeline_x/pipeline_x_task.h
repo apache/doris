@@ -94,7 +94,7 @@ public:
         auto* dep = _filter_dependency->filter_blocked_by();
         if (dep != nullptr) {
             set_state(PipelineTaskState::BLOCKED_FOR_RF);
-            dep->add_block_task(this);
+            push_block_task_to_dependency(dep);
             return dep;
         }
         return nullptr;
@@ -110,7 +110,7 @@ public:
         if (dep != nullptr) {
             dep->start_write_watcher();
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
-            dep->add_block_task(this);
+            push_block_task_to_dependency(dep);
             return dep;
         }
         return nullptr;
@@ -131,6 +131,7 @@ public:
             if (dep != nullptr) {
                 dep->start_finish_watcher();
                 set_state(PipelineTaskState::PENDING_FINISH);
+                push_block_task_to_dependency(dep);
                 return dep;
             }
         }
@@ -138,8 +139,18 @@ public:
     }
 
     bool is_pending_finish() override {
+        for (auto* fin_dep : _finish_dependencies) {
+            auto* dep = fin_dep->finish_blocked_by();
+            if (dep != nullptr) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool can_finish() override {
         auto* dep = finish_blocked_dependency();
-        return dep != nullptr;
+        return dep == nullptr;
     }
 
     std::vector<DependencySPtr>& get_downstream_dependency() { return _downstream_dependency; }
@@ -182,6 +193,12 @@ public:
     OperatorXs operatorXs() { return _operators; }
 
 private:
+    void push_block_task_to_dependency(Dependency* dep) {
+        if (avoid_using_blocked_queue(get_state())) {
+            dep->add_block_task(this);
+        }
+    }
+
     [[nodiscard]] bool _make_run(PipelineTaskState state = PipelineTaskState::RUNNABLE);
     void set_close_pipeline_time() override {}
     void _init_profile() override;

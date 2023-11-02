@@ -80,8 +80,7 @@ enum class PipelineTaskState : uint8_t {
 };
 
 inline bool avoid_using_blocked_queue(PipelineTaskState state) {
-    return state == PipelineTaskState::BLOCKED_FOR_SINK ||
-           state == PipelineTaskState::BLOCKED_FOR_RF;
+    return state == PipelineTaskState::BLOCKED_FOR_SINK;
 }
 
 inline const char* get_state_name(PipelineTaskState idx) {
@@ -157,6 +156,8 @@ public:
         }
         return false;
     }
+
+    virtual bool can_finish() { return !is_pending_finish(); }
 
     virtual bool source_can_read() { return _source->can_read() || _pipeline->_always_can_read; }
 
