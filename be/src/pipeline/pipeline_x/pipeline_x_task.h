@@ -131,6 +131,7 @@ public:
             if (dep != nullptr) {
                 dep->start_finish_watcher();
                 set_state(PipelineTaskState::PENDING_FINISH);
+                dep->add_block_task(this);
                 return dep;
             }
         }

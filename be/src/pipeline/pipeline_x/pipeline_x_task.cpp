@@ -365,6 +365,9 @@ bool PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
     Dependency* block_dep = nullptr;
     if (state == PipelineTaskState::PENDING_FINISH) {
         block_dep = finish_blocked_dependency();
+        if (block_dep == nullptr) {
+            return _make_run(PipelineTaskState::PENDING_FINISH);
+        }
     } else if (query_context()->is_cancelled()) {
         return _make_run();
     } else if (query_context()->is_timeout(now)) {
