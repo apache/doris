@@ -17,52 +17,110 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.View;
+import org.apache.doris.mtmv.MVCache;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupId;
+import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.util.ExpressionUtils;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Maintain the context for query rewrite by materialized view
  */
 public class MaterializationContext {
 
-    // TODO add MaterializedView class
-    private final Plan mvPlan;
-    private final CascadesContext context;
+    private MTMV mtmv;
+    // Should use stmt id generator in query context
+    private final Plan mvScanPlan;
     private final List<Table> baseTables;
-    private final List<View> baseViews;
+    private final List<Table> baseViews;
     // Group ids that are rewritten by this mv to reduce rewrite times
     private final Set<GroupId> matchedGroups = new HashSet<>();
-    private final Plan scanPlan;
+    // generate form mv scan plan
+    private ExpressionMapping viewExpressionMapping;
 
-    public MaterializationContext(Plan mvPlan, CascadesContext context,
-            List<Table> baseTables, List<View> baseViews, Plan scanPlan) {
-        this.mvPlan = mvPlan;
-        this.context = context;
+    /**
+     * MaterializationContext, this contains necessary info for query rewriting by mv
+     */
+    public MaterializationContext(MTMV mtmv,
+            Plan mvScanPlan,
+            CascadesContext cascadesContext,
+            List<Table> baseTables,
+            List<Table> baseViews) {
+        this.mtmv = mtmv;
+        this.mvScanPlan = mvScanPlan;
         this.baseTables = baseTables;
         this.baseViews = baseViews;
-        this.scanPlan = scanPlan;
+        MVCache mvCache = mtmv.getMvCache();
+        // TODO This logic should move to materialized view cache manager
+        if (mvCache == null) {
+            mvCache = MVCache.from(mtmv, cascadesContext.getConnectContext());
+            mtmv.setMvCache(mvCache);
+        }
+        List<NamedExpression> mvOutputExpressions = mvCache.getMvOutputExpressions();
+        // mv output expression shuttle, this will be used to expression rewrite
+        mvOutputExpressions =
+                ExpressionUtils.shuttleExpressionWithLineage(mvOutputExpressions, mvCache.getLogicalPlan()).stream()
+                        .map(NamedExpression.class::cast)
+                        .collect(Collectors.toList());
+        this.viewExpressionMapping = ExpressionMapping.generate(
+                mvOutputExpressions,
+                mvScanPlan.getExpressions());
     }
 
     public Set<GroupId> getMatchedGroups() {
         return matchedGroups;
     }
 
+    public boolean alreadyRewrite(GroupId groupId) {
+        return this.matchedGroups.contains(groupId);
+    }
+
     public void addMatchedGroup(GroupId groupId) {
         matchedGroups.add(groupId);
     }
 
-    public Plan getMvPlan() {
-        return mvPlan;
+    public MTMV getMtmv() {
+        return mtmv;
     }
 
-    public Plan getScanPlan() {
-        return scanPlan;
+    public Plan getMvScanPlan() {
+        return mvScanPlan;
+    }
+
+    public List<Table> getBaseTables() {
+        return baseTables;
+    }
+
+    public List<Table> getBaseViews() {
+        return baseViews;
+    }
+
+    public ExpressionMapping getViewExpressionIndexMapping() {
+        return viewExpressionMapping;
+    }
+
+    /**
+     * MaterializationContext fromMaterializedView
+     */
+    public static MaterializationContext fromMaterializedView(MTMV materializedView,
+            Plan mvScanPlan,
+            CascadesContext cascadesContext) {
+        return new MaterializationContext(
+                materializedView,
+                mvScanPlan,
+                cascadesContext,
+                ImmutableList.of(),
+                ImmutableList.of());
     }
 }

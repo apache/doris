@@ -21,8 +21,9 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -39,10 +40,10 @@ import java.util.List;
  */
 public class PredicatesSplitter {
 
-    private final List<Expression> equalPredicates = new ArrayList<>();
-    private final List<Expression> rangePredicates = new ArrayList<>();
-    private final List<Expression> residualPredicates = new ArrayList<>();
-    private final List<Expression> conjunctExpressions;
+    private List<Expression> equalPredicates = new ArrayList<>();
+    private List<Expression> rangePredicates = new ArrayList<>();
+    private List<Expression> residualPredicates = new ArrayList<>();
+    private List<Expression> conjunctExpressions;
 
     private final PredicateExtract instance = new PredicateExtract();
 
@@ -53,9 +54,7 @@ public class PredicatesSplitter {
         }
     }
 
-    /**
-     * PredicateExtract
-     */
+    /**PredicateExtract*/
     public class PredicateExtract extends DefaultExpressionVisitor<Void, Expression> {
 
         @Override
@@ -64,7 +63,7 @@ public class PredicatesSplitter {
             Expression rightArg = comparisonPredicate.getArgument(1);
             boolean leftArgOnlyContainsColumnRef = containOnlyColumnRef(leftArg, true);
             boolean rightArgOnlyContainsColumnRef = containOnlyColumnRef(rightArg, true);
-            if (comparisonPredicate instanceof EqualPredicate) {
+            if (comparisonPredicate instanceof EqualTo || comparisonPredicate instanceof NullSafeEqual) {
                 if (leftArgOnlyContainsColumnRef && rightArgOnlyContainsColumnRef) {
                     equalPredicates.add(comparisonPredicate);
                     return null;
@@ -86,7 +85,7 @@ public class PredicatesSplitter {
                 residualPredicates.add(compoundPredicate);
                 return null;
             }
-            return super.visit(compoundPredicate, context);
+            return super.visitCompoundPredicate(compoundPredicate, context);
         }
     }
 

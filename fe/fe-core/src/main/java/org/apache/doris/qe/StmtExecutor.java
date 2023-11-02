@@ -123,6 +123,7 @@ import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
@@ -576,6 +577,9 @@ public class StmtExecutor {
             }
             // create plan
             planner = new NereidsPlanner(statementContext);
+            if (context.getSessionVariable().isEnableMaterializedViewRewrite()) {
+                planner.addHook(InitMaterializationContextHook.INSTANCE);
+            }
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRules();

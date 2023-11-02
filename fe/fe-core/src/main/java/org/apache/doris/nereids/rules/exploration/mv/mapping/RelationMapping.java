@@ -17,13 +17,13 @@
 
 package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 
 import com.google.common.collect.BiMap;
-import com.google.common.collect.ImmutableBiMap;
-import com.google.common.collect.ImmutableBiMap.Builder;
+import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Lists;
@@ -40,9 +40,9 @@ import java.util.Set;
  */
 public class RelationMapping extends Mapping {
 
-    private final ImmutableBiMap<MappedRelation, MappedRelation> mappedRelationMap;
+    private final BiMap<MappedRelation, MappedRelation> mappedRelationMap;
 
-    public RelationMapping(ImmutableBiMap<MappedRelation, MappedRelation> mappedRelationMap) {
+    public RelationMapping(BiMap<MappedRelation, MappedRelation> mappedRelationMap) {
         this.mappedRelationMap = mappedRelationMap;
     }
 
@@ -50,7 +50,7 @@ public class RelationMapping extends Mapping {
         return mappedRelationMap;
     }
 
-    public static RelationMapping of(ImmutableBiMap<MappedRelation, MappedRelation> mappedRelationMap) {
+    public static RelationMapping of(BiMap<MappedRelation, MappedRelation> mappedRelationMap) {
         return new RelationMapping(mappedRelationMap);
     }
 
@@ -59,20 +59,27 @@ public class RelationMapping extends Mapping {
      */
     public static List<RelationMapping> generate(List<CatalogRelation> sources, List<CatalogRelation> targets) {
         // Construct tmp map, key is the table qualifier, value is the corresponding catalog relations
-        LinkedListMultimap<Long, MappedRelation> sourceTableRelationIdMap = LinkedListMultimap.create();
+        LinkedListMultimap<String, MappedRelation> sourceTableRelationIdMap = LinkedListMultimap.create();
         for (CatalogRelation relation : sources) {
-            sourceTableRelationIdMap.put(getTableQualifier(relation.getTable()),
-                    MappedRelation.of(relation.getRelationId(), relation));
+            String tableQualifier = getTableQualifier(relation.getTable());
+            if (tableQualifier == null) {
+                return null;
+            }
+            sourceTableRelationIdMap.put(tableQualifier, MappedRelation.of(relation.getRelationId(), relation));
         }
-        LinkedListMultimap<Long, MappedRelation> targetTableRelationIdMap = LinkedListMultimap.create();
+        LinkedListMultimap<String, MappedRelation> targetTableRelationIdMap = LinkedListMultimap.create();
         for (CatalogRelation relation : targets) {
-            targetTableRelationIdMap.put(getTableQualifier(relation.getTable()),
-                    MappedRelation.of(relation.getRelationId(), relation));
+            String tableQualifier = getTableQualifier(relation.getTable());
+            if (tableQualifier == null) {
+                return null;
+            }
+            targetTableRelationIdMap.put(tableQualifier, MappedRelation.of(relation.getRelationId(), relation));
         }
-        Set<Long> sourceTableKeySet = sourceTableRelationIdMap.keySet();
+
+        Set<String> sourceTableKeySet = sourceTableRelationIdMap.keySet();
         List<List<Pair<MappedRelation, MappedRelation>>> mappedRelations = new ArrayList<>();
 
-        for (Long sourceTableQualifier : sourceTableKeySet) {
+        for (String sourceTableQualifier : sourceTableKeySet) {
             List<MappedRelation> sourceMappedRelations = sourceTableRelationIdMap.get(sourceTableQualifier);
             List<MappedRelation> targetMappedRelations = targetTableRelationIdMap.get(sourceTableQualifier);
             if (targetMappedRelations.isEmpty()) {
@@ -97,17 +104,23 @@ public class RelationMapping extends Mapping {
 
         return Lists.cartesianProduct(mappedRelations).stream()
                 .map(mappedRelationList -> {
-                    Builder<MappedRelation, MappedRelation> mapBuilder = ImmutableBiMap.builder();
+                    BiMap<MappedRelation, MappedRelation> relationMappedRelationBiMap =
+                            HashBiMap.create(mappedRelationCount);
                     for (int relationIndex = 0; relationIndex < mappedRelationCount; relationIndex++) {
-                        mapBuilder.put(mappedRelationList.get(relationIndex).key(),
+                        relationMappedRelationBiMap.put(mappedRelationList.get(relationIndex).key(),
                                 mappedRelationList.get(relationIndex).value());
                     }
-                    return RelationMapping.of(mapBuilder.build());
+                    return RelationMapping.of(relationMappedRelationBiMap);
                 })
                 .collect(ImmutableList.toImmutableList());
     }
 
-    private static Long getTableQualifier(TableIf tableIf) {
-        return tableIf.getId();
+    private static String getTableQualifier(TableIf tableIf) {
+        String tableName = tableIf.getName();
+        DatabaseIf database = tableIf.getDatabase();
+        if (database == null) {
+            return null;
+        }
+        return database.getFullName() + ":" + tableName;
     }
 }

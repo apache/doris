@@ -88,6 +88,7 @@ public class NereidsPlanner extends Planner {
     private PhysicalPlan physicalPlan;
     // The cost of optimized plan
     private double cost = 0;
+    private List<PlannerHook> hooks = new ArrayList<>();
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
@@ -260,15 +261,12 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getTables() != null) {
             cascadesContext.setTables(statementContext.getConnectContext().getTables());
         }
-        if (statementContext.getConnectContext().getSessionVariable().isEnableMaterializedViewRewrite()) {
-            // TODO Pre handle materialized view to materializationContext and
-            //  call cascadesContext.addMaterializationContext() to add it
-        }
     }
 
     private void analyze() {
         LOG.debug("Start analyze plan");
         cascadesContext.newAnalyzer().analyze();
+        getHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
         LOG.debug("End analyze plan");
     }
@@ -524,5 +522,13 @@ public class NereidsPlanner extends Planner {
 
     public PhysicalPlan getPhysicalPlan() {
         return physicalPlan;
+    }
+
+    public List<PlannerHook> getHooks() {
+        return hooks;
+    }
+
+    public void addHook(PlannerHook hook) {
+        this.hooks.add(hook);
     }
 }
