@@ -1815,24 +1815,6 @@ show data （其他用法：HELP SHOW DATA）
 
 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的 tablet 替换为空 tablet，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
 
-#### `recover_with_skip_missing_version`
-
-默认值：disable
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-有些场景下集群出现了不可恢复的元数据问题，数据已的visibleversion 已经和be 不匹配，
-
-这种情况下仍然需要恢复剩余的数据（可能能会导致数据的正确性有问题），这个配置同`recover_with_empty_tablet` 一样只能在紧急情况下使用
-
-这个配置有三个值：
-
-   * disable ：出现异常会正常报错。
-   * ignore_version: 忽略 fe partition 中记录的visibleVersion 信息， 使用replica version
-   * ignore_all: 除了ignore_version， 在遇到找不到可查询的replica 时，直接跳过而不是抛出异常
-
 #### `min_clone_task_timeout_sec`  和 `max_clone_task_timeout_sec`
 
 默认值：最小3分钟，最大两小时

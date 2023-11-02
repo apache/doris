@@ -238,7 +238,7 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     // for query
-    public List<Replica> getQueryableReplicas(long visibleVersion) {
+    public List<Replica> getQueryableReplicas(long visibleVersion, boolean allowFailedVersion) {
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
         List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
         for (Replica replica : replicas) {
@@ -247,7 +247,7 @@ public class Tablet extends MetaObject implements Writable {
             }
 
             // Skip the missing version replica
-            if (replica.getLastFailedVersion() > 0) {
+            if (replica.getLastFailedVersion() > 0 && !allowFailedVersion) {
                 continue;
             }
 
