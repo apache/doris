@@ -1546,7 +1546,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long bucketNum = distributionInfo.getBucketNum();
         long replicaNum = singlePartitionDesc.getReplicaAlloc().getTotalReplicaNum();
         long totalReplicaNum = indexNum * bucketNum * replicaNum;
-        if (totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
+        if (totalReplicaNum >= db.getReplicaQuotaLeftWithoutLock()) { // this may have a little risk
             throw new DdlException("Database " + db.getFullName() + " table " + tableName + " add partition increasing "
                     + totalReplicaNum + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
         }
