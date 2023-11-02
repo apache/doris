@@ -4419,6 +4419,7 @@ public class Env {
                 Env.getCurrentEnv().getQueryStats()
                         .rename(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId(),
                                 table.getId(), entry.getKey(), colName, newColName);
+                entry.getValue().setSchemaVersion(entry.getValue().getSchemaVersion() + 1);
             }
         }
         if (!hasColumn) {
