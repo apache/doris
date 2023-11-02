@@ -2780,3 +2780,14 @@ show data （其他用法：HELP SHOW DATA）
 Default: mysql
 
 Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，请修改这个字段，为 doris 内置的 mysql database 更换一个名字
+
+
+#### `fe_thrift_max_pkg_bytes`
+
+默认值：20000000
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+用于限制fe节点thrift端口可以接收的最大包长度，避免接收到过大或者错误的包导致OOM

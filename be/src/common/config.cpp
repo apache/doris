@@ -1121,6 +1121,10 @@ DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 // Max size(bytes) of group commit queues, used for mem back pressure.
 DEFINE_Int32(group_commit_max_queue_size, "65536");
 
+// the max package bytes be thrift server can receive
+// avoid accepting error or too large package causing OOM,default 20000000(20M)
+DEFINE_Int32(be_thrift_max_pkg_bytes, "20000000");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

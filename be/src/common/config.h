@@ -1191,6 +1191,10 @@ DECLARE_String(default_tzfiles_path);
 // Max size(bytes) of group commit queues, used for mem back pressure.
 DECLARE_Int32(group_commit_max_queue_size);
 
+// the max package bytes be thrift server can receive
+// avoid accepting error or too large package causing OOM,default 20000000(20M)
+DECLARE_Int32(be_thrift_max_pkg_bytes);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
