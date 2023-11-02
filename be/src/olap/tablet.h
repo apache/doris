@@ -502,7 +502,7 @@ public:
             RowsetSharedPtr dst_rowset,
             const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
                     location_map);
-    RowsetIdUnorderedSet all_rs_id(int64_t max_version) const;
+    Status all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const;
     void sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
 
     bool check_all_rowset_segment();
@@ -566,6 +566,7 @@ public:
                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
     Status _get_segment_column_iterator(
             const BetaRowsetSharedPtr& rowset, uint32_t segid, const TabletColumn& target_column,
+            SegmentCacheHandle* segment_cache_handle,
             std::unique_ptr<segment_v2::ColumnIterator>* column_iterator,
             OlapReaderStatistics* stats);
 

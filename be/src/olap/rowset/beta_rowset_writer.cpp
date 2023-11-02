@@ -49,6 +49,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 #include "util/time.h"
 #include "vec/columns/column.h"
@@ -677,6 +678,8 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
 
 Status BetaRowsetWriter::_check_segment_number_limit() {
     size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
+    DBUG_EXECUTE_IF("BetaRowsetWriter._check_segment_number_limit_too_many_segments",
+                    { total_segment_num = dp->param("segnum", 1024); });
     if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
                 "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, _num_segment:{}, "
@@ -745,79 +748,6 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
 
     writer->reset();
 
-    return Status::OK();
-}
-
-Status BetaRowsetWriter::_unfold_variant_column(vectorized::Block& block,
-                                                TabletSchemaSPtr& flush_schema) {
-    if (block.rows() == 0) {
-        return Status::OK();
-    }
-
-    // Sanitize block to match exactly from the same type of frontend meta
-    vectorized::schema_util::FullBaseSchemaView schema_view;
-    schema_view.table_id = _context.tablet_schema->table_id();
-    vectorized::ColumnWithTypeAndName* variant_column =
-            block.try_get_by_name(BeConsts::DYNAMIC_COLUMN_NAME);
-    if (!variant_column) {
-        return Status::OK();
-    }
-    auto base_column = variant_column->column;
-    vectorized::ColumnObject& object_column =
-            assert_cast<vectorized::ColumnObject&>(base_column->assume_mutable_ref());
-    if (object_column.empty()) {
-        block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
-        return Status::OK();
-    }
-    object_column.finalize();
-    // Has extended columns
-    RETURN_IF_ERROR(vectorized::schema_util::send_fetch_full_base_schema_view_rpc(&schema_view));
-    // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
-    //  static   dynamic
-    // | ----- | ------- |
-    // The static ones are original _tablet_schame columns
-    flush_schema = std::make_shared<TabletSchema>(*_context.tablet_schema);
-    vectorized::Block flush_block(std::move(block));
-    // The dynamic ones are auto generated and extended, append them the the orig_block
-    for (auto& entry : object_column.get_subcolumns()) {
-        const std::string& column_name = entry->path.get_path();
-        auto column_iter = schema_view.column_name_to_column.find(column_name);
-        if (UNLIKELY(column_iter == schema_view.column_name_to_column.end())) {
-            // Column maybe dropped by light weight schema change DDL
-            continue;
-        }
-        TabletColumn column(column_iter->second);
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
-                column, column.is_nullable());
-        // Dynamic generated columns does not appear in original tablet schema
-        if (_context.tablet_schema->field_index(column.name()) < 0) {
-            flush_schema->append_column(column);
-            flush_block.insert({data_type->create_column(), data_type, column.name()});
-        }
-    }
-
-    // Ensure column are all present at this schema version.Otherwise there will be some senario:
-    //  Load1 -> version(10) with schema [a, b, c, d, e], d & e is new added columns and schema version became 10
-    //  Load2 -> version(10) with schema [a, b, c] and has no extended columns and fetched the schema at version 10
-    //  Load2 will persist meta with [a, b, c] but Load1 will persist meta with [a, b, c, d, e]
-    // So we should make sure that rowset at the same schema version alawys contain the same size of columns.
-    // so that all columns at schema_version is in either _context.tablet_schema or schema_change_recorder
-    for (const auto& [name, column] : schema_view.column_name_to_column) {
-        if (_context.tablet_schema->field_index(name) == -1) {
-            const auto& tcolumn = schema_view.column_name_to_column[name];
-            TabletColumn new_column(tcolumn);
-            _context.schema_change_recorder->add_extended_columns(column,
-                                                                  schema_view.schema_version);
-        }
-    }
-
-    // Last schema alignment before flush to disk, due to the schema maybe variant before this procedure
-    // Eg. add columnA(INT) -> drop ColumnA -> add ColumnA(Double), then columnA could be type of `Double`,
-    // unfold will cast to Double type
-    RETURN_IF_ERROR(vectorized::schema_util::unfold_object(
-            flush_block.get_position_by_name(BeConsts::DYNAMIC_COLUMN_NAME), flush_block, true));
-    flush_block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
-    block.swap(flush_block);
     return Status::OK();
 }
 

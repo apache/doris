@@ -84,20 +84,21 @@ private:
 class TableFunctionOperatorX final : public StatefulOperatorX<TableFunctionLocalState> {
 public:
     using Base = StatefulOperatorX<TableFunctionLocalState>;
-    TableFunctionOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    TableFunctionOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                           const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(doris::RuntimeState* state) override;
     Status open(doris::RuntimeState* state) override;
 
     bool need_more_input_data(RuntimeState* state) const override {
-        auto& local_state = state->get_local_state(id())->cast<TableFunctionLocalState>();
+        auto& local_state = state->get_local_state(operator_id())->cast<TableFunctionLocalState>();
         return !local_state._child_block->rows() &&
                local_state._child_source_state != SourceState::FINISHED;
     }
 
     Status push(RuntimeState* state, vectorized::Block* input_block,
                 SourceState source_state) const override {
-        CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+        auto& local_state = get_local_state(state);
         if (input_block->rows() == 0) {
             return Status::OK();
         }
@@ -111,7 +112,7 @@ public:
 
     Status pull(RuntimeState* state, vectorized::Block* output_block,
                 SourceState& source_state) const override {
-        CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+        auto& local_state = get_local_state(state);
         RETURN_IF_ERROR(local_state.get_expanded_block(state, output_block, source_state));
         local_state.reached_limit(output_block, source_state);
         return Status::OK();

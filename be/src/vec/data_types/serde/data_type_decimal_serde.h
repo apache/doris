@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "data_type_serde.h"
 #include "olap/olap_common.h"
+#include "runtime/define_primitive_type.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
@@ -60,29 +61,31 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128>>) {
             return TYPE_DECIMALV2;
         }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal256>>) {
+            return TYPE_DECIMAL256;
+        }
         LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 
-    DataTypeDecimalSerDe(int scale_, int precision_)
-            : scale(scale_),
+    DataTypeDecimalSerDe(int scale_, int precision_, int nesting_level = 1)
+            : DataTypeSerDe(nesting_level),
+              scale(scale_),
               precision(precision_),
               scale_multiplier(decimal_scale_multiplier<typename T::NativeType>(scale)) {}
 
     Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
-                                      FormatOptions& options, int nesting_level = 1) const override;
+                                      FormatOptions& options) const override;
 
     Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                    BufferWritable& bw, FormatOptions& options,
-                                    int nesting_level = 1) const override;
+                                    BufferWritable& bw, FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options,
-                                          int nesting_level = 1) const override;
+                                          const FormatOptions& options) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized, const FormatOptions& options,
-                                               int nesting_level = 1) const override;
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
@@ -103,8 +106,9 @@ public:
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
 
-    Status write_column_to_orc(const IColumn& column, const NullMap* null_map,
-                               orc::ColumnVectorBatch* orc_col_batch, int start, int end,
+    Status write_column_to_orc(const std::string& timezone, const IColumn& column,
+                               const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
+                               int start, int end,
                                std::vector<StringRef>& buffer_list) const override;
 
 private:
@@ -128,6 +132,8 @@ Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValue
         ptype->set_id(PGenericType::DECIMAL128);
     } else if constexpr (std::is_same_v<T, Decimal128I>) {
         ptype->set_id(PGenericType::DECIMAL128I);
+    } else if constexpr (std::is_same_v<T, Decimal256>) {
+        ptype->set_id(PGenericType::DECIMAL256);
     } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
         ptype->set_id(PGenericType::INT32);
     } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
@@ -143,10 +149,12 @@ Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValue
     return Status::OK();
 }
 
+// TODO: decimal256
 template <typename T>
 Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
     if constexpr (std::is_same_v<T, Decimal<Int128>> || std::is_same_v<T, Decimal128I> ||
-                  std::is_same_v<T, Decimal<Int16>> || std::is_same_v<T, Decimal<Int32>>) {
+                  std::is_same_v<T, Decimal256> || std::is_same_v<T, Decimal<Int16>> ||
+                  std::is_same_v<T, Decimal<Int32>>) {
         column.resize(arg.bytes_value_size());
         auto& data = reinterpret_cast<ColumnDecimal<T>&>(column).get_data();
         for (int i = 0; i < arg.bytes_value_size(); ++i) {
@@ -164,6 +172,7 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
                                                       int row_num) const {
     StringRef data_ref = column.get_data_at(row_num);
     result.writeKey(col_id);
+    // TODO: decimal256
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         Decimal128::NativeType val =
                 *reinterpret_cast<const Decimal128::NativeType*>(data_ref.data);
@@ -188,6 +197,7 @@ template <typename T>
 void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                        const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
+    // TODO: decimal256
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Decimal128I>) {
