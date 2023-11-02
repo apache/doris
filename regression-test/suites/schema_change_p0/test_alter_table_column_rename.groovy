@@ -24,7 +24,6 @@ suite("test_alter_table_column_rename") {
     }
 
     sql "DROP TABLE IF EXISTS ${tbName}"
-    // char not null to null
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName} (
                 k1 INT NOT NULL,
@@ -38,27 +37,8 @@ suite("test_alter_table_column_rename") {
     sql """ insert into ${tbName} values (1, 'a', 2) """
     sql """ select * from ${tbName} """
 
-    // not nullable to nullable
+    // rename column name
     sql """ ALTER TABLE ${tbName} RENAME COLUMN value2 new_col """
 
-    /*
-    int max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
-    */
-
     sql """ select * from ${tbName} where new_col = 2 """
-
 }
