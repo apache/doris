@@ -236,6 +236,8 @@ public:
 
     size_t size() const { return next.size(); }
 
+    std::vector<uint8_t>& get_visited() { return visited; }
+
     void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
                size_t num_elem) {
         build_keys = keys;
@@ -246,7 +248,7 @@ public:
         }
     }
 
-    template <int JoinOpType>
+    template <int JoinOpType, bool with_other_conjuncts>
     auto find_batch(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
                     int probe_idx, uint32_t build_idx, int probe_rows,
                     uint32_t* __restrict probe_idxs, uint32_t* __restrict build_idxs) {
@@ -254,8 +256,8 @@ public:
                       JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
                       JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                       JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN) {
-            return _find_batch_inner_outer_join<JoinOpType>(keys, bucket_nums, probe_idx, build_idx,
-                                                            probe_rows, probe_idxs, build_idxs);
+            return _find_batch_inner_outer_join<JoinOpType, with_other_conjuncts>(
+                    keys, bucket_nums, probe_idx, build_idx, probe_rows, probe_idxs, build_idxs);
         }
         if constexpr (JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
                       JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN) {
@@ -264,7 +266,8 @@ public:
         }
         if constexpr (JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN ||
                       JoinOpType == doris::TJoinOp::RIGHT_SEMI_JOIN) {
-            return _find_batch_right_semi_anti(keys, bucket_nums, probe_idx, probe_rows);
+            return _find_batch_right_semi_anti<with_other_conjuncts>(
+                    keys, bucket_nums, probe_idx, probe_rows, probe_idxs, build_idxs);
         }
         return std::tuple {0, 0u, 0};
     }
@@ -292,21 +295,30 @@ public:
     }
 
 private:
+    template <bool with_other_conjuncts>
     auto _find_batch_right_semi_anti(const Key* __restrict keys,
                                      const uint32_t* __restrict bucket_nums, int probe_idx,
-                                     int probe_rows) {
+                                     int probe_rows, uint32_t* __restrict probe_idxs,
+                                     uint32_t* __restrict build_idxs) {
+        auto matched_cnt = 0;
         while (probe_idx < probe_rows) {
             auto build_idx = first[bucket_nums[probe_idx]];
 
             while (build_idx) {
                 if (keys[probe_idx] == build_keys[build_idx]) {
-                    visited[build_idx] = 1;
+                    if constexpr (with_other_conjuncts) {
+                        build_idxs[matched_cnt] = build_idx;
+                        probe_idxs[matched_cnt] = probe_idx;
+                        matched_cnt++;
+                    } else {
+                        visited[build_idx] = 1;
+                    }
                 }
                 build_idx = next[build_idx];
             }
             probe_idx++;
         }
-        return std::tuple {probe_idx, 0u, 0};
+        return std::tuple {probe_idx, 0u, matched_cnt};
     }
 
     template <int JoinOpType>
@@ -334,7 +346,7 @@ private:
         return std::tuple {probe_idx, 0u, matched_cnt};
     }
 
-    template <int JoinOpType>
+    template <int JoinOpType, bool with_other_conjuncts>
     auto _find_batch_inner_outer_join(const Key* __restrict keys,
                                       const uint32_t* __restrict bucket_nums, int probe_idx,
                                       uint32_t build_idx, int probe_rows,
@@ -348,8 +360,9 @@ private:
                 if (keys[probe_idx] == build_keys[build_idx]) {
                     probe_idxs[matched_cnt] = probe_idx;
                     build_idxs[matched_cnt] = build_idx;
-                    if constexpr (JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN ||
-                                  JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
+                    if constexpr (!with_other_conjuncts &&
+                                  (JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN ||
+                                   JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN)) {
                         visited[build_idx] = 1;
                     }
                     matched_cnt++;
