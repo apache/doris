@@ -315,7 +315,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         return streamPerNode;
     }
 
-    public void setStreamPerNode(boolean streamPerNode) {
+    public void setStreamPerNode(int streamPerNode) {
         this.streamPerNode = streamPerNode;
     }
 
