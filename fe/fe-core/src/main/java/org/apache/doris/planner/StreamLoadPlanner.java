@@ -295,12 +295,8 @@ public class StreamLoadPlanner {
         // For stream load, only one sender
         execParams.setSenderId(0);
         execParams.setNumSenders(1);
-        int loadStreamPerNode = 1;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-            loadStreamPerNode = ConnectContext.get().getSessionVariable().getLoadStreamPerNode();
-        }
-        execParams.setLoadStreamPerNode(loadStreamPerNode);
-        execParams.setTotalLoadStreams(loadStreamPerNode);
+        execParams.setLoadStreamPerNode(taskInfo.getStreamPerNode());
+        execParams.setTotalLoadStreams(taskInfo.getStreamPerNode());
         perNodeScanRange.put(scanNode.getId().asInt(), scanRangeParams);
         execParams.setPerNodeScanRanges(perNodeScanRange);
         params.setParams(execParams);
@@ -505,6 +501,8 @@ public class StreamLoadPlanner {
         pipParams.per_exch_num_senders = Maps.newHashMap();
         pipParams.destinations = Lists.newArrayList();
         pipParams.setNumSenders(1);
+        pipParams.setLoadStreamPerNode(taskInfo.getStreamPerNode());
+        pipParams.setTotalLoadStreams(taskInfo.getStreamPerNode());
 
         TPipelineInstanceParams localParams = new TPipelineInstanceParams();
         localParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + fragmentInstanceIdIndex));
@@ -520,12 +518,6 @@ public class StreamLoadPlanner {
         localParams.setPerNodeScanRanges(perNodeScanRange);
         pipParams.setLocalParams(Lists.newArrayList());
         pipParams.getLocalParams().add(localParams);
-        int loadStreamPerNode = 1;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-            loadStreamPerNode = ConnectContext.get().getSessionVariable().getLoadStreamPerNode();
-        }
-        pipParams.setLoadStreamPerNode(loadStreamPerNode);
-        pipParams.setTotalLoadStreams(loadStreamPerNode);
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQueryType(TQueryType.LOAD);
         queryOptions.setQueryTimeout(timeout);

@@ -89,6 +89,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private boolean enableProfile = false;
 
     private boolean memtableOnSinkNode = false;
+    private int streamPerNode = 20;
 
     private byte enclose = 0;
 
@@ -309,6 +310,15 @@ public class StreamLoadTask implements LoadTaskInfo {
         this.memtableOnSinkNode = memtableOnSinkNode;
     }
 
+    @Override
+    public int getStreamPerNode() {
+        return streamPerNode;
+    }
+
+    public void setStreamPerNode(boolean streamPerNode) {
+        this.streamPerNode = streamPerNode;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
@@ -446,6 +456,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetMemtableOnSinkNode()) {
             this.memtableOnSinkNode = request.isMemtableOnSinkNode();
+        }
+        if (request.isSetStreamPerNode()) {
+            this.streamPerNode = request.getStreamPerNode();
         }
     }
 
