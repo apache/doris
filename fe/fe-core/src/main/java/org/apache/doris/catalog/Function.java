@@ -23,16 +23,18 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.JsonObject;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.io.output.NullOutputStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -104,36 +106,50 @@ public class Function implements Writable {
 
     public static final long UNIQUE_FUNCTION_ID = 0;
     // Function id, every function has a unique id. Now all built-in functions' id is 0
+    @SerializedName(value = "id")
     private long id = 0;
     // User specified function name e.g. "Add"
+    @SerializedName(value = "name")
     private FunctionName name;
+    @SerializedName(value = "retType")
     private Type retType;
     // Array of parameter types.  empty array if this function does not have parameters.
+    @SerializedName(value = "argTypes")
     private Type[] argTypes;
     // If true, this function has variable arguments.
     // TODO: we don't currently support varargs with no fixed types. i.e. fn(...)
+    @SerializedName(value = "hasVarArgs")
     private boolean hasVarArgs;
 
     // If true (default), this function is called directly by the user. For operators,
     // this is false. If false, it also means the function is not visible from
     // 'show functions'.
+    @SerializedName(value = "userVisible")
     private boolean userVisible;
 
     // Absolute path in HDFS for the binary that contains this function.
     // e.g. /udfs/udfs.jar
+    @SerializedName(value = "location")
     private URI location;
+
+    @SerializedName(value = "binaryType")
     private TFunctionBinaryType binaryType;
 
+    @SerializedName(value = "nestedFunction")
     private Function nestedFunction = null;
 
+    @SerializedName(value = "nullableMode")
     protected NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
 
+    @SerializedName(value = "vectorized")
     protected boolean vectorized = true;
 
     // library's checksum to make sure all backends use one library to serve user's request
+    @SerializedName(value = "checksum")
     protected String checksum = "";
 
     // If true, this function is global function
+    @SerializedName(value = "isGlobal")
     protected boolean isGlobal = false;
 
     // Only used for serialization
@@ -614,7 +630,8 @@ public class Function implements Writable {
         AGGREGATE(2),
         ALIAS(3);
 
-        private int code;
+        @SerializedName(value = "code")
+        private final int code;
 
         FunctionType(int code) {
             this.code = code;
@@ -638,34 +655,10 @@ public class Function implements Writable {
             return null;
         }
 
-        public void write(DataOutput output) throws IOException {
-            output.writeInt(code);
-        }
-
+        @Deprecated
         public static FunctionType read(DataInput input) throws IOException {
             return fromCode(input.readInt());
         }
-    }
-
-    protected void writeFields(DataOutput output) throws IOException {
-        output.writeLong(id);
-        name.write(output);
-        ColumnType.write(output, retType);
-        output.writeInt(argTypes.length);
-        for (Type type : argTypes) {
-            ColumnType.write(output, type);
-        }
-        output.writeBoolean(hasVarArgs);
-        output.writeBoolean(userVisible);
-        output.writeInt(binaryType.getValue());
-        // write library URL
-        String libUrl = "";
-        if (location != null) {
-            libUrl = location.getLocation();
-        }
-        IOUtils.writeOptionString(output, libUrl);
-        IOUtils.writeOptionString(output, checksum);
-        output.writeUTF(nullableMode.toString());
     }
 
     @Override
@@ -673,6 +666,7 @@ public class Function implements Writable {
         throw new Error("Origin function cannot be serialized");
     }
 
+    @Deprecated
     public void readFields(DataInput input) throws IOException {
         id = input.readLong();
         name = FunctionName.read(input);
@@ -705,24 +699,42 @@ public class Function implements Writable {
         }
     }
 
-    public static Function read(DataInput input) throws IOException {
-        Function function;
-        FunctionType functionType = FunctionType.read(input);
+    public static Function read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            Function function;
+            FunctionType functionType = FunctionType.read(in);
+            switch (functionType) {
+                case SCALAR:
+                    function = new ScalarFunction();
+                    break;
+                case AGGREGATE:
+                    function = new AggregateFunction();
+                    break;
+                case ALIAS:
+                    function = new AliasFunction();
+                    break;
+                default:
+                    throw new Error("Unsupported function type, type=" + functionType);
+            }
+            function.readFields(in);
+            return function;
+        }
+        String json = Text.readString(in);
+        JsonObject jsonObject = GsonUtils.GSON.fromJson(json, JsonObject.class);
+        FunctionType functionType = FunctionType.fromCode(
+                jsonObject.getAsJsonObject("functionType")
+                .get("code")
+                .getAsInt());
         switch (functionType) {
             case SCALAR:
-                function = new ScalarFunction();
-                break;
+                return GsonUtils.GSON.fromJson(json, ScalarFunction.class);
             case AGGREGATE:
-                function = new AggregateFunction();
-                break;
+                return GsonUtils.GSON.fromJson(json, AggregateFunction.class);
             case ALIAS:
-                function = new AliasFunction();
-                break;
+                return GsonUtils.GSON.fromJson(json, AliasFunction.class);
             default:
                 throw new Error("Unsupported function type, type=" + functionType);
         }
-        function.readFields(input);
-        return function;
     }
 
     public String getProperties() {

@@ -68,6 +68,7 @@ import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -89,52 +90,76 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected static final String DPP_ABNORMAL_ALL = "dpp.abnorm.ALL";
     public static final String UNSELECTED_ROWS = "unselected.rows";
 
+    @SerializedName(value = "id")
     protected long id;
     // input params
+    @SerializedName(value = "dbId")
     protected long dbId;
+    @SerializedName(value = "label")
     protected String label;
+    @SerializedName(value = "state")
     protected JobState state = JobState.PENDING;
+    @SerializedName(value = "jobType")
     protected EtlJobType jobType;
     // the auth info could be null when load job is created before commit named 'Persist auth info in load job'
+    @SerializedName(value = "authorizationInfo")
     protected AuthorizationInfo authorizationInfo;
 
+    @SerializedName(value = "createTimestamp")
     protected long createTimestamp = System.currentTimeMillis();
+    @SerializedName(value = "loadStartTimestamp")
     protected long loadStartTimestamp = -1;
+    @SerializedName(value = "finishTimestamp")
     protected long finishTimestamp = -1;
 
+    @SerializedName(value = "transactionId")
     protected long transactionId;
+    @SerializedName(value = "failMsg")
     protected FailMsg failMsg;
+    @SerializedName(value = "idToTasks")
     protected Map<Long, LoadTask> idToTasks = Maps.newConcurrentMap();
+    @SerializedName(value = "finishedTaskIds")
     protected Set<Long> finishedTaskIds = Sets.newHashSet();
+    @SerializedName(value = "loadingStatus")
     protected EtlStatus loadingStatus = new EtlStatus();
     // 0: the job status is pending
     // n/100: n is the number of task which has been finished
     // 99: all of tasks have been finished
     // 100: txn status is visible and load has been finished
+    @SerializedName(value = "progress")
     protected int progress;
 
     // non-persistence
     // This param is set true during txn is committing.
     // During committing, the load job could not be cancelled.
+    @SerializedName(value = "isCommitting")
     protected boolean isCommitting = false;
 
+    @SerializedName(value = "lock")
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     // this request id is only used for checking if a load begin request is a duplicate request.
+    @SerializedName(value = "requestId")
     protected TUniqueId requestId;
 
+    @SerializedName(value = "loadStatistic")
     protected LoadStatistic loadStatistic = new LoadStatistic();
 
     // This map is used to save job property.
+    @SerializedName(value = "jobProperties")
     private Map<String, Object> jobProperties = Maps.newHashMap();
 
     // only for persistence param. see readFields() for usage
+    @SerializedName(value = "isJobTypeRead")
     private boolean isJobTypeRead = false;
 
+    @SerializedName(value = "errorTabletInfos")
     protected List<ErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
 
+    @SerializedName(value = "userInfo")
     protected UserIdentity userInfo = UserIdentity.UNKNOWN;
 
+    @SerializedName(value = "comment")
     protected String comment = "";
 
 
@@ -858,23 +883,40 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public static LoadJob read(DataInput in) throws IOException {
-        LoadJob job = null;
-        EtlJobType type = EtlJobType.valueOf(Text.readString(in));
-        if (type == EtlJobType.BROKER) {
-            job = new BrokerLoadJob();
-        } else if (type == EtlJobType.SPARK) {
-            job = new SparkLoadJob();
-        } else if (type == EtlJobType.INSERT) {
-            job = new InsertLoadJob();
-        } else if (type == EtlJobType.MINI) {
-            job = new MiniLoadJob();
-        } else {
-            throw new IOException("Unknown load type: " + type.name());
-        }
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            LoadJob job = null;
+            EtlJobType type = EtlJobType.valueOf(Text.readString(in));
+            if (type == EtlJobType.BROKER) {
+                job = new BrokerLoadJob();
+            } else if (type == EtlJobType.SPARK) {
+                job = new SparkLoadJob();
+            } else if (type == EtlJobType.INSERT) {
+                job = new InsertLoadJob();
+            } else if (type == EtlJobType.MINI) {
+                job = new MiniLoadJob();
+            } else {
+                throw new IOException("Unknown load type: " + type.name());
+            }
 
-        job.isJobTypeRead(true);
-        job.readFields(in);
-        return job;
+            job.isJobTypeRead(true);
+            job.readFields(in);
+            return job;
+        }
+        String json = Text.readString(in);
+        JsonObject jsonObject = GsonUtils.GSON.fromJson(json, JsonObject.class);
+        EtlJobType type = EtlJobType.valueOf(jsonObject.get("jobType").getAsString());
+        switch (type) {
+            case BROKER:
+                return GsonUtils.GSON.fromJson(json, BrokerLoadJob.class);
+            case SPARK:
+                return GsonUtils.GSON.fromJson(json, SparkLoadJob.class);
+            case INSERT:
+                return GsonUtils.GSON.fromJson(json, InsertLoadJob.class);
+            case MINI:
+                return GsonUtils.GSON.fromJson(json, MiniLoadJob.class);
+            default:
+                throw new IOException("Unknown load type: " + type.name());
+        }
     }
 
     @Override
@@ -1039,46 +1081,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // Add the type of load secondly
-        Text.writeString(out, jobType.name());
-
-        out.writeLong(id);
-        out.writeLong(dbId);
-        Text.writeString(out, label);
-        Text.writeString(out, state.name());
-        out.writeLong(createTimestamp);
-        out.writeLong(loadStartTimestamp);
-        out.writeLong(finishTimestamp);
-        if (failMsg == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            failMsg.write(out);
-        }
-        out.writeInt(progress);
-        loadingStatus.write(out);
-        out.writeLong(transactionId);
-        if (authorizationInfo == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            authorizationInfo.write(out);
-        }
-
-        out.writeInt(this.jobProperties.size());
-        for (Map.Entry<String, Object> entry : jobProperties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, String.valueOf(entry.getValue()));
-        }
-        if (userInfo == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            userInfo.write(out);
-        }
-        Text.writeString(out, comment);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
 
         if (!isJobTypeRead) {

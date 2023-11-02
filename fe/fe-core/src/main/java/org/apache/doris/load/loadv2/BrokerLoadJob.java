@@ -58,6 +58,7 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -79,8 +80,10 @@ public class BrokerLoadJob extends BulkLoadJob {
     private static final Logger LOG = LogManager.getLogger(BrokerLoadJob.class);
 
     // Profile of this load job, including all tasks' profiles
+    @SerializedName(value = "jobProfile")
     private Profile jobProfile;
     // If set to true, the profile of load job with be pushed to ProfileManager
+    @SerializedName(value = "enableProfile")
     private boolean enableProfile = false;
 
     // for log replay and unit test

@@ -557,9 +557,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public static Database read(DataInput in) throws IOException {
-        Database db = new Database();
-        db.readFields(in);
-        return db;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            Database db = new Database();
+            db.readFields(in);
+            return db;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, Database.class);
     }
 
     @Override
@@ -573,31 +577,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeLong(id);
-        Text.writeString(out, fullQualifiedName);
-        // write tables
-        discardHudiTable();
-        int numTables = nameToTable.size();
-        out.writeInt(numTables);
-        for (Map.Entry<String, Table> entry : nameToTable.entrySet()) {
-            entry.getValue().write(out);
-        }
-
-        out.writeLong(dataQuotaBytes);
-        Text.writeString(out, clusterName);
-        Text.writeString(out, dbState.name());
-        Text.writeString(out, attachDbName);
-
-        // write functions
-        FunctionUtil.write(out, name2Function);
-
-        // write encryptKeys
-        dbEncryptKey.write(out);
-
-        out.writeLong(replicaQuotaSize);
-        dbProperties.write(out);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     private void discardHudiTable() {
@@ -618,6 +599,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

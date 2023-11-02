@@ -52,6 +52,7 @@ import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -77,6 +78,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
@@ -156,37 +159,59 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
+    @SerializedName(value = "id")
     protected long id;
+    @SerializedName(value = "name")
     protected String name;
+    @SerializedName(value = "clusterName")
     protected String clusterName;
+    @SerializedName(value = "dbId")
     protected long dbId;
+    @SerializedName(value = "tableId")
     protected long tableId;
     // this code is used to verify be task request
+    @SerializedName(value = "authCode")
     protected long authCode;
     //    protected RoutineLoadDesc routineLoadDesc; // optional
+    @SerializedName(value = "partitions")
     protected PartitionNames partitions; // optional
+    @SerializedName(value = "columnDescs")
     protected ImportColumnDescs columnDescs; // optional
+    @SerializedName(value = "precedingFilter")
     protected Expr precedingFilter; // optional
+    @SerializedName(value = "whereExpr")
     protected Expr whereExpr; // optional
+    @SerializedName(value = "columnSeparator")
     protected Separator columnSeparator; // optional
+    @SerializedName(value = "lineDelimiter")
     protected Separator lineDelimiter;
+    @SerializedName(value = "desireTaskConcurrentNum")
     protected int desireTaskConcurrentNum; // optional
+    @SerializedName(value = "state")
     protected JobState state = JobState.NEED_SCHEDULE;
+    @SerializedName(value = "dataSourceType")
     @Getter
     protected LoadDataSourceType dataSourceType;
     // max number of error data in max batch rows * 10
     // maxErrorNum / (maxBatchRows * 10) = max error rate of routine load job
     // if current error rate is more than max error rate, the job will be paused
+    @SerializedName(value = "maxErrorNum")
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
+    @SerializedName(value = "maxFilterRatio")
     protected double maxFilterRatio = DEFAULT_MAX_FILTER_RATIO;
+    @SerializedName(value = "execMemLimit")
     protected long execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
+    @SerializedName(value = "sendBatchParallelism")
     protected int sendBatchParallelism = DEFAULT_SEND_BATCH_PARALLELISM;
+    @SerializedName(value = "loadToSingleTablet")
     protected boolean loadToSingleTablet = DEFAULT_LOAD_TO_SINGLE_TABLET;
+    @SerializedName(value = "jobProperties")
     // include strict mode
     protected Map<String, String> jobProperties = Maps.newHashMap();
 
     // sessionVariable's name -> sessionVariable's value
     // we persist these sessionVariables due to the session is not available when replaying the job.
+    @SerializedName(value = "sessionVariables")
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
     /*
@@ -195,12 +220,17 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
      * If a task can consume data from source at rate of 10MB/s, and 500B a row,
      * then we can process 100MB for 10 secs, which is 200000 rows
      */
+    @SerializedName(value = "maxBatchIntervalS")
     protected long maxBatchIntervalS = DEFAULT_MAX_INTERVAL_SECOND;
+    @SerializedName(value = "maxBatchRows")
     protected long maxBatchRows = DEFAULT_MAX_BATCH_ROWS;
+    @SerializedName(value = "maxBatchSizeBytes")
     protected long maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
 
+    @SerializedName(value = "isPartialUpdate")
     protected boolean isPartialUpdate = false;
 
+    @SerializedName(value = "sequenceCol")
     protected String sequenceCol;
 
     /**
@@ -217,49 +247,73 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     private static final String PROPS_FUZZY_PARSE = "fuzzy_parse";
 
 
+    @SerializedName(value = "currentTaskConcurrentNum")
     protected int currentTaskConcurrentNum;
+    @SerializedName(value = "progress")
     protected RoutineLoadProgress progress;
 
+    @SerializedName(value = "firstResumeTimestamp")
     protected long firstResumeTimestamp; // the first resume time
+    @SerializedName(value = "autoResumeCount")
     protected long autoResumeCount;
+    @SerializedName(value = "autoResumeLock")
     protected boolean autoResumeLock = false; //it can't auto resume iff true
     // some other msg which need to show to user;
+    @SerializedName(value = "otherMsg")
     protected String otherMsg = "";
+    @SerializedName(value = "pauseReason")
     protected ErrorReason pauseReason;
+    @SerializedName(value = "cancelReason")
     protected ErrorReason cancelReason;
 
+    @SerializedName(value = "createTimestamp")
     protected long createTimestamp = System.currentTimeMillis();
+    @SerializedName(value = "pauseTimestamp")
     protected long pauseTimestamp = -1;
+    @SerializedName(value = "endTimestamp")
     protected long endTimestamp = -1;
 
+    @SerializedName(value = "jobStatistic")
     protected RoutineLoadStatistic jobStatistic = new RoutineLoadStatistic();
 
     // The tasks belong to this job
+    @SerializedName(value = "routineLoadTaskInfoList")
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
 
     // stream load planer will be initialized during job schedule
+    @SerializedName(value = "planner")
     protected StreamLoadPlanner planner;
 
     // this is the origin stmt of CreateRoutineLoadStmt, we use it to persist the RoutineLoadJob,
     // because we can not serialize the Expressions contained in job.
+    @SerializedName(value = "origStmt")
     protected OriginStatement origStmt;
     // User who submit this job. Maybe null for the old version job(before v1.1)
+    @SerializedName(value = "userIdentity")
     protected UserIdentity userIdentity;
 
+    @SerializedName(value = "comment")
     protected String comment = "";
 
+    @SerializedName(value = "lock")
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    @SerializedName(value = "mergeType")
     protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
+    @SerializedName(value = "deleteCondition")
     protected Expr deleteCondition;
     // TODO(ml): error sample
 
     // save the latest 3 error log urls
+    @SerializedName(value = "errorLogUrls")
     private Queue<String> errorLogUrls = EvictingQueue.create(3);
 
+    @SerializedName(value = "isTypeRead")
     protected boolean isTypeRead = false;
 
+    @SerializedName(value = "enclose")
     protected byte enclose = 0;
 
+    @SerializedName(value = "escape")
     protected byte escape = 0;
 
     public void setTypeRead(boolean isTypeRead) {
@@ -1645,65 +1699,37 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public static RoutineLoadJob read(DataInput in) throws IOException {
-        RoutineLoadJob job = null;
-        LoadDataSourceType type = LoadDataSourceType.valueOf(Text.readString(in));
-        if (type == LoadDataSourceType.KAFKA) {
-            job = new KafkaRoutineLoadJob();
-        } else {
-            throw new IOException("Unknown load data source type: " + type.name());
-        }
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            RoutineLoadJob job = null;
+            LoadDataSourceType type = LoadDataSourceType.valueOf(Text.readString(in));
+            if (type == LoadDataSourceType.KAFKA) {
+                job = new KafkaRoutineLoadJob();
+            } else {
+                throw new IOException("Unknown load data source type: " + type.name());
+            }
 
-        job.setTypeRead(true);
-        job.readFields(in);
-        return job;
+            job.setTypeRead(true);
+            job.readFields(in);
+            return job;
+        }
+        String json = Text.readString(in);
+        JsonObject jsonObject = GsonUtils.GSON.fromJson(json, JsonObject.class);
+        LoadDataSourceType type = LoadDataSourceType.valueOf(jsonObject.get("dataSourceType").getAsString());
+        switch (type) {
+            case KAFKA:
+                return GsonUtils.GSON.fromJson(json, KafkaRoutineLoadJob.class);
+            default:
+                throw new IOException("Unknown load data source type: " + type.name());
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // ATTN: must write type first
-        Text.writeString(out, dataSourceType.name());
-
-        out.writeLong(id);
-        Text.writeString(out, name);
-        Text.writeString(out, clusterName);
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeInt(desireTaskConcurrentNum);
-        Text.writeString(out, state.name());
-        out.writeLong(maxErrorNum);
-        out.writeLong(maxBatchIntervalS);
-        out.writeLong(maxBatchRows);
-        out.writeLong(maxBatchSizeBytes);
-        progress.write(out);
-
-        out.writeLong(createTimestamp);
-        out.writeLong(pauseTimestamp);
-        out.writeLong(endTimestamp);
-
-        this.jobStatistic.write(out);
-
-        origStmt.write(out);
-        out.writeInt(jobProperties.size());
-        for (Map.Entry<String, String> entry : jobProperties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
-
-        out.writeInt(sessionVariables.size());
-        for (Map.Entry<String, String> entry : sessionVariables.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
-
-        if (userIdentity == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            userIdentity.write(out);
-        }
-        Text.writeString(out, comment);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    @Deprecated
     protected void readFields(DataInput in) throws IOException {
         if (!isTypeRead) {
             dataSourceType = LoadDataSourceType.valueOf(Text.readString(in));

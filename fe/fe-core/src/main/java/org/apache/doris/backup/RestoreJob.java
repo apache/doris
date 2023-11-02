@@ -63,6 +63,7 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -90,11 +91,11 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table.Cell;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -125,38 +126,56 @@ public class RestoreJob extends AbstractJob {
     }
     // CHECKSTYLE ON
 
+    @SerializedName(value = "backupTimestamp")
     private String backupTimestamp;
 
+    @SerializedName(value = "jobInfo")
     private BackupJobInfo jobInfo;
+    @SerializedName(value = "allowLoad")
     private boolean allowLoad;
 
+    @SerializedName(value = "state")
     private RestoreJobState state;
 
+    @SerializedName(value = "backupMeta")
     private BackupMeta backupMeta;
 
+    @SerializedName(value = "fileMapping")
     private RestoreFileMapping fileMapping = new RestoreFileMapping();
 
+    @SerializedName(value = "metaPreparedTime")
     private long metaPreparedTime = -1;
+    @SerializedName(value = "snapshotFinishedTime")
     private long snapshotFinishedTime = -1;
+    @SerializedName(value = "downloadFinishedTime")
     private long downloadFinishedTime = -1;
 
+    @SerializedName(value = "replicaAlloc")
     private ReplicaAllocation replicaAlloc;
 
+    @SerializedName(value = "reserveReplica")
     private boolean reserveReplica = false;
+    @SerializedName(value = "reserveDynamicPartitionEnable")
     private boolean reserveDynamicPartitionEnable = false;
 
     // this 2 members is to save all newly restored objs
     // tbl name -> part
+    @SerializedName(value = "restoredPartitions")
     private List<Pair<String, Partition>> restoredPartitions = Lists.newArrayList();
+    @SerializedName(value = "restoredTbls")
     private List<Table> restoredTbls = Lists.newArrayList();
+    @SerializedName(value = "restoredResources")
     private List<Resource> restoredResources = Lists.newArrayList();
 
     // save all restored partitions' version info which are already exist in catalog
     // table id -> partition id -> (version, version hash)
+    @SerializedName(value = "restoredVersionInfo")
     private com.google.common.collect.Table<Long, Long, Long> restoredVersionInfo = HashBasedTable.create();
+    @SerializedName(value = "snapshotInfos")
     // tablet id->(be id -> snapshot info)
     private com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos = HashBasedTable.create();
 
+    @SerializedName(value = "unfinishedSignatureToId")
     private Map<Long, Long> unfinishedSignatureToId = Maps.newConcurrentMap();
 
     // the meta version is used when reading backup meta from file.
@@ -166,10 +185,13 @@ public class RestoreJob extends AbstractJob {
     // set this 'metaVersion' in restore stmt.
     // NOTICE: because we do not persist it, this info may be lost if Frontend restart,
     // and if you don't want to losing it, backup your data again by using latest Doris version.
+    @SerializedName(value = "metaVersion")
     private int metaVersion = -1;
 
+    @SerializedName(value = "isBeingSynced")
     private boolean isBeingSynced = false;
 
+    @SerializedName(value = "properties")
     // restore properties
     private Map<String, String> properties = Maps.newHashMap();
 
@@ -1994,84 +2016,16 @@ public class RestoreJob extends AbstractJob {
     }
 
     public static RestoreJob read(DataInput in) throws IOException {
-        RestoreJob job = new RestoreJob();
-        job.readFields(in);
-        return job;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            RestoreJob job = new RestoreJob();
+            job.readFields(in);
+            return job;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, RestoreJob.class);
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        Text.writeString(out, backupTimestamp);
-        jobInfo.write(out);
-        out.writeBoolean(allowLoad);
-
-        Text.writeString(out, state.name());
-
-        if (backupMeta != null) {
-            out.writeBoolean(true);
-            backupMeta.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        fileMapping.write(out);
-
-        out.writeLong(metaPreparedTime);
-        out.writeLong(snapshotFinishedTime);
-        out.writeLong(downloadFinishedTime);
-
-        replicaAlloc.write(out);
-
-        out.writeInt(restoredPartitions.size());
-        for (Pair<String, Partition> entry : restoredPartitions) {
-            Text.writeString(out, entry.first);
-            entry.second.write(out);
-        }
-
-        out.writeInt(restoredTbls.size());
-        for (Table tbl : restoredTbls) {
-            tbl.write(out);
-        }
-
-        out.writeInt(restoredVersionInfo.rowKeySet().size());
-        for (long tblId : restoredVersionInfo.rowKeySet()) {
-            out.writeLong(tblId);
-            out.writeInt(restoredVersionInfo.row(tblId).size());
-            for (Map.Entry<Long, Long> entry : restoredVersionInfo.row(tblId).entrySet()) {
-                out.writeLong(entry.getKey());
-                out.writeLong(entry.getValue());
-                // It is version hash in the past,
-                // but it useless but should compatible with old version so that write 0 here
-                out.writeLong(0L);
-            }
-        }
-
-        out.writeInt(snapshotInfos.rowKeySet().size());
-        for (long tabletId : snapshotInfos.rowKeySet()) {
-            out.writeLong(tabletId);
-            Map<Long, SnapshotInfo> map = snapshotInfos.row(tabletId);
-            out.writeInt(map.size());
-            for (Map.Entry<Long, SnapshotInfo> entry : map.entrySet()) {
-                out.writeLong(entry.getKey());
-                entry.getValue().write(out);
-            }
-        }
-
-        out.writeInt(restoredResources.size());
-        for (Resource resource : restoredResources) {
-            resource.write(out);
-        }
-
-        // write properties
-        out.writeInt(properties.size());
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
-    }
-
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

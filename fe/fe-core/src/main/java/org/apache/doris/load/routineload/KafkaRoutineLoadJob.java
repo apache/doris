@@ -51,6 +51,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.BooleanUtils;
@@ -58,7 +59,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -79,27 +79,36 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public static final String KAFKA_FILE_CATALOG = "kafka";
     public static final String PROP_GROUP_ID = "group.id";
 
+    @SerializedName(value = "brokerList")
     private String brokerList;
+    @SerializedName(value = "topic")
     private String topic;
     // optional, user want to load partitions.
+    @SerializedName(value = "customKafkaPartitions")
     private List<Integer> customKafkaPartitions = Lists.newArrayList();
     // current kafka partitions is the actual partition which will be fetched
+    @SerializedName(value = "currentKafkaPartitions")
     private List<Integer> currentKafkaPartitions = Lists.newArrayList();
     // optional, user want to set default offset when new partition add or offset not set.
     // kafkaDefaultOffSet has two formats, one is the time format, eg: "2021-10-10 11:00:00",
     // the other is string value, including OFFSET_END and OFFSET_BEGINNING.
     // We should check it by calling isOffsetForTimes() method before use it.
+    @SerializedName(value = "kafkaDefaultOffSet")
     private String kafkaDefaultOffSet = "";
     // kafka properties ，property prefix will be mapped to kafka custom parameters, which can be extended in the future
+    @SerializedName(value = "customProperties")
     private Map<String, String> customProperties = Maps.newHashMap();
+    @SerializedName(value = "convertedCustomProperties")
     private Map<String, String> convertedCustomProperties = Maps.newHashMap();
 
     // The latest offset of each partition fetched from kafka server.
     // Will be updated periodically by calling hasMoreDataToConsume()
+    @SerializedName(value = "cachedPartitionWithLatestOffsets")
     private Map<Integer, Long> cachedPartitionWithLatestOffsets = Maps.newConcurrentMap();
 
     // The kafka partition fetch from kafka server.
     // Will be updated periodically by calling updateKafkaPartitions();
+    @SerializedName(value = "newCurrentKafkaPartition")
     private List<Integer> newCurrentKafkaPartition = Lists.newArrayList();
 
     public KafkaRoutineLoadJob() {
@@ -578,24 +587,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return ret;
     }
 
+    @Deprecated
     @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, brokerList);
-        Text.writeString(out, topic);
-
-        out.writeInt(customKafkaPartitions.size());
-        for (Integer partitionId : customKafkaPartitions) {
-            out.writeInt(partitionId);
-        }
-
-        out.writeInt(customProperties.size());
-        for (Map.Entry<String, String> property : customProperties.entrySet()) {
-            Text.writeString(out, "property." + property.getKey());
-            Text.writeString(out, property.getValue());
-        }
-    }
-
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         brokerList = Text.readString(in);

@@ -29,12 +29,14 @@ import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -57,10 +59,16 @@ import java.util.stream.Collectors;
 public class AliasFunction extends Function {
     private static final Logger LOG = LogManager.getLogger(AliasFunction.class);
 
+    @SerializedName(value = "functionType")
+    private final FunctionType functionType = FunctionType.ALIAS;
+
     private static final String DIGITAL_MASKING = "digital_masking";
 
+    @SerializedName(value = "originFunction")
     private Expr originFunction;
+    @SerializedName(value = "parameters")
     private List<String> parameters = new ArrayList<>();
+    @SerializedName(value = "typeDefParams")
     private List<String> typeDefParams = new ArrayList<>();
 
     // Only used for serialization
@@ -254,20 +262,12 @@ public class AliasFunction extends Function {
     }
 
     @Override
-    public void write(DataOutput output) throws IOException {
-        // 1. type
-        FunctionType.ALIAS.write(output);
-        // 2. parent
-        super.writeFields(output);
-        // 3. parameter
-        output.writeInt(parameters.size());
-        for (String p : parameters) {
-            Text.writeString(output, p);
-        }
-        // 4. expr
-        Expr.writeTo(originFunction, output);
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    @Deprecated
     @Override
     public void readFields(DataInput input) throws IOException {
         super.readFields(input);

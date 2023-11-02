@@ -17,7 +17,13 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -81,29 +87,47 @@ public class ReplicaPersistInfo implements Writable {
     }
 
     // required
+    @SerializedName(value = "opType")
     private ReplicaOperationType opType;
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "partitionId")
     private long partitionId;
+    @SerializedName(value = "indexId")
     private long indexId;
+    @SerializedName(value = "tabletId")
     private long tabletId;
 
+    @SerializedName(value = "replicaId")
     private long replicaId;
+    @SerializedName(value = "backendId")
     private long backendId;
 
+    @SerializedName(value = "version")
     private long version;
     @Deprecated
+    @SerializedName(value = "versionHash")
     private long versionHash = 0L;
+    @SerializedName(value = "schemaHash")
     private int schemaHash = -1;
+    @SerializedName(value = "dataSize")
     private long dataSize;
+    @SerializedName(value = "remoteDataSize")
     private long remoteDataSize;
+    @SerializedName(value = "rowCount")
     private long rowCount;
 
+    @SerializedName(value = "lastFailedVersion")
     private long lastFailedVersion = -1L;
     @Deprecated
+    @SerializedName(value = "lastFailedVersionHash")
     private long lastFailedVersionHash = 0L;
+    @SerializedName(value = "lastSuccessVersion")
     private long lastSuccessVersion = -1L;
     @Deprecated
+    @SerializedName(value = "lastSuccessVersionHash")
     private long lastSuccessVersionHash = 0L;
 
     public static ReplicaPersistInfo createForAdd(long dbId, long tableId, long partitionId, long indexId,
@@ -283,34 +307,24 @@ public class ReplicaPersistInfo implements Writable {
     }
 
     public static ReplicaPersistInfo read(DataInput in) throws IOException {
-        ReplicaPersistInfo replicaInfo = new ReplicaPersistInfo();
-        replicaInfo.readFields(in);
-        return replicaInfo;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            ReplicaPersistInfo replicaInfo = new ReplicaPersistInfo();
+            replicaInfo.readFields(in);
+            return replicaInfo;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, ReplicaPersistInfo.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeLong(partitionId);
-        out.writeLong(indexId);
-        out.writeLong(tabletId);
-        out.writeLong(backendId);
-        out.writeLong(replicaId);
-        out.writeLong(version);
-        out.writeLong(versionHash);
-        out.writeLong(dataSize);
-        out.writeLong(rowCount);
-
-        out.writeInt(opType.value);
-        out.writeLong(lastFailedVersion);
-        out.writeLong(lastFailedVersionHash);
-        out.writeLong(lastSuccessVersion);
-        out.writeLong(lastSuccessVersionHash);
-
-        out.writeInt(schemaHash);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
 
         dbId = in.readLong();

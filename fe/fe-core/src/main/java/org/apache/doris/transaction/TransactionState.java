@@ -634,41 +634,21 @@ public class TransactionState implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(transactionId);
-        Text.writeString(out, label);
-        out.writeLong(dbId);
-        out.writeInt(idToTableCommitInfos.size());
-        for (TableCommitInfo info : idToTableCommitInfos.values()) {
-            info.write(out);
-        }
-        out.writeInt(txnCoordinator.sourceType.value());
-        Text.writeString(out, txnCoordinator.ip);
-        out.writeInt(transactionStatus.value());
-        out.writeInt(sourceType.value());
-        out.writeLong(prepareTime);
-        out.writeLong(preCommitTime);
-        out.writeLong(commitTime);
-        out.writeLong(finishTime);
-        Text.writeString(out, reason);
-        out.writeInt(errorReplicas.size());
-        for (long errorReplciaId : errorReplicas) {
-            out.writeLong(errorReplciaId);
-        }
-
-        if (txnCommitAttachment == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            txnCommitAttachment.write(out);
-        }
-        out.writeLong(callbackId);
-        out.writeLong(timeoutMs);
-        out.writeInt(tableIdList.size());
-        for (Long aLong : tableIdList) {
-            out.writeLong(aLong);
-        }
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    public static TransactionState read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            TransactionState transactionState = new TransactionState();
+            transactionState.readFields(in);
+            return transactionState;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, TransactionState.class);
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         transactionId = in.readLong();
         label = Text.readString(in);

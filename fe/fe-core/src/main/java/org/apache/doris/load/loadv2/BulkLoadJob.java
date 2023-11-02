@@ -54,12 +54,12 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
@@ -76,18 +76,23 @@ public abstract class BulkLoadJob extends LoadJob {
     private static final Logger LOG = LogManager.getLogger(BulkLoadJob.class);
 
     // input params
+    @SerializedName(value = "brokerDesc")
     protected BrokerDesc brokerDesc;
     // this param is used to persist the expr of columns
     // the origin stmt is persisted instead of columns expr
     // the expr of columns will be reanalyzed when the log is replayed
+    @SerializedName(value = "originStmt")
     private OriginStatement originStmt;
 
     // include broker desc and data desc
+    @SerializedName(value = "fileGroupAggInfo")
     protected BrokerFileGroupAggInfo fileGroupAggInfo = new BrokerFileGroupAggInfo();
+    @SerializedName(value = "commitInfos")
     protected List<TabletCommitInfo> commitInfos = Lists.newArrayList();
 
     // sessionVariable's name -> sessionVariable's value
     // we persist these sessionVariables due to the session is not available when replaying the job.
+    @SerializedName(value = "sessionVariables")
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
     public BulkLoadJob(EtlJobType jobType) {
@@ -290,23 +295,11 @@ public abstract class BulkLoadJob extends LoadJob {
         unprotectReadEndOperation((LoadJobFinalOperation) txnState.getTxnCommitAttachment());
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        brokerDesc.write(out);
-        originStmt.write(out);
-
-        out.writeInt(sessionVariables.size());
-        for (Map.Entry<String, String> entry : sessionVariables.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
-    }
-
     public OriginStatement getOriginStmt() {
         return this.originStmt;
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         brokerDesc = BrokerDesc.read(in);

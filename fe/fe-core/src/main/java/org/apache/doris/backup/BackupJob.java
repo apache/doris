@@ -34,10 +34,12 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.BarrierLog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -52,16 +54,15 @@ import org.apache.doris.thrift.TTaskType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
-import com.google.common.base.Strings;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -91,32 +92,46 @@ public class BackupJob extends AbstractJob {
     }
 
     // all objects which need backup
+    @SerializedName(value = "tableRefs")
     private List<TableRef> tableRefs = Lists.newArrayList();
 
+    @SerializedName(value = "state")
     private BackupJobState state;
 
+    @SerializedName(value = "snapshotFinishedTime")
     private long snapshotFinishedTime = -1;
+    @SerializedName(value = "snapshotUploadFinishedTime")
     private long snapshotUploadFinishedTime = -1;
 
     // save task id map to the backend it be executed
+    @SerializedName(value = "unfinishedTaskIds")
     private Map<Long, Long> unfinishedTaskIds = Maps.newConcurrentMap();
     // tablet id -> snapshot info
+    @SerializedName(value = "snapshotInfos")
     private Map<Long, SnapshotInfo> snapshotInfos = Maps.newConcurrentMap();
     // save all related table[partition] info
+    @SerializedName(value = "backupMeta")
     private BackupMeta backupMeta;
     // job info file content
+    @SerializedName(value = "jobInfo")
     private BackupJobInfo jobInfo;
 
     // save the local dir of this backup job
     // after job is done, this dir should be deleted
+    @SerializedName(value = "localJobDirPath")
     private Path localJobDirPath = null;
     // save the local file path of meta info and job info file
+    @SerializedName(value = "localMetaInfoFilePath")
     private String localMetaInfoFilePath = null;
+    @SerializedName(value = "localJobInfoFilePath")
     private String localJobInfoFilePath = null;
     // backup properties && table commit seq with table id
+    @SerializedName(value = "properties")
     private Map<String, String> properties = Maps.newHashMap();
 
+    @SerializedName(value = "metaInfoBytes")
     private byte[] metaInfoBytes = null;
+    @SerializedName(value = "jobInfoBytes")
     private byte[] jobInfoBytes = null;
 
     public BackupJob() {
@@ -896,67 +911,17 @@ public class BackupJob extends AbstractJob {
     }
 
     public static BackupJob read(DataInput in) throws IOException {
-        BackupJob job = new BackupJob();
-        job.readFields(in);
-        return job;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            BackupJob job = new BackupJob();
+            job.readFields(in);
+            return job;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, BackupJob.class);
     }
 
+    @Deprecated
     @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        // table refs
-        out.writeInt(tableRefs.size());
-        for (TableRef tblRef : tableRefs) {
-            tblRef.write(out);
-        }
-
-        // state
-        Text.writeString(out, state.name());
-
-        // times
-        out.writeLong(snapshotFinishedTime);
-        out.writeLong(snapshotUploadFinishedTime);
-
-        // snapshot info
-        out.writeInt(snapshotInfos.size());
-        for (SnapshotInfo info : snapshotInfos.values()) {
-            info.write(out);
-        }
-
-        // backup meta
-        if (backupMeta == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            backupMeta.write(out);
-        }
-
-        // No need to persist job info. It is generated then write to file
-
-        // metaInfoFilePath and jobInfoFilePath
-        if (Strings.isNullOrEmpty(localMetaInfoFilePath)) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, localMetaInfoFilePath);
-        }
-
-        if (Strings.isNullOrEmpty(localJobInfoFilePath)) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, localJobInfoFilePath);
-        }
-
-        // write properties
-        out.writeInt(properties.size());
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
-    }
-
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

@@ -17,16 +17,23 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class RoutineLoadOperation implements Writable {
+    @SerializedName(value = "id")
     private long id;
+    @SerializedName(value = "jobState")
     private JobState jobState;
 
     private RoutineLoadOperation() {
@@ -46,17 +53,22 @@ public class RoutineLoadOperation implements Writable {
     }
 
     public static RoutineLoadOperation read(DataInput in) throws IOException {
-        RoutineLoadOperation operation = new RoutineLoadOperation();
-        operation.readFields(in);
-        return operation;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            RoutineLoadOperation operation = new RoutineLoadOperation();
+            operation.readFields(in);
+            return operation;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, RoutineLoadOperation.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(id);
-        Text.writeString(out, jobState.name());
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         jobState = JobState.valueOf(Text.readString(in));

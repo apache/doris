@@ -17,10 +17,15 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.HeartbeatResponse;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -29,6 +34,7 @@ import java.util.List;
 
 public class HbPackage implements Writable {
 
+    @SerializedName(value = "hbResults")
     private List<HeartbeatResponse> hbResults = Lists.newArrayList();
 
     public HbPackage() {
@@ -44,19 +50,22 @@ public class HbPackage implements Writable {
     }
 
     public static HbPackage read(DataInput in) throws IOException {
-        HbPackage hbPackage = new HbPackage();
-        hbPackage.readFields(in);
-        return hbPackage;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            HbPackage hbPackage = new HbPackage();
+            hbPackage.readFields(in);
+            return hbPackage;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, HbPackage.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(hbResults.size());
-        for (HeartbeatResponse heartbeatResult : hbResults) {
-            heartbeatResult.write(out);
-        }
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

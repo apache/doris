@@ -20,7 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.io.IOUtils;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TAggregateFunction;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
@@ -28,6 +30,7 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -65,17 +68,28 @@ public class AggregateFunction extends Function {
 
     public static ImmutableSet<String> SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET = ImmutableSet.of("group_concat");
 
+    @SerializedName(value = "functionType")
+    private final FunctionType functionType = FunctionType.AGGREGATE;
+
     // Set if different from retType_, null otherwise.
+    @SerializedName(value = "intermediateType")
     private Type intermediateType;
 
     // The symbol inside the binary at location_ that contains this particular.
     // They can be null if it is not required.
+    @SerializedName(value = "updateFnSymbol")
     private String updateFnSymbol;
+    @SerializedName(value = "initFnSymbol")
     private String initFnSymbol;
+    @SerializedName(value = "serializeFnSymbol")
     private String serializeFnSymbol;
+    @SerializedName(value = "mergeFnSymbol")
     private String mergeFnSymbol;
+    @SerializedName(value = "getValueFnSymbol")
     private String getValueFnSymbol;
+    @SerializedName(value = "removeFnSymbol")
     private String removeFnSymbol;
+    @SerializedName(value = "finalizeFnSymbol")
     private String finalizeFnSymbol;
 
     private static String BE_BUILTINS_CLASS = "AggregateFunctions";
@@ -84,6 +98,7 @@ public class AggregateFunction extends Function {
     // e.g. min(distinct col) == min(col).
     // TODO: currently it is not possible for user functions to specify this. We should
     // extend the create aggregate function stmt to allow additional metadata like this.
+    @SerializedName(value = "ignoresDistinct")
     private boolean ignoresDistinct;
 
     // True if this function can appear within an analytic expr (fn() OVER(...)).
@@ -91,9 +106,11 @@ public class AggregateFunction extends Function {
     // we should identify this property from the function itself (e.g., based on which
     // functions of the UDA API are implemented).
     // Currently, there is no reliable way of doing that.
+    @SerializedName(value = "isAnalyticFn")
     private boolean isAnalyticFn;
 
     // True if this function can be used for aggregation (without an OVER() clause).
+    @SerializedName(value = "isAggregateFn")
     private boolean isAggregateFn;
 
     // True if this function returns a non-null value on an empty input. It is used
@@ -101,9 +118,11 @@ public class AggregateFunction extends Function {
     // TODO: Instead of manually setting this flag, we should identify this
     // property from the function itself (e.g. evaluating the function on an
     // empty input in BE).
+    @SerializedName(value = "returnsNonNullOnEmpty")
     private boolean returnsNonNullOnEmpty;
 
     // use for java-udaf to point the class of user define
+    @SerializedName(value = "symbolName")
     private String symbolName;
 
     // only used for serialization
@@ -623,32 +642,13 @@ public class AggregateFunction extends Function {
     }
 
     @Override
-    public void write(DataOutput output) throws IOException {
-        // 1. type
-        FunctionType.AGGREGATE.write(output);
-        // 2. parent
-        super.writeFields(output);
-        // 3. self's member
-        boolean hasInterType = intermediateType != null;
-        output.writeBoolean(hasInterType);
-        if (hasInterType) {
-            ColumnType.write(output, intermediateType);
-        }
-        IOUtils.writeOptionString(output, updateFnSymbol);
-        IOUtils.writeOptionString(output, initFnSymbol);
-        IOUtils.writeOptionString(output, serializeFnSymbol);
-        IOUtils.writeOptionString(output, mergeFnSymbol);
-        IOUtils.writeOptionString(output, getValueFnSymbol);
-        IOUtils.writeOptionString(output, removeFnSymbol);
-        IOUtils.writeOptionString(output, finalizeFnSymbol);
-        IOUtils.writeOptionString(output, symbolName);
-
-        output.writeBoolean(ignoresDistinct);
-        output.writeBoolean(isAnalyticFn);
-        output.writeBoolean(isAggregateFn);
-        output.writeBoolean(returnsNonNullOnEmpty);
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    @Deprecated
+    @Override
     public void readFields(DataInput input) throws IOException {
         super.readFields(input);
 

@@ -26,11 +26,11 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Set;
 
@@ -38,8 +38,10 @@ import java.util.Set;
 public class MiniLoadJob extends LoadJob {
     private static final Logger LOG = LogManager.getLogger(MiniLoadJob.class);
 
+    @SerializedName(value = "tableName")
     private String tableName;
 
+    @SerializedName(value = "tableId")
     private long tableId;
 
     public MiniLoadJob() {
@@ -65,12 +67,7 @@ public class MiniLoadJob extends LoadJob {
         updateLoadingStatue(txnState);
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Text.writeString(out, tableName);
-    }
-
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);

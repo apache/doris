@@ -23,14 +23,17 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -61,13 +64,21 @@ public class SmallFileMgr implements Writable {
     public static final Logger LOG = LogManager.getLogger(SmallFileMgr.class);
 
     public static class SmallFile implements Writable {
+        @SerializedName(value = "dbId")
         public long dbId;
+        @SerializedName(value = "catalog")
         public String catalog;
+        @SerializedName(value = "name")
         public String name;
+        @SerializedName(value = "id")
         public long id;
+        @SerializedName(value = "content")
         public String content;
+        @SerializedName(value = "size")
         public long size;
+        @SerializedName(value = "md5")
         public String md5;
+        @SerializedName(value = "isContent")
         public boolean isContent;
 
         private SmallFile() {
@@ -87,9 +98,13 @@ public class SmallFileMgr implements Writable {
         }
 
         public static SmallFile read(DataInput in) throws IOException {
-            SmallFile smallFile = new SmallFile();
-            smallFile.readFields(in);
-            return smallFile;
+            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+                SmallFile smallFile = new SmallFile();
+                smallFile.readFields(in);
+                return smallFile;
+            }
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, SmallFile.class);
         }
 
         public byte[] getContentBytes() {
@@ -101,16 +116,11 @@ public class SmallFileMgr implements Writable {
 
         @Override
         public void write(DataOutput out) throws IOException {
-            out.writeLong(dbId);
-            Text.writeString(out, catalog);
-            Text.writeString(out, name);
-            out.writeLong(id);
-            Text.writeString(out, content);
-            out.writeLong(size);
-            Text.writeString(out, md5);
-            out.writeBoolean(isContent);
+            String json = GsonUtils.GSON.toJson(this);
+            Text.writeString(out, json);
         }
 
+        @Deprecated
         public void readFields(DataInput in) throws IOException {
             dbId = in.readLong();
             catalog = Text.readString(in);

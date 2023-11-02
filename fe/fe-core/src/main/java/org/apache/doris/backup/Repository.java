@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -34,12 +35,14 @@ import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -103,18 +106,25 @@ public class Repository implements Writable {
     private static final String PATH_DELIMITER = "/";
     private static final String CHECKSUM_SEPARATOR = ".";
 
+    @SerializedName(value = "id")
     private long id;
+    @SerializedName(value = "name")
     private String name;
+    @SerializedName(value = "errMsg")
     private String errMsg;
+    @SerializedName(value = "createTime")
     private long createTime;
 
     // If True, user can not backup data to this repo.
+    @SerializedName(value = "isReadOnly")
     private boolean isReadOnly;
 
     // BOS location should start with "bos://your_bucket_name/"
     // and the specified bucket should exist.
+    @SerializedName(value = "location")
     private String location;
 
+    @SerializedName(value = "fileSystem")
     private RemoteFileSystem fileSystem;
 
     private Repository() {
@@ -174,12 +184,6 @@ public class Repository implements Writable {
     // out: /path/to/orig_file.BUWDnl831e4nldsf
     public static String replaceFileNameWithChecksumFileName(String origPath, String fileNameWithChecksum) {
         return origPath.substring(0, origPath.lastIndexOf(PATH_DELIMITER) + 1) + fileNameWithChecksum;
-    }
-
-    public static Repository read(DataInput in) throws IOException {
-        Repository repo = new Repository();
-        repo.readFields(in);
-        return repo;
     }
 
     public long getId() {
@@ -752,14 +756,21 @@ public class Repository implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(id);
-        Text.writeString(out, name);
-        out.writeBoolean(isReadOnly);
-        Text.writeString(out, location);
-        fileSystem.write(out);
-        out.writeLong(createTime);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    public static Repository read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            Repository repo = new Repository();
+            repo.readFields(in);
+            return repo;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, Repository.class);
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         name = Text.readString(in);

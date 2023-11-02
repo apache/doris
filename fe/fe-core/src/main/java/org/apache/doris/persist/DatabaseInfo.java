@@ -20,6 +20,8 @@ package org.apache.doris.persist;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database.DbState;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -84,22 +86,23 @@ public class DatabaseInfo implements Writable {
         return binlogConfig;
     }
 
-    public static DatabaseInfo read(DataInput in) throws IOException {
-        DatabaseInfo dbInfo = new DatabaseInfo();
-        dbInfo.readFields(in);
-        return dbInfo;
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, dbName);
-        Text.writeString(out, newDbName);
-        out.writeLong(quota);
-        Text.writeString(out, this.clusterName);
-        Text.writeString(out, this.dbState.name());
-        Text.writeString(out, this.quotaType.name());
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    public static DatabaseInfo read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            DatabaseInfo dbInfo = new DatabaseInfo();
+            dbInfo.readFields(in);
+            return dbInfo;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, DatabaseInfo.class);
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         this.dbName = Text.readString(in);
         newDbName = Text.readString(in);

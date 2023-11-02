@@ -18,12 +18,15 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonObject;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -43,12 +46,16 @@ public abstract class AbstractJob implements Writable {
         BACKUP, RESTORE
     }
 
+    @SerializedName(value = "type")
     protected JobType type;
 
     // must be set right before job's running
+    @SerializedName(value = "env")
     protected Env env;
     // repo will be set at first run()
+    @SerializedName(value = "repo")
     protected Repository repo;
+    @SerializedName(value = "repoId")
     protected long repoId;
 
     /*
@@ -57,24 +64,35 @@ public abstract class AbstractJob implements Writable {
      * And each time this method is called, the snapshot tasks will be sent with (maybe) different
      * version and version hash. So we have to use different job id to identify the tasks in different batches.
      */
+    @SerializedName(value = "jobId")
     protected long jobId = -1;
 
+    @SerializedName(value = "label")
     protected String label;
+    @SerializedName(value = "dbId")
     protected long dbId;
+    @SerializedName(value = "dbName")
     protected String dbName;
 
+    @SerializedName(value = "status")
     protected Status status = Status.OK;
 
+    @SerializedName(value = "createTime")
     protected long createTime = -1;
+    @SerializedName(value = "finishedTime")
     protected long finishedTime = -1;
+    @SerializedName(value = "timeoutMs")
     protected long timeoutMs;
 
     // task signature -> <finished num / total num>
+    @SerializedName(value = "taskProgress")
     protected Map<Long, Pair<Integer, Integer>> taskProgress = Maps.newConcurrentMap();
 
+    @SerializedName(value = "isTypeRead")
     protected boolean isTypeRead = false;
 
     // save err msg of tasks
+    @SerializedName(value = "taskErrMsg")
     protected Map<Long, String> taskErrMsg = Maps.newHashMap();
 
     protected AbstractJob(JobType type) {
@@ -156,55 +174,41 @@ public abstract class AbstractJob implements Writable {
     public abstract boolean isCancelled();
 
     public static AbstractJob read(DataInput in) throws IOException {
-        AbstractJob job = null;
-        JobType type = JobType.valueOf(Text.readString(in));
-        if (type == JobType.BACKUP) {
-            job = new BackupJob();
-        } else if (type == JobType.RESTORE) {
-            job = new RestoreJob();
-        } else {
-            throw new IOException("Unknown job type: " + type.name());
-        }
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            AbstractJob job = null;
+            JobType type = JobType.valueOf(Text.readString(in));
+            if (type == JobType.BACKUP) {
+                job = new BackupJob();
+            } else if (type == JobType.RESTORE) {
+                job = new RestoreJob();
+            } else {
+                throw new IOException("Unknown job type: " + type.name());
+            }
 
-        job.setTypeRead(true);
-        job.readFields(in);
-        return job;
+            job.setTypeRead(true);
+            job.readFields(in);
+            return job;
+        }
+        String json = Text.readString(in);
+        JsonObject jsonObject = GsonUtils.GSON.fromJson(json, JsonObject.class);
+        JobType type = JobType.valueOf(jsonObject.get("type").getAsString());
+        switch (type) {
+            case BACKUP:
+                return GsonUtils.GSON.fromJson(json, BackupJob.class);
+            case RESTORE:
+                return GsonUtils.GSON.fromJson(json, RestoreJob.class);
+            default:
+                throw new IOException("Unknown job type: " + type.name());
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // ATTN: must write type first
-        Text.writeString(out, type.name());
-
-        out.writeLong(repoId);
-        Text.writeString(out, label);
-        out.writeLong(jobId);
-        out.writeLong(dbId);
-        Text.writeString(out, dbName);
-
-        out.writeLong(createTime);
-        out.writeLong(finishedTime);
-        out.writeLong(timeoutMs);
-
-        if (!taskErrMsg.isEmpty()) {
-            out.writeBoolean(true);
-            // we only save at most 3 err msgs
-            int savedNum = Math.min(3, taskErrMsg.size());
-            out.writeInt(savedNum);
-            for (Map.Entry<Long, String> entry : taskErrMsg.entrySet()) {
-                if (savedNum == 0) {
-                    break;
-                }
-                out.writeLong(entry.getKey());
-                Text.writeString(out, entry.getValue());
-                savedNum--;
-            }
-            Preconditions.checkState(savedNum == 0, savedNum);
-        } else {
-            out.writeBoolean(false);
-        }
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         if (!isTypeRead) {
             type = JobType.valueOf(Text.readString(in));

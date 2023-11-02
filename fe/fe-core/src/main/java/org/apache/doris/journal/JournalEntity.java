@@ -217,14 +217,12 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_DB:
             case OperationType.OP_RENAME_DB: {
-                data = new DatabaseInfo();
-                ((DatabaseInfo) data).readFields(in);
+                data = DatabaseInfo.read(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_CREATE_TABLE: {
-                data = new CreateTableInfo();
-                ((CreateTableInfo) data).readFields(in);
+                data = CreateTableInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -239,8 +237,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_ADD_PARTITION: {
-                data = new PartitionPersistInfo();
-                ((PartitionPersistInfo) data).readFields(in);
+                data = PartitionPersistInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -313,8 +310,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_FINISH_CONSISTENCY_CHECK: {
-                data = new ConsistencyCheckInfo();
-                ((ConsistencyCheckInfo) data).readFields(in);
+                data = ConsistencyCheckInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -324,8 +320,7 @@ public class JournalEntity implements Writable {
             case OperationType.OP_LOAD_QUORUM:
             case OperationType.OP_LOAD_DONE:
             case OperationType.OP_LOAD_CANCEL: {
-                data = new LoadJob();
-                ((LoadJob) data).readFields(in);
+                data = LoadJob.read(in);
                 isRead = true;
                 break;
             }
@@ -403,8 +398,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_TIMESTAMP: {
-                data = new Timestamp();
-                ((Timestamp) data).readFields(in);
+                data = Timestamp.read(in);
                 isRead = true;
                 break;
             }
@@ -421,8 +415,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_BROKER:
             case OperationType.OP_DROP_BROKER: {
-                data = new BrokerMgr.ModifyBrokerInfo();
-                ((BrokerMgr.ModifyBrokerInfo) data).readFields(in);
+                data = BrokerMgr.ModifyBrokerInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -434,8 +427,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_UPSERT_TRANSACTION_STATE:
             case OperationType.OP_DELETE_TRANSACTION_STATE: {
-                data = new TransactionState();
-                ((TransactionState) data).readFields(in);
+                data = TransactionState.read(in);
                 isRead = true;
                 break;
             }

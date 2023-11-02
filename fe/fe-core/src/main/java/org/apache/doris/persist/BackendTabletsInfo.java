@@ -17,10 +17,15 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -31,14 +36,18 @@ import java.util.List;
 // replaced by BackendReplicaInfo
 public class BackendTabletsInfo implements Writable {
 
+    @SerializedName(value = "backendId")
     private long backendId;
     // tablet id , schema hash
     // this structure is deprecated and be replaced by 'replicaPersistInfos'
     @Deprecated
+    @SerializedName(value = "tabletSchemaHash")
     private List<Pair<Long, Integer>> tabletSchemaHash = Lists.newArrayList();
 
+    @SerializedName(value = "bad")
     private boolean bad;
 
+    @SerializedName(value = "replicaPersistInfos")
     private List<ReplicaPersistInfo> replicaPersistInfos = Lists.newArrayList();
 
     private BackendTabletsInfo() {
@@ -78,32 +87,22 @@ public class BackendTabletsInfo implements Writable {
     }
 
     public static BackendTabletsInfo read(DataInput in) throws IOException {
-        BackendTabletsInfo backendTabletsInfo = new BackendTabletsInfo();
-        backendTabletsInfo.readFields(in);
-        return backendTabletsInfo;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            BackendTabletsInfo backendTabletsInfo = new BackendTabletsInfo();
+            backendTabletsInfo.readFields(in);
+            return backendTabletsInfo;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, BackendTabletsInfo.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(backendId);
-        out.writeInt(tabletSchemaHash.size());
-        for (Pair<Long, Integer> pair : tabletSchemaHash) {
-            out.writeLong(pair.first);
-            out.writeInt(pair.second);
-        }
-
-        out.writeBoolean(bad);
-
-        // this is for further extension
-        out.writeBoolean(true);
-        out.writeInt(replicaPersistInfos.size());
-        for (ReplicaPersistInfo info : replicaPersistInfos) {
-            info.write(out);
-        }
-        // this is for further extension
-        out.writeBoolean(false);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         backendId = in.readLong();
 

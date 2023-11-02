@@ -22,22 +22,32 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 // {"progress": "", "backendId": "", "taskSignature": "", "numOfErrorData": "",
 // "numOfTotalData": "", "taskId": "", "jobId": ""}
 public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
+    @SerializedName("jobId")
     private long jobId;
+    @SerializedName("taskId")
     private TUniqueId taskId;
+    @SerializedName("filteredRows")
     private long filteredRows;
+    @SerializedName("loadedRows")
     private long loadedRows;
+    @SerializedName("unselectedRows")
     private long unselectedRows;
+    @SerializedName("receivedBytes")
     private long receivedBytes;
+    @SerializedName("taskExecutionTimeMs")
     private long taskExecutionTimeMs;
+    @SerializedName("progress")
     private RoutineLoadProgress progress;
+    @SerializedName("errorLogUrl")
     private String errorLogUrl;
 
     public RLTaskTxnCommitAttachment() {
@@ -119,17 +129,8 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
                 + ", progress=" + progress.toString() + "]";
     }
 
+    @Deprecated
     @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(filteredRows);
-        out.writeLong(loadedRows);
-        out.writeLong(unselectedRows);
-        out.writeLong(receivedBytes);
-        out.writeLong(taskExecutionTimeMs);
-        progress.write(out);
-    }
-
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         filteredRows = in.readLong();

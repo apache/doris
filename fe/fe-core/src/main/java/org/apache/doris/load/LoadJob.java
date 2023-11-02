@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
@@ -34,12 +33,14 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TPriority;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -72,18 +73,29 @@ public class LoadJob implements Writable {
     private static final int DEFAULT_TIMEOUT_S = 0;
     private static final long DEFAULT_EXEC_MEM_LIMIT = 2147483648L; // 2GB
 
+    @SerializedName(value = "id")
     private long id;
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "label")
     private String label;
     // when this job is a real time load job, the job is attach with a transaction
+    @SerializedName(value = "transactionId")
     private long transactionId = -1;
+    @SerializedName(value = "timestamp")
     long timestamp;
+    @SerializedName(value = "timeoutSecond")
     private int timeoutSecond;
+    @SerializedName(value = "maxFilterRatio")
     private double maxFilterRatio = Config.default_max_filter_ratio;
+    @SerializedName(value = "state")
     private JobState state;
 
+    @SerializedName(value = "brokerDesc")
     private BrokerDesc brokerDesc;
+    @SerializedName(value = "pullLoadSourceInfo")
     private BrokerFileGroupAggInfo pullLoadSourceInfo;
 
     // progress has two functions at ETL stage:
@@ -91,42 +103,67 @@ public class LoadJob implements Writable {
     // 2. set progress = 100 ONLY when ETL progress is completely done
     //
     // when at LOADING stage, use it normally (as real progress)
+    @SerializedName(value = "progress")
     private int progress;
 
+    @SerializedName(value = "createTimeMs")
     private long createTimeMs;
+    @SerializedName(value = "etlStartTimeMs")
     private long etlStartTimeMs;
+    @SerializedName(value = "etlFinishTimeMs")
     private long etlFinishTimeMs;
+    @SerializedName(value = "loadStartTimeMs")
     private long loadStartTimeMs;
+    @SerializedName(value = "loadFinishTimeMs")
     private long loadFinishTimeMs;
     // not serialize it
+    @SerializedName(value = "quorumFinishTimeMs")
     private long quorumFinishTimeMs;
+    @SerializedName(value = "failMsg")
     private FailMsg failMsg;
 
+    @SerializedName(value = "etlJobType")
     private EtlJobType etlJobType;
+    @SerializedName(value = "etlJobInfo")
     private EtlJobInfo etlJobInfo;
 
+    @SerializedName(value = "idToTableLoadInfo")
     private Map<Long, TableLoadInfo> idToTableLoadInfo;
+    @SerializedName(value = "idToTabletLoadInfo")
     private Map<Long, TabletLoadInfo> idToTabletLoadInfo;
+    @SerializedName(value = "quorumTablets")
     private Set<Long> quorumTablets;
+    @SerializedName(value = "fullTablets")
     private Set<Long> fullTablets;
+    @SerializedName(value = "unfinishedTablets")
     private List<Long> unfinishedTablets;
+    @SerializedName(value = "pushTasks")
     private Set<PushTask> pushTasks;
+    @SerializedName(value = "replicaPersistInfos")
     private Map<Long, ReplicaPersistInfo> replicaPersistInfos;
 
+    @SerializedName(value = "finishedReplicas")
     private Map<Long, Replica> finishedReplicas;
 
+    @SerializedName(value = "conditions")
     private List<Predicate> conditions = null;
+    @SerializedName(value = "deleteInfo")
     private DeleteInfo deleteInfo;
 
+    @SerializedName(value = "priority")
     private TPriority priority;
 
+    @SerializedName(value = "execMemLimit")
     private long execMemLimit;
 
+    @SerializedName(value = "user")
     private String user = "";
 
+    @SerializedName(value = "comment")
     private String comment = "";
 
     // save table names for auth check
+    @SerializedName(value = "tableNames")
     private Set<String> tableNames = Sets.newHashSet();
 
     public LoadJob() {
@@ -640,141 +677,23 @@ public class LoadJob implements Writable {
         }
     }
 
+    @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(id);
-        out.writeLong(dbId);
-        Text.writeString(out, label);
-        out.writeLong(timestamp);
-        out.writeInt(timeoutSecond);
-        out.writeDouble(maxFilterRatio);
-        out.writeBoolean(true); // delete flag, does not use anymore
-        Text.writeString(out, state.name());
-        out.writeInt(progress);
-        out.writeLong(createTimeMs);
-        out.writeLong(etlStartTimeMs);
-        out.writeLong(etlFinishTimeMs);
-        out.writeLong(loadStartTimeMs);
-        out.writeLong(loadFinishTimeMs);
-        failMsg.write(out);
-        Text.writeString(out, etlJobType.name());
-        etlJobInfo.write(out);
-
-        int count = 0;
-        if (idToTableLoadInfo == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            count = idToTableLoadInfo.size();
-            out.writeInt(count);
-            for (Map.Entry<Long, TableLoadInfo> entry : idToTableLoadInfo.entrySet()) {
-                out.writeLong(entry.getKey());
-                entry.getValue().write(out);
-            }
-        }
-
-        if (idToTabletLoadInfo == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            count = idToTabletLoadInfo.size();
-            out.writeInt(count);
-            for (Map.Entry<Long, TabletLoadInfo> entry : idToTabletLoadInfo.entrySet()) {
-                out.writeLong(entry.getKey());
-                entry.getValue().write(out);
-            }
-        }
-
-        if (fullTablets == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            count = fullTablets.size();
-            out.writeInt(count);
-            for (long id : fullTablets) {
-                out.writeLong(id);
-            }
-        }
-
-        if (replicaPersistInfos == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            count = replicaPersistInfos.size();
-            out.writeInt(count);
-            for (ReplicaPersistInfo info : replicaPersistInfos.values()) {
-                info.write(out);
-            }
-        }
-
-        // resourceInfo
-        out.writeBoolean(false);
-
-        Text.writeString(out, priority.name());
-
-        // Version 24
-        if (brokerDesc == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            brokerDesc.write(out);
-        }
-
-        if (pullLoadSourceInfo == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            pullLoadSourceInfo.write(out);
-        }
-
-        out.writeLong(execMemLimit);
-        out.writeLong(transactionId);
-
-        if (conditions != null) {
-            out.writeBoolean(true);
-            count = conditions.size();
-            out.writeInt(count);
-            for (Predicate predicate : conditions) {
-                if (predicate instanceof BinaryPredicate) {
-                    BinaryPredicate binaryPredicate = (BinaryPredicate) predicate;
-                    SlotRef slotRef = (SlotRef) binaryPredicate.getChild(0);
-                    String columnName = slotRef.getColumnName();
-                    Text.writeString(out, columnName);
-                    Text.writeString(out, binaryPredicate.getOp().name());
-                    String value = ((LiteralExpr) binaryPredicate.getChild(1)).getStringValue();
-                    Text.writeString(out, value);
-                } else if (predicate instanceof IsNullPredicate) {
-                    IsNullPredicate isNullPredicate = (IsNullPredicate) predicate;
-                    SlotRef slotRef = (SlotRef) isNullPredicate.getChild(0);
-                    String columnName = slotRef.getColumnName();
-                    Text.writeString(out, columnName);
-                    Text.writeString(out, "IS");
-                    String value = null;
-                    if (isNullPredicate.isNotNull()) {
-                        value = "NOT NULL";
-                    } else {
-                        value = "NULL";
-                    }
-                    Text.writeString(out, value);
-                }
-            }
-        } else {
-            out.writeBoolean(false);
-        }
-        if (deleteInfo != null) {
-            out.writeBoolean(true);
-            deleteInfo.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
-
-        out.writeInt(tableNames.size());
-        for (String tableName : tableNames) {
-            Text.writeString(out, tableName);
-        }
-        Text.writeString(out, user);
-        Text.writeString(out, comment);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    public static LoadJob read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            LoadJob job = new LoadJob();
+            job.readFields(in);
+            return job;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, LoadJob.class);
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         long version = Env.getCurrentEnvJournalVersion();
 
