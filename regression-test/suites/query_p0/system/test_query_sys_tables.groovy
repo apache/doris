@@ -126,13 +126,13 @@ suite("test_query_sys_tables", "query,p0") {
         );
     """
     
-    List<List<Object>> rowsets_table_name_tablts   = sql """ show tablets from ${rowsets_table_name} """
-    qt_rowsets1 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablts[0][0]}  order by START_VERSION,END_VERSION; """ 
+    List<List<Object>> rowsets_table_name_tablets   = sql """ show tablets from ${rowsets_table_name} """
+    qt_rowsets1 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
     sql """ insert into  ${rowsets_table_name} values (1,0,"abc");  """ 
-    qt_rowsets2 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablts[0][0]}  order by START_VERSION,END_VERSION; """ 
+    qt_rowsets2 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
     sql """ insert into  ${rowsets_table_name} values (2,1,"hello world");  """ 
     sql """ insert into  ${rowsets_table_name} values (3,0,"dssadasdsafafdf");  """ 
-    qt_rowsets3 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablts[0][0]}  order by START_VERSION,END_VERSION; """ 
+    qt_rowsets3 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
 
 
     // test schemata
