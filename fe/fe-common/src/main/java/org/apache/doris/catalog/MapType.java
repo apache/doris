@@ -192,8 +192,10 @@ public class MapType extends Type {
     }
 
     public static boolean canCastTo(MapType type, MapType targetType) {
-        return Type.canCastTo(type.getKeyType(), targetType.getKeyType())
-            && Type.canCastTo(type.getValueType(), targetType.getValueType());
+        return (targetType.getKeyType().isStringType() && type.getKeyType().isStringType()
+            || Type.canCastTo(type.getKeyType(), targetType.getKeyType()))
+            && (Type.canCastTo(type.getValueType(), targetType.getValueType())
+            || targetType.getValueType().isStringType() && type.getValueType().isStringType());
     }
 
     @Override
