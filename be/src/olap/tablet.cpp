@@ -305,7 +305,6 @@ Status Tablet::_init_once_action() {
                     _tablet_meta->compaction_policy());
 #endif
 
-    RowsetVector rowset_vec;
     for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
         Version version = rs_meta->version();
         RowsetSharedPtr rowset;
@@ -317,7 +316,6 @@ Status Tablet::_init_once_action() {
                          << ", res=" << res;
             return res;
         }
-        rowset_vec.push_back(rowset);
         _rs_version_map[version] = std::move(rowset);
     }
 
