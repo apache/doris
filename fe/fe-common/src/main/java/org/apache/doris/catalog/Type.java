@@ -30,6 +30,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -787,9 +788,49 @@ public abstract class Type {
             }
 
             return new ArrayType(itemCompatibleType, arrayType1.getContainsNull() || arrayType2.getContainsNull());
-        } else if (t1.isArrayType() && t2.isNull()) {
+        } else if (t1.isMapType() && t2.isMapType()) {
+            MapType mapType1 = (MapType) t1;
+            MapType mapType2 = (MapType) t2;
+            Type keyCompatibleType = Type.getAssignmentCompatibleType(mapType1.getKeyType(),
+                    mapType2.getKeyType(), strict);
+            if (keyCompatibleType.isInvalid()) {
+                return keyCompatibleType;
+            }
+            Type valCompatibleType = Type.getAssignmentCompatibleType(mapType1.getValueType(),
+                    mapType2.getValueType(), strict);
+            if (valCompatibleType.isInvalid()) {
+                return valCompatibleType;
+            }
+
+            return new MapType(keyCompatibleType, valCompatibleType,
+                mapType1.getIsKeyContainsNull() || mapType2.getIsKeyContainsNull(),
+                mapType1.getIsValueContainsNull() || mapType2.getIsValueContainsNull());
+        } else if (t1.isStructType() && t2.isStructType()) {
+            StructType structType1 = (StructType) t1;
+            StructType structType2 = (StructType) t2;
+            ArrayList<StructField> fieldsLeft = structType1.getFields();
+            ArrayList<StructField> fieldsRight = structType2.getFields();
+            ArrayList<StructField> fieldsRes = new ArrayList<>();
+
+            for (int i = 0; i < structType1.getFields().size(); ++i) {
+                StructField leftField = fieldsLeft.get(i);
+                StructField rightField = fieldsRight.get(i);
+                Type itemCompatibleType = Type.getAssignmentCompatibleType(leftField.getType(), rightField.getType(),
+                        strict);
+                if (itemCompatibleType.isInvalid()) {
+                    return itemCompatibleType;
+                }
+                fieldsRes.add(new StructField(StringUtils.isEmpty(leftField.getName()) ? rightField.getName()
+                        : leftField.getName(),
+                        itemCompatibleType, StringUtils.isEmpty(leftField.getComment()) ? rightField.getComment()
+                        : leftField.getComment(), leftField.getContainsNull() || rightField.getContainsNull()));
+
+            }
+
+            return new StructType(fieldsRes);
+        } else if (t1.isComplexType() && t2.isNull()) {
             return t1;
-        } else if (t1.isNull() && t2.isArrayType()) {
+        } else if (t1.isNull() && t2.isComplexType()) {
             return t2;
         }
 
@@ -2169,6 +2210,17 @@ public abstract class Type {
                     return false;
                 }
                 return matchExactType(((ArrayType) type2).getItemType(), ((ArrayType) type1).getItemType());
+            } else if (type2.isMapType()) {
+                // For types array, we also need to check contains null for case like
+                // cast(array<not_null(int)> as array<int>)
+                if (!((MapType) type2).getIsKeyContainsNull() == ((MapType) type1).getIsKeyContainsNull()) {
+                    return false;
+                }
+                if (!((MapType) type2).getIsValueContainsNull() == ((MapType) type1).getIsValueContainsNull()) {
+                    return false;
+                }
+                return matchExactType(((MapType) type2).getKeyType(), ((MapType) type1).getKeyType())
+                    && matchExactType(((MapType) type2).getValueType(), ((MapType) type1).getValueType());
             } else {
                 return true;
             }
