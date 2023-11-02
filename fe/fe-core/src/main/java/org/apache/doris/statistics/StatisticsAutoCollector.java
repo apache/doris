@@ -117,6 +117,10 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             return false;
         }
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        // means it never get analyzed yet
+        if (tableStats == null) {
+            return false;
+        }
         return System.currentTimeMillis() - tableStats.updatedTime < Config.huge_table_auto_analyze_interval_in_millis;
     }
 
