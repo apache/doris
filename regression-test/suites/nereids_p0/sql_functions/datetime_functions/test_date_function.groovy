@@ -289,11 +289,11 @@ suite("test_date_function") {
     qt_sql """ select from_days(1) """
 
     // FROM_UNIXTIME
-    qt_sql """ select from_unixtime(1196440219) """
-    qt_sql """ select from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') """
-    qt_sql """ select from_unixtime(1196440219, '%Y-%m-%d') """
-    qt_sql """ select from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') """
-    qt_sql """ select from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219) """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219, '%Y-%m-%d') """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
 
     // HOUR
     qt_sql """ select hour('2018-12-31 23:59:59') """

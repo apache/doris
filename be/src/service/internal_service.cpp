@@ -1177,7 +1177,7 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cont
     st.to_protobuf(response->mutable_status());
     if (extract_st.ok()) {
         st = _exec_env->vstream_mgr()->transmit_block(request, &done);
-        if (!st.ok()) {
+        if (!st.ok() && !st.is<END_OF_FILE>()) {
             LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
                          << ", node=" << request->node_id()

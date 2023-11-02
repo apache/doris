@@ -96,7 +96,7 @@ class MemoTest implements MemoPatternMatchSupported {
         FakePlan fakePlan = new FakePlan();
         GroupExpression srcParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(srcGroup));
         Group srcParentGroup = new Group(new GroupId(0), srcParentExpression, new LogicalProperties(ArrayList::new));
-        srcParentGroup.setBestPlan(srcParentExpression, Cost.zero(), PhysicalProperties.ANY);
+        srcParentGroup.setBestPlan(srcParentExpression, Cost.zeroV1(), PhysicalProperties.ANY);
         GroupExpression dstParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(dstGroup));
         Group dstParentGroup = new Group(new GroupId(1), dstParentExpression, new LogicalProperties(ArrayList::new));
 
@@ -1069,7 +1069,7 @@ class MemoTest implements MemoPatternMatchSupported {
         );
 
         // Project -> Project -> Relation
-        Memo memo = new Memo(rootProject);
+        Memo memo = new Memo(null, rootProject);
         Group leafGroup = memo.getGroups().stream().filter(g -> g.getGroupId().asInt() == 0).findFirst().get();
         Group targetGroup = memo.getGroups().stream().filter(g -> g.getGroupId().asInt() == 1).findFirst().get();
         LogicalProject rewriteInsideProject = new LogicalProject<>(
@@ -1126,7 +1126,7 @@ class MemoTest implements MemoPatternMatchSupported {
         );
 
         // Project -> Project -> Relation
-        Memo memo = new Memo(rootProject);
+        Memo memo = new Memo(null, rootProject);
         Group leafGroup = memo.getGroups().stream().filter(g -> g.getGroupId().asInt() == 0).findFirst().get();
         Group targetGroup = memo.getGroups().stream().filter(g -> g.getGroupId().asInt() == 2).findFirst().get();
         LogicalPlan rewriteProject = insideProject.withChildren(Lists.newArrayList(new GroupPlan(leafGroup)));

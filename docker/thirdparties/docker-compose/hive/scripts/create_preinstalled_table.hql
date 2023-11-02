@@ -1764,3 +1764,12 @@ msck repair table orc_decimal_table;
 
 
 show tables;
+
+
+create database stats_test;
+use stats_test;
+create table stats_test1 (id INT, value STRING) STORED AS ORC;
+create table stats_test2 (id INT, value STRING) STORED AS PARQUET;
+
+insert into stats_test1 values (1, 'name1'), (2, 'name2'), (3, 'name3');
+INSERT INTO stats_test2 VALUES (1, ';'), (2, '\*');

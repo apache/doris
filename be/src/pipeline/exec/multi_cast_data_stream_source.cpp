@@ -107,7 +107,7 @@ Status MultiCastDataStreamerSourceOperator::get_block(RuntimeState* state, vecto
 
     if (!_output_expr_contexts.empty() && output_block->rows() > 0) {
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-                _output_expr_contexts, *output_block, block));
+                _output_expr_contexts, *output_block, block, true));
         materialize_block_inplace(*block);
     }
     if (eos) {
@@ -135,7 +135,7 @@ MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(Runtime
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
     static_cast<MultiCastDependency*>(_dependency)->set_consumer_id(p._consumer_id);
@@ -145,8 +145,7 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     }
     // init profile for runtime filter
     RuntimeFilterConsumer::_init_profile(profile());
-    _filter_dependency->set_filter_blocked_by_fn(
-            [this]() { return this->runtime_filters_are_ready_or_timeout(); });
+    init_runtime_filter_dependency(_filter_dependency.get());
     return Status::OK();
 }
 
@@ -155,7 +154,7 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
                                                        SourceState& source_state) {
     //auto& local_state = get_local_state(state);
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     bool eos = false;
     vectorized::Block tmp_block;
     vectorized::Block* output_block = block;
@@ -171,7 +170,7 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
 
     if (!local_state._output_expr_contexts.empty() && output_block->rows() > 0) {
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-                local_state._output_expr_contexts, *output_block, block));
+                local_state._output_expr_contexts, *output_block, block, true));
         materialize_block_inplace(*block);
     }
     COUNTER_UPDATE(local_state._rows_returned_counter, block->rows());
