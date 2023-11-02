@@ -39,6 +39,7 @@ void Dependency::try_to_wake_up_task() {
     if (_block_task.empty()) {
         return;
     }
+    DCHECK(_block_task.size() <= 1);
     for (auto* task : _block_task) {
         DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
         if (task->try_wake_up(this)) {
