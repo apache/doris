@@ -55,24 +55,24 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
             result = sql """show column stats stats_test2(id);"""
             assertEquals(1, result.size())
             assertEquals("id", result[0][0])
-            assertEquals("3.0", result[0][1])
-            assertEquals("3.0", result[0][2])
+            assertEquals("2.0", result[0][1])
+            assertEquals("2.0", result[0][2])
             assertEquals("0.0", result[0][3])
-            assertEquals("12.0", result[0][4])
+            assertEquals("8.0", result[0][4])
             assertEquals("4.0", result[0][5])
             assertEquals("1", result[0][6])
-            assertEquals("3", result[0][7])
+            assertEquals("2", result[0][7])
 
             result = sql """show column stats stats_test2(value);"""
             assertEquals(1, result.size())
             assertEquals("value", result[0][0])
-            assertEquals("3.0", result[0][1])
-            assertEquals("3.0", result[0][2])
+            assertEquals("2.0", result[0][1])
+            assertEquals("2.0", result[0][2])
             assertEquals("0.0", result[0][3])
-            assertEquals("15.0", result[0][4])
-            assertEquals("5.0", result[0][5])
-            assertEquals("\'name1\'", result[0][6])
-            assertEquals("\'name3\'", result[0][7])
+            assertEquals("2.0", result[0][4])
+            assertEquals("1.0", result[0][5])
+            assertEquals("\'*\'", result[0][6])
+            assertEquals("\';\'", result[0][7])
 
 
             sql """drop catalog if exists ${catalog_name}"""
