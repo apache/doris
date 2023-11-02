@@ -54,7 +54,7 @@ public:
         return TPrimitiveType::DATE;
     }
 
-    doris::FieldType get_type_as_field_type() const override {
+    doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_DATE;
     }
     const char* get_family_name() const override { return "DateTime"; }

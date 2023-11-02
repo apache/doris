@@ -335,7 +335,6 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
-
 void DataTypeNullableSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                                    rapidjson::Document::AllocatorType& allocator,
                                                    int row_num) const {

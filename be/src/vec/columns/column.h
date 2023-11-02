@@ -147,12 +147,6 @@ public:
     /// Some columns may require finalization before using of other operations.
     virtual void finalize() {}
 
-    MutablePtr clone_finalized() const {
-        auto finalized = IColumn::mutate(get_ptr());
-        finalized->finalize();
-        return finalized;
-    }
-
     // Only used on ColumnDictionary
     virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
 
@@ -671,8 +665,6 @@ public:
     virtual bool is_column_string() const { return false; }
 
     virtual bool is_column_decimal() const { return false; }
-
-    virtual bool is_predicate_column() const { return false; }
 
     virtual bool is_column_dictionary() const { return false; }
 

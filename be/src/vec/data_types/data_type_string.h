@@ -62,7 +62,7 @@ public:
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::STRING;
     }
-    doris::FieldType get_type_as_field_type() const override {
+    doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_STRING;
     }
 

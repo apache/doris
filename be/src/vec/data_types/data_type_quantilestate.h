@@ -59,7 +59,7 @@ public:
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::QUANTILE_STATE;
     }
-    doris::FieldType get_type_as_field_type() const override {
+    doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE;
     }
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,

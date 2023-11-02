@@ -68,7 +68,7 @@ public:
         return TPrimitiveType::ARRAY;
     }
 
-    doris::FieldType get_type_as_field_type() const override {
+    doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_ARRAY;
     }
 

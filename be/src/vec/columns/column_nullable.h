@@ -384,8 +384,6 @@ public:
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
-    bool is_predicate_column() const override { return nested_column->is_predicate_column(); }
-
 private:
     // the two functions will not update `_need_update_has_null`
     ColumnUInt8& _get_null_map_column() { return assert_cast<ColumnUInt8&>(*null_map); }

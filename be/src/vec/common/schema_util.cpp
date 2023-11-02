@@ -179,7 +179,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
 void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
                         TabletColumn& column, const ExtraInfo& ext_info) {
     column.set_name(name);
-    column.set_type(data_type->get_type_as_field_type());
+    column.set_type(data_type->get_storage_field_type());
     if (ext_info.unique_id >= 0) {
         column.set_unique_id(ext_info.unique_id);
     }

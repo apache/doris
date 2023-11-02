@@ -67,8 +67,8 @@ public:
         return nested_data_type->get_type_as_tprimitive_type();
     }
 
-    doris::FieldType get_type_as_field_type() const override {
-        return nested_data_type->get_type_as_field_type();
+    doris::FieldType get_storage_field_type() const override {
+        return nested_data_type->get_storage_field_type();
     }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
