@@ -121,7 +121,9 @@ public:
 private:
     void _init_row_distribution();
 
-    Status _open_streams(int64_t src_id);
+    void _init_streams(int64_t src_id);
+
+    Status _open_streams();
 
     void _build_tablet_node_mapping();
 

@@ -107,7 +107,6 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const OlapTableSchemaParam& schema,
                             const std::vector<PTabletID>& tablets_for_schema, int total_streams,
                             bool enable_profile) {
-    _num_open++;
     std::unique_lock<bthread::Mutex> lock(_mutex);
     if (_is_init.load()) {
         return Status::OK();
@@ -190,15 +189,23 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
 
 // CLOSE_LOAD
 Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit) {
-    if (--_num_open > 0) {
+    {
+        std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
+        _tablets_to_commit.insert(_tablets_to_commit.end(), tablets_to_commit.begin(),
+                                  tablets_to_commit.end());
+    }
+    if (--_use_cnt > 0) {
         return Status::OK();
     }
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
     header.set_src_id(_src_id);
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
-    for (const auto& tablet : tablets_to_commit) {
-        *header.add_tablets_to_commit() = tablet;
+    {
+        std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
+        for (const auto& tablet : _tablets_to_commit) {
+            *header.add_tablets_to_commit() = tablet;
+        }
     }
     return _encode_and_send(header);
 }
