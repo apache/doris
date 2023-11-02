@@ -108,8 +108,7 @@
                     "label": "Export",
                     "items": [
                         "data-operate/export/export-manual",
-                        "data-operate/export/outfile",
-                        "data-operate/export/export-with-mysql-dump"
+                        "data-operate/export/outfile"
                     ]
                 },
                 {
@@ -170,8 +169,6 @@
                 "advanced/variables",
                 "advanced/time-zone",
                 "advanced/small-file-mgr",
-                "advanced/cold-hot-separation",
-                "advanced/compute-node",
                 "advanced/lateral-view"
             ]
         },
@@ -218,7 +215,6 @@
                 "lakehouse/file",
                 "lakehouse/filecache",
                 "lakehouse/external-statistics",
-                "lakehouse/fs-benchmark-tool",
                 "lakehouse/faq"
             ]
         },
@@ -732,12 +728,8 @@
                             "type": "category",
                             "label": "Table Functions",
                             "items": [
-                                "sql-manual/sql-functions/table-functions/explode-json-array",
                                 "sql-manual/sql-functions/table-functions/explode",
-                                "sql-manual/sql-functions/table-functions/explode-split",
-                                "sql-manual/sql-functions/table-functions/explode-bitmap",
                                 "sql-manual/sql-functions/table-functions/numbers",
-                                "sql-manual/sql-functions/table-functions/explode-numbers",
                                 "sql-manual/sql-functions/table-functions/explode-numbers-outer",
                                 "sql-manual/sql-functions/table-functions/s3",
                                 "sql-manual/sql-functions/table-functions/hdfs",
@@ -745,7 +737,6 @@
                                 "sql-manual/sql-functions/table-functions/iceberg-meta",
                                 "sql-manual/sql-functions/table-functions/backends",
                                 "sql-manual/sql-functions/table-functions/frontends",
-                                "sql-manual/sql-functions/table-functions/workload-group",
                                 "sql-manual/sql-functions/table-functions/catalogs",
                                 "sql-manual/sql-functions/table-functions/frontends_disks"
                             ]
@@ -756,8 +747,6 @@
                             "items": [
                                 "sql-manual/sql-functions/window-functions/window-function",
                                 "sql-manual/sql-functions/window-functions/window-function-sum",
-                                "sql-manual/sql-functions/window-functions/window-function-avg",
-                                "sql-manual/sql-functions/window-functions/window-function-max",
                                 "sql-manual/sql-functions/window-functions/window-function-min",
                                 "sql-manual/sql-functions/window-functions/window-function-count",
                                 "sql-manual/sql-functions/window-functions/window-function-rank",
@@ -767,7 +756,6 @@
                                 "sql-manual/sql-functions/window-functions/window-function-lead",
                                 "sql-manual/sql-functions/window-functions/window-function-lag",
                                 "sql-manual/sql-functions/window-functions/window-function-row-number",
-                                "sql-manual/sql-functions/window-functions/window-function-ntile",
                                 "sql-manual/sql-functions/window-functions/window-function-window-funnel"
                             ]
                         },
@@ -775,7 +763,6 @@
                             "type": "category",
                             "label": "IP Functions",
                             "items": [
-                                "sql-manual/sql-functions/ip-functions/ipv4-num-to-string",
                                 "sql-manual/sql-functions/ip-functions/inet-ntoa"
                             ]
                         },
@@ -789,9 +776,7 @@
                                 "sql-manual/sql-functions/distance-functions/l2-distance"
                             ]
                         },
-                        "sql-manual/sql-functions/cast",
-                        "sql-manual/sql-functions/digital-masking",
-                        "sql-manual/sql-functions/width-bucket"
+                        "sql-manual/sql-functions/cast"
                     ]
                 },
                 {
@@ -984,7 +969,6 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/MULTI-LOAD",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/ALTER-ROUTINE-LOAD",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-ROUTINE-LOAD",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-ROUTINE-LOAD",
