@@ -685,7 +685,8 @@ public class DatabaseTransactionMgr {
                     if (table != null && table instanceof OlapTable) {
                         if (!transactionState.checkSchemaCompatibility((OlapTable) table)) {
                             throw new TransactionCommitFailedException("transaction [" + transactionId
-                                    + "] check schema compatibility failed");
+                                    + "] check schema compatibility failed, partial update can't commit with"
+                                            + " old schema sucessfully .");
                         }
                     }
                 }
@@ -694,7 +695,8 @@ public class DatabaseTransactionMgr {
                     if (table instanceof OlapTable) {
                         if (!transactionState.checkSchemaCompatibility((OlapTable) table)) {
                             throw new TransactionCommitFailedException("transaction [" + transactionId
-                                    + "] check schema compatibility failed");
+                                    + "] check schema compatibility failed, partial update can't commit with"
+                                            + " old schema sucessfully .");
                         }
                     }
                 }

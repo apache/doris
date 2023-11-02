@@ -778,6 +778,8 @@ public class TransactionState implements Writable {
             int uniqueId = txnCol.getUniqueId();
             Optional<Column> currentCol = currentSchemaInfo.schema.stream()
                     .filter(col -> col.getUniqueId() == uniqueId).findFirst();
+            // for now Doris's light schema change only supports adding columns,
+            // dropping columns, and type conversions that increase the varchar length
             if (currentCol.isPresent() && currentCol.get().getType().isStringType()) {
                 if (currentCol.get().getStrLen() != txnCol.getStrLen()) {
                     LOG.warn("Check schema compatibility failed, txnId={}, table={}",
