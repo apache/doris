@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_backup_restore_exclude", "backup_restore") {
-    String dbName = "backup_restore_exclude"
-    String suiteName = "test_backup_restore_exclude"
+suite("test_backup_restore_db", "backup_restore") {
+    String dbName = "backup_restore_db_1"
+    String suiteName = "test_backup_restore_db"
     String repoName = "${suiteName}_repo"
     String snapshotName = "${suiteName}_snapshot"
     String tableNamePrefix = "${suiteName}_tables"
@@ -54,11 +54,9 @@ suite("test_backup_restore_exclude", "backup_restore") {
         assertEquals(result.size(), numRows);
     }
 
-    def backupExcludeTable = tables.removeLast();
     sql """
         BACKUP SNAPSHOT ${dbName}.${snapshotName}
         TO `${repoName}`
-        EXCLUDE (${backupExcludeTable})
     """
 
     while (!syncer.checkSnapshotFinish(dbName)) {
@@ -68,17 +66,13 @@ suite("test_backup_restore_exclude", "backup_restore") {
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
-    // Overwrite exists table.
-    sql "INSERT INTO ${dbName}.${backupExcludeTable} VALUES (20, 20), (21, 21)"
-    qt_select "SELECT * FROM ${dbName}.${backupExcludeTable} ORDER BY id"
-
-    def restoreExcludeTable = tables.removeLast()
-    sql "DROP TABLE ${dbName}.${restoreExcludeTable} FORCE"
+    for (def tableName in tables) {
+        sql "TRUNCATE TABLE ${dbName}.${tableName}"
+    }
 
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
         FROM `${repoName}`
-        EXCLUDE (${restoreExcludeTable})
         PROPERTIES
         (
             "backup_timestamp" = "${snapshot}",
@@ -90,7 +84,6 @@ suite("test_backup_restore_exclude", "backup_restore") {
         Thread.sleep(3000)
     }
 
-    qt_select "SELECT * FROM ${dbName}.${backupExcludeTable} ORDER BY id"
     for (def tableName in tables) {
         result = sql "SELECT * FROM ${dbName}.${tableName}"
         assertEquals(result.size(), numRows);
