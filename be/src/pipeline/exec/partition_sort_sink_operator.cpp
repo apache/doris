@@ -96,6 +96,7 @@ Status PartitionSortSinkOperatorX::open(RuntimeState* state) {
 
 Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* input_block,
                                         SourceState source_state) {
+    RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     auto current_rows = input_block->rows();
     SCOPED_TIMER(local_state.exec_time_counter());
