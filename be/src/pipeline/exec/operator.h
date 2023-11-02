@@ -163,6 +163,14 @@ public:
 
     bool is_source() const;
 
+    virtual Status collect_query_statistics(QueryStatistics* statistics) { return Status::OK(); };
+
+    virtual Status collect_query_statistics(QueryStatistics* statistics, int sender_id) {
+        return Status::OK();
+    };
+
+    virtual void set_query_statistics(std::shared_ptr<QueryStatistics>) {};
+
     virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
     // Prepare for running. (e.g. resource allocation, etc.)
@@ -299,6 +307,9 @@ public:
     Status finalize(RuntimeState* state) override { return Status::OK(); }
 
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override { return _sink->profile(); }
+    void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override {
+        _sink->set_query_statistics(statistics);
+    }
 
 protected:
     NodeType* _sink;
@@ -367,6 +378,16 @@ public:
 
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
         return _node->runtime_profile();
+    }
+
+    Status collect_query_statistics(QueryStatistics* statistics) override {
+        RETURN_IF_ERROR(_node->collect_query_statistics(statistics));
+        return Status::OK();
+    }
+
+    Status collect_query_statistics(QueryStatistics* statistics, int sender_id) override {
+        RETURN_IF_ERROR(_node->collect_query_statistics(statistics, sender_id));
+        return Status::OK();
     }
 
 protected:

@@ -317,6 +317,7 @@ protected:
 
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter;
+    RuntimeProfile::Counter* _byte_read_counter;
     // Wall based aggregate read throughput [rows/sec]
     RuntimeProfile::Counter* _total_throughput_counter;
     RuntimeProfile::Counter* _num_scanners;
