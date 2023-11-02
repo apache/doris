@@ -471,6 +471,7 @@ void RuntimeFilterDependency::sub_filters() {
     _filters--;
     if (_filters == 0) {
         *_blocked_by_rf = false;
+        try_to_wake_up_task();
     }
 }
 
