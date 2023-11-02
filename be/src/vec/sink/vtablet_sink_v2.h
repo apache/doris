@@ -132,7 +132,9 @@ public:
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
 private:
-    Status _open_streams(int64_t src_id);
+    void _init_streams(int64_t src_id);
+
+    Status _open_streams();
 
     void _build_tablet_node_mapping();
 

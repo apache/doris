@@ -160,6 +160,8 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
     } else {
         _delta_writer_for_tablet = std::make_shared<DeltaWriterV2Map>(_load_id);
     }
+    _build_tablet_node_mapping();
+    _init_streams(state->backend_id());
     return Status::OK();
 }
 
@@ -171,21 +173,27 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     signal::set_signal_task_id(_load_id);
 
-    _build_tablet_node_mapping();
-    RETURN_IF_ERROR(_open_streams(state->backend_id()));
-
+    RETURN_IF_ERROR(_open_streams());
     return Status::OK();
 }
 
-Status VOlapTableSinkV2::_open_streams(int64_t src_id) {
+void VOlapTableSinkV2::_init_streams(int64_t src_id) {
     for (auto& [dst_id, _] : _tablets_for_node) {
+        auto streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
+                _load_id, src_id, dst_id, _stream_per_node);
+        for (auto& stream : *streams) {
+            stream->prepare();
+        }
+        _streams_for_node[dst_id] = streams;
+    }
+}
+
+Status VOlapTableSinkV2::_open_streams() {
+    for (auto& [dst_id, streams] : _streams_for_node) {
         auto node_info = _nodes_info->find_node(dst_id);
         if (node_info == nullptr) {
             return Status::InternalError("Unknown node {} in tablet location", dst_id);
         }
-        std::shared_ptr<Streams> streams;
-        streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                _load_id, src_id, dst_id, _stream_per_node);
         // get tablet schema from each backend only in the 1st stream
         for (auto& stream : *streams | std::ranges::views::take(1)) {
             const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
@@ -199,7 +207,6 @@ Status VOlapTableSinkV2::_open_streams(int64_t src_id) {
                                          *node_info, _txn_id, *_schema, {}, _total_streams,
                                          _state->enable_profile()));
         }
-        _streams_for_node[dst_id] = streams;
     }
     return Status::OK();
 }
