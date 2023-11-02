@@ -50,7 +50,7 @@ suite("test_uniq_tab_decimalv2") {
     """
     qt_select_all "select * from ${table1} order by decimal_key1"
 
-    qt_select_pred_decimal32_key "select * from ${table1} where decimal_key1 = 1.1 order by decimal32_key"
+    qt_select_pred_decimal32_key "select * from ${table1} where decimal_key1 = 1.1 order by decimal_key1"
     qt_select_pred_decimal32_key "select * from ${table1} where decimal_key1 < 1.1111111111111111111 order by decimal_key1"
     sql "drop table if exists ${table1}"
 }
