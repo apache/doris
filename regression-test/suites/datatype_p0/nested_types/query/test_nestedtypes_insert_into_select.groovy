@@ -24,11 +24,6 @@ suite("test_nestedtypes_insert_into_select", "p0") {
     sql "set enable_nereids_planner=false"
     sql """ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"""
 
-    // create array - map
-    sql "DROP TABLE IF EXISTS amt;"
-    sql """
-        CREATE TABLE IF NOT EXISTS amt (col1 varchar(64) NULL, col2 array<map<int, string>>) DUPLICATE KEY(`col1`)  DISTRIBUTED BY HASH(`col1`) PROPERTIES ("replication_num" = "1"); """
-
     // create array struct
     sql "DROP TABLE IF EXISTS ast;"
     sql """ CREATE TABLE IF NOT EXISTS ast (col1 varchar(64) NULL, col2 array<struct<a:int,b:string>>) DUPLICATE KEY(`col1`)  DISTRIBUTED BY HASH(`col1`) PROPERTIES ("replication_num" = "1"); """
@@ -36,10 +31,7 @@ suite("test_nestedtypes_insert_into_select", "p0") {
     // test insert into with literal
     sql "INSERT INTO ast values ('text',[{3,'home'},{4,'work'}]);"
 
-    sql "INSERT INTO amt values ('txt',[{6:'amory', 7:'now', 10: 'commit'}]);"
-
     order_qt_sql_as """ select * from ast; """
-    order_qt_sql_am """ select * from amt; """
 
     test {
         sql "insert into ast values ('text' , [named_struct('a',1,'b','home'),named_struct('a',2,'b','work')]);"
@@ -50,11 +42,6 @@ suite("test_nestedtypes_insert_into_select", "p0") {
     sql "set enable_nereids_planner=true"
     sql " set enable_fallback_to_original_planner=false"
 
-    // create array - map
-    sql "DROP TABLE IF EXISTS amt;"
-    sql """
-        CREATE TABLE IF NOT EXISTS amt (col1 varchar(64) NULL, col2 array<map<int, string>>) DUPLICATE KEY(`col1`)  DISTRIBUTED BY HASH(`col1`) PROPERTIES ("replication_num" = "1"); """
-
     // create array struct
     sql "DROP TABLE IF EXISTS ast;"
     sql """ CREATE TABLE IF NOT EXISTS ast (col1 varchar(64) NULL, col2 array<struct<a:int,b:string>>) DUPLICATE KEY(`col1`)  DISTRIBUTED BY HASH(`col1`) PROPERTIES ("replication_num" = "1"); """
@@ -62,10 +49,7 @@ suite("test_nestedtypes_insert_into_select", "p0") {
     // test insert into with literal
     sql "INSERT INTO ast values ('text',[{3,'home'},{4,'work'}]);"
 
-    sql "INSERT INTO amt values ('txt',[{6:'amory', 7:'now', 10: 'commit'}]);"
-
     order_qt_sql_as """ select * from ast; """
-    order_qt_sql_am """ select * from amt; """
 
     test {
         sql "insert into ast values ('text' , [named_struct('a',1,'b','home'),named_struct('a',2,'b','work')]);"

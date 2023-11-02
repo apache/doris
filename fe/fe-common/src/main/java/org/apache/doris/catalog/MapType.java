@@ -196,6 +196,21 @@ public class MapType extends Type {
             && Type.canCastTo(type.getValueType(), targetType.getValueType());
     }
 
+    public static Type getAssignmentCompatibleType(MapType t1, MapType t2, boolean strict) {
+        Type keyCompatibleType = Type.getAssignmentCompatibleType(t1.getKeyType(), t2.getKeyType(), strict);
+        if (keyCompatibleType.isInvalid()) {
+            return ScalarType.INVALID;
+        }
+        Type valCompatibleType = Type.getAssignmentCompatibleType(t1.getValueType(), t2.getValueType(), strict);
+        if (valCompatibleType.isInvalid()) {
+            return ScalarType.INVALID;
+        }
+
+        return new MapType(keyCompatibleType, valCompatibleType,
+            t1.getIsKeyContainsNull() || t2.getIsKeyContainsNull(),
+            t1.getIsValueContainsNull() || t2.getIsValueContainsNull());
+    }
+
     @Override
     public boolean supportSubType(Type subType) {
         for (Type supportedType : Type.getMapSubTypes()) {
