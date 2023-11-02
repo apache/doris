@@ -126,9 +126,7 @@ Status Channel<Parent>::send_current_block(bool eos, Status exec_status) {
 
 template <typename Parent>
 Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
-    if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
-        SCOPED_TIMER(_parent->local_send_timer());
-    }
+    SCOPED_TIMER(_parent->local_send_timer());
     Block block = _serializer.get_block()->to_block();
     _serializer.get_block()->set_muatable_columns(block.clone_empty_columns());
     if (_recvr_is_valid()) {
@@ -157,9 +155,7 @@ Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
 
 template <typename Parent>
 Status Channel<Parent>::send_local_block(Block* block) {
-    if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
-        SCOPED_TIMER(_parent->local_send_timer());
-    }
+    SCOPED_TIMER(_parent->local_send_timer());
     if (_recvr_is_valid()) {
         if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
             COUNTER_UPDATE(_parent->local_bytes_send_counter(), block->bytes());
@@ -176,9 +172,9 @@ Status Channel<Parent>::send_local_block(Block* block) {
 template <typename Parent>
 Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_status) {
     if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
-        SCOPED_TIMER(_parent->brpc_send_timer());
         COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
     }
+    SCOPED_TIMER(_parent->brpc_send_timer());
 
     if (_closure == nullptr) {
         _closure = new RefCountClosure<PTransmitDataResult>();
@@ -729,16 +725,12 @@ Status BlockSerializer<Parent>::next_serialized_block(Block* block, PBlock* dest
         SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         if (rows) {
             if (rows->size() > 0) {
-                if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
-                    SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());
-                }
+                SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());
                 const int* begin = &(*rows)[0];
                 _mutable_block->add_rows(block, begin, begin + rows->size());
             }
         } else if (!block->empty()) {
-            if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
-                SCOPED_TIMER(_parent->merge_block_timer());
-            }
+            SCOPED_TIMER(_parent->merge_block_timer());
             RETURN_IF_ERROR(_mutable_block->merge(*block));
         }
     }
