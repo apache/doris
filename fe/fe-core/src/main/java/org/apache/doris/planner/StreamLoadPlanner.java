@@ -295,11 +295,11 @@ public class StreamLoadPlanner {
         // For stream load, only one sender
         execParams.setSenderId(0);
         execParams.setNumSenders(1);
-        execParams.setLoadStreamPerNode(taskInfo.getStreamPerNode());
-        execParams.setTotalLoadStreams(taskInfo.getStreamPerNode());
         perNodeScanRange.put(scanNode.getId().asInt(), scanRangeParams);
         execParams.setPerNodeScanRanges(perNodeScanRange);
         params.setParams(execParams);
+        params.setLoadStreamPerNode(taskInfo.getStreamPerNode());
+        params.setTotalLoadStreams(taskInfo.getStreamPerNode());
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQueryType(TQueryType.LOAD);
         queryOptions.setQueryTimeout(timeout);
