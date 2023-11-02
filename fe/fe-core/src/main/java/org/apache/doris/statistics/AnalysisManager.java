@@ -112,11 +112,11 @@ public class AnalysisManager implements Writable {
     private AnalysisTaskExecutor taskExecutor;
 
     // Store task information in metadata.
-    private final NavigableMap<Long, AnalysisInfo> analysisTaskInfoMap =
+    protected final NavigableMap<Long, AnalysisInfo> analysisTaskInfoMap =
             Collections.synchronizedNavigableMap(new TreeMap<>());
 
     // Store job information in metadata.
-    private final NavigableMap<Long, AnalysisInfo> analysisJobInfoMap =
+    protected final NavigableMap<Long, AnalysisInfo> analysisJobInfoMap =
             Collections.synchronizedNavigableMap(new TreeMap<>());
 
     // Tracking system submitted job, keep in mem only

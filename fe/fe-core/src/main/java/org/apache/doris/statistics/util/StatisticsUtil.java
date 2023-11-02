@@ -809,7 +809,7 @@ public class StatisticsUtil {
 
     public static boolean inAnalyzeTime(LocalTime now) {
         try {
-            Pair<LocalTime, LocalTime> range = findRangeFromGlobalSessionVar();
+            Pair<LocalTime, LocalTime> range = findConfigFromGlobalSessionVar();
             if (range == null) {
                 return false;
             }
@@ -826,16 +826,16 @@ public class StatisticsUtil {
         }
     }
 
-    private static Pair<LocalTime, LocalTime> findRangeFromGlobalSessionVar() {
+    private static Pair<LocalTime, LocalTime> findConfigFromGlobalSessionVar() {
         try {
             String startTime =
-                    findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_START_TIME)
+                    findConfigFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_START_TIME)
                             .fullAutoAnalyzeStartTime;
             // For compatibility
             if (StringUtils.isEmpty(startTime)) {
                 startTime = StatisticConstants.FULL_AUTO_ANALYZE_START_TIME;
             }
-            String endTime = findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_END_TIME)
+            String endTime = findConfigFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_END_TIME)
                     .fullAutoAnalyzeEndTime;
             if (StringUtils.isEmpty(startTime)) {
                 endTime = StatisticConstants.FULL_AUTO_ANALYZE_END_TIME;
@@ -847,7 +847,7 @@ public class StatisticsUtil {
         }
     }
 
-    private static SessionVariable findRangeFromGlobalSessionVar(String varName) throws Exception {
+    private static SessionVariable findConfigFromGlobalSessionVar(String varName) throws Exception {
         SessionVariable sessionVariable =  VariableMgr.newSessionVariable();
         VariableExpr variableExpr = new VariableExpr(varName, SetType.GLOBAL);
         VariableMgr.getValue(sessionVariable, variableExpr);
@@ -856,10 +856,19 @@ public class StatisticsUtil {
 
     public static boolean enableAutoAnalyze() {
         try {
-            return findRangeFromGlobalSessionVar(SessionVariable.ENABLE_FULL_AUTO_ANALYZE).enableFullAutoAnalyze;
+            return findConfigFromGlobalSessionVar(SessionVariable.ENABLE_FULL_AUTO_ANALYZE).enableFullAutoAnalyze;
         } catch (Exception e) {
             LOG.warn("Fail to get value of enable auto analyze, return false by default", e);
         }
         return false;
+    }
+
+    public static int getInsertMergeCount() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.INSERT_MERGE_ITEM_COUNT).insertMergeItemCount;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of insert_merge_item_count, return default", e);
+        }
+        return StatisticConstants.INSERT_MERGE_ITEM_COUNT;
     }
 }

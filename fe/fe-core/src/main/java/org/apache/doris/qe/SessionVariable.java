@@ -430,6 +430,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
+    public static final String INSERT_MERGE_ITEM_COUNT = "insert_merge_item_count";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1246,7 +1248,7 @@ public class SessionVariable implements Serializable, Writable {
             description = {"该参数定义自动ANALYZE例程的结束时间",
                     "This parameter defines the end time for the automatic ANALYZE routine."},
             flag = VariableMgr.GLOBAL)
-    public String fullAutoAnalyzeEndTime = "02:00:00";
+    public String fullAutoAnalyzeEndTime = "23:59:59";
 
     @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
             description = {"解析sql使用的方言", "The dialect used to parse sql."})
@@ -1276,6 +1278,10 @@ public class SessionVariable implements Serializable, Writable {
                     "the runtime filter id in IGNORE_RUNTIME_FILTER_IDS list will not be generated"})
 
     public String ignoreRuntimeFilterIds = "";
+
+    @VariableMgr.VarAttr(name = INSERT_MERGE_ITEM_COUNT, flag = VariableMgr.GLOBAL)
+    public int insertMergeItemCount = 200;
+
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {

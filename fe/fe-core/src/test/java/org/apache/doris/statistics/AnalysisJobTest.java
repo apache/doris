@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import mockit.Expectations;
 import mockit.Mock;
@@ -125,7 +126,7 @@ public class AnalysisJobTest {
         job.queryFinished = new HashSet<>();
         job.buf = new ArrayList<>();
         ColStatsData colStatsData = new ColStatsData();
-        for (int i = 0; i < StatisticConstants.ANALYZE_JOB_BUF_SIZE; i++) {
+        for (int i = 0; i < StatisticsUtil.getInsertMergeCount(); i++) {
             job.buf.add(colStatsData);
         }
         job.totalTaskCount = 100;

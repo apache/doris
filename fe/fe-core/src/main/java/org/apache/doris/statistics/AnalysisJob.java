@@ -82,7 +82,7 @@ public class AnalysisJob {
             updateTaskState(AnalysisState.FINISHED, "Cost time in sec: "
                     + (System.currentTimeMillis() - start) / 1000);
             deregisterJob();
-        } else if (buf.size() >= StatisticConstants.ANALYZE_JOB_BUF_SIZE) {
+        } else if (buf.size() >= StatisticsUtil.getInsertMergeCount()) {
             writeBuf();
         }
     }

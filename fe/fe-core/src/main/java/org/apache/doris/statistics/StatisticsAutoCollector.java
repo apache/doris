@@ -50,7 +50,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     public StatisticsAutoCollector() {
         super("Automatic Analyzer",
-                TimeUnit.MINUTES.toMillis(1),
+                TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes),
                 new AnalysisTaskExecutor(Config.full_auto_analyze_simultaneously_running_task_num));
     }
 
@@ -113,7 +113,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         if (!(table instanceof OlapTable || table instanceof ExternalTable)) {
             return true;
         }
-        if (table.getDataSize(true) < Config.huge_table_lower_bound_size_in_bytes) {
+        if (table.getDataSize(true) < Config.huge_table_lower_bound_size_in_bytes * 5) {
             return false;
         }
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
