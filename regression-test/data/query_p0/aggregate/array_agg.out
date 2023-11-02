@@ -2,14 +2,14 @@
 -- !sql1 --
 ["LC", "LB", "alex"]
 ["LC", "LB", "LA"]
-["LC", NULL, "LA"]
+["LC", null, "LA"]
 ["LC", "LB", "LA"]
-[NULL, "LC", "LB", "LA"]
-[NULL, "LC", "LC", "LC", "LC"]
-[NULL, "LC", "LC", "LC", "LC"]
+[null, "LC", "LB", "LA"]
+[null, "LC", "LC", "LC", "LC"]
+[null, "LC", "LC", "LC", "LC"]
 
 -- !sql2 --
-["alex", NULL, "LC", "LC", "LC", "LC"]
+["alex", null, "LC", "LC", "LC", "LC"]
 ["LB"]
 ["LC"]
 ["LA"]
@@ -22,24 +22,24 @@
 ["LC"]
 ["LA"]
 ["LB"]
-[NULL, "LC"]
-[NULL, "LC", "LC"]
-[NULL, "LC", "LC"]
+[null, "LC"]
+[null, "LC", "LC"]
+[null, "LC", "LC"]
 
 -- !sql3 --
-["LC", "LB", "alex", "LC", "LB", "LA", "LC", NULL, "LA", "LC", "LB", "LA", NULL, "LC", "LB", "LA", NULL, "LC", "LC", "LC", "LC", NULL, "LC", "LC", "LC", "LC"]
+["LC", "LB", "alex", "LC", "LB", "LA", "LC", null, "LA", "LC", "LB", "LA", null, "LC", "LB", "LA", null, "LC", "LC", "LC", "LC", null, "LC", "LC", "LC", "LC"]
 
 -- !sql4 --
-["V1_3", "V1_2", NULL, "V2_3", "V2_2", "V2_1", "V3_3", NULL, "V3_1", "V4_3", "V4_2", "V4_1", "V5_3", "V5_3", "V5_2", "V5_1", "V6_3", NULL, "V6_3", NULL, "V6_3", "V7_3", NULL, "V7_3", NULL, "V7_3"]
+["V1_3", "V1_2", null, "V2_3", "V2_2", "V2_1", "V3_3", null, "V3_1", "V4_3", "V4_2", "V4_1", "V5_3", "V5_3", "V5_2", "V5_1", "V6_3", null, "V6_3", null, "V6_3", "V7_3", null, "V7_3", null, "V7_3"]
 
 -- !sql5 --
-1	[2, 1, NULL]
+1	[2, 1, null]
 2	[5, 5, 4]
-3	[NULL, 6, 6]
+3	[null, 6, 6]
 4	[6, 6, 5]
-5	[NULL, 5, 6]
-6	[NULL, NULL, NULL, NULL, NULL]
-7	[NULL, NULL, NULL, NULL, NULL]
+5	[null, 5, 6]
+6	[null, null, null, null, null]
+7	[null, null, null, null, null]
 
 -- !sql6 --
 [""]
@@ -47,21 +47,21 @@
 -- !sql7 --
 ["LC", "LB", "alex"]
 ["LC", "LB", "LA"]
-["LC", NULL, "LA"]
+["LC", null, "LA"]
 ["LC", "LB", "LA"]
 ["LC", "LB", "LA"]
 [""]
 [""]
 
 -- !sql8 --
-[NULL]
+[null]
 
 -- !sql9 --
-1	[1.11, NULL, NULL]
-2	[1.21, NULL, 1.23]
+1	[1.11, null, null]
+2	[1.21, null, 1.23]
 3	[1.24, 1.23, 1.21]
-4	[1.22, NULL, 1.22]
-5	[NULL, NULL, NULL]
-7	[NULL]
-8	[NULL]
+4	[1.22, null, 1.22]
+5	[null, null, null]
+7	[null]
+8	[null]
 

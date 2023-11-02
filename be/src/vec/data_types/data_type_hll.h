@@ -101,7 +101,9 @@ public:
 
     static void deserialize_as_stream(HyperLogLog& value, BufferReadable& buf);
 
-    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeHLLSerDe>(); };
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeHLLSerDe>(nesting_level);
+    };
 };
 
 } // namespace doris::vectorized

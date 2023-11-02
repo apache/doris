@@ -69,7 +69,9 @@ public:
     bool can_be_used_in_boolean_context() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
-    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeTimeSerDe>(); };
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeTimeSerDe>(nesting_level);
+    };
     TypeIndex get_type_id() const override { return TypeIndex::Time; }
     const char* get_family_name() const override { return "time"; }
 };
@@ -104,8 +106,8 @@ public:
     bool can_be_inside_nullable() const override { return true; }
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeTimeV2SerDe>(_scale);
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeTimeV2SerDe>(_scale, nesting_level);
     };
     TypeIndex get_type_id() const override { return TypeIndex::TimeV2; }
     const char* get_family_name() const override { return "timev2"; }
