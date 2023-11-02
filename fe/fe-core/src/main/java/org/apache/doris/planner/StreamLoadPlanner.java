@@ -295,6 +295,12 @@ public class StreamLoadPlanner {
         // For stream load, only one sender
         execParams.setSenderId(0);
         execParams.setNumSenders(1);
+        int loadStreamPerNode = 1;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
+            loadStreamPerNode = ConnectContext.get().getSessionVariable().getLoadStreamPerNode();
+        }
+        execParams.setLoadStreamPerNode(loadStreamPerNode);
+        execParams.setTotalLoadStreams(loadStreamPerNode);
         perNodeScanRange.put(scanNode.getId().asInt(), scanRangeParams);
         execParams.setPerNodeScanRanges(perNodeScanRange);
         params.setParams(execParams);
@@ -514,6 +520,12 @@ public class StreamLoadPlanner {
         localParams.setPerNodeScanRanges(perNodeScanRange);
         pipParams.setLocalParams(Lists.newArrayList());
         pipParams.getLocalParams().add(localParams);
+        int loadStreamPerNode = 1;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
+            loadStreamPerNode = ConnectContext.get().getSessionVariable().getLoadStreamPerNode();
+        }
+        pipParams.setLoadStreamPerNode(loadStreamPerNode);
+        pipParams.setTotalLoadStreams(loadStreamPerNode);
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQueryType(TQueryType.LOAD);
         queryOptions.setQueryTimeout(timeout);
