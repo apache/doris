@@ -932,19 +932,28 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
         int target_size = params.local_params.size();
         if (target_size > 1) {
-            Status prepare_status[target_size];
+            Status prepare_status;
+            int prepare_wait = target_size;
+            std::mutex m;
+            std::condition_variable cv;
 
             for (size_t i = 0; i < target_size; i++) {
-                static_cast<void>(_thread_pool->submit_func(
-                        [&, i]() { prepare_status[i] = pre_and_submit(i); }));
-            }
+                RETURN_IF_ERROR(_thread_pool->submit_func([&, i]() {
+                    auto st = pre_and_submit(i);
 
-            for (size_t i = 0; i < target_size; i++) {
-                if (!prepare_status[i].ok()) {
-                    return prepare_status[i];
-                }
+                    std::unique_lock<std::mutex> lock(m);
+                    prepare_wait--;
+                    if (!prepare_wait) {
+                        cv.notify_one();
+                    }
+                    if (!st) {
+                        prepare_status = st;
+                    }
+                }));
             }
-            return Status::OK();
+            std::unique_lock<std::mutex> lock(m);
+            cv.wait(lock);
+            return prepare_status;
         }
         return pre_and_submit(0);
     }
