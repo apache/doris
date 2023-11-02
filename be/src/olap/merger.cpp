@@ -181,7 +181,6 @@ void Merger::vertical_split_columns(TabletSchemaSPtr tablet_schema,
     if (!key_columns.empty()) {
         column_groups->emplace_back(std::move(key_columns));
     }
-    std::vector<uint32_t> value_columns;
     for (auto i = num_key_cols; i < total_cols; ++i) {
         if (i == sequence_col_idx || i == delete_sign_idx ||
             key_columns.end() != std::find(key_columns.begin(), key_columns.end(), i)) {
@@ -198,12 +197,14 @@ Status Merger::vertical_compact_one_group(
         TabletSharedPtr tablet, ReaderType reader_type, TabletSchemaSPtr tablet_schema, bool is_key,
         const std::vector<uint32_t>& column_group, vectorized::RowSourcesBuffer* row_source_buf,
         const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-        RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment, Statistics* stats_output) {
+        RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment, Statistics* stats_output,
+        std::vector<uint32_t> key_group_cluster_key_idxes) {
     // build tablet reader
     VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
     vectorized::VerticalBlockReader reader(row_source_buf);
     TabletReader::ReaderParams reader_params;
     reader_params.is_key_column_group = is_key;
+    reader_params.key_group_cluster_key_idxes = key_group_cluster_key_idxes;
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
 
@@ -355,6 +356,22 @@ Status Merger::vertical_merge_rowsets(TabletSharedPtr tablet, ReaderType reader_
     std::vector<std::vector<uint32_t>> column_groups;
     vertical_split_columns(tablet_schema, &column_groups);
 
+    std::vector<uint32_t> key_group_cluster_key_idxes;
+    if (column_groups.size() > 0) {
+        if (!tablet_schema->cluster_key_idxes().empty()) {
+            auto& key_column_group = column_groups[0];
+            for (const auto& index_in_tablet_schema : tablet_schema->cluster_key_idxes()) {
+                for (auto j = 0; j < key_column_group.size(); ++j) {
+                    auto cid = key_column_group[j];
+                    if (cid == index_in_tablet_schema) {
+                        key_group_cluster_key_idxes.emplace_back(j);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
                                                  reader_type);
     // compact group one by one
@@ -363,7 +380,8 @@ Status Merger::vertical_merge_rowsets(TabletSharedPtr tablet, ReaderType reader_
         bool is_key = (i == 0);
         RETURN_IF_ERROR(vertical_compact_one_group(
                 tablet, reader_type, tablet_schema, is_key, column_groups[i], &row_sources_buf,
-                src_rowset_readers, dst_rowset_writer, max_rows_per_segment, stats_output));
+                src_rowset_readers, dst_rowset_writer, max_rows_per_segment, stats_output,
+                key_group_cluster_key_idxes));
         if (is_key) {
             RETURN_IF_ERROR(row_sources_buf.flush());
         }

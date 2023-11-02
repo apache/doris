@@ -75,7 +75,7 @@ public:
             vectorized::RowSourcesBuffer* row_source_buf,
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
             RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment,
-            Statistics* stats_output);
+            Statistics* stats_output, std::vector<uint32_t> key_group_cluster_key_idxes);
 
     // for segcompaction
     static Status vertical_compact_one_group(TabletSharedPtr tablet, ReaderType reader_type,
