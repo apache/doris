@@ -199,7 +199,7 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public void toMemo() {
-        this.memo = new Memo(plan);
+        this.memo = new Memo(getConnectContext(), plan);
     }
 
     public Analyzer newAnalyzer() {
@@ -358,7 +358,7 @@ public class CascadesContext implements ScheduleContext {
                 return table;
             }
         }
-        if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+        if (getConnectContext().getSessionVariable().isPlayNereidsDump()) {
             throw new AnalysisException("Minidump cache can not find table:" + tableName);
         }
         return null;

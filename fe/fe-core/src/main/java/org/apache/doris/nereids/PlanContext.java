@@ -19,6 +19,8 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
 import java.util.ArrayList;
@@ -31,28 +33,29 @@ import java.util.List;
  * Inspired by GPORCA-CExpressionHandle.
  */
 public class PlanContext {
-
+    private final ConnectContext connectContext;
     private final List<Statistics> childrenStats;
-    private Statistics planStats;
+    private final Statistics planStats;
     private final int arity;
     private boolean isBroadcastJoin = false;
+    private final boolean isStatsReliable;
 
     /**
      * Constructor for PlanContext.
      */
-    public PlanContext(GroupExpression groupExpression) {
+    public PlanContext(ConnectContext connectContext, GroupExpression groupExpression) {
+        this.connectContext = connectContext;
         this.arity = groupExpression.arity();
         this.planStats = groupExpression.getOwnerGroup().getStatistics();
+        this.isStatsReliable = groupExpression.getOwnerGroup().isStatsReliable();
         this.childrenStats = new ArrayList<>(groupExpression.arity());
         for (int i = 0; i < groupExpression.arity(); i++) {
             childrenStats.add(groupExpression.childStatistics(i));
         }
     }
 
-    public PlanContext(Statistics planStats, List<Statistics> childrenStats) {
-        this.planStats = planStats;
-        this.childrenStats = childrenStats;
-        this.arity = this.childrenStats.size();
+    public SessionVariable getSessionVariable() {
+        return connectContext.getSessionVariable();
     }
 
     public void setBroadcastJoin() {
@@ -69,6 +72,10 @@ public class PlanContext {
 
     public Statistics getStatisticsWithCheck() {
         return planStats;
+    }
+
+    public boolean isStatsReliable() {
+        return isStatsReliable;
     }
 
     /**

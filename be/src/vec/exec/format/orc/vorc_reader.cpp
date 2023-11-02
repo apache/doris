@@ -991,16 +991,6 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     }
 }
 
-std::unordered_map<std::string, TypeDescriptor> OrcReader::get_name_to_type() {
-    std::unordered_map<std::string, TypeDescriptor> map;
-    auto& root_type = _reader->getType();
-    for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        map.emplace(_get_field_name_lower_case(&root_type, i),
-                    _convert_to_doris_type(root_type.getSubtype(i)));
-    }
-    return map;
-}
-
 Status OrcReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                               std::unordered_set<std::string>* missing_cols) {
     auto& root_type = _reader->getType();

@@ -157,7 +157,7 @@ userIdentify
 
 explain
     : (EXPLAIN planType? | DESC | DESCRIBE)
-          level=(VERBOSE | GRAPH | PLAN)?
+          level=(VERBOSE | TREE | GRAPH | PLAN)?
     ;
 
 planType
@@ -562,7 +562,7 @@ booleanExpression
     ;
 
 rowConstructor
-    : LEFT_PAREN namedExpression (COMMA namedExpression)+ RIGHT_PAREN
+    : LEFT_PAREN namedExpression (COMMA namedExpression)* RIGHT_PAREN
     ;
 
 predicate
@@ -723,7 +723,7 @@ specifiedPartition
 
 constant
     : NULL                                                                                     #nullLiteral
-    | type=(DATE | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
+    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
     | STRING_LITERAL                                                                           #stringLiteral
@@ -775,6 +775,8 @@ primitiveColType:
     | type=TIME
     | type=DATEV2
     | type=DATETIMEV2
+    | type=DATEV1
+    | type=DATETIMEV1
     | type=BITMAP
     | type=QUANTILE_STATE
     | type=HLL
@@ -786,6 +788,7 @@ primitiveColType:
     | type=VARCHAR
     | type=CHAR
     | type=DECIMAL
+    | type=DECIMALV2
     | type=DECIMALV3
     | type=IPV4
     | type=IPV6
@@ -916,10 +919,13 @@ nonReserved
     | DATETIME
     | DATETIMEV2
     | DATEV2
+    | DATETIMEV1
+    | DATEV1
     | DAY
     | DAYS_ADD
     | DAYS_SUB
     | DECIMAL
+    | DECIMALV2
     | DECIMALV3
     | DEFERRED
     | DEMAND
@@ -1102,6 +1108,7 @@ nonReserved
     | TIMESTAMPADD
     | TIMESTAMPDIFF
     | TRANSACTION
+    | TREE
     | TRIGGERS
     | TRUNCATE
     | TYPE

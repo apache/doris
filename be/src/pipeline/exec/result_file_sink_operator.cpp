@@ -101,11 +101,16 @@ Status ResultFileSinkOperatorX::open(RuntimeState* state) {
 
 Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _sender_id = info.sender_id;
 
     _brpc_wait_timer = ADD_TIMER(_profile, "BrpcSendTime.Wait");
+    _local_send_timer = ADD_TIMER(_profile, "LocalSendTime");
+    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
+    _split_block_distribute_by_channel_timer =
+            ADD_TIMER(_profile, "SplitBlockDistributeByChannelTime");
+    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     CHECK(p._file_opts.get() != nullptr);
     if (p._is_top_sink) {
@@ -153,7 +158,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
 }
 
 Status ResultFileSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     return Base::open(state);
 }
@@ -163,7 +168,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
         return Status::OK();
     }
     SCOPED_TIMER(_close_timer);
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
 
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     if (_closed) {
@@ -264,7 +269,7 @@ void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelP
 Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                      SourceState source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     return local_state.sink(state, in_block, source_state);
 }
