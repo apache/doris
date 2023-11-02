@@ -268,7 +268,7 @@ public class CastExpr extends Expr {
         } else if (type.isMapType()) {
             fn = ScalarFunction.createBuiltin(getFnName(Type.MAP),
                     type, Function.NullableMode.ALWAYS_NULLABLE,
-                    Lists.newArrayList(Type.VARCHAR), false,
+                    Lists.newArrayList(getActualArgTypes(collectChildReturnTypes())[0]), false,
                     "doris::CastFunctions::cast_to_map_val", null, null, true);
         } else if (type.isStructType()) {
             fn = ScalarFunction.createBuiltin(getFnName(Type.STRUCT),
