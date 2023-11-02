@@ -125,7 +125,9 @@ public interface LoadTaskInfo {
         return false;
     }
 
-    int getStreamPerNode();
+    default getStreamPerNode() {
+        return 20;
+    }
 
     class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();
