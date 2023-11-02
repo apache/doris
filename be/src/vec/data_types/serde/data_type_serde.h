@@ -158,6 +158,12 @@ public:
         }
     };
 
+    // For the NULL value in the complex type, we use the `null` of the lowercase
+    static const std::string NULL_IN_COMPLEX_TYPE;
+
+    // For the NULL value in the ordinary type in csv file format, we use `\N`
+    static const std::string NULL_IN_CSV_FOR_ORDINARY_TYPE;
+
 public:
     DataTypeSerDe(int nesting_level = 1) : _nesting_level(nesting_level) {};
     virtual ~DataTypeSerDe();
