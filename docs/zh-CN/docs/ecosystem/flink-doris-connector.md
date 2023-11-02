@@ -695,3 +695,7 @@ Flink在数据导入时，如果有脏数据，比如字段格式、长度等问
 14. **使用doris.filter.query出现org.apache.flink.table.api.SqlParserException: SQL parse failed. Encountered "xx" at line x, column xx**
 
 出现这个问题主要是条件varchar/string类型，需要加引号导致的，正确写法是 xxx = ''xxx'',这样Flink SQL 解析器会将两个连续的单引号解释为一个单引号字符,而不是字符串的结束，并将拼接后的字符串作为属性的值。
+
+15. **如果出现Failed to connect to backend: http://host:webserver_port, 并且Be还是活着的**
+
+可能是因为你配置的be的ip，外部的Flink集群无法访问。这主要是因为当连接fe时，会通过fe解析出be的地址。例如，当你添加的be 地址为`127.0.0.1`,那么flink通过fe获取的be地址就为`127.0.0.1:webserver_port`, 此时Flink就会去访问这个地址。当出现这个问题时，可以通过在with属性中增加实际对应的be外部ip地`'benodes'="be_ip:webserver_port,be_ip:webserver_port..."`,整库同步则可增加`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`。
