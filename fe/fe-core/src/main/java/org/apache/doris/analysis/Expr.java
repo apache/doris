@@ -2189,10 +2189,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
 
-    protected void recursiveResetChildrenResult(boolean inView) throws AnalysisException {
+    protected void recursiveResetChildrenResult(boolean forPushDownPredicatesToView) throws AnalysisException {
         for (int i = 0; i < children.size(); i++) {
             final Expr child = children.get(i);
-            final Expr newChild = child.getResultValue(inView);
+            final Expr newChild = child.getResultValue(forPushDownPredicatesToView);
             if (newChild != child) {
                 setChild(i, newChild);
             }
