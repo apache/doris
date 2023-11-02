@@ -363,7 +363,9 @@ private:
                     if constexpr (!with_other_conjuncts &&
                                   (JoinOpType == doris::TJoinOp::RIGHT_OUTER_JOIN ||
                                    JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN)) {
-                        visited[build_idx] = 1;
+                        if (!visited[build_idx]) {
+                            visited[build_idx] = 1;
+                        }
                     }
                     matched_cnt++;
                 }

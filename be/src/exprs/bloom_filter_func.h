@@ -93,24 +93,24 @@ public:
     void set_build_bf_exactly(bool build_bf_exactly) { _build_bf_exactly = build_bf_exactly; }
 
     Status init_with_fixed_length() {
-        if (_build_bf_exactly) {
-            return Status::OK();
-        }
+        //        if (_build_bf_exactly) {
+        //            return Status::OK();
+        //        }
         return init_with_fixed_length(_bloom_filter_length);
     }
 
     Status init_with_cardinality(const size_t build_bf_cardinality) {
-        if (_build_bf_exactly) {
-            // Use the same algorithm as org.apache.doris.planner.RuntimeFilter#calculateFilterSize
-            constexpr double fpp = 0.05;
-            constexpr double k = 8; // BUCKET_WORDS
-            // m is the number of bits we would need to get the fpp specified
-            double m = -k * build_bf_cardinality / std::log(1 - std::pow(fpp, 1.0 / k));
-
-            // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
-            int log_filter_size = std::max(0, (int)(std::ceil(std::log(m / 8) / std::log(2))));
-            return init_with_fixed_length(((int64_t)1) << log_filter_size);
-        }
+        //        if (_build_bf_exactly) {
+        //            // Use the same algorithm as org.apache.doris.planner.RuntimeFilter#calculateFilterSize
+        //            constexpr double fpp = 0.05;
+        //            constexpr double k = 8; // BUCKET_WORDS
+        //            // m is the number of bits we would need to get the fpp specified
+        //            double m = -k * build_bf_cardinality / std::log(1 - std::pow(fpp, 1.0 / k));
+        //
+        //            // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
+        //            int log_filter_size = std::max(0, (int)(std::ceil(std::log(m / 8) / std::log(2))));
+        //            return init_with_fixed_length(((int64_t)1) << log_filter_size);
+        //        }
         return Status::OK();
     }
 
@@ -269,7 +269,7 @@ struct CommonFindOp {
         bloom_filter.add_bytes((char*)data, sizeof(T));
     }
     bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        return bloom_filter.test(Slice((char*)data, sizeof(T)));
+        return bloom_filter.test_element(((T*)data)[0]);
     }
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         return find(bloom_filter, data);
