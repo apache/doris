@@ -279,6 +279,7 @@ public class LoadAction extends RestBaseController {
         String authToken = request.getHeader("token");
 
         if (Strings.isNullOrEmpty(authToken)) {
+            LOG.warn("Failed to check cluster token.");
             return false;
         }
 
@@ -357,6 +358,7 @@ public class LoadAction extends RestBaseController {
 
             return redirectView;
         } catch (Exception e) {
+            LOG.error("Failed to execute stream load with cluster token, {}", e);
             return new RestBaseResult(e.getMessage());
         }
     }
