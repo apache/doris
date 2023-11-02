@@ -106,6 +106,11 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
     _sender_id = info.sender_id;
 
     _brpc_wait_timer = ADD_TIMER(_profile, "BrpcSendTime.Wait");
+    _local_send_timer = ADD_TIMER(_profile, "LocalSendTime");
+    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
+    _split_block_distribute_by_channel_timer =
+            ADD_TIMER(_profile, "SplitBlockDistributeByChannelTime");
+    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     CHECK(p._file_opts.get() != nullptr);
     if (p._is_top_sink) {
