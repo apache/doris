@@ -125,7 +125,7 @@ public interface LoadTaskInfo {
         return false;
     }
 
-    default getStreamPerNode() {
+    default int getStreamPerNode() {
         return 20;
     }
 
