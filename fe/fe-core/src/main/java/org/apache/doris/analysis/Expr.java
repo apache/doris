@@ -295,7 +295,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Flag to indicate whether to wrap this expr's toSql() in parenthesis. Set by parser.
     // Needed for properly capturing expr precedences in the SQL string.
     protected boolean printSqlInParens = false;
-    protected final String exprName = Utils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME);
+    protected String exprName = null;
 
     protected Expr() {
         super();
@@ -340,6 +340,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Name of expr, this is used by generating column name automatically when there is no
     // alias or is not slotRef
     protected String getExprName() {
+        if (this.exprName == null) {
+            return Utils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME);
+        }
         return this.exprName;
     }
 
