@@ -401,6 +401,7 @@ void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* con
             return;
         }
 
+        load_stream->add_rpc_stream();
         VLOG_DEBUG << "get streamid =" << streamid;
         st.to_protobuf(response->mutable_status());
     });

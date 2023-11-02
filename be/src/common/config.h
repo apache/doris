@@ -799,6 +799,8 @@ DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
 // share delta writers when memtable_on_sink_node = true
 DECLARE_Bool(share_delta_writers);
+// number of brpc stream per load
+DECLARE_Int32(num_streams_per_load);
 // timeout for open load stream rpc in ms
 DECLARE_Int64(open_load_stream_timeout_ms);
 

@@ -114,10 +114,6 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
-    _stream_per_node = state->load_stream_per_node();
-    _total_streams = state->total_load_streams();
-    LOG(INFO) << "num senders: " << _num_senders << ", stream per node: " << _stream_per_node
-              << ", total_streams " << _total_streams;
     _is_high_priority =
             (state->execution_timeout() <= config::load_task_high_priority_threshold_second);
 
@@ -182,19 +178,19 @@ Status VOlapTableSinkV2::_open_streams(int64_t src_id) {
             return Status::InternalError("Unknown node {} in tablet location", dst_id);
         }
         std::shared_ptr<Streams> streams;
-        streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                _load_id, src_id, dst_id, _stream_per_node);
+        streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(_load_id, src_id,
+                                                                                 dst_id);
         // get tablet schema from each backend only in the 1st stream
         for (auto& stream : *streams | std::ranges::views::take(1)) {
             const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
             RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(),
                                          *node_info, _txn_id, *_schema, tablets_for_schema,
-                                         _total_streams, _state->enable_profile()));
+                                         _state->enable_profile()));
         }
         // for the rest streams, open without getting tablet schema
         for (auto& stream : *streams | std::ranges::views::drop(1)) {
             RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(),
-                                         *node_info, _txn_id, *_schema, {}, _total_streams,
+                                         *node_info, _txn_id, *_schema, {},
                                          _state->enable_profile()));
         }
         _streams_for_node[dst_id] = streams;
@@ -250,7 +246,7 @@ Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, Streams& streams) {
     for (auto& node_id : location->node_ids) {
         streams.emplace_back(_streams_for_node[node_id]->at(_stream_index));
     }
-    _stream_index = (_stream_index + 1) % _stream_per_node;
+    _stream_index = (_stream_index + 1) % config::num_streams_per_load;
     return Status::OK();
 }
 

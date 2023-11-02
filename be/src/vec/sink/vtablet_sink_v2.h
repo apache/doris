@@ -167,8 +167,6 @@ private:
     // To support multiple senders, we maintain a channel for each sender.
     int _sender_id = -1;
     int _num_senders = -1;
-    int _stream_per_node = 0; 
-    int _total_streams = 0;
     bool _is_high_priority = false;
     bool _write_file_cache = false;
 
