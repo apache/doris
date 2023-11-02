@@ -2262,6 +2262,14 @@ public class Config extends ConfigBase {
     public static String access_control_allowed_origin_domain = "*";
 
     @ConfField(description = {
+            "开启java_udf, 默认为true。如果该配置为false，则禁止创建和使用java_udf。在一些场景下关闭该配置可防止命令注入攻击。",
+            "Used to enable java_udf, default is true. if this configuration is false, creation and use of java_udf is "
+                    + "disabled. in some scenarios it may be necessary to disable this configuration to prevent "
+                    + "command injection attacks."
+    })
+    public static boolean enable_java_udf = true;
+
+    @ConfField(description = {
             "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
                     + "默认为 false，如果 Image 文件中包含未知的模块，Doris 将会抛出异常。"
                     + "该参数主要用于降级操作中，老版本可以兼容新版本的 Image 文件。",

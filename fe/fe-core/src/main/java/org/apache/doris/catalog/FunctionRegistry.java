@@ -146,6 +146,7 @@ public class FunctionRegistry {
                 List<FunctionBuilder> candidate = name2UdfBuilders.getOrDefault(scope, ImmutableMap.of())
                         .get(name.toLowerCase());
                 if (candidate != null && !candidate.isEmpty()) {
+                    FunctionUtil.checkEnableJavaUdfForNereids();
                     return candidate;
                 }
             }
