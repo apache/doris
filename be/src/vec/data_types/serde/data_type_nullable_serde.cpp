@@ -60,9 +60,10 @@ Status DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, 
          * for null values in nested types, we use null to represent them, just like the json format.
          */
         if (_nesting_level >= 2) {
-            bw.write(NULL_IN_CSV_FOR_NESTED_TYPE.c_str(), 4);
+            bw.write(NULL_IN_COMPLEX_TYPE.c_str(), strlen(NULL_IN_COMPLEX_TYPE.c_str()));
         } else {
-            bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(), 2);
+            bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
+                     strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
         }
     } else {
         RETURN_IF_ERROR(nested_serde->serialize_one_cell_to_json(col_null.get_nested_column(),
@@ -333,9 +334,6 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
             orc_col_batch, start, end, buffer_list));
     return Status::OK();
 }
-
-const std::string DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
-const std::string DataTypeNullableSerDe::NULL_IN_CSV_FOR_NESTED_TYPE = "null";
 
 } // namespace vectorized
 } // namespace doris

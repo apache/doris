@@ -417,7 +417,8 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
             }
         }
         if (nested_keys_column.is_null_at(j)) {
-            if (0 != result.push_string("null", strlen("null"))) {
+            if (0 != result.push_string(NULL_IN_COMPLEX_TYPE.c_str(),
+                                        strlen(NULL_IN_COMPLEX_TYPE.c_str()))) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
@@ -439,7 +440,8 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
             return Status::InternalError("pack mysql buffer failed.");
         }
         if (nested_values_column.is_null_at(j)) {
-            if (0 != result.push_string("null", strlen("null"))) {
+            if (0 != result.push_string(NULL_IN_COMPLEX_TYPE.c_str(),
+                                        strlen(NULL_IN_COMPLEX_TYPE.c_str()))) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {

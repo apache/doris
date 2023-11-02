@@ -89,10 +89,6 @@ public:
         nested_serde->set_return_object_as_string(value);
     }
 
-    static const std::string NULL_IN_CSV_FOR_ORDINARY_TYPE;
-
-    static const std::string NULL_IN_CSV_FOR_NESTED_TYPE;
-
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

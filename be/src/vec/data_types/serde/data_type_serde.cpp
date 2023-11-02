@@ -40,5 +40,8 @@ DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& s
     }
     return serdes;
 }
+
+const std::string DataTypeSerDe::NULL_IN_COMPLEX_TYPE = "null";
+const std::string DataTypeSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
 } // namespace vectorized
 } // namespace doris
