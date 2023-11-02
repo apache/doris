@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_schema_evolution", "p0") {
+suite("test_hive_schema_evolution", "p0,external,hive,external_docker,external_docker_hive") {
     def q_text = {
         qt_q01 """
         select * from schema_evo_test_text order by id;
@@ -53,6 +53,8 @@ suite("test_hive_schema_evolution", "p0") {
     }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
             String hms_port = context.config.otherConfigs.get("hms_port")
@@ -60,8 +62,9 @@ suite("test_hive_schema_evolution", "p0") {
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
-                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );"""
+            sql """switch ${catalog_name}"""
             sql """use `${catalog_name}`.`default`"""
 
             q_text()

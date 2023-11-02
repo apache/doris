@@ -405,9 +405,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     };
 
     if (!config::enable_feature_binlog) {
-        auto error_msg = "enable feature binlog is false";
-        LOG(WARNING) << error_msg;
-        set_tstatus(TStatusCode::RUNTIME_ERROR, error_msg);
+        set_tstatus(TStatusCode::RUNTIME_ERROR, "enable feature binlog is false");
         return;
     }
 

@@ -1145,6 +1145,9 @@ DECLARE_mBool(exit_on_exception);
 // Remove predicate that is always true for a segment.
 DECLARE_Bool(ignore_always_true_predicate_for_segment);
 
+// Dir of default timezone files
+DECLARE_String(default_tzfiles_path);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
