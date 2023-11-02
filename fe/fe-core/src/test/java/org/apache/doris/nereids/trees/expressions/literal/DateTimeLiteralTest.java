@@ -132,7 +132,6 @@ class DateTimeLiteralTest {
     }
 
     @Test
-    @Disabled("Test results can change over time")
     void testZoneOrOffsetRight() {
         java.util.function.BiConsumer<DateTimeV2Literal, Long> assertHour = (dateTimeV2Literal, expectHour) -> {
             Assertions.assertEquals(dateTimeV2Literal.hour, expectHour);
