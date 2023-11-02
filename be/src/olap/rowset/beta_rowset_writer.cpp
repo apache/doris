@@ -416,6 +416,13 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
     }
+    // Update the tablet schema in the rowset metadata if the tablet schema contains a variant.
+    // During the build process, _context.tablet_schema will be used as the rowset schema.
+    // This situation may arise in the event of a linked schema change. If this schema is not set,
+    // the subcolumns of the variant will be lost.
+    if (_context.tablet_schema->num_variant_columns() > 0 && rowset->tablet_schema() != nullptr) {
+        _context.tablet_schema = rowset->tablet_schema();
+    }
     return Status::OK();
 }
 

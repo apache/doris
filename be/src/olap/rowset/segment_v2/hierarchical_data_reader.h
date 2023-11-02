@@ -158,7 +158,7 @@ private:
             variant.insert_range_from(container_variant, 0, nrows);
         }
 
-        variant.set_num_rows(nrows);
+        // variant.set_num_rows(nrows);
         _rows_read += nrows;
         variant.finalize();
 #ifndef NDEBUG

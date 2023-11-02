@@ -115,7 +115,9 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     meta->set_default_value(column.default_value());
     meta->set_precision(column.precision());
     meta->set_frac(column.frac());
-    column.path_info().to_protobuf(meta->mutable_column_path_info(), column.parent_unique_id());
+    if (!column.path_info().empty()) {
+        column.path_info().to_protobuf(meta->mutable_column_path_info(), column.parent_unique_id());
+    }
     meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
@@ -176,7 +178,8 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         }
         // indexes for this column
         opts.indexes = _tablet_schema->get_indexes_for_column(column);
-        if (column.is_variant_type() || column.is_jsonb_type()) {
+        if (column.is_variant_type() || (column.is_extracted_column() && column.is_jsonb_type()) ||
+            (column.is_extracted_column() && column.is_array_type())) {
             // variant and jsonb type skip write index
             opts.indexes.clear();
         }

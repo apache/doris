@@ -378,7 +378,12 @@ TabletSchemaSPtr get_least_common_schema(const std::vector<TabletSchemaSPtr>& sc
 void parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
     for (int i = 0; i < variant_pos.size(); ++i) {
         auto& column = block.get_by_position(variant_pos[i]).column;
-        const auto& root = *assert_cast<const ColumnObject&>(*column.get()).get_root();
+        const auto& var = assert_cast<const ColumnObject&>(*column.get());
+        if (!var.is_scalar_variant()) {
+            // already parsed
+            continue;
+        }
+        const auto& root = *var.get_root();
         const auto& raw_json_column =
                 root.is_nullable()
                         ? static_cast<const ColumnString&>(

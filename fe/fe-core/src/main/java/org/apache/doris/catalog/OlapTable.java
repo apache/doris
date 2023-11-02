@@ -2331,4 +2331,13 @@ public class OlapTable extends Table {
             }
         }
     }
+
+    public boolean hasVariantColumns() {
+        for (Column column : getBaseSchema()) {
+            if (column.getType().isVariantType()) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

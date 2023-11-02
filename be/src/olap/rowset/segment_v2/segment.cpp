@@ -378,7 +378,13 @@ static Status new_default_iterator(const TabletColumn& tablet_column,
 Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
                                        std::unique_ptr<ColumnIterator>* iter,
                                        StorageReadOptions* opt) {
-    vectorized::PathInData root_path({tablet_column.path_info().get_parts()[0]});
+    vectorized::PathInData root_path;
+    if (tablet_column.path_info().empty()) {
+        // Missing path info, but need read the whole variant column
+        root_path = vectorized::PathInData(tablet_column.name_lower_case());
+    } else {
+        root_path = vectorized::PathInData({tablet_column.path_info().get_parts()[0]});
+    }
     auto root = _sub_column_tree.find_leaf(root_path);
     auto node = _sub_column_tree.find_exact(tablet_column.path_info());
     if (opt->io_ctx.reader_type == ReaderType::READER_ALTER_TABLE) {

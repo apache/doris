@@ -1462,23 +1462,18 @@ void align_variant_by_name_and_type(ColumnObject& dst, const ColumnObject& src, 
 
 void ColumnObject::append_data_by_selector(MutableColumnPtr& res,
                                            const IColumn::Selector& selector) const {
-    // append by selector with alignment
-    ColumnObject& dst_column = *assert_cast<ColumnObject*>(res.get());
-    align_variant_by_name_and_type(dst_column, *this, selector.size(),
-                                   [&selector](const IColumn& src, IColumn* dst) {
-                                       auto mutable_dst = dst->assume_mutable();
-                                       src.append_data_by_selector(mutable_dst, selector);
-                                   });
+    return append_data_by_selector_impl<ColumnObject>(res, selector);
 }
 
 void ColumnObject::insert_indices_from(const IColumn& src, const int* indices_begin,
                                        const int* indices_end) {
-    // insert_indices_from with alignment
-    const ColumnObject& src_column = *check_and_get_column<ColumnObject>(src);
-    align_variant_by_name_and_type(*this, src_column, indices_end - indices_begin,
-                                   [indices_begin, indices_end](const IColumn& src, IColumn* dst) {
-                                       dst->insert_indices_from(src, indices_begin, indices_end);
-                                   });
+    for (auto x = indices_begin; x != indices_end; ++x) {
+        if (*x == -1) {
+            ColumnObject::insert_default();
+        } else {
+            ColumnObject::insert_from(src, *x);
+        }
+    }
 }
 
 } // namespace doris::vectorized
