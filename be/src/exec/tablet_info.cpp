@@ -141,8 +141,6 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()),
                                          TabletColumn::get_field_type_by_string(data_type)),
                           slot_desc);
-        LOG(WARNING) << "=====1 " << slot_desc->col_name() << " "
-                     << (int)TabletColumn::get_field_type_by_string(data_type);
     }
 
     for (auto& p_index : pschema.indexes()) {
@@ -155,8 +153,6 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
                 auto it = slots_map.find(std::make_pair(
                         to_lower(pcolumn_desc.name()),
                         TabletColumn::get_field_type_by_string(pcolumn_desc.type())));
-                LOG(WARNING) << "=====2 " << pcolumn_desc.name() << " "
-                             << (int)TabletColumn::get_field_type_by_string(pcolumn_desc.type());
                 if (it == std::end(slots_map)) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  pcolumn_desc.name(), pcolumn_desc.type());
