@@ -63,11 +63,12 @@ public class CreateMTMVInfo {
         this.keys = Utils.copyRequiredList(keys);
         this.comment = comment;
         this.distribution = Objects.requireNonNull(distribution, "require distribution object");
-        this.properties = properties;
+        this.properties = Objects.requireNonNull(properties, "require properties object");
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "require logicalQuery object");
         this.querySql = Objects.requireNonNull(querySql, "require querySql object");
         this.refreshInfo = Objects.requireNonNull(refreshInfo, "require refreshInfo object");
-        this.simpleColumnDefinitions = simpleColumnDefinitions;
+        this.simpleColumnDefinitions = Objects
+                .requireNonNull(simpleColumnDefinitions, "require simpleColumnDefinitions object");
         this.envInfo = new EnvInfo(ConnectContext.get().getDefaultCatalog(), ConnectContext.get().getDatabase());
     }
 

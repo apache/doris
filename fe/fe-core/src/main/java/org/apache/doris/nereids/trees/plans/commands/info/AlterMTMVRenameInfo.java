@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Objects;
@@ -40,11 +40,15 @@ public class AlterMTMVRenameInfo extends AlterMTMVInfo {
 
     public void analyze(ConnectContext ctx) throws AnalysisException {
         super.analyze(ctx);
-        FeNameFormat.checkTableName(newName);
+        try {
+            FeNameFormat.checkTableName(newName);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
     }
 
     @Override
     public void run() throws DdlException {
-        throw new org.apache.doris.nereids.exceptions.AnalysisException("current not support.");
+        throw new AnalysisException("current not support.");
     }
 }

@@ -992,6 +992,7 @@ nonReserved
     | LOCATION
     | LOCK
     | LOGICAL
+    | MANUAL
     | MAP
     | MATERIALIZED
     | MAX
@@ -1067,6 +1068,7 @@ nonReserved
     | ROUTINE
     | S3
     | SAMPLE
+    | SCHEDULE
     | SCHEDULER
     | SCHEMA
     | SECOND
