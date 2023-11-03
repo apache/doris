@@ -52,7 +52,7 @@ testSuites = ""
 testDirectories = ""
 
 // this groups will not be executed
-excludeGroups = "http_stream"
+excludeGroups = "p0/http_stream"
 // this suites will not be executed
 
 excludeSuites = "test_sql_block_rule,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_jdbc_query_mysql"
