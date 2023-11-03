@@ -39,7 +39,7 @@ import java.util.Optional;
 public abstract class Command extends AbstractPlan implements LogicalPlan {
 
     protected Command(PlanType type) {
-        super(type, ImmutableList.of());
+        super(type, Optional.empty(), Optional.empty(), null, ImmutableList.of());
     }
 
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
