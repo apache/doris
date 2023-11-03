@@ -228,22 +228,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return null;
     }
 
-    public List<Long> getDbIds() {
-        List<Long> dbIds = Lists.newArrayList();
-        for (CatalogIf catalog : nameToCatalog.values()) {
-            dbIds.addAll(catalog.getDbIds());
-        }
-        return dbIds;
-    }
-
-    public List<String> getDbNames() {
-        List<String> dbNames = Lists.newArrayList();
-        for (CatalogIf catalog : nameToCatalog.values()) {
-            dbNames.addAll(catalog.getDbNames());
-        }
-        return dbNames;
-    }
-
     private void writeLock() {
         lock.writeLock().lock();
     }
