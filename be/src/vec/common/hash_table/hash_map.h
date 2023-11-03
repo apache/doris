@@ -282,7 +282,7 @@ public:
         while (count < batch_size && iter_idx < elem_num) {
             const auto matched = visited[iter_idx];
             build_idxs[count] = iter_idx;
-            if constexpr (JoinOpType == doris::TJoinOp::RIGHT_ANTI_JOIN) {
+            if constexpr (JoinOpType != doris::TJoinOp::RIGHT_SEMI_JOIN) {
                 count += !matched;
             } else {
                 count += matched;
