@@ -53,6 +53,7 @@
 #include "util/container_util.hpp"
 #include "util/defer_op.h"
 #include "util/pretty_printer.h"
+#include "util/stack_util.h"
 #include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "util/time.h"
