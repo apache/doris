@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "vec/common/string_ref.h"
 #ifdef __AVX2__
 #include <immintrin.h>
 
@@ -72,7 +73,7 @@ public:
     // non-equal values will have the same hash value) is 0.
     void insert(uint32_t hash) noexcept;
     // Same as above with convenience of hashing the key.
-    void insert(const Slice& key) noexcept {
+    void insert(const StringRef& key) noexcept {
         if (key.data) {
             insert(HashUtil::crc_hash(key.data, key.size, _hash_seed));
         }
@@ -116,7 +117,7 @@ public:
 #endif
     }
     // Same as above with convenience of hashing the key.
-    bool find(const Slice& key) const noexcept {
+    bool find(const StringRef& key) const noexcept {
         if (key.data) {
             return find(HashUtil::crc_hash(key.data, key.size, _hash_seed));
         }
