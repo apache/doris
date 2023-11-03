@@ -105,8 +105,8 @@ LoadStreamStub::~LoadStreamStub() {
 
 void LoadStreamStub::prepare(); {
     if (_is_init) {
-        LOG(WARNING) << "stream " << _stream_id << "is already inited";
-        return Status::InternalError("stream {} is already inited", _stream_id);
+        LOG(WARNING) << "stream " << _stream_id << "is already inited by " << _load_id;
+        return Status::InternalError("stream {} is already inited by {}", _stream_id, _load_id);
     }
     ++_use_cnt;
 }
