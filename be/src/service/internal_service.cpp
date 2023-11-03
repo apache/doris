@@ -86,7 +86,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/group_commit_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/result_buffer_mgr.h"
@@ -498,9 +497,9 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     }
 }
 
-Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_request,
-                                                      PFragmentRequestVersion version,
-                                                      bool compact) {
+Status PInternalServiceImpl::_exec_plan_fragment_impl(
+        const std::string& ser_request, PFragmentRequestVersion version, bool compact,
+        const std::function<void(RuntimeState*, Status*)>& cb) {
     // Sometimes the BE do not receive the first heartbeat message and it receives request from FE
     // If BE execute this fragment, it will core when it wants to get some property from master info.
     if (ExecEnv::GetInstance()->master_info() == nullptr) {
@@ -516,7 +515,11 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_req
             uint32_t len = ser_request.size();
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
-        return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
+        if (cb) {
+            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request, cb);
+        } else {
+            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
+        }
     } else if (version == PFragmentRequestVersion::VERSION_2) {
         TExecPlanFragmentParamsList t_request;
         {
@@ -526,7 +529,11 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_req
         }
 
         for (const TExecPlanFragmentParams& params : t_request.paramsList) {
-            RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+            if (cb) {
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params, cb));
+            } else {
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+            }
         }
         return Status::OK();
     } else if (version == PFragmentRequestVersion::VERSION_3) {
@@ -538,7 +545,11 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_req
         }
 
         for (const TPipelineFragmentParams& params : t_request.params_list) {
-            RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+            if (cb) {
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params, cb));
+            } else {
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+            }
         }
         return Status::OK();
     } else {
@@ -1785,53 +1796,65 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
                                                const PGroupCommitInsertRequest* request,
                                                PGroupCommitInsertResponse* response,
                                                google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    TUniqueId load_id;
+    load_id.__set_hi(request->load_id().hi());
+    load_id.__set_lo(request->load_id().lo());
+    bool ret = _light_work_pool.try_offer([this, request, response, done, load_id]() {
         brpc::ClosureGuard closure_guard(done);
-        auto table_id = request->table_id();
-        Status st = Status::OK();
-        TPlan plan;
-        {
-            auto& plan_node = request->plan_node();
-            const uint8_t* buf = (const uint8_t*)plan_node.data();
-            uint32_t len = plan_node.size();
-            st = deserialize_thrift_msg(buf, &len, false, &plan);
-            if (UNLIKELY(!st.ok())) {
-                LOG(WARNING) << "deserialize plan failed, msg=" << st;
-                response->mutable_status()->set_status_code(st.code());
-                response->mutable_status()->set_error_msgs(0, st.to_string());
-                return;
+        std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+        auto pipe = std::make_shared<io::StreamLoadPipe>(
+                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+                -1 /* total_length */, true /* use_proto */);
+        ctx->pipe = pipe;
+        Status st = _exec_env->new_load_stream_mgr()->put(load_id, ctx);
+        if (st.ok()) {
+            doris::Mutex mutex;
+            doris::ConditionVariable cv;
+            bool handled = false;
+            try {
+                st = _exec_plan_fragment_impl(
+                        request->exec_plan_fragment_request().request(),
+                        request->exec_plan_fragment_request().version(),
+                        request->exec_plan_fragment_request().compact(),
+                        [&](RuntimeState* state, Status* status) {
+                            response->set_label(state->import_label());
+                            response->set_txn_id(state->wal_id());
+                            response->set_loaded_rows(state->num_rows_load_success());
+                            response->set_filtered_rows(state->num_rows_load_filtered());
+                            st = *status;
+                            std::unique_lock l(mutex);
+                            handled = true;
+                            cv.notify_one();
+                        });
+            } catch (const Exception& e) {
+                st = e.to_status();
+            } catch (...) {
+                st = Status::Error(ErrorCode::INTERNAL_ERROR,
+                                   "_exec_plan_fragment_impl meet unknown error");
+            }
+            if (!st.ok()) {
+                LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
+            } else {
+                for (int i = 0; i < request->data().size(); ++i) {
+                    std::unique_ptr<PDataRow> row(new PDataRow());
+                    row->CopyFrom(request->data(i));
+                    st = pipe->append(std::move(row));
+                    if (!st.ok()) {
+                        break;
+                    }
+                }
+                if (st.ok()) {
+                    static_cast<void>(pipe->finish());
+                    std::unique_lock l(mutex);
+                    if (!handled) {
+                        cv.wait(l);
+                    }
+                }
             }
         }
-        TDescriptorTable tdesc_tbl;
-        {
-            auto& desc_tbl = request->desc_tbl();
-            const uint8_t* buf = (const uint8_t*)desc_tbl.data();
-            uint32_t len = desc_tbl.size();
-            st = deserialize_thrift_msg(buf, &len, false, &tdesc_tbl);
-            if (UNLIKELY(!st.ok())) {
-                LOG(WARNING) << "deserialize desc tbl failed, msg=" << st;
-                response->mutable_status()->set_status_code(st.code());
-                response->mutable_status()->set_error_msgs(0, st.to_string());
-                return;
-            }
-        }
-        TScanRangeParams tscan_range_params;
-        {
-            auto& bytes = request->scan_range_params();
-            const uint8_t* buf = (const uint8_t*)bytes.data();
-            uint32_t len = bytes.size();
-            st = deserialize_thrift_msg(buf, &len, false, &tscan_range_params);
-            if (UNLIKELY(!st.ok())) {
-                LOG(WARNING) << "deserialize scan range failed, msg=" << st;
-                response->mutable_status()->set_status_code(st.code());
-                response->mutable_status()->set_error_msgs(0, st.to_string());
-                return;
-            }
-        }
-        st = _exec_env->group_commit_mgr()->group_commit_insert(
-                table_id, plan, tdesc_tbl, tscan_range_params, request, response);
         st.to_protobuf(response->mutable_status());
     });
+    _exec_env->new_load_stream_mgr()->remove(load_id);
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
         return;
