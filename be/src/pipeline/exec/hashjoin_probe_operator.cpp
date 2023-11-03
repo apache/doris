@@ -537,20 +537,18 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
         DCHECK(_have_other_join_conjunct);
     }
 
-    std::vector<SlotId> hash_output_slot_ids;
     // init left/right output slots flags, only column of slot_id in _hash_output_slot_ids need
     // insert to output block of hash join.
     // _left_output_slots_flags : column of left table need to output set flag = true
     // _rgiht_output_slots_flags : column of right table need to output set flag = true
     // if _hash_output_slot_ids is empty, means all column of left/right table need to output.
-    auto init_output_slots_flags = [&hash_output_slot_ids](auto& tuple_descs,
-                                                           auto& output_slot_flags) {
+    auto init_output_slots_flags = [&](auto& tuple_descs, auto& output_slot_flags) {
         for (const auto& tuple_desc : tuple_descs) {
             for (const auto& slot_desc : tuple_desc->slots()) {
                 output_slot_flags.emplace_back(
-                        hash_output_slot_ids.empty() ||
-                        std::find(hash_output_slot_ids.begin(), hash_output_slot_ids.end(),
-                                  slot_desc->id()) != hash_output_slot_ids.end());
+                        _hash_output_slot_ids.empty() ||
+                        std::find(_hash_output_slot_ids.begin(), _hash_output_slot_ids.end(),
+                                  slot_desc->id()) != _hash_output_slot_ids.end());
             }
         }
     };

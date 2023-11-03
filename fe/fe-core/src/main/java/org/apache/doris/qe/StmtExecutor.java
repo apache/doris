@@ -274,7 +274,7 @@ public class StmtExecutor {
         this.profile = new Profile("Query", context.getSessionVariable().enableProfile());
     }
 
-    public static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
+    private static InternalService.PDataRow getRowStringValue(List<Expr> cols) throws UserException {
         if (cols.isEmpty()) {
             return null;
         }
@@ -991,6 +991,7 @@ public class StmtExecutor {
                 queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof InsertOverwriteTableStmt) {
                 InsertOverwriteTableStmt parsedStmt = (InsertOverwriteTableStmt) this.parsedStmt;
+                parsedStmt.analyze(analyzer);
                 queryStmt = parsedStmt.getQueryStmt();
                 queryStmt.getTables(analyzer, false, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
@@ -1829,6 +1830,17 @@ public class StmtExecutor {
                 }
                 Future<PGroupCommitInsertResponse> future = groupCommitPlanner
                         .prepareGroupCommitInsertRequest(context, rows);
+                TUniqueId loadId = nativeInsertStmt.getLoadId();
+                PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
+                        .setDbId(insertStmt.getTargetTable().getDatabase().getId())
+                        .setTableId(insertStmt.getTargetTable().getId())
+                        .setBaseSchemaVersion(nativeInsertStmt.getBaseSchemaVersion())
+                        .setExecPlanFragmentRequest(nativeInsertStmt.getExecPlanFragmentRequest())
+                        .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
+                                .build()).addAllData(rows)
+                        .build();
+                Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
+                        .groupCommitInsert(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
                 PGroupCommitInsertResponse response = future.get();
                 TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
                 if (code == TStatusCode.DATA_QUALITY_ERROR) {
@@ -1849,10 +1861,10 @@ public class StmtExecutor {
                         continue;
                     } else {
                         errMsg = "group commit insert failed. backend id: "
-                                + groupCommitPlanner.getBackend() + ", status: " + response.getStatus();
+                                + groupCommitPlanner.getBackend()。getId() + ", status: " + response.getStatus();
                     }
                 } else if (code != TStatusCode.OK) {
-                    errMsg = "group commit insert failed. backend id: " + groupCommitPlanner.getBackend() + ", status: "
+                    errMsg = "group commit insert failed. backend id: " + groupCommitPlanner.getBackend()。getId() + ", status: "
                             + response.getStatus();
                     ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
                 }
@@ -2367,13 +2379,18 @@ public class StmtExecutor {
     }
 
     private void handleIotStmt() {
-        InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
-        if (iotStmt.getPartitionNames().size() == 0) {
-            // insert overwrite table
-            handleOverwriteTable(iotStmt);
-        } else {
-            // insert overwrite table with partition
-            handleOverwritePartition(iotStmt);
+        ConnectContext.get().setSkipAuth(true);
+        try {
+            InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
+            if (iotStmt.getPartitionNames().size() == 0) {
+                // insert overwrite table
+                handleOverwriteTable(iotStmt);
+            } else {
+                // insert overwrite table with partition
+                handleOverwritePartition(iotStmt);
+            }
+        } finally {
+            ConnectContext.get().setSkipAuth(false);
         }
     }
 
