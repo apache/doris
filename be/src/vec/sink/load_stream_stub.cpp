@@ -160,6 +160,9 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
 Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                                    int64_t segment_id, std::span<const Slice> data,
                                    bool segment_eos) {
+    if (_use_cnt <= 0) {
+        return Status::InternalError("stream {} already closed", _stream_id);
+    }
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
@@ -201,6 +204,7 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
     *header.mutable_load_id() = _load_id;
     header.set_src_id(_src_id);
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
+    LOG(INFO) << "issue close load stream " << _stream_id;
     {
         std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
         for (const auto& tablet : _tablets_to_commit) {
