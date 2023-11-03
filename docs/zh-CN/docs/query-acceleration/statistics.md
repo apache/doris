@@ -51,7 +51,6 @@ Doris支持用户通过提交ANALYZE语句来触发统计信息的收集和更�
 
 ```SQL
 ANALYZE < TABLE | DATABASE table_name | db_name > 
-    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT ] ]
     [ (column_name [, ...]) ]
     [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH SQL ] ]
     [ PROPERTIES ("key" = "value", ...) ];
@@ -60,7 +59,6 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 其中：
 
 - table_name: 指定的的目标表。可以是  `db_name.table_name`  形式。
-- partition_name: 指定的目标分区（目前只针对Hive外表）。必须是  `table_name`  中存在的分区，多个列名称用逗号分隔。分区名样例: 单层分区PARTITIONS(`event_date=20230706`)，多层分区PARTITIONS(`nation=CN/city=Beijing`)。PARTITIONS (*)指定所有分区，PARTITIONS WITH RECENT 100指定最新的100个分区。
 - column_name: 指定的目标列。必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 - sync：同步收集统计信息。收集完后返回。若不指定则异步执行并返回任务 ID。
 - sample percent | rows：抽样收集统计信息。可以指定抽样比例或者抽样行数。
@@ -69,13 +67,15 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 
 ### 自动收集
 
-用户可以通过设置FE配置项`enable_full_auto_analyze = true`来启用本功能。开启后，将在指定的时间段内自动收集满足条件的库表上的统计信息。用户可以通过设置参数`full_auto_analyze_start_time`（默认为00:00:00）和参数`full_auto_analyze_end_time`（默认为02:00:00）来指定自动收集的时间段。
+在指定的时间段内自动收集满足条件的库表上的统计信息。用户可以通过设置参数`full_auto_analyze_start_time`（默认为00:00:00）和参数`full_auto_analyze_end_time`（默认为23:59:59）来指定自动收集的时间段。
 
 此功能仅对没有统计信息或者统计信息过时的库表进行收集。当一个表的数据更新了20%（该值可通过参数`table_stats_health_threshold`（默认为80）配置）以上时，Doris会认为该表的统计信息已经过时。
 
-对于数据量较大（默认为5GiB）的表，Doris会自动采取采样的方式去收集，以尽可能降低对系统造成的负担并尽快完成收集作业，用户可通过设置FE参数`huge_table_lower_bound_size_in_bytes`来调节此行为。如果希望对所有的表都采取全量收集，可配置FE参数`enable_auto_sample`为false。同时对于数据量大于`huge_table_lower_bound_size_in_bytes`的表，Doris保证其收集时间间隔不小于12小时（该时间可通过FE参数`huge_table_auto_analyze_interval_in_millis`控制）。
+对于数据量较大（默认为5GiB）的表，Doris会自动采取采样的方式去收集，以尽可能降低对系统造成的负担并尽快完成收集作业，用户可通过设置FE参数`huge_table_lower_bound_size_in_bytes`来调节此行为。同时对于数据量大于`huge_table_lower_bound_size_in_bytes` * 5 的表，Doris保证其收集时间间隔不小于12小时（该时间可通过FE参数`huge_table_auto_analyze_interval_in_millis`控制）。
 
 自动采样默认采样4194304(2^22)行，但由于实现方式的原因实际采样数可能大于该值。如果希望采样更多的行以获得更准确的数据分布信息，可通过FE参数`huge_table_default_sample_rows`配置。
+
+用户可以通过设置FE全局会话变量`SET GLOBAL enable_full_auto_analyze = false`来关闭本功能。
 
 ### 任务管理
 
@@ -169,12 +169,12 @@ SHOW TABLE STATS table_name;
 
 | 列名                | 说明                   |
 | :------------------ | :--------------------- |
-| `row_count`         | 行数（不反映命令执行时的准确行数）                  |
-| `method`       | 收集方式（全量/采样）            |
-| `type`         | 统计数据的类型    |
-| `updated_time`           | 上次更新时间                 |
-| `columns`       | 收集过统计信息的列               |
-| `trigger` | 统计信息收集触发方式（系统自动触发/用户触发） |
+|`updated_rows`|自上次ANALYZE以来该表的更新行数|
+|`query_times`|保留列，后续版本用以记录该表查询次数|
+|`row_count`| 行数（不反映命令执行时的准确行数）|
+|`updated_time`| 上次更新时间|
+|`columns`| 收集过统计信息的列|
+
 
 
 #### 查看列统计信息
@@ -231,7 +231,7 @@ DROP ANALYZE JOB [JOB_ID]
 此命令用于打开自动收集功能后，查看自动收集任务的完成状态。
 
 ```sql
-SHOW AUTO ANALYZE [ptable_name]
+SHOW AUTO ANALYZE [table_name]
     [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
 ```
 
@@ -242,24 +242,29 @@ SHOW AUTO ANALYZE [ptable_name]
 |fe conf option                                                    | comment                                                                                                                                                                                                                                                                                             | default value                  |
 |---------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------|
 | statistics_sql_parallel_exec_instance_num               | 控制每个统计信息收集SQL在BE侧的并发实例数/pipeline task num                                                                                                                                                                                                                                                           | 1                              |
-| statistics_sql_mem_limit_in_bytes                       | 控制每个统计信息SQL可占用的BE内存                                                                                                                                                                                                                                                                                 | 2L * 1024 * 1024 * 1024 (2GiB) |
-| statistics_simultaneously_running_task_num              | 通过`ANALYZE TABLE[DATABASE]`提交异步作业后，可同时analyze的列的数量，所有异步任务共同受到该参数约束                                                                                                                                                                                                                                  | 5                              |
-| analyze_task_timeout_in_minutes                         | AnalyzeTask执行超时时间                                                                                                                                                                                                                                                                                   | 12 hours                       |
+| statistics_sql_mem_limit_in_bytes                       | 控制每个统计信息SQL可占用的BE内存                                                                                                                                                                                                                                                        | 2L * 1024 * 1024 * 1024 (2GiB) |
+| statistics_simultaneously_running_task_num              | 通过`ANALYZE TABLE[DATABASE]`提交异步作业后，可同时analyze的列的数量，所有异步任务共同受到该参数约束|5|
+| analyze_task_timeout_in_minutes                         | AnalyzeTask执行超时时间                                                                                                                                                                                                                                                                                   | 1hours                       |
 |stats_cache_size| 统计信息缓存的实际内存占用大小高度依赖于数据的特性，因为在不同的数据集和场景中，最大/最小值的平均大小和直方图的桶数量会有很大的差异。此外，JVM版本等因素也会对其产生影响。下面给出统计信息缓存在包含100000个项目时所占用的内存大小。每个项目的最大/最小值的平均长度为32，列名的平均长度为16，统计信息缓存总共占用了61.2777404785MiB的内存。强烈不建议分析具有非常大字符串值的列，因为这可能导致FE内存溢出。 | 100000                        |
-|enable_auto_sample|是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集| false|
-|auto_analyze_job_record_count|控制统计信息的自动触发作业执行记录的持久化行数|20000|
+|analyze_record_limit|控制统计信息作业执行记录的持久化行数|20000|
 |huge_table_default_sample_rows|定义开启开启大表自动sample后，对大表的采样行数|4194304|
-|huge_table_lower_bound_size_in_bytes|定义大表的大小下界，在开启enable_auto_sample的情况下，大小超过该值的表将会自动通过采样收集统计信息|5368 709120|
-|huge_table_auto_analyze_interval_in_millis|控制对大表的自动ANALYZE的最小时间间隔，在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes的表仅ANALYZE一次|43200000|
+|huge_table_lower_bound_size_in_bytes|大小超过该值的的表，在自动收集时将会自动通过采样收集统计信息|5368709120|
+|huge_table_auto_analyze_interval_in_millis|控制对大表的自动ANALYZE的最小时间间隔，在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes * 5的表仅ANALYZE一次|43200000|
 |table_stats_health_threshold|取值在0-100之间，当自上次统计信息收集操作之后，数据更新量达到 (100 - table_stats_health_threshold)% ，认为该表的统计信息已过时|80|
 
 |会话变量|说明|默认值|
 |---|---|---|
 |full_auto_analyze_start_time|自动统计信息收集开始时间|00:00:00|
-|full_auto_analyze_end_time|自动统计信息收集结束时间|02:00:00|
+|full_auto_analyze_end_time|自动统计信息收集结束时间|23:59:59|
 |enable_full_auto_analyze|开启自动收集功能|true|
+|insert_merge_item_count|控制INSERT攒批数量|
 
 注意：上面列出的会话变量必须通过`SET GLOBAL`全局设置。
+
+
+|会话变量|说明|默认值|
+|---|---|---|
+|analyze_timeout|控制同步ANALYZE超时时间，单位为秒|43200|
 
 ## 使用建议
 

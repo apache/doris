@@ -52,7 +52,6 @@ Syntax:
 
 ```SQL
 ANALYZE < TABLE | DATABASE table_name | db_name >
-    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT ] ]
     [ (column_name [, ...]) ]
     [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH SQL ] ]
     [ PROPERTIES ("key" = "value", ...) ];
@@ -61,7 +60,6 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 Where:
 
 - `table_name`: Specifies the target table. It can be in the `db_name.table_name` format.
-- `partition_name`: The specified target partitions（for hive external table only）。Must be partitions exist in `table_name`. Multiple partition names are separated by commas. e.g. for single level partition: PARTITIONS(`event_date=20230706`), for multi level partition: PARTITIONS(`nation=US/city=Washington`). PARTITIONS(*) specifies all partitions, PARTITIONS WITH RECENT 30 specifies the latest 30 partitions.
 - `column_name`: Specifies the target column. It must be an existing column in `table_name`, and multiple column names are separated by commas.
 - `sync`: Collect statistics synchronously. Returns upon completion. If not specified, it executes asynchronously and returns a task ID.
 - `sample percent | rows`: Collect statistics using sampling. You can specify either the sampling percentage or the number of sampled rows.
@@ -69,13 +67,15 @@ Where:
 
 ### Automatic Statistics Collection
 
-Users can enable this feature by setting the FE configuration option `enable_full_auto_analyze = true`. Once enabled, statistics on qualifying tables and columns will be automatically collected during specified time intervals. Users can specify the automatic collection time period by setting the `full_auto_analyze_start_time` (default is 00:00:00) and `full_auto_analyze_end_time` (default is 02:00:00) parameters.
+Automatically collecting statistics on eligible databases and tables within specified time frames. Users can specify the automatic collection period by setting the parameters `full_auto_analyze_start_time` (default is 00:00:00) and `full_auto_analyze_end_time` (default is 23:59:59).
 
-This feature collects statistics only for tables and columns that either have no statistics or have outdated statistics. When more than 20% of the data in a table is updated (this value can be configured using the `table_stats_health_threshold` parameter with a default of 80), Doris considers the statistics for that table to be outdated.
+This feature is applicable only to databases and tables that either lack statistics or have outdated statistics. When more than 20% of a table's data has been updated (this threshold can be configured using the `table_stats_health_threshold` parameter, default is 80), Doris considers the statistics for that table as outdated.
 
-For tables with a large amount of data (default is 5GiB), Doris will automatically use sampling to collect statistics, reducing the impact on the system and completing the collection job as quickly as possible. Users can adjust this behavior by setting the `huge_table_lower_bound_size_in_bytes` FE parameter. If you want to collect statistics for all tables in full, you can set the `enable_auto_sample` FE parameter to false. For tables with data size greater than `huge_table_lower_bound_size_in_bytes`, Doris ensures that the collection interval is not less than 12 hours (this time can be controlled using the `huge_table_auto_analyze_interval_in_millis` FE parameter).
+For tables with relatively large data sizes (default is 5 GiB), Doris automatically collects statistics through sampling to minimize the system's workload and complete the collection job as quickly as possible. Users can adjust this behavior by setting the FE parameter `huge_table_lower_bound_size_in_bytes`. Additionally, for tables with data sizes greater than `huge_table_lower_bound_size_in_bytes` * 5, Doris ensures that the collection interval is no less than 12 hours (this interval can be controlled using the FE parameter `huge_table_auto_analyze_interval_in_millis`).
 
-The default sample size for automatic sampling is 4194304(2^22) rows, but the actual sample size may be larger due to implementation reasons. If you want to sample more rows to obtain more accurate data distribution information, you can configure the `huge_table_default_sample_rows` FE parameter.
+The default number of rows sampled in automatic sampling is 4,194,304 (2^22), but due to implementation reasons, the actual number of samples may be greater than this value. If you wish to sample more rows for more accurate data distribution information, you can configure this using the FE parameter `huge_table_default_sample_rows`.
+
+Users have the option to disable this feature by setting the FE global session variable to `SET GLOBAL enable_full_auto_analyze = false`.
 
 ### Task Management
 
@@ -160,15 +160,13 @@ SHOW TABLE STATS table_name;
 
 Output:
 
-| Column Name      | Description                            |
-| :--------------- | :------------------------------------- |
-| `row_count`      | Number of rows (may not be the exact count at the time of execution) |
-| `method`         | Collection method (FULL/SAMPLE)        |
-| `type`           | Type of statistics data                 |
-| `updated_time`   | Last update time                       |
-| `columns`        | Columns for which statistics were collected |
-| `trigger`        | Trigger method for statistics collection (Auto/User) |
-
+| Column Name        | Description                                 |
+| :------------------ | :------------------------------------------ |
+| `updated_rows`     | The number of rows updated in this table since the last ANALYZE. |
+| `query_times`      | A reserved column for recording the number of queries on this table in future versions. |
+| `row_count`        | The number of rows (not reflecting the exact number of rows at the time of command execution). |
+| `updated_time`     | The timestamp of the last update. |
+| `columns`          | The columns for which statistics have been collected. |
 
 #### Viewing Column Statistics Information
 
@@ -238,16 +236,21 @@ Automatic collection tasks do not support viewing the completion status and fail
 |auto_analyze_job_record_count|Controls the persistence of records for automatically triggered statistics collection jobs.|20000|
 |huge_table_default_sample_rows|Defines the number of sample rows for large tables when automatic sampling is enabled.|4194304|
 |huge_table_lower_bound_size_in_bytes|Defines the lower size threshold for large tables. When `enable_auto_sample` is enabled, statistics will be automatically collected through sampling for tables larger than this value.|5368 709120|
-|huge_table_auto_analyze_interval_in_millis|Controls the minimum time interval for automatic ANALYZE on large tables. Within this interval, tables larger than `huge_table_lower_bound_size_in_bytes` will only be analyzed once.|43200000|
+|huge_table_auto_analyze_interval_in_millis|Controls the minimum time interval for automatic ANALYZE on large tables. Within this interval, tables larger than `huge_table_lower_bound_size_in_bytes` * 5 will only be analyzed once.|43200000|
 |table_stats_health_threshold|Takes a value between 0-100. When the data update volume reaches (100 - table_stats_health_threshold)% since the last statistics collection operation, the statistics for the table are considered outdated.|80|
 
 |Session Variable|Description|Default Value|
 |---|---|---|
 |full_auto_analyze_start_time|Start time for automatic statistics collection|00:00:00|
-|full_auto_analyze_end_time|End time for automatic statistics collection|02:00:00|
+|full_auto_analyze_end_time|End time for automatic statistics collection|23:59:59|
 |enable_full_auto_analyze|Enable automatic collection functionality|true|
+| `insert_merge_item_count` | Controls the batch size for INSERT merging. |
 
 ATTENTION: The session variables listed above must be set globally using SET GLOBAL.
+
+| Session Variable   | Description                              | Default Value |
+| ---                | ---                                      | ---           |
+| `analyze_timeout`  | Controls the timeout for synchronous ANALYZE in seconds. | 43200         |
 
 ## Usage Recommendations
 
