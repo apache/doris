@@ -21,6 +21,7 @@ dependency-reduced-pom.xml
 yarn.lock
 ut_dir
 package-lock.json
+__pycache__
 
 # ignore all sub `/bin` and `/build` directory
 **/build/

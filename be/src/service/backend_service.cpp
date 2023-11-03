@@ -106,7 +106,7 @@ Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer*
 
 void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
                                         const TExecPlanFragmentParams& params) {
-    LOG(INFO) << "exec_plan_fragment() instance_id=" << params.params.fragment_instance_id
+    LOG(INFO) << "exec_plan_fragment() instance_id=" << print_id(params.params.fragment_instance_id)
               << " coord=" << params.coord << " backend#=" << params.backend_num;
     start_plan_fragment_execution(params).set_t_status(&return_val);
 }
@@ -120,7 +120,7 @@ Status BackendService::start_plan_fragment_execution(const TExecPlanFragmentPara
 
 void BackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
                                           const TCancelPlanFragmentParams& params) {
-    LOG(INFO) << "cancel_plan_fragment(): instance_id=" << params.fragment_instance_id;
+    LOG(INFO) << "cancel_plan_fragment(): instance_id=" << print_id(params.fragment_instance_id);
     _exec_env->fragment_mgr()->cancel(params.fragment_instance_id);
 }
 
