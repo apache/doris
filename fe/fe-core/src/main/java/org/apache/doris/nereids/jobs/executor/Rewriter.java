@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
+import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
@@ -122,6 +123,13 @@ import java.util.stream.Collectors;
 public class Rewriter extends AbstractBatchJobExecutor {
 
     private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS = jobs(
+            topic("LEADING JOIN",
+                    bottomUp(
+                            new CollectSubQueryAlias(),
+                            new CollectJoinConstraint()
+                    ),
+                    custom(RuleType.LEADING_JOIN, LeadingJoin::new)
+            ),
             topic("Plan Normalization",
                     topDown(
                             new EliminateOrderByConstant(),
@@ -233,15 +241,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // TODO: wait InferPredicates to infer more not null.
                     bottomUp(new EliminateNotNull()),
                     topDown(new ConvertInnerOrCrossJoin())
-            ),
-            topic("LEADING JOIN",
-                bottomUp(
-                    new CollectJoinConstraint()
-                ),
-                custom(RuleType.LEADING_JOIN, LeadingJoin::new),
-                bottomUp(
-                    new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE)
-                )
             ),
             topic("Column pruning and infer predicate",
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
