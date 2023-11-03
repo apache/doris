@@ -417,6 +417,51 @@ WITH (
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
 
+## Example of using FlinkSQL to access and implement partial column updates through CDC
+
+```sql
+-- enable checkpoint
+SET 'execution.checkpointing.interval' = '10s';
+
+CREATE TABLE cdc_mysql_source (
+   id int
+  ,name STRING
+  ,bank STRING
+  ,age int
+  ,PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+ 'connector' = 'mysql-cdc',
+ 'hostname' = '127.0.0.1',
+ 'port' = '3306',
+ 'username' = 'root',
+ 'password' = 'password',
+ 'database-name' = 'database',
+ 'table-name' = 'table'
+);
+
+CREATE TABLE doris_sink (
+    id INT,
+    name STRING,
+    bank STRING,
+    age int
+) 
+WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'database.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.properties.format' = 'json',
+  'sink.properties.read_json_by_line' = 'true',
+  'sink.properties.columns' = 'id,name,bank,age',
+  'sink.properties.partial.columns' = 'true' --Enable partial column updates
+);
+
+
+insert into doris_sink select id,name,bank,age from cdc_mysql_source;
+
+```
+
 ## Use FlinkCDC to access multi-table or whole database example
 
 ### grammar
