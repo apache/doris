@@ -181,6 +181,7 @@ def add_auditload_plugin():
               \`time\` datetime not null comment 'Query start time', \
               client_ip varchar(32) comment 'Client IP', \
               user varchar(64) comment 'User name', \
+              catalog varchar(128) comment 'Catalog of this query', \
               db varchar(96) comment 'Database of this query', \
               state varchar(8) comment 'Query result state. EOF, ERR, OK', \
               query_time bigint comment 'Query execution time in millisecond', \
@@ -194,7 +195,7 @@ def add_auditload_plugin():
               sql_hash varchar(48) comment 'Hash value for this query', \
               sql_digest varchar(48) comment 'Sql digest for this query', \
               peak_memory_bytes bigint comment 'Peak memory bytes used on all backends of this query', \
-              stmt string comment 'The original statement, trimed if longer than 2G ' \
+              stmt string comment 'The original statement, trimed if longer than 2G, ' \
           ) engine=OLAP \
           duplicate key(query_id, \`time\`, client_ip) \
           partition by range(\`time\`) () \
