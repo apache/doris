@@ -38,6 +38,11 @@ public class AlterMTMVRenameInfo extends AlterMTMVInfo {
         this.newName = Objects.requireNonNull(newName, "require newName object");
     }
 
+    /**
+     * analyze
+     * @param ctx ctx
+     * @throws AnalysisException AnalysisException
+     */
     public void analyze(ConnectContext ctx) throws AnalysisException {
         super.analyze(ctx);
         try {

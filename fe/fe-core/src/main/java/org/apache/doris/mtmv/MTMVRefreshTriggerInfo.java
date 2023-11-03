@@ -17,8 +17,8 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.gson.annotations.SerializedName;
 
