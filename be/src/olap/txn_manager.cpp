@@ -163,6 +163,29 @@ Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr&
                        tablet->tablet_id(), tablet->tablet_uid(), version, stats);
 }
 
+void TxnManager::abort_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                           TTabletId tablet_id, TabletUid tablet_uid) {
+    pair<int64_t, int64_t> key(partition_id, transaction_id);
+    TabletInfo tablet_info(tablet_id, tablet_uid);
+
+    std::shared_lock txn_rdlock(_get_txn_map_lock(transaction_id));
+
+    auto& txn_tablet_map = _get_txn_tablet_map(transaction_id);
+    auto it = txn_tablet_map.find(key);
+    if (it == txn_tablet_map.end()) {
+        return;
+    }
+
+    auto& tablet_txn_info_map = it->second;
+    if (auto tablet_txn_info_iter = tablet_txn_info_map.find(tablet_info);
+        tablet_txn_info_iter == tablet_txn_info_map.end()) {
+        return;
+    } else {
+        auto& txn_info = tablet_txn_info_iter->second;
+        txn_info.abort();
+    }
+}
+
 // delete the txn from manager if it is not committed(not have a valid rowset)
 Status TxnManager::rollback_txn(TPartitionId partition_id, const Tablet& tablet,
                                 TTransactionId transaction_id) {

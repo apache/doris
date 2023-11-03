@@ -56,7 +56,8 @@ enum class TxnState {
     PREPARED = 1,
     COMMITTED = 2,
     ROLLEDBACK = 3,
-    DELETED = 4,
+    ABORTED = 4,
+    DELETED = 5,
 };
 
 struct TabletTxnInfo {
@@ -91,6 +92,11 @@ struct TabletTxnInfo {
     void prepare() { state = TxnState::PREPARED; }
     void commit() { state = TxnState::COMMITTED; }
     void rollback() { state = TxnState::ROLLEDBACK; }
+    void abort() {
+        if (state == TxnState::PREPARED) {
+            state = TxnState::ABORTED;
+        }
+    }
 };
 
 struct CommitTabletTxnInfo {
@@ -157,6 +163,10 @@ public:
     Status publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                        TTabletId tablet_id, TabletUid tablet_uid, const Version& version,
                        TabletPublishStatistics* stats);
+
+    // only abort not committed txn
+    void abort_txn(TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
+                   TabletUid tablet_uid);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     Status rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,

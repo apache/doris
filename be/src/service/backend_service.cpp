@@ -97,12 +97,18 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     auto partition_id = arg->partition_id;
     auto local_tablet_id = arg->local_tablet_id;
     const auto& local_tablet = arg->local_tablet;
+    const auto& local_tablet_uid = local_tablet->tablet_uid();
 
     auto& request = arg->request;
 
     TStatus tstatus;
-    Defer defer {[&tstatus, ingest_binlog_tstatus = arg->tstatus]() {
+    Defer defer {[=, &tstatus, ingest_binlog_tstatus = arg->tstatus]() {
         LOG(INFO) << "ingest binlog. result: " << apache::thrift::ThriftDebugString(tstatus);
+        if (tstatus.status_code != TStatusCode::OK) {
+            // abort txn
+            StorageEngine::instance()->txn_manager()->abort_txn(partition_id, txn_id,
+                                                                local_tablet_id, local_tablet_uid);
+        }
 
         if (ingest_binlog_tstatus) {
             *ingest_binlog_tstatus = std::move(tstatus);
@@ -802,8 +808,6 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         }
     } else {
         ingest_binlog_func();
-        LOG(INFO) << "sync mode ingest binlog. result: "
-                  << apache::thrift::ThriftDebugString(result);
     }
 }
 
@@ -870,6 +874,9 @@ void BackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
         result.__set_status(TIngestBinlogStatus::OK);
         break;
     case TxnState::ROLLEDBACK:
+        result.__set_status(TIngestBinlogStatus::FAILED);
+        break;
+    case TxnState::ABORTED:
         result.__set_status(TIngestBinlogStatus::FAILED);
         break;
     case TxnState::DELETED:
