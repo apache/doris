@@ -2692,16 +2692,20 @@ public class Env {
                 throw new DdlException("frontend name already exists " + nodeName + ". Try again");
             }
 
-            fe = new Frontend(role, nodeName, host, editLogPort);
-            LOG.info("add frontend: {}", fe);
-
-            frontends.put(nodeName, fe);
             BDBHA bdbha = (BDBHA) haProtocol;
+            bdbha.removeConflictNodeIfExist(host, editLogPort);
+            int targetFollowerCount = getFollowerCount() + 1;
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
                 helperNodes.add(new HostInfo(host, editLogPort));
-                bdbha.addUnReadyElectableNode(nodeName, getFollowerCount());
+                bdbha.addUnReadyElectableNode(nodeName, targetFollowerCount);
             }
-            bdbha.removeConflictNodeIfExist(host, editLogPort);
+
+            // Only add frontend after removing the conflict nodes, to ensure the exception safety.
+            fe = new Frontend(role, nodeName, host, editLogPort);
+            frontends.put(nodeName, fe);
+
+            LOG.info("add frontend: {}", fe);
+
             editLog.logAddFrontend(fe);
         } finally {
             unlock();
@@ -2762,17 +2766,21 @@ public class Env {
                         .getHostPortInAccessibleFormat(host, port) + "]");
             }
 
-            LOG.info("remove frontend: {}", fe);
-
-            frontends.remove(fe.getNodeName());
-            removedFrontends.add(fe.getNodeName());
-
+            int targetFollowerCount = getFollowerCount() - 1;
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                 haProtocol.removeElectableNode(fe.getNodeName());
                 removeHelperNode(host, port);
                 BDBHA ha = (BDBHA) haProtocol;
-                ha.removeUnReadyElectableNode(fe.getNodeName(), getFollowerCount());
+                ha.removeUnReadyElectableNode(fe.getNodeName(), targetFollowerCount);
             }
+
+            LOG.info("remove frontend: {}", fe);
+
+            // Only remove frontend after removing the electable node success, to ensure the
+            // exception safety.
+            frontends.remove(fe.getNodeName());
+            removedFrontends.add(fe.getNodeName());
+
             editLog.logRemoveFrontend(fe);
         } finally {
             unlock();

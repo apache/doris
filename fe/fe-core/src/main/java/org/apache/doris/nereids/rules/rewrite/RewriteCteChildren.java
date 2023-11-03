@@ -77,14 +77,14 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
     public Plan visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
             CascadesContext cascadesContext) {
         LogicalPlan outer;
-        if (cascadesContext.getStatementContext().getRewrittenCtePlan().containsKey(null)) {
-            outer = cascadesContext.getStatementContext().getRewrittenCtePlan().get(null);
+        if (cascadesContext.getStatementContext().getRewrittenCteConsumer().containsKey(cteAnchor.getCteId())) {
+            outer = cascadesContext.getStatementContext().getRewrittenCteProducer().get(cteAnchor.getCteId());
         } else {
             CascadesContext outerCascadesCtx = CascadesContext.newSubtreeContext(
                     Optional.empty(), cascadesContext, cteAnchor.child(1),
                     cascadesContext.getCurrentJobContext().getRequiredProperties());
             outer = (LogicalPlan) cteAnchor.child(1).accept(this, outerCascadesCtx);
-            cascadesContext.getStatementContext().getRewrittenCtePlan().put(null, outer);
+            cascadesContext.getStatementContext().getRewrittenCteConsumer().put(cteAnchor.getCteId(), outer);
         }
         boolean reserveAnchor = outer.anyMatch(p -> {
             if (p instanceof LogicalCTEConsumer) {
@@ -104,8 +104,8 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
     public Plan visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer,
             CascadesContext cascadesContext) {
         LogicalPlan child;
-        if (cascadesContext.getStatementContext().getRewrittenCtePlan().containsKey(cteProducer.getCteId())) {
-            child = cascadesContext.getStatementContext().getRewrittenCtePlan().get(cteProducer.getCteId());
+        if (cascadesContext.getStatementContext().getRewrittenCteProducer().containsKey(cteProducer.getCteId())) {
+            child = cascadesContext.getStatementContext().getRewrittenCteProducer().get(cteProducer.getCteId());
         } else {
             child = (LogicalPlan) cteProducer.child();
             child = tryToConstructFilter(cascadesContext, cteProducer.getCteId(), child);
@@ -118,7 +118,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             CascadesContext rewrittenCtx = CascadesContext.newSubtreeContext(
                     Optional.of(cteProducer.getCteId()), cascadesContext, child, PhysicalProperties.ANY);
             child = (LogicalPlan) child.accept(this, rewrittenCtx);
-            cascadesContext.getStatementContext().getRewrittenCtePlan().put(cteProducer.getCteId(), child);
+            cascadesContext.getStatementContext().getRewrittenCteProducer().put(cteProducer.getCteId(), child);
         }
         return cteProducer.withChildren(child);
     }

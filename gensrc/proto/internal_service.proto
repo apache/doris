@@ -720,16 +720,18 @@ message PGroupCommitInsertRequest {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
     //  Descriptors.TDescriptorTable
-    optional bytes desc_tbl = 3;
+    // optional bytes desc_tbl = 3;
     optional int64 base_schema_version = 4;
 
     // TExecPlanFragmentParams -> TPlanFragment -> PlanNodes.TPlan
-    optional bytes plan_node = 5;
+    // optional bytes plan_node = 5;
     // TScanRangeParams
-    optional bytes scan_range_params = 6;
+    // optional bytes scan_range_params = 6;
 
     optional PUniqueId load_id = 7;
     repeated PDataRow data = 8;
+    // TExecPlanFragmentParams
+    optional PExecPlanFragmentRequest exec_plan_fragment_request = 9;
 }
 
 message PGroupCommitInsertResponse {

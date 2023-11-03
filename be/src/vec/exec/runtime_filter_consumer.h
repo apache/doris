@@ -54,7 +54,6 @@ protected:
 
     // For runtime filters
     struct RuntimeFilterContext {
-        RuntimeFilterContext() : apply_mark(false), runtime_filter(nullptr) {}
         RuntimeFilterContext(IRuntimeFilter* rf) : apply_mark(false), runtime_filter(rf) {}
         // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
         bool apply_mark;

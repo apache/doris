@@ -189,5 +189,10 @@ suite("nereids_function") {
     qt_regexp_extract_all """
         SELECT regexp_extract_all('AbCdE', '([[:lower:]]+)C([[:lower:]]+)')
     """
+
+    test {
+        sql "select `hello`.now(3)"
+        exception "Can not found function"
+    }
 }
 
