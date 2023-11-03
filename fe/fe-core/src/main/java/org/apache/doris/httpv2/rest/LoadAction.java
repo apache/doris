@@ -358,7 +358,7 @@ public class LoadAction extends RestBaseController {
 
             return redirectView;
         } catch (Exception e) {
-            LOG.error("Failed to execute stream load with cluster token, {}", e);
+            LOG.warn("Failed to execute stream load with cluster token, {}", e);
             return new RestBaseResult(e.getMessage());
         }
     }
