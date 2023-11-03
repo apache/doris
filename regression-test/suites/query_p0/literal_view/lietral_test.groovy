@@ -106,6 +106,15 @@ suite("literal_view_test") {
         insert into test_insert values (1,'doris',10),(2,'spark',2),(3,'flink',20);
     """
 
+    sql "set enable_nereids_planner=false"
+    order_qt_left """select * 
+        from test_insert 
+        left join (select 1 as v1) t1 
+        on false 
+        where t1.v1 is null
+    """
+    sql "set enable_nereids_planner=true"
+
     qt_sql1 """
         select id, name
         from (
