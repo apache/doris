@@ -26,8 +26,14 @@ import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat.GroupingSetShapes;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+
+import com.google.common.base.Function;
 
 import java.util.List;
 import java.util.Map;
@@ -73,6 +79,30 @@ public class ExpressionDeepCopier extends DefaultExpressionRewriter<DeepCopierCo
             exprIdReplaceMap.put(slotReference.getExprId(), newOne.getExprId());
             return newOne;
         }
+    }
+
+    @Override
+    public Expression visitVirtualReference(VirtualSlotReference virtualSlotReference, DeepCopierContext context) {
+        Map<ExprId, ExprId> exprIdReplaceMap = context.exprIdReplaceMap;
+        ExprId newExprId;
+        if (exprIdReplaceMap.containsKey(virtualSlotReference.getExprId())) {
+            newExprId = exprIdReplaceMap.get(virtualSlotReference.getExprId());
+        } else {
+            newExprId = StatementScopeIdGenerator.newExprId();
+        }
+        // according to VirtualReference generating logic in Repeat.java
+        // generateVirtualGroupingIdSlot and generateVirtualSlotByFunction
+        Optional<GroupingScalarFunction> newOriginExpression = virtualSlotReference.getOriginExpression()
+                .map(func -> (GroupingScalarFunction) func.accept(this, context));
+        Function<GroupingSetShapes, List<Long>> newFunction = newOriginExpression
+                .<Function<GroupingSetShapes, List<Long>>>map(f -> f::computeVirtualSlotValue)
+                .orElseGet(() -> GroupingSetShapes::computeVirtualGroupingIdValue);
+        VirtualSlotReference newOne = new VirtualSlotReference(newExprId,
+                virtualSlotReference.getName(), virtualSlotReference.getDataType(),
+                virtualSlotReference.nullable(), virtualSlotReference.getQualifier(),
+                newOriginExpression, newFunction);
+        exprIdReplaceMap.put(virtualSlotReference.getExprId(), newOne.getExprId());
+        return newOne;
     }
 
     @Override
