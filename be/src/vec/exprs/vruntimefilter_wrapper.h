@@ -45,7 +45,6 @@ class VRuntimeFilterWrapper final : public VExpr {
 
 public:
     VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl);
-    VRuntimeFilterWrapper(const VRuntimeFilterWrapper& vexpr);
     ~VRuntimeFilterWrapper() override = default;
     doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
                           int* result_column_id) override;
@@ -54,7 +53,6 @@ public:
     doris::Status open(doris::RuntimeState* state, VExprContext* context,
                        FunctionContext::FunctionStateScope scope) override;
     std::string debug_string() const override { return _impl->debug_string(); }
-    bool is_constant() const override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     VExprSPtr clone() const override { return VRuntimeFilterWrapper::create_shared(*this); }
     const std::string& expr_name() const override;
