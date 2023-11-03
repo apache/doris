@@ -129,7 +129,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
             LOG(INFO) << "write data failed " << *this;
         }
     };
-    return _flush_tokens[segid % _flush_tokens.size()]->submit_func(flush_func);
+    return _flush_tokens[new_segid % _flush_tokens.size()]->submit_func(flush_func);
 }
 
 Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data) {
@@ -151,7 +151,14 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     }
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
 
-    return _load_stream_writer->add_segment(new_segid, stat);
+    auto flush_func = [this, new_segid, stat]() {
+        auto st = _load_stream_writer->add_segment(new_segid, stat);
+       if (!st.ok() && _failed_st->ok()) {
+            _failed_st = std::make_shared<Status>(st);
+            LOG(INFO) << "add segment failed " << *this;
+        }
+    };
+    return _flush_tokens[new_segid % _flush_tokens.size()]->submit_func(flush_func);
 }
 
 Status TabletStream::close() {

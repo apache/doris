@@ -121,7 +121,16 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
     return Status::OK();
 }
 
-Status LoadStreamWriter::add_segment(uint32_t segid, SegmentStatistics& stat) {
+Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat) {
+    if (_segment_file_writers[segid]->bytes_appended() != stat.data_size) {
+        LOG(WARNING) << _segment_file_writers[segid]->path() << " is added without all data, "
+                     << "actual " << _segment_file_writers[segid]->bytes_appended()
+                     << " expected " << stat.data_size;
+        return Status::Corruption("segment {} is added without all data, actual {} expected {}",
+                                  _segment_file_writers[segid]->path().native(),
+                                  _segment_file_writers[segid]->bytes_appended(),
+                                  stat.data_size);
+    }
     return _rowset_writer->add_segment(segid, stat);
 }
 
@@ -145,7 +154,9 @@ Status LoadStreamWriter::close() {
 
     for (size_t i = 0; i < _segment_file_writers.size(); i++) {
         if (!_segment_file_writers[i]->is_closed()) {
-            return Status::Corruption("segment {} is not eos", i);
+            LOG(WARNING) << _segment_file_writers[i]->path() << " is not eos";
+            return Status::Corruption("segment {} is not eos",
+                                      _segment_file_writers[i]->path().native());
         }
     }
 
