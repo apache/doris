@@ -58,7 +58,7 @@ In Base Compaction, delete the rows marked for deletion to reduce the space occu
 
 There are two ways of enabling batch delete support:
 
-1. By adding `enable_batch_delete_by_default=true` in the fe configuration file, all newly created tables after restarting fe support batch deletion, this option defaults to false
+1. By adding `enable_batch_delete_by_default=true` in the fe configuration file, all newly created tables after restarting fe support batch deletion, this option defaults to true
 
 2. For tables that have not changed the above fe configuration or for existing tables that do not support the bulk delete function, you can use the following statement:
    `ALTER TABLE tablename ENABLE FEATURE "BATCH_DELETE"` to enable the batch delete.
