@@ -61,7 +61,6 @@ public:
         int lhs_id = -1;
         int rhs_id = -1;
         RETURN_IF_ERROR(_children[0]->execute(context, block, &lhs_id));
-        //should deal with const column ?
         ColumnPtr lhs_column = block->get_by_position(lhs_id).column;
         size_t size = lhs_column->size();
         bool lhs_is_nullable = lhs_column->is_nullable();
@@ -105,11 +104,25 @@ public:
             return Status::OK();
         };
 
-        auto create_nullable_result_column = [&](ColumnPtr nested_column) {
-            auto result_column =
-                    ColumnNullable::create(nested_column, ColumnUInt8::create(size, 0));
-            *result_column_id = block->columns();
-            block->insert({std::move(result_column), _data_type, _expr_name});
+        auto return_result_column_id = [&](ColumnPtr res_column, int res_id) -> int {
+            if (result_is_nullable && !res_column->is_nullable()) {
+                auto result_column =
+                        ColumnNullable::create(res_column, ColumnUInt8::create(size, 0));
+                res_id = block->columns();
+                block->insert({std::move(result_column), _data_type, _expr_name});
+            }
+            return res_id;
+        };
+
+        auto create_null_map_column = [&](ColumnPtr null_map_column,
+                                          uint8* __restrict null_map_data) {
+            if (null_map_data == nullptr) {
+                null_map_column = ColumnUInt8::create(size, 0);
+                null_map_data = assert_cast<ColumnUInt8*>(null_map_column->assume_mutable().get())
+                                        ->get_data()
+                                        .data();
+            }
+            return null_map_data;
         };
 
         auto vector_vector_null = [&]<bool is_and_op>() {
@@ -118,21 +131,10 @@ public:
             auto* __restrict res_datas = assert_cast<ColumnUInt8*>(col_res)->get_data().data();
             auto* __restrict res_nulls = assert_cast<ColumnUInt8*>(col_nulls)->get_data().data();
             ColumnPtr temp_null_map = nullptr;
-            if ((lhs_is_nullable && !rhs_is_nullable) ||
-                (!lhs_is_nullable || rhs_is_nullable)) { // one of children is nullable
-                if (lhs_null_map == nullptr) {
-                    temp_null_map = ColumnUInt8::create(size, 0);
-                    lhs_null_map = assert_cast<ColumnUInt8*>(temp_null_map->assume_mutable().get())
-                                           ->get_data()
-                                           .data();
-                }
-                if (rhs_null_map == nullptr) {
-                    temp_null_map = ColumnUInt8::create(size, 0);
-                    rhs_null_map = assert_cast<ColumnUInt8*>(temp_null_map->assume_mutable().get())
-                                           ->get_data()
-                                           .data();
-                }
-            }
+            // maybe both children are nullable / or one of children is nullable
+            lhs_null_map = create_null_map_column(temp_null_map, lhs_null_map);
+            rhs_null_map = create_null_map_column(temp_null_map, rhs_null_map);
+
             if constexpr (is_and_op) {
                 for (size_t i = 0; i < size; ++i) {
                     res_nulls[i] = apply_and_null(lhs_data_column[i], lhs_null_map[i],
@@ -158,38 +160,22 @@ public:
             //2. nullable column: null map all is not null
             if ((lhs_all_false && !lhs_is_nullable) || (lhs_all_false && lhs_all_is_not_null)) {
                 // false and any = false, return lhs
-                if (result_is_nullable && !lhs_is_nullable) {
-                    create_nullable_result_column(lhs_column);
-                } else {
-                    *result_column_id = lhs_id;
-                }
+                *result_column_id = return_result_column_id(lhs_column, lhs_id);
             } else {
                 RETURN_IF_ERROR(get_rhs_colum());
 
                 if ((lhs_all_true && !lhs_is_nullable) ||    //not null column
                     (lhs_all_true && lhs_all_is_not_null)) { //nullable column
                     // true and any = any, return rhs
-                    if (result_is_nullable && !rhs_is_nullable) {
-                        create_nullable_result_column(rhs_column);
-                    } else {
-                        *result_column_id = rhs_id;
-                    }
+                    *result_column_id = return_result_column_id(rhs_column, rhs_id);
                 } else if ((rhs_all_false && !rhs_is_nullable) ||
                            (rhs_all_false && rhs_all_is_not_null)) {
                     // any and false = false, return rhs
-                    if (result_is_nullable && !rhs_is_nullable) {
-                        create_nullable_result_column(rhs_column);
-                    } else {
-                        *result_column_id = rhs_id;
-                    }
+                    *result_column_id = return_result_column_id(rhs_column, rhs_id);
                 } else if ((rhs_all_true && !rhs_is_nullable) ||
                            (rhs_all_true && rhs_all_is_not_null)) {
                     // any and true = any, return lhs
-                    if (result_is_nullable && !lhs_is_nullable) {
-                        create_nullable_result_column(lhs_column);
-                    } else {
-                        *result_column_id = lhs_id;
-                    }
+                    *result_column_id = return_result_column_id(lhs_column, lhs_id);
                 } else {
                     if (!result_is_nullable) {
                         *result_column_id = lhs_id;
@@ -206,36 +192,20 @@ public:
             // false or NULL ----> NULL
             if ((lhs_all_true && !lhs_is_nullable) || (lhs_all_true && lhs_all_is_not_null)) {
                 // true or any = true, return lhs
-                if (result_is_nullable && !lhs_is_nullable) {
-                    create_nullable_result_column(lhs_column);
-                } else {
-                    *result_column_id = lhs_id;
-                }
+                *result_column_id = return_result_column_id(lhs_column, lhs_id);
             } else {
                 RETURN_IF_ERROR(get_rhs_colum());
                 if ((lhs_all_false && !lhs_is_nullable) || (lhs_all_false && lhs_all_is_not_null)) {
                     // false or any = any, return rhs
-                    if (result_is_nullable && !rhs_is_nullable) {
-                        create_nullable_result_column(rhs_column);
-                    } else {
-                        *result_column_id = rhs_id;
-                    }
+                    *result_column_id = return_result_column_id(rhs_column, rhs_id);
                 } else if ((rhs_all_true && !rhs_is_nullable) ||
                            (rhs_all_true && rhs_all_is_not_null)) {
                     // any or true = true, return rhs
-                    if (result_is_nullable && !rhs_is_nullable) {
-                        create_nullable_result_column(rhs_column);
-                    } else {
-                        *result_column_id = rhs_id;
-                    }
+                    *result_column_id = return_result_column_id(rhs_column, rhs_id);
                 } else if ((rhs_all_false && !rhs_is_nullable) ||
                            (rhs_all_false && rhs_all_is_not_null)) {
                     // any or false = any, return lhs
-                    if (result_is_nullable && !lhs_is_nullable) {
-                        create_nullable_result_column(lhs_column);
-                    } else {
-                        *result_column_id = lhs_id;
-                    }
+                    *result_column_id = return_result_column_id(lhs_column, lhs_id);
                 } else {
                     if (!result_is_nullable) {
                         *result_column_id = lhs_id;
