@@ -1845,10 +1845,8 @@ public class StmtExecutor {
                 PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
                         .setDbId(insertStmt.getTargetTable().getDatabase().getId())
                         .setTableId(insertStmt.getTargetTable().getId())
-                        .setDescTbl(nativeInsertStmt.getTableBytes())
                         .setBaseSchemaVersion(nativeInsertStmt.getBaseSchemaVersion())
-                        .setPlanNode(nativeInsertStmt.getPlanBytes())
-                        .setScanRangeParams(nativeInsertStmt.getRangeBytes())
+                        .setExecPlanFragmentRequest(nativeInsertStmt.getExecPlanFragmentRequest())
                         .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
                                 .build()).addAllData(rows)
                         .build();

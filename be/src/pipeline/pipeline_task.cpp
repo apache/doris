@@ -256,6 +256,18 @@ Status PipelineTask::execute(bool* eos) {
         }
     }
 
+    auto status = Status::OK();
+    auto handle_group_commit = [&]() {
+        if (UNLIKELY(_fragment_context->is_group_commit() && !status.ok() && _block != nullptr)) {
+            auto* future_block = dynamic_cast<vectorized::FutureBlock*>(_block.get());
+            std::unique_lock<doris::Mutex> l(*(future_block->lock));
+            if (!future_block->is_handled()) {
+                future_block->set_result(status, 0, 0);
+                future_block->cv->notify_all();
+            }
+        }
+    };
+
     this->set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
         if (_data_state != SourceState::MORE_DATA && !source_can_read()) {
@@ -279,7 +291,11 @@ Status PipelineTask::execute(bool* eos) {
         {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
+            status = _root->get_block(_state, block, _data_state);
+            if (UNLIKELY(!status.ok())) {
+                handle_group_commit();
+                return status;
+            }
         }
         *eos = _data_state == SourceState::FINISHED;
 
@@ -289,17 +305,8 @@ Status PipelineTask::execute(bool* eos) {
                 _collect_query_statistics_with_every_batch) {
                 RETURN_IF_ERROR(_collect_query_statistics());
             }
-            auto status = _sink->sink(_state, block, _data_state);
-            if (UNLIKELY(!status.ok() || block->rows() == 0)) {
-                if (_fragment_context->is_group_commit()) {
-                    auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block);
-                    std::unique_lock<doris::Mutex> l(*(future_block->lock));
-                    if (!future_block->is_handled()) {
-                        future_block->set_result(status, 0, 0);
-                        future_block->cv->notify_all();
-                    }
-                }
-            }
+            status = _sink->sink(_state, block, _data_state);
+            handle_group_commit();
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
