@@ -1511,7 +1511,8 @@ public class FunctionCallExpr extends Expr {
                 fn.setReturnType(assignmentCompatibleType);
             }
 
-        } else if (fnName.getFunction().equalsIgnoreCase("ifnull")) {
+        } else if (fnName.getFunction().equalsIgnoreCase("ifnull")
+                || fnName.getFunction().equalsIgnoreCase("nvl")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true);
             if (assignmentCompatibleType != Type.INVALID) {
