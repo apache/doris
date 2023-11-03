@@ -275,7 +275,7 @@ public class LoadAction extends RestBaseController {
     // temporarily addressing the users' needs for audit logs.
     // So this function is not widely tested under general scenario
     private boolean checkClusterToken(HttpServletRequest request) {
-        LOG.info("Checking cluser token, request {}", request.toString());
+        LOG.debug("Checking cluser token, request {}", request.toString());
         String authToken = request.getHeader("token");
 
         if (Strings.isNullOrEmpty(authToken)) {
