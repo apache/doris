@@ -16,11 +16,19 @@
 // under the License.
 
 suite("test_show_create_table_and_views", "show") {
+    def ret = sql "ADMIN SHOW FRONTEND CONFIG like '%enable_feature_binlog%';"
+    logger.info("${ret}")
+    if (ret.size() != 0 && ret[0].size() > 1 && ret[0][1] == 'false') {
+        logger.info("enable_feature_binlog=false in frontend config, no need to run this case.")
+        return
+    }
+
     String suiteName = "show_create_table_and_views"
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
     String viewName = "${suiteName}_view"
     String rollupName = "${suiteName}_rollup"
+    String likeName = "${suiteName}_like"
 
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
@@ -99,6 +107,17 @@ suite("test_show_create_table_and_views", "show") {
     qt_select "SELECT user_id, SUM(cost) FROM ${dbName}.${tableName} GROUP BY user_id ORDER BY user_id"
     qt_show "SHOW CREATE TABLE ${dbName}.${tableName}"
 
+    // create like
+    sql "CREATE TABLE ${dbName}.${likeName} LIKE ${dbName}.${tableName}"
+    qt_show "SHOW CREATE TABLE ${dbName}.${likeName}"
+
+    // create like with rollup
+    sql "CREATE TABLE ${dbName}.${likeName}_with_rollup LIKE ${dbName}.${tableName} WITH ROLLUP"
+    qt_show "SHOW CREATE TABLE ${dbName}.${likeName}_with_rollup"
+
+    sql "DROP TABLE IF EXISTS ${dbName}.${likeName}_with_rollup FORCE"
+    sql "DROP TABLE ${dbName}.${likeName} FORCE"
+    sql "DROP VIEW ${dbName}.${viewName}"
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
 }

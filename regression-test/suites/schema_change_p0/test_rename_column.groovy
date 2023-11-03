@@ -268,6 +268,7 @@ suite ("test_rename_column") {
 
     qt_select """ select user_id, sum(cost) from ${tableName} group by user_id order by user_id """
 
+    sql """ DROP VIEW ${viewName} """
     sql """ DROP TABLE ${tableName} """
 
 }
