@@ -112,6 +112,12 @@ inline bool k_doris_exit = false;
 // once to properly initialise service state.
 class ExecEnv {
 public:
+#ifdef CLOUD_MODE
+    using Engine = CloudStorageEngine; // TODO(plat1ko)
+#else
+    using Engine = StorageEngine;
+#endif
+
     // Empty destructor because the compiler-generated one requires full
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
