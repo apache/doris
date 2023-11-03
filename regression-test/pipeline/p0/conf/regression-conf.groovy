@@ -49,10 +49,10 @@ testGroups = ""
 // empty suite will test all suite
 testSuites = ""
 // empty directories will test all directories
-testDirectories = ""
+testDirectories = "load_p0/http_stream"
 
 // this groups will not be executed
-excludeGroups = "load_p0/http_stream"
+excludeGroups = ""
 // this suites will not be executed
 
 excludeSuites =
