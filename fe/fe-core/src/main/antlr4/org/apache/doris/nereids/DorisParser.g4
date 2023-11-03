@@ -905,6 +905,7 @@ nonReserved
     | COUNT
     | CREATION
     | CRON
+    | CURRENT
     | CURRENT_CATALOG
     | CURRENT_TIMESTAMP
     | DATA
@@ -946,6 +947,7 @@ nonReserved
     | EVENTS
     | EVERY
     | EXCLUDE
+    | EXPLAIN
     | EXPIRED
     | EXTERNAL
     | FAILED_LOGIN_ATTEMPTS
@@ -955,6 +957,7 @@ nonReserved
     | FILE
     | FILTER
     | FIRST
+    | FOLLOWER
     | FORMAT
     | FREE
     | FRONTENDS
@@ -976,6 +979,7 @@ nonReserved
     | IMMEDIATE
     | INCREMENTAL
     | INDEXES
+    | INSTALL
     | INVERTED
     | IS_NOT_NULL_PRED
     | IS_NULL_PRED
@@ -985,6 +989,7 @@ nonReserved
     | JOBS
     | JSON
     | JSONB
+    | KEY
     | LABEL
     | LAST
     | LDAP
