@@ -31,6 +31,7 @@
 #include <memory>
 
 #include "common/object_pool.h"
+#include "runtime/primitive_type.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -59,11 +60,14 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _col_name(tdesc.colName),
           _col_name_lower_case(to_lower(tdesc.colName)),
           _col_unique_id(tdesc.col_unique_id),
+          _col_type(thrift_to_type(tdesc.primitive_type)),
           _slot_idx(tdesc.slotIdx),
           _field_idx(-1),
           _is_materialized(tdesc.isMaterialized),
           _is_key(tdesc.is_key),
-          _need_materialize(tdesc.need_materialize) {}
+          _need_materialize(tdesc.need_materialize),
+          _column_paths(tdesc.column_paths),
+          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {}
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
@@ -74,6 +78,7 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _col_name(pdesc.col_name()),
           _col_name_lower_case(to_lower(pdesc.col_name())),
           _col_unique_id(pdesc.col_unique_id()),
+          _col_type(static_cast<PrimitiveType>(pdesc.col_type())),
           _slot_idx(pdesc.slot_idx()),
           _field_idx(-1),
           _is_materialized(pdesc.is_materialized()),
@@ -94,6 +99,7 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_is_materialized(_is_materialized);
     pslot->set_col_unique_id(_col_unique_id);
     pslot->set_is_key(_is_key);
+    pslot->set_col_type(_col_type);
 }
 
 vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {

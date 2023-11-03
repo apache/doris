@@ -229,7 +229,16 @@ import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TGetMetaDBMeta;
+import org.apache.doris.thrift.TGetMetaIndexMeta;
+import org.apache.doris.thrift.TGetMetaPartitionMeta;
+import org.apache.doris.thrift.TGetMetaReplicaMeta;
+import org.apache.doris.thrift.TGetMetaResult;
+import org.apache.doris.thrift.TGetMetaTableMeta;
+import org.apache.doris.thrift.TGetMetaTabletMeta;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -1511,6 +1520,8 @@ public class Env {
 
     // start threads that should running on all FE
     private void startNonMasterDaemonThreads() {
+        // start load manager thread
+        loadManager.start();
         tabletStatMgr.start();
         // load and export job label cleaner thread
         labelCleaner.start();
@@ -1658,7 +1669,8 @@ public class Env {
                 String url = "http://" + hostPort + "/image?version=" + version;
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(this.imageDir);
-                MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getFile(filename, dir));
+                MetaHelper.getRemoteFile(url, Config.sync_image_timeout_second * 1000,
+                        MetaHelper.getFile(filename, dir));
                 MetaHelper.complete(filename, dir);
             } else {
                 LOG.warn("get an image with a lower version, localImageVersion: {}, got version: {}",
@@ -2639,10 +2651,12 @@ public class Env {
         try {
             Frontend fe = checkFeExist(host, port);
             if (fe == null) {
-                throw new DdlException("frontend does not exist[" + host + ":" + port + "]");
+                throw new DdlException("frontend does not exist[" + NetUtils
+                        .getHostPortInAccessibleFormat(host, port) + "]");
             }
             if (fe.getRole() != role) {
-                throw new DdlException(role.toString() + " does not exist[" + host + ":" + port + "]");
+                throw new DdlException(role.toString() + " does not exist[" + NetUtils
+                        .getHostPortInAccessibleFormat(host, port) + "]");
             }
             frontends.remove(fe.getNodeName());
             removedFrontends.add(fe.getNodeName());
@@ -5355,6 +5369,89 @@ public class Env {
 
     public static boolean isTableNamesCaseInsensitive() {
         return GlobalVariable.lowerCaseTableNames == 2;
+    }
+
+    private static void getTableMeta(OlapTable olapTable, TGetMetaDBMeta dbMeta) {
+        LOG.debug("get table meta. table: {}", olapTable.getName());
+
+        TGetMetaTableMeta tableMeta = new TGetMetaTableMeta();
+        olapTable.readLock();
+        try {
+            tableMeta.setId(olapTable.getId());
+            tableMeta.setName(olapTable.getName());
+
+            PartitionInfo tblPartitionInfo = olapTable.getPartitionInfo();
+
+            Collection<Partition> partitions = olapTable.getAllPartitions();
+            for (Partition partition : partitions) {
+                TGetMetaPartitionMeta partitionMeta = new TGetMetaPartitionMeta();
+                long partitionId = partition.getId();
+                partitionMeta.setId(partitionId);
+                partitionMeta.setName(partition.getName());
+                String partitionRange = "";
+                if (tblPartitionInfo.getType() == PartitionType.RANGE
+                        || tblPartitionInfo.getType() == PartitionType.LIST) {
+                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
+                }
+                partitionMeta.setRange(partitionRange);
+                partitionMeta.setVisibleVersion(partition.getVisibleVersion());
+                // partitionMeta.setTemp（partition.isTemp());
+
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                    TGetMetaIndexMeta indexMeta = new TGetMetaIndexMeta();
+                    indexMeta.setId(index.getId());
+                    indexMeta.setName(olapTable.getIndexNameById(index.getId()));
+
+                    for (Tablet tablet : index.getTablets()) {
+                        TGetMetaTabletMeta tabletMeta = new TGetMetaTabletMeta();
+                        tabletMeta.setId(tablet.getId());
+
+                        for (Replica replica : tablet.getReplicas()) {
+                            TGetMetaReplicaMeta replicaMeta = new TGetMetaReplicaMeta();
+                            replicaMeta.setId(replica.getId());
+                            replicaMeta.setBackendId(replica.getBackendId());
+                            replicaMeta.setVersion(replica.getVersion());
+                            tabletMeta.addToReplicas(replicaMeta);
+                        }
+
+                        indexMeta.addToTablets(tabletMeta);
+                    }
+
+                    partitionMeta.addToIndexes(indexMeta);
+                }
+                tableMeta.addToPartitions(partitionMeta);
+            }
+            dbMeta.addToTables(tableMeta);
+        } finally {
+            olapTable.readUnlock();
+        }
+    }
+
+    public static TGetMetaResult getMeta(Database db, List<Table> tables) throws MetaNotFoundException {
+        TGetMetaResult result = new TGetMetaResult();
+        result.setStatus(new TStatus(TStatusCode.OK));
+
+        TGetMetaDBMeta dbMeta = new TGetMetaDBMeta();
+        dbMeta.setId(db.getId());
+        dbMeta.setName(db.getFullName());
+
+        if (tables == null) {
+            db.readLock();
+            tables = db.getTables();
+            db.readUnlock();
+        }
+
+        for (Table table : tables) {
+            if (table.getType() != TableType.OLAP) {
+                continue;
+            }
+
+            OlapTable olapTable = (OlapTable) table;
+            getTableMeta(olapTable, dbMeta);
+        }
+
+        result.setDbMeta(dbMeta);
+        return result;
     }
 
     public void compactTable(AdminCompactTableStmt stmt) throws DdlException {

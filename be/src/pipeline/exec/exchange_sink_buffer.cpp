@@ -124,6 +124,9 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
         return Status::OK();
     }
     TUniqueId ins_id = request.channel->_fragment_instance_id;
+    if (_is_receiver_eof(ins_id.lo)) {
+        return Status::EndOfFile("receiver eof");
+    }
     bool send_now = false;
     {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[ins_id.lo]);
@@ -187,6 +190,10 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
+        if (_statistics && _statistics->collected()) {
+            auto statistic = brpc_request->mutable_query_statistics();
+            _statistics->to_pb(statistic);
+        }
         if (request.block) {
             brpc_request->set_allocated_block(request.block.get());
         }
@@ -240,6 +247,10 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
         if (request.block_holder->get_block()) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
+        }
+        if (_statistics && _statistics->collected()) {
+            auto statistic = brpc_request->mutable_query_statistics();
+            _statistics->to_pb(statistic);
         }
         auto* closure = request.channel->get_closure(id, request.eos, request.block_holder);
 

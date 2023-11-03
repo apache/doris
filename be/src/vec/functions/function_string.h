@@ -41,6 +41,7 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_search.hpp"
+#include "util/sha.h"
 #include "util/string_util.h"
 #include "util/utf8_check.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -1980,10 +1981,10 @@ struct MD5Sum {
 };
 
 template <typename Impl>
-class FunctionStringMd5AndSM3 : public IFunction {
+class FunctionStringDigestOneArg : public IFunction {
 public:
     static constexpr auto name = Impl::name;
-    static FunctionPtr create() { return std::make_shared<FunctionStringMd5AndSM3>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionStringDigestOneArg>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 0; }
     bool is_variadic() const override { return true; }
@@ -1991,7 +1992,6 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -2042,6 +2042,107 @@ public:
 
         block.replace_by_position(result, std::move(res));
         return Status::OK();
+    }
+};
+
+class FunctionStringDigestSHA1 : public IFunction {
+public:
+    static constexpr auto name = "sha1";
+    static FunctionPtr create() { return std::make_shared<FunctionStringDigestSHA1>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        DCHECK_EQ(arguments.size(), 1);
+
+        ColumnPtr str_col = block.get_by_position(arguments[0]).column;
+        auto& data = assert_cast<const ColumnString*>(str_col.get())->get_chars();
+        auto& offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
+
+        auto res_col = ColumnString::create();
+        auto& res_data = res_col->get_chars();
+        auto& res_offset = res_col->get_offsets();
+        res_offset.resize(input_rows_count);
+
+        SHA1Digest digest;
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            int size = offset[i] - offset[i - 1];
+            digest.reset(&data[offset[i - 1]], size);
+            std::string_view ans = digest.digest();
+
+            StringOP::push_value_string(ans, i, res_data, res_offset);
+        }
+
+        block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+};
+
+class FunctionStringDigestSHA2 : public IFunction {
+public:
+    static constexpr auto name = "sha2";
+    static FunctionPtr create() { return std::make_shared<FunctionStringDigestSHA2>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        DCHECK(!is_column_const(*block.get_by_position(arguments[0]).column));
+
+        ColumnPtr str_col = block.get_by_position(arguments[0]).column;
+        auto& data = assert_cast<const ColumnString*>(str_col.get())->get_chars();
+        auto& offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
+
+        [[maybe_unused]] const auto& [right_column, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        auto digest_length = assert_cast<const ColumnInt32*>(right_column.get())->get_data()[0];
+
+        auto res_col = ColumnString::create();
+        auto& res_data = res_col->get_chars();
+        auto& res_offset = res_col->get_offsets();
+        res_offset.resize(input_rows_count);
+
+        if (digest_length == 224) {
+            execute_base<SHA224Digest>(data, offset, input_rows_count, res_data, res_offset);
+        } else if (digest_length == 256) {
+            execute_base<SHA256Digest>(data, offset, input_rows_count, res_data, res_offset);
+        } else if (digest_length == 384) {
+            execute_base<SHA384Digest>(data, offset, input_rows_count, res_data, res_offset);
+        } else if (digest_length == 512) {
+            execute_base<SHA512Digest>(data, offset, input_rows_count, res_data, res_offset);
+        } else {
+            return Status::InvalidArgument(
+                    "sha2's digest length only support 224/256/384/512 but meet {}", digest_length);
+        }
+
+        block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+
+private:
+    template <typename T>
+    void execute_base(const ColumnString::Chars& data, const ColumnString::Offsets& offset,
+                      int input_rows_count, ColumnString::Chars& res_data,
+                      ColumnString::Offsets& res_offset) {
+        T digest;
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            int size = offset[i] - offset[i - 1];
+            digest.reset(&data[offset[i - 1]], size);
+            std::string_view ans = digest.digest();
+
+            StringOP::push_value_string(ans, i, res_data, res_offset);
+        }
     }
 };
 

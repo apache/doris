@@ -529,8 +529,9 @@ private:
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
     // set stop_processing if we want to stop the whole process now.
-    Status _validate_data(RuntimeState* state, vectorized::Block* block, Bitmap* filter_bitmap,
-                          int* filtered_rows, bool* stop_processing);
+    Status _validate_data(RuntimeState* state, vectorized::Block* block,
+                          std::vector<char>& filter_bitmap, int* filtered_rows,
+                          bool* stop_processing);
 
     template <bool is_min>
     DecimalV2Value _get_decimalv2_min_or_max(const TypeDescriptor& type);
@@ -539,8 +540,9 @@ private:
     DecimalType _get_decimalv3_min_or_max(const TypeDescriptor& type);
 
     Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
-                            vectorized::ColumnPtr column, size_t slot_index, Bitmap* filter_bitmap,
-                            bool* stop_processing, fmt::memory_buffer& error_prefix,
+                            vectorized::ColumnPtr column, size_t slot_index,
+                            std::vector<char>& filter_bitmap, bool* stop_processing,
+                            fmt::memory_buffer& error_prefix,
                             vectorized::IColumn::Permutation* rows = nullptr);
 
     // some output column of output expr may have different nullable property with dest slot desc
@@ -592,7 +594,7 @@ private:
     // only used for partition with random distribution
     std::map<int64_t, int64_t> _partition_to_tablet_map;
 
-    Bitmap _filter_bitmap;
+    std::vector<char> _filter_bitmap;
 
     // index_channel
     std::vector<std::shared_ptr<IndexChannel>> _channels;

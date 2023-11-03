@@ -15,27 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sqlserver_jdbc_catalog", "p0") {
+suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,external_docker_sqlserver") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest");
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "sqlserver_catalog";
-        String internal_db_name = "regression_test_jdbc_catalog_p0";
+        String internal_db_name = "sqlserver_jdbc_catalog_p0";
         String ex_db_name = "dbo";
         String sqlserver_port = context.config.otherConfigs.get("sqlserver_2022_port");
 
-        String inDorisTable = "doris_in_tb";
+        String inDorisTable = "test_sqlserver_doris_in_tb";
 
         sql """ drop catalog if exists ${catalog_name} """
 
         sql """ create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
-                    "user"="SA",
+                    "user"="sa",
                     "password"="Doris123456",
-                    "jdbc_url" = "jdbc:sqlserver://127.0.0.1:${sqlserver_port};encrypt=false;DataBaseName=doris_test",
-                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar",
+                    "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;databaseName=doris_test;",
+                    "driver_url" = "${driver_url}",
                     "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
         );"""
-
+        sql """drop database if exists ${internal_db_name}"""
+        sql """create database if not exists ${internal_db_name}"""
+        sql """use ${internal_db_name}"""
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
               CREATE TABLE ${inDorisTable} (

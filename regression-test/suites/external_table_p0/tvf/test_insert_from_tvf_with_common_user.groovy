@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_insert_from_tvf_with_common_user", "p0") {
+suite("test_insert_from_tvf_with_common_user","p0,external,hive,tvf,external_docker") {
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()

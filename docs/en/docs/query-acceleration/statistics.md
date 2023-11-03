@@ -79,8 +79,11 @@ The user triggers a manual collection job through a statement `ANALYZE` to colle
 Column statistics collection syntax:
 
 ```SQL
-ANALYZE TABLE | DATABASE table_name | db_name
-    [ (column_name [, ...]) ]    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] [WITH HISTOGRAM]]    [ PROPERTIES ("key" = "value", ...) ];
+ANALYZE < TABLE | DATABASE table_name | db_name >
+    [ PARTITIONS [(*) | (partition_name [, ...]) | WITH RECENT COUNT ] ]
+    [ (column_name [, ...]) ]
+    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH SQL ] ]
+    [ PROPERTIES ("key" = "value", ...) ];
 ```
 
 Explanation:
@@ -121,8 +124,12 @@ mysql -uroot -P9030 -h192.168.xxx.xxx```
 
 Create a data table:
 
-```SQL
-mysql> CREATE DATABASE IF NOT EXISTS stats_test;
+- `table_name`: Specifies the target table. It can be in the `db_name.table_name` format.
+- `partition_name`: The specified target partitions（for hive external table only）。Must be partitions exist in `table_name`. Multiple partition names are separated by commas. e.g. for single level partition: PARTITIONS(`event_date=20230706`), for multi level partition: PARTITIONS(`nation=US/city=Washington`). PARTITIONS(*) specifies all partitions, PARTITIONS WITH RECENT 30 specifies the latest 30 partitions.
+- `column_name`: Specifies the target column. It must be an existing column in `table_name`, and multiple column names are separated by commas.
+- `sync`: Collect statistics synchronously. Returns upon completion. If not specified, it executes asynchronously and returns a task ID.
+- `sample percent | rows`: Collect statistics using sampling. You can specify either the sampling percentage or the number of sampled rows.
+- `sql`: Collect statistics for external partition column with sql. By default, it uses meta data for partition columns, which is faster but may inaccurate for row count and size. Using sql could collect the accurate stats.
 
 mysql> CREATE TABLE IF NOT EXISTS stats_test.example_tbl (
         `user_id` LARGEINT NOT NULL,        `date` DATEV2 NOT NULL,        `city` VARCHAR(20),        `age` SMALLINT,        `sex` TINYINT,        `last_visit_date` DATETIME REPLACE,        `cost` BIGINT SUM,        `max_dwell_time` INT MAX,        `min_dwell_time` INT MIN    ) ENGINE=OLAP    AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)    PARTITION BY LIST(`date`)    (        PARTITION `p_201701` VALUES IN ("2017-10-01"),        PARTITION `p_201702` VALUES IN ("2017-10-02"),        PARTITION `p_201703` VALUES IN ("2017-10-03")    )    DISTRIBUTED BY HASH(`user_id`) BUCKETS 1    PROPERTIES (        "replication_num" = "1"    );

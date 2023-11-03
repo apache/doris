@@ -14,13 +14,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalOlapScan[catalog_returns]
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = catalog_sales.cs_sold_date_sk)
-------------------------hashJoin[INNER_JOIN](item.i_item_sk = catalog_sales.cs_item_sk)
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[catalog_sales]
---------------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](item.i_item_sk = catalog_sales.cs_item_sk)
 ----------------------------PhysicalProject
-------------------------------filter((item.i_category = 'Home'))
---------------------------------PhysicalOlapScan[item]
+------------------------------PhysicalOlapScan[catalog_sales]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((item.i_category = 'Home'))
+----------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
 ----------------------------filter(d_year IN (1998, 1999))
@@ -32,13 +33,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalOlapScan[store_returns]
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = store_sales.ss_sold_date_sk)
-------------------------hashJoin[INNER_JOIN](item.i_item_sk = store_sales.ss_item_sk)
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[store_sales]
---------------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](item.i_item_sk = store_sales.ss_item_sk)
 ----------------------------PhysicalProject
-------------------------------filter((item.i_category = 'Home'))
---------------------------------PhysicalOlapScan[item]
+------------------------------PhysicalOlapScan[store_sales]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((item.i_category = 'Home'))
+----------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
 ----------------------------filter(d_year IN (1998, 1999))
@@ -50,13 +52,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalOlapScan[web_returns]
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = web_sales.ws_sold_date_sk)
-------------------------hashJoin[INNER_JOIN](item.i_item_sk = web_sales.ws_item_sk)
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[web_sales]
---------------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](item.i_item_sk = web_sales.ws_item_sk)
 ----------------------------PhysicalProject
-------------------------------filter((item.i_category = 'Home'))
---------------------------------PhysicalOlapScan[item]
+------------------------------PhysicalOlapScan[web_sales]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((item.i_category = 'Home'))
+----------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
 ----------------------------filter(d_year IN (1998, 1999))

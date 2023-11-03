@@ -37,6 +37,8 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return true; }
 
+    bool use_default_implementation_for_constants() const override { return false; }
+
     bool is_variadic() const override { return true; }
 
     size_t get_number_of_arguments() const override { return 0; }

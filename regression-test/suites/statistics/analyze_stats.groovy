@@ -118,7 +118,7 @@ suite("test_analyze") {
         DROP STATS ${tbl}(analyzetestlimitedk3)
     """
 
-    exception = null
+    def exception = null
 
     try {
         sql """
@@ -1110,4 +1110,18 @@ PARTITION `p599` VALUES IN (599)
     sql """ANALYZE TABLE test_meta_management WITH SYNC"""
     afterDropped = sql """SHOW TABLE STATS test_meta_management"""
     assert check_column(afterDropped, "[col1, col2, col3]")
+
+    // test analyze specific column
+    sql """CREATE TABLE test_analyze_specific_column (col1 varchar(11451) not null, col2 int not null, col3 int not null)
+    DUPLICATE KEY(col1)
+    DISTRIBUTED BY HASH(col1)
+    BUCKETS 3
+    PROPERTIES(
+            "replication_num"="1"
+    );"""
+    sql """insert into test_analyze_specific_column values('%.', 2, 1);"""
+    sql """ANALYZE TABLE test_analyze_specific_column(col2) WITH SYNC"""
+    result = sql """SHOW COLUMN STATS test_analyze_specific_column"""
+    assert result.size() == 1
+
 }

@@ -43,20 +43,21 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalTopN
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_w_secyear.customer_id)(if((year_total > 0.00), (cast(year_total as DOUBLE) / cast(year_total as DOUBLE)), 0) > if((year_total > 0.00), (cast(year_total as DOUBLE) / cast(year_total as DOUBLE)), 0))
---------------hashJoin[INNER_JOIN](t_s_secyear.customer_id = t_s_firstyear.customer_id)
-----------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_w_firstyear.customer_id)
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN](t_s_secyear.customer_id = t_s_firstyear.customer_id)
+------------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_w_firstyear.customer_id)
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------filter((t_s_firstyear.dyear = 2001)(t_s_firstyear.sale_type = 's')(t_s_firstyear.year_total > 0.00))
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------filter((t_w_firstyear.year_total > 0.00)(t_w_firstyear.sale_type = 'w')(t_w_firstyear.dyear = 2001))
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------filter((t_s_firstyear.dyear = 2001)(t_s_firstyear.sale_type = 's')(t_s_firstyear.year_total > 0.00))
+----------------------filter((t_s_secyear.sale_type = 's')(t_s_secyear.dyear = 2002))
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------filter((t_w_firstyear.year_total > 0.00)(t_w_firstyear.sale_type = 'w')(t_w_firstyear.dyear = 2001))
-------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-----------------PhysicalDistribute
-------------------PhysicalProject
---------------------filter((t_s_secyear.sale_type = 's')(t_s_secyear.dyear = 2002))
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------filter((t_w_secyear.dyear = 2002)(t_w_secyear.sale_type = 'w'))

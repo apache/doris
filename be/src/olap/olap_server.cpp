@@ -739,15 +739,15 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
     bool already_exist =
             _push_tablet_into_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
     if (already_exist) {
-        return Status::AlreadyExist("compaction task has already been submitted, tablet_id={}",
-                                    tablet->tablet_id());
+        return Status::AlreadyExist<false>(
+                "compaction task has already been submitted, tablet_id={}", tablet->tablet_id());
     }
 
     already_exist = _push_tablet_into_submitted_compaction(tablet, CompactionType::BASE_COMPACTION);
     if (already_exist) {
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
-        return Status::AlreadyExist("compaction task has already been submitted, tablet_id={}",
-                                    tablet->tablet_id());
+        return Status::AlreadyExist<false>(
+                "compaction task has already been submitted, tablet_id={}", tablet->tablet_id());
     }
     Status st = tablet->prepare_single_replica_compaction(tablet, compaction_type);
     auto clean_single_replica_compaction = [tablet, this]() {
@@ -945,7 +945,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     }
     bool already_exist = _push_tablet_into_submitted_compaction(tablet, compaction_type);
     if (already_exist) {
-        return Status::AlreadyExist(
+        return Status::AlreadyExist<false>(
                 "compaction task has already been submitted, tablet_id={}, compaction_type={}.",
                 tablet->tablet_id(), compaction_type);
     }

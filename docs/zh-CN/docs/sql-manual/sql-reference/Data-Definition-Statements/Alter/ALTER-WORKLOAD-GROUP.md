@@ -1,6 +1,6 @@
 ---
 {
-"title": "ALTER-WORKLOAD-GROUP",
+"title": "ALTER-WORKLOAD -GROUP",
 "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ALTER-WORKLOAD-GROUP
+## ALTER-WORKLOAD -GROUP
 
 ### Name
 

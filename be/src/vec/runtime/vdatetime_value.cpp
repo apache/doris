@@ -2298,14 +2298,28 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 break;
             // Micro second
             case 'f':
-                tmp = val + min(6, val_end - val);
-                if (!str_to_int64(val, &tmp, &int_value)) {
-                    return false;
+                tmp = val;
+                // when there's still something to the end, fix the scale of ms.
+                while (tmp < val_end && isdigit(*tmp)) {
+                    tmp++;
                 }
-                microsecond = int_value * int_exp10(6 - min(6, val_end - val));
+
+                if (tmp - val > 6) {
+                    const char* tmp2 = val + 6;
+                    if (!str_to_int64(val, &tmp2, &int_value)) {
+                        return false;
+                    }
+                } else {
+                    if (!str_to_int64(val, &tmp, &int_value)) {
+                        return false;
+                    }
+                }
+                if constexpr (is_datetime) {
+                    microsecond = int_value * int_exp10(6 - min(6, tmp - val));
+                    frac_part_used = true;
+                }
                 val = tmp;
                 time_part_used = true;
-                frac_part_used = true;
                 break;
                 // AM/PM
             case 'p':
@@ -2651,10 +2665,10 @@ template <typename T>
 typename DateV2Value<T>::underlying_value DateV2Value<T>::to_date_int_val() const {
     return int_val_;
 }
-
+// [1900-01-01, 2039-12-31]
 static std::array<DateV2Value<DateV2ValueType>, date_day_offset_dict::DICT_DAYS>
         DATE_DAY_OFFSET_ITEMS;
-
+// [1900-01-01, 2039-12-31]
 static std::array<std::array<std::array<int, 31>, 12>, 140> DATE_DAY_OFFSET_DICT;
 
 static bool DATE_DAY_OFFSET_ITEMS_INIT = false;
@@ -2671,19 +2685,27 @@ bool date_day_offset_dict::get_dict_init() {
 
 date_day_offset_dict::date_day_offset_dict() {
     DateV2Value<DateV2ValueType> d;
+    // Init days before epoch.
     d.set_time(1969, 12, 31, 0, 0, 0, 0);
-    for (int i = 0; i < DAY_AFTER_EPOCH; ++i) {
-        DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH + i] = d;
-        DATE_DAY_OFFSET_DICT[d.year() - START_YEAR][d.month() - 1][d.day() - 1] =
-                calc_daynr(d.year(), d.month(), d.day());
-        d += 1;
-    }
-    d.set_time(1969, 12, 31, 0, 0, 0, 0);
-    for (int i = 0; i <= DAY_BEFORE_EPOCH; ++i) {
-        DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH - i] = d;
+    for (int i = 0; i < DAY_BEFORE_EPOCH; ++i) {
+        DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH - i - 1] = d;
         DATE_DAY_OFFSET_DICT[d.year() - START_YEAR][d.month() - 1][d.day() - 1] =
                 calc_daynr(d.year(), d.month(), d.day());
         d -= 1;
+    }
+    // Init epoch day.
+    d.set_time(1970, 1, 1, 0, 0, 0, 0);
+    DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH] = d;
+    DATE_DAY_OFFSET_DICT[d.year() - START_YEAR][d.month() - 1][d.day() - 1] =
+            calc_daynr(d.year(), d.month(), d.day());
+    d += 1;
+
+    // Init days after epoch.
+    for (int i = 0; i < DAY_AFTER_EPOCH; ++i) {
+        DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH + 1 + i] = d;
+        DATE_DAY_OFFSET_DICT[d.year() - START_YEAR][d.month() - 1][d.day() - 1] =
+                calc_daynr(d.year(), d.month(), d.day());
+        d += 1;
     }
 
     DATE_DAY_OFFSET_ITEMS_INIT = true;
@@ -3104,6 +3126,34 @@ bool DateV2Value<T>::unix_timestamp(int64_t* timestamp, const cctz::time_zone& c
 }
 
 template <typename T>
+bool DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
+                                    const std::string& timezone) const {
+    cctz::time_zone ctz;
+    if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
+        return false;
+    }
+    return unix_timestamp(timestamp, ctz);
+}
+
+template <typename T>
+bool DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
+                                    const cctz::time_zone& ctz) const {
+    DCHECK(is_datetime) << "Function unix_timestamp with double_t timestamp only support "
+                           "datetimev2 value type.";
+    if constexpr (is_datetime) {
+        const auto tp =
+                cctz::convert(cctz::civil_second(date_v2_value_.year_, date_v2_value_.month_,
+                                                 date_v2_value_.day_, date_v2_value_.hour_,
+                                                 date_v2_value_.minute_, date_v2_value_.second_),
+                              ctz);
+        timestamp->first = tp.time_since_epoch().count();
+        timestamp->second = date_v2_value_.microsecond_;
+    } else {
+    }
+    return true;
+}
+
+template <typename T>
 bool DateV2Value<T>::from_unixtime(int64_t timestamp, const std::string& timezone) {
     cctz::time_zone ctz;
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
@@ -3122,6 +3172,31 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz
     const auto tp = cctz::convert(t, ctz);
 
     set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(), 0);
+    return true;
+}
+
+template <typename T>
+bool DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
+                                   const std::string& timezone) {
+    cctz::time_zone ctz;
+    if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
+        return false;
+    }
+    return from_unixtime(timestamp, ctz);
+}
+
+template <typename T>
+bool DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
+                                   const cctz::time_zone& ctz) {
+    static const cctz::time_point<cctz::sys_seconds> epoch =
+            std::chrono::time_point_cast<cctz::sys_seconds>(
+                    std::chrono::system_clock::from_time_t(0));
+    cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp.first);
+
+    const auto tp = cctz::convert(t, ctz);
+
+    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
+             timestamp.second);
     return true;
 }
 

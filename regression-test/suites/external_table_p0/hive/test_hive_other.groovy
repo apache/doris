@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_other", "p0") {
+suite("test_hive_other", "p0,external,hive,external_docker,external_docker_hive") {
 
     def q01 = {
         qt_q24 """ select name, count(1) as c from student group by name order by c desc;"""
@@ -54,12 +54,14 @@ suite("test_hive_other", "p0") {
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_port = context.config.otherConfigs.get("hms_port")
         String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
         String catalog_name = "hive_test_other"
 
         sql """drop catalog if exists ${catalog_name}"""
         sql """create catalog if not exists ${catalog_name} properties (
             "type"="hms",
-            'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
         );"""
 
         // test user's grants on external catalog
@@ -68,7 +70,18 @@ suite("test_hive_other", "p0") {
         sql """grant all on internal.${context.config.defaultDb}.* to ext_catalog_user"""
         sql """grant all on ${catalog_name}.*.* to ext_catalog_user"""
         connect(user = 'ext_catalog_user', password = '12345', url = context.config.jdbcUrl) {
-            order_qt_ext_catalog_grants """show databases from ${catalog_name}"""
+            def database_lists = sql """show databases from ${catalog_name}"""
+            boolean ok = false;
+            for (int i = 0; i < database_lists.size(); ++j) {
+                assertEquals(1, database_lists[i].size())
+                if (database_lists[i][0].equals("default")) {
+                    ok = true;
+                    break;
+                }
+            }
+            if (!ok) {
+                throw exception
+            }
         }
         sql """drop user ext_catalog_user"""
 

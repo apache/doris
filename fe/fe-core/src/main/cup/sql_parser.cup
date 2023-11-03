@@ -296,7 +296,6 @@ terminal String
     KW_CLUSTERS,
     KW_COLLATE,
     KW_COLLATION,
-    KW_COLOCATE,
     KW_COLUMN,
     KW_COLUMNS,
     KW_COMMENT,
@@ -571,6 +570,7 @@ terminal String
     KW_SNAPSHOT,
     KW_SONAME,
     KW_SPLIT,
+    KW_SQL,
     KW_SQL_BLOCK_RULE,
     KW_START,
     KW_STATS,
@@ -800,7 +800,6 @@ nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
-nonterminal ColocateGroupName colocate_group_name;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -1329,10 +1328,6 @@ alter_stmt ::=
     | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
-    :}
-    | KW_ALTER KW_COLOCATE KW_GROUP colocate_group_name:colocateGroupName KW_SET LPAREN key_value_map:properties RPAREN
-    {:
-        RESULT = new AlterColocateGroupStmt(colocateGroupName, properties);
     :}
     | KW_ALTER KW_WORKLOAD KW_GROUP ident_or_text:workloadGroupName opt_properties:properties
     {:
@@ -4000,7 +3995,11 @@ show_param ::=
     :}
     | KW_PROPERTY opt_user:user opt_wild_where
     {:
-        RESULT = new ShowUserPropertyStmt(user, parser.wild);
+        RESULT = new ShowUserPropertyStmt(user, parser.wild, false);
+    :}
+    | KW_ALL KW_PROPERTIES opt_wild_where
+    {:
+        RESULT = new ShowUserPropertyStmt(null, parser.wild, true);
     :}
     | KW_BACKUP opt_db:db opt_wild_where
     {:
@@ -4186,7 +4185,7 @@ show_param ::=
     {:
         RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
     :}
-    | KW_CONVERT_LSC KW_FROM opt_db:db
+    | KW_CONVERT_LSC opt_db:db
     {:
         RESULT = new ShowConvertLSCStmt(db);
     :}
@@ -5532,17 +5531,6 @@ table_name ::=
     {: RESULT = new TableName(ctl, db, tbl); :}
     ;
 
-colocate_group_name ::=
-    ident:group
-    {:
-        RESULT = new ColocateGroupName(null, group);
-    :}
-    | ident:db DOT ident:group
-    {:
-        RESULT = new ColocateGroupName(db, group);
-    :}
-    ;
-
 encryptkey_name ::=
     ident:name
     {:
@@ -6006,6 +5994,19 @@ with_analysis_properties ::=
             put("analysis.type", "HISTOGRAM");
         }};
     :}
+    | KW_FULL
+    {:
+        RESULT = new HashMap<String, String>() {{
+             put(AnalyzeProperties.PROPERTY_FORCE_FULL, "true");
+        }};
+    :}
+    | KW_SQL
+    {:
+        RESULT = new HashMap<String, String>() {{
+             put(AnalyzeProperties.PROPERTY_PARTITION_COLUMN_FROM_SQL, "true");
+        }};
+    :}
+
     ;
 
 opt_with_analysis_properties ::=

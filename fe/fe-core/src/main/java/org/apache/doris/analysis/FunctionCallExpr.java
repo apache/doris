@@ -1362,7 +1362,10 @@ public class FunctionCallExpr extends Expr {
             // TODO: fix how we equal count distinct.
             fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             type = fn.getReturnType();
-
+            if (children.get(0).type.isComplexType()) {
+                throw new AnalysisException("The pattern params of " + fnName + " function can not support "
+                    + children.get(0).type);
+            }
             // Make sure BE doesn't see any TYPE_NULL exprs
             for (int i = 0; i < children.size(); ++i) {
                 if (getChild(i).getType().isNull()) {
@@ -1508,7 +1511,8 @@ public class FunctionCallExpr extends Expr {
                 fn.setReturnType(assignmentCompatibleType);
             }
 
-        } else if (fnName.getFunction().equalsIgnoreCase("ifnull")) {
+        } else if (fnName.getFunction().equalsIgnoreCase("ifnull")
+                || fnName.getFunction().equalsIgnoreCase("nvl")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true);
             if (assignmentCompatibleType != Type.INVALID) {
@@ -1743,6 +1747,19 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
+        if (fn.getFunctionName().getFunction().equals("sha2")) {
+            if ((children.size() != 2) || (getChild(1).isConstant() == false)
+                    || !(getChild(1) instanceof IntLiteral)) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " needs two params, and the second is must be a integer constant: "
+                                + this.toSql());
+            }
+            final Integer constParam = (int) ((IntLiteral) getChild(1)).getValue();
+            if (!Lists.newArrayList(224, 256, 384, 512).contains(constParam)) {
+                throw new AnalysisException("sha2 functions only support digest length of 224/256/384/512");
+            }
+        }
+
         if (isAggregateFunction()) {
             final String functionName = fnName.getFunction();
             // subexprs must not contain aggregates
@@ -1877,12 +1894,12 @@ public class FunctionCallExpr extends Expr {
             Expr child1Result = getChild(1).getResultValue(false);
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(child1Result.getStringValue())) {
-                    this.type = Type.DATETIME;
+                    this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
                 } else {
-                    this.type = Type.DATE;
+                    this.type = Type.DATEV2;
                 }
             } else {
-                this.type = Type.DATETIME;
+                this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
             }
         } else if (TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase())
                 && fn.getReturnType().isDatetimeV2()) {

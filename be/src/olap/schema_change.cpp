@@ -482,9 +482,12 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                 vectorized::Block::create_unique(new_tablet->tablet_schema()->create_block());
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
-        rowset_reader->next_block(ref_block.get());
-        if (ref_block->rows() == 0) {
-            break;
+        auto st = rowset_reader->next_block(ref_block.get());
+        if (!st) {
+            if (st.is<ErrorCode::END_OF_FILE>()) {
+                break;
+            }
+            return st;
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
@@ -552,9 +555,12 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     do {
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
-        rowset_reader->next_block(ref_block.get());
-        if (ref_block->rows() == 0) {
-            break;
+        auto st = rowset_reader->next_block(ref_block.get());
+        if (!st) {
+            if (st.is<ErrorCode::END_OF_FILE>()) {
+                break;
+            }
+            return st;
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
@@ -612,7 +618,7 @@ Status VSchemaChangeWithSorting::_internal_sorting(
     RETURN_IF_ERROR(merger.merge(blocks, rowset_writer.get(), &merged_rows));
 
     _add_merged_rows(merged_rows);
-    *rowset = rowset_writer->build();
+    RETURN_IF_ERROR(rowset_writer->build(*rowset));
     return Status::OK();
 }
 
@@ -910,12 +916,9 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             _tablet_ids_in_converting.insert(new_tablet->tablet_id());
         }
         res = _convert_historical_rowsets(sc_params);
-        if (new_tablet->keys_type() != UNIQUE_KEYS ||
-            !new_tablet->enable_unique_key_merge_on_write() || !res) {
-            {
-                std::lock_guard<std::shared_mutex> wrlock(_mutex);
-                _tablet_ids_in_converting.erase(new_tablet->tablet_id());
-            }
+        {
+            std::lock_guard<std::shared_mutex> wrlock(_mutex);
+            _tablet_ids_in_converting.erase(new_tablet->tablet_id());
         }
         if (!res) {
             break;
@@ -975,10 +978,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
 
             // step 4
-            {
-                std::lock_guard<std::shared_mutex> wrlock(_mutex);
-                _tablet_ids_in_converting.erase(new_tablet->tablet_id());
-            }
             res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
             if (!res) {
                 break;
@@ -1134,8 +1133,8 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         // Add the new version of the data to the header
         // In order to prevent the occurrence of deadlock, we must first lock the old table, and then lock the new table
         std::lock_guard<std::mutex> lock(sc_params.new_tablet->get_push_lock());
-        RowsetSharedPtr new_rowset = rowset_writer->build();
-        if (new_rowset == nullptr) {
+        RowsetSharedPtr new_rowset;
+        if (!(res = rowset_writer->build(new_rowset)).ok()) {
             LOG(WARNING) << "failed to build rowset, exit alter process";
             return process_alter_exit();
         }
