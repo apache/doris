@@ -875,18 +875,11 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         String query = "select * from (select user_id, bitmap_union_count(to_bitmap(tag_id)) x from "
                 + USER_TAG_TABLE_NAME + " group by user_id) a, (select user_name, bitmap_union_count(to_bitmap(tag_id))"
                 + "" + " y from " + USER_TAG_TABLE_NAME + " group by user_name) b where a.x=b.y;";
-        PlanChecker.from(connectContext)
-                .analyze(query)
-                .rewrite()
-                .matches(logicalJoin(
-                        logicalProject(
-                                logicalAggregate(
-                                        logicalOlapScan().when(scan -> "user_tags_mv".equals(
-                                                scan.getSelectedMaterializedIndexName().get())))),
-                        logicalAggregate(
-                                logicalProject(
-                                        logicalOlapScan().when(scan -> "user_tags".equals(
-                                                scan.getSelectedMaterializedIndexName().get()))))));
+        PlanChecker.from(connectContext).analyze(query).rewrite().matches(logicalJoin(
+                        logicalProject(logicalAggregate(logicalOlapScan()
+                                        .when(scan -> "user_tags_mv".equals(scan.getSelectedMaterializedIndexName())))),
+                        logicalAggregate(logicalProject(logicalOlapScan()
+                                        .when(scan -> "user_tags".equals(scan.getSelectedMaterializedIndexName()))))));
 
     }
 

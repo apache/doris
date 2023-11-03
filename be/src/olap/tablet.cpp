@@ -305,7 +305,6 @@ Status Tablet::_init_once_action() {
                     _tablet_meta->compaction_policy());
 #endif
 
-    RowsetVector rowset_vec;
     for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
         Version version = rs_meta->version();
         RowsetSharedPtr rowset;
@@ -317,7 +316,6 @@ Status Tablet::_init_once_action() {
                          << ", res=" << res;
             return res;
         }
-        rowset_vec.push_back(rowset);
         _rs_version_map[version] = std::move(rowset);
     }
 
@@ -738,7 +736,7 @@ void Tablet::delete_expired_stale_rowset() {
             Version test_version = Version(0, lastest_delta->end_version());
             stale_version_path_map[*path_id_iter] = version_path;
 
-            Status status = capture_consistent_versions(test_version, nullptr);
+            Status status = capture_consistent_versions(test_version, nullptr, false, false);
             // 1. When there is no consistent versions, we must reconstruct the tracker.
             if (!status.ok()) {
                 // 2. fetch missing version after delete
@@ -859,7 +857,8 @@ bool Tablet::_reconstruct_version_tracker_if_necessary() {
 }
 
 Status Tablet::capture_consistent_versions(const Version& spec_version,
-                                           std::vector<Version>* version_path, bool quiet) const {
+                                           std::vector<Version>* version_path,
+                                           bool skip_missing_version, bool quiet) const {
     Status status =
             _timestamped_version_tracker.capture_consistent_versions(spec_version, version_path);
     if (!status.ok() && !quiet) {
@@ -878,6 +877,10 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
                 LOG(WARNING) << "status:" << status << ", tablet:" << tablet_id()
                              << ", missed version for version:" << spec_version;
                 _print_missed_versions(missed_versions);
+                if (skip_missing_version) {
+                    LOG(WARNING) << "force skipping missing version for tablet:" << tablet_id();
+                    return Status::OK();
+                }
             }
         }
     }
@@ -886,7 +889,7 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
 
 Status Tablet::check_version_integrity(const Version& version, bool quiet) {
     std::shared_lock rdlock(_meta_lock);
-    return capture_consistent_versions(version, nullptr, quiet);
+    return capture_consistent_versions(version, nullptr, false, quiet);
 }
 
 bool Tablet::exceed_version_limit(int32_t limit) const {
@@ -919,7 +922,7 @@ void Tablet::acquire_version_and_rowsets(
 Status Tablet::capture_consistent_rowsets(const Version& spec_version,
                                           std::vector<RowsetSharedPtr>* rowsets) const {
     std::vector<Version> version_path;
-    RETURN_IF_ERROR(capture_consistent_versions(spec_version, &version_path));
+    RETURN_IF_ERROR(capture_consistent_versions(spec_version, &version_path, false, false));
     RETURN_IF_ERROR(_capture_consistent_rowsets_unlocked(version_path, rowsets));
     return Status::OK();
 }
@@ -955,10 +958,11 @@ Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& 
     return Status::OK();
 }
 
-Status Tablet::capture_rs_readers(const Version& spec_version,
-                                  std::vector<RowSetSplits>* rs_splits) const {
+Status Tablet::capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
+                                  bool skip_missing_version) const {
     std::vector<Version> version_path;
-    RETURN_IF_ERROR(capture_consistent_versions(spec_version, &version_path));
+    RETURN_IF_ERROR(
+            capture_consistent_versions(spec_version, &version_path, skip_missing_version, false));
     RETURN_IF_ERROR(capture_rs_readers(version_path, rs_splits));
     return Status::OK();
 }
@@ -2031,7 +2035,12 @@ Status Tablet::create_transient_rowset_writer(
     context.enable_segcompaction = false;
     // ATTN: context.tablet is a shared_ptr, can't simply set it's value to `this`. We should
     // get the shared_ptr from tablet_manager.
-    context.tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
+    auto tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
+    if (!tablet) {
+        LOG(WARNING) << "cant find tablet by tablet_id=" << tablet_id();
+        return Status::NotFound(fmt::format("cant find tablet by tablet_id= {}", tablet_id()));
+    }
+    context.tablet = tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.partial_update_info = partial_update_info;
     context.is_transient_rowset_writer = true;
@@ -2695,14 +2704,15 @@ void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
 
 Status Tablet::_get_segment_column_iterator(
         const BetaRowsetSharedPtr& rowset, uint32_t segid, const TabletColumn& target_column,
+        SegmentCacheHandle* segment_cache_handle,
         std::unique_ptr<segment_v2::ColumnIterator>* column_iterator, OlapReaderStatistics* stats) {
-    SegmentCacheHandle segment_cache;
-    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, segment_cache_handle, true));
     // find segment
     auto it = std::find_if(
-            segment_cache.get_segments().begin(), segment_cache.get_segments().end(),
+            segment_cache_handle->get_segments().begin(),
+            segment_cache_handle->get_segments().end(),
             [&segid](const segment_v2::SegmentSharedPtr& seg) { return seg->id() == segid; });
-    if (it == segment_cache.get_segments().end()) {
+    if (it == segment_cache_handle->get_segments().end()) {
         return Status::NotFound(fmt::format("rowset {} 's segemnt not found, seg_id {}",
                                             rowset->rowset_id().to_string(), segid));
     }
@@ -2734,11 +2744,12 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
     CHECK(rowset);
     const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
     CHECK(tablet_schema->store_row_column());
+    SegmentCacheHandle segment_cache_handle;
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     OlapReaderStatistics stats;
     RETURN_IF_ERROR(_get_segment_column_iterator(rowset, segid,
                                                  tablet_schema->column(BeConsts::ROW_STORE_COL),
-                                                 &column_iterator, &stats));
+                                                 &segment_cache_handle, &column_iterator, &stats));
     // get and parse tuple row
     vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), column_ptr));
@@ -2776,10 +2787,11 @@ Status Tablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segi
     // read row data
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
     CHECK(rowset);
+    SegmentCacheHandle segment_cache_handle;
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     OlapReaderStatistics stats;
-    RETURN_IF_ERROR(
-            _get_segment_column_iterator(rowset, segid, tablet_column, &column_iterator, &stats));
+    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, segid, tablet_column,
+                                                 &segment_cache_handle, &column_iterator, &stats));
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), dst));
     return Status::OK();
 }
@@ -2800,10 +2812,11 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
     CHECK(rowset);
     const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
     CHECK(tablet_schema->store_row_column());
+    SegmentCacheHandle segment_cache_handle;
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id,
                                                  tablet_schema->column(BeConsts::ROW_STORE_COL),
-                                                 &column_iterator, &stats));
+                                                 &segment_cache_handle, &column_iterator, &stats));
     // get and parse tuple row
     vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
     std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
@@ -3567,7 +3580,8 @@ Status Tablet::check_rowid_conversion(
 Status Tablet::all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const {
     //  Ensure that the obtained versions of rowsets are continuous
     std::vector<Version> version_path;
-    RETURN_IF_ERROR(capture_consistent_versions(Version(0, max_version), &version_path));
+    RETURN_IF_ERROR(
+            capture_consistent_versions(Version(0, max_version), &version_path, false, false));
     for (auto& ver : version_path) {
         if (ver.second == 1) {
             // [0-1] rowset is empty for each tablet, skip it

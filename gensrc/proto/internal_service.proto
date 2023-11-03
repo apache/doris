@@ -720,16 +720,18 @@ message PGroupCommitInsertRequest {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
     //  Descriptors.TDescriptorTable
-    optional bytes desc_tbl = 3;
+    // optional bytes desc_tbl = 3;
     optional int64 base_schema_version = 4;
 
     // TExecPlanFragmentParams -> TPlanFragment -> PlanNodes.TPlan
-    optional bytes plan_node = 5;
+    // optional bytes plan_node = 5;
     // TScanRangeParams
-    optional bytes scan_range_params = 6;
+    // optional bytes scan_range_params = 6;
 
     optional PUniqueId load_id = 7;
     repeated PDataRow data = 8;
+    // TExecPlanFragmentParams
+    optional PExecPlanFragmentRequest exec_plan_fragment_request = 9;
 }
 
 message PGroupCommitInsertResponse {
@@ -796,7 +798,7 @@ service PBackendService {
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
-    rpc open_stream_sink(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
+    rpc open_load_stream(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_add_block_by_http(PEmptyRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);

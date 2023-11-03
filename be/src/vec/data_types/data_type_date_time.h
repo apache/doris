@@ -86,8 +86,8 @@ public:
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
 
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeDateTimeSerDe>();
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeDateTimeSerDe>(nesting_level);
     }
 
     Field get_field(const TExprNode& node) const override {

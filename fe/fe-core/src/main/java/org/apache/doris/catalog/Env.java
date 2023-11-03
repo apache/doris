@@ -38,7 +38,6 @@ import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterDatabaseRename;
-import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -50,7 +49,6 @@ import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -70,7 +68,6 @@ import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
-import org.apache.doris.analysis.RefreshMaterializedViewStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
@@ -175,11 +172,9 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
@@ -360,6 +355,8 @@ public class Env {
     private TimerJobManager timerJobManager;
     private TransientTaskManager transientTaskManager;
     private JobTaskManager jobTaskManager;
+
+    private TaskDisruptor taskDisruptor;
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
     private Daemon feDiskUpdater;  // Update fe disk info
@@ -473,8 +470,6 @@ public class Env {
 
     private PolicyMgr policyMgr;
 
-    private MTMVJobManager mtmvJobManager;
-
     private AnalysisManager analysisManager;
 
     private ExternalMetaCacheMgr extMetaCacheMgr;
@@ -580,10 +575,6 @@ public class Env {
         return catalogMgr;
     }
 
-    public MTMVJobManager getMTMVJobManager() {
-        return mtmvJobManager;
-    }
-
     public ExternalMetaCacheMgr getExtMetaCacheMgr() {
         return extMetaCacheMgr;
     }
@@ -640,7 +631,7 @@ public class Env {
         this.jobTaskManager = new JobTaskManager();
         this.timerJobManager = new TimerJobManager();
         this.transientTaskManager = new TransientTaskManager();
-        TaskDisruptor taskDisruptor = new TaskDisruptor(this.timerJobManager, this.transientTaskManager);
+        this.taskDisruptor = new TaskDisruptor(this.timerJobManager, this.transientTaskManager);
         this.timerJobManager.setDisruptor(taskDisruptor);
         this.transientTaskManager.setDisruptor(taskDisruptor);
         this.persistentJobRegister = new TimerJobRegister(timerJobManager);
@@ -725,7 +716,6 @@ public class Env {
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
-        this.mtmvJobManager = new MTMVJobManager();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
         this.analysisManager = new AnalysisManager();
         this.statisticsCleaner = new StatisticsCleaner();
@@ -1544,6 +1534,7 @@ public class Env {
         publishVersionDaemon.start();
         // Start txn cleaner
         txnCleaner.start();
+        taskDisruptor.start();
         timerJobManager.start();
         // Alter
         getAlterInstance().start();
@@ -1583,8 +1574,6 @@ public class Env {
         if (Config.enable_hms_events_incremental_sync) {
             metastoreEventsProcessor.start();
         }
-        // start mtmv jobManager
-        mtmvJobManager.start();
         getRefreshManager().start();
 
         // binlog gcer
@@ -1594,6 +1583,8 @@ public class Env {
 
     // start threads that should running on all FE
     private void startNonMasterDaemonThreads() {
+        // start load manager thread
+        loadManager.start();
         tabletStatMgr.start();
         // load and export job label cleaner thread
         labelCleaner.start();
@@ -1633,8 +1624,6 @@ public class Env {
 
         MetricRepo.init();
 
-        // stop mtmv scheduler
-        mtmvJobManager.stop();
         if (analysisManager != null) {
             analysisManager.getStatisticsCache().preHeat();
         }
@@ -2101,15 +2090,6 @@ public class Env {
     }
 
     /**
-     * Load mtmv jobManager.
-     **/
-    public long loadMTMVJobManager(DataInputStream in, long checksum) throws IOException {
-        this.mtmvJobManager = MTMVJobManager.read(in, checksum);
-        LOG.info("finished replay mtmv job and tasks from image");
-        return checksum;
-    }
-
-    /**
      * Load global function.
      **/
     public long loadGlobalFunction(DataInputStream in, long checksum) throws IOException {
@@ -2357,12 +2337,6 @@ public class Env {
      */
     public long saveCatalog(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getCatalogMgr().write(out);
-        return checksum;
-    }
-
-    public long saveMTMVJobManager(CountingDataOutputStream out, long checksum) throws IOException {
-        Env.getCurrentEnv().getMTMVJobManager().write(out, checksum);
-        LOG.info("Save mtmv job and tasks to image");
         return checksum;
     }
 
@@ -2705,6 +2679,8 @@ public class Env {
             }
 
             fe = new Frontend(role, nodeName, host, editLogPort);
+            LOG.info("add frontend: {}", fe);
+
             frontends.put(nodeName, fe);
             BDBHA bdbha = (BDBHA) haProtocol;
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
@@ -2735,6 +2711,8 @@ public class Env {
             if (fe == null) {
                 throw new DdlException("frontend does not exist, nodeName:" + nodeName);
             }
+
+            LOG.info("modify frontend with new host: {}, exist frontend: {}", fe.getHost(), fe);
             boolean needLog = false;
             // we use hostname as address of bdbha, so we don't need to update node address when ip changed
             if (!Strings.isNullOrEmpty(destHost) && !destHost.equals(fe.getHost())) {
@@ -2769,6 +2747,9 @@ public class Env {
                 throw new DdlException(role.toString() + " does not exist[" + NetUtils
                         .getHostPortInAccessibleFormat(host, port) + "]");
             }
+
+            LOG.info("remove frontend: {}", fe);
+
             frontends.remove(fe.getNodeName());
             removedFrontends.add(fe.getNodeName());
 
@@ -3030,10 +3011,6 @@ public class Env {
             }
             sb.append("\n) ENGINE=");
             sb.append(table.getType().name());
-        } else {
-            MaterializedView materializedView = ((MaterializedView) table);
-            sb.append("\n").append("BUILD ").append(materializedView.getBuildMode())
-                    .append(materializedView.getRefreshInfo().toString());
         }
 
         if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
@@ -3432,10 +3409,6 @@ public class Env {
             sb.append("\n)");
         }
 
-        if (table.getType() == TableType.MATERIALIZED_VIEW) {
-            sb.append("\nAS ").append(((MaterializedView) table).getQuery());
-        }
-
         createTableStmt.add(sb + ";");
 
         // 2. add partition
@@ -3569,6 +3542,7 @@ public class Env {
                 }
                 return;
             }
+            LOG.info("replay add frontend: {}", fe);
             frontends.put(fe.getNodeName(), fe);
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                 // DO NOT add helper sockets here, cause BDBHA is not instantiated yet.
@@ -3591,6 +3565,7 @@ public class Env {
                 return;
             }
             // modify fe in frontends
+            LOG.info("replay modify frontend with new host: {}, exist frontend: {}", fe.getHost(), existFe);
             existFe.setHost(fe.getHost());
         } finally {
             unlock();
@@ -3602,9 +3577,10 @@ public class Env {
         try {
             Frontend removedFe = frontends.remove(frontend.getNodeName());
             if (removedFe == null) {
-                LOG.error(frontend.toString() + " does not exist.");
+                LOG.error(frontend + " does not exist.");
                 return;
             }
+            LOG.info("replay drop frontend: {}", removedFe);
             if (removedFe.getRole() == FrontendNodeType.FOLLOWER || removedFe.getRole() == FrontendNodeType.REPLICA) {
                 removeHelperNode(removedFe.getHost(), removedFe.getEditLogPort());
             }
@@ -4058,11 +4034,6 @@ public class Env {
         this.alter.processAlterTable(stmt);
     }
 
-    public void alterMaterializedView(AlterMaterializedViewStmt stmt) throws UserException {
-        AlterMultiMaterializedView alter = new AlterMultiMaterializedView(stmt.getTable(), stmt.getRefreshInfo());
-        this.alter.processAlterMaterializedView(alter, false);
-    }
-
     /**
      * used for handling AlterViewStmt (the ALTER VIEW command).
      */
@@ -4075,16 +4046,8 @@ public class Env {
         this.alter.processCreateMaterializedView(stmt);
     }
 
-    public void createMultiTableMaterializedView(CreateMultiTableMaterializedViewStmt stmt) throws UserException {
-        this.alter.processCreateMultiTableMaterializedView(stmt);
-    }
-
     public void dropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
         this.alter.processDropMaterializedView(stmt);
-    }
-
-    public void refreshMaterializedView(RefreshMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
-        this.alter.processRefreshMaterializedView(stmt);
     }
 
     /*

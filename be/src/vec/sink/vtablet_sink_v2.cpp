@@ -148,6 +148,12 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
 
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+    if (config::share_delta_writers) {
+        _delta_writer_for_tablet =
+                ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(_load_id);
+    } else {
+        _delta_writer_for_tablet = std::make_shared<DeltaWriterV2Map>(_load_id);
+    }
     return Status::OK();
 }
 
@@ -159,12 +165,6 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     signal::set_signal_task_id(_load_id);
 
-    if (config::share_delta_writers) {
-        _delta_writer_for_tablet =
-                ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(_load_id);
-    } else {
-        _delta_writer_for_tablet = std::make_shared<DeltaWriterV2Map>(_load_id);
-    }
     _build_tablet_node_mapping();
     RETURN_IF_ERROR(_open_streams(state->backend_id()));
 
@@ -337,7 +337,7 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
             }
         }
         DeltaWriterV2* delta_writer = nullptr;
-        static_cast<void>(DeltaWriterV2::open(&req, streams, &delta_writer, _profile));
+        static_cast<void>(DeltaWriterV2::open(&req, streams, &delta_writer));
         return delta_writer;
     });
     {
@@ -381,7 +381,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            static_cast<void>(_delta_writer_for_tablet->close());
+            static_cast<void>(_delta_writer_for_tablet->close(_profile));
             _delta_writer_for_tablet.reset();
         }
 

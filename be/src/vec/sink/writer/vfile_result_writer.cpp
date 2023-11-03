@@ -145,18 +145,19 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(
-                _file_writer_impl.get(), _vec_output_expr_ctxs, _output_object_data, _header_type,
-                _header, _file_opts->column_separator, _file_opts->line_delimiter));
+                _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _output_object_data,
+                _header_type, _header, _file_opts->column_separator, _file_opts->line_delimiter));
         break;
     case TFileFormatType::FORMAT_PARQUET:
         _vfile_writer.reset(new VParquetTransformer(
-                _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
+                _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
                 _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
                 _file_opts->parquet_version, _output_object_data));
         break;
     case TFileFormatType::FORMAT_ORC:
-        _vfile_writer.reset(new VOrcTransformer(_file_writer_impl.get(), _vec_output_expr_ctxs,
-                                                _file_opts->orc_schema, _output_object_data));
+        _vfile_writer.reset(new VOrcTransformer(_state, _file_writer_impl.get(),
+                                                _vec_output_expr_ctxs, _file_opts->orc_schema,
+                                                _output_object_data));
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
@@ -260,12 +261,12 @@ Status VFileResultWriter::_create_new_file_if_exceed_size() {
 
 Status VFileResultWriter::_close_file_writer(bool done) {
     if (_vfile_writer) {
+        RETURN_IF_ERROR(_vfile_writer->close());
         // we can not use _current_written_bytes to COUNTER_UPDATE(_written_data_bytes, _current_written_bytes)
         // because it will call `write()` function of orc/parquet function in `_vfile_writer->close()`
         // and the real written_len will increase
         // and _current_written_bytes will less than _vfile_writer->written_len()
         COUNTER_UPDATE(_written_data_bytes, _vfile_writer->written_len());
-        RETURN_IF_ERROR(_vfile_writer->close());
         _vfile_writer.reset(nullptr);
     } else if (_file_writer_impl) {
         RETURN_IF_ERROR(_file_writer_impl->close());

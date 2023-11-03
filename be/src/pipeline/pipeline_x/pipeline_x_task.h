@@ -151,6 +151,12 @@ public:
 
     void push_blocked_task_to_dependency(Dependency* dep) {}
 
+    DataSinkOperatorXPtr sink() const { return _sink; }
+
+    OperatorXPtr source() const { return _source; }
+
+    OperatorXs operatorXs() { return _operators; }
+
 private:
     void set_close_pipeline_time() override {}
     void _init_profile() override;
@@ -166,7 +172,7 @@ private:
     std::vector<Dependency*> _read_dependencies;
     WriteDependency* _write_dependencies;
     std::vector<FinishDependency*> _finish_dependencies;
-    FilterDependency* _filter_dependency;
+    RuntimeFilterDependency* _filter_dependency;
 
     DependencyMap _upstream_dependency;
 
