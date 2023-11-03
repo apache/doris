@@ -108,17 +108,17 @@ public class ExpressionDeepCopier extends DefaultExpressionRewriter<DeepCopierCo
 
     @Override
     public Expression visitArrayItemReference(ArrayItemReference arrayItemSlot, DeepCopierContext context) {
+        Expression arrayExpression = arrayItemSlot.getArrayExpression().accept(this, context);
         Map<ExprId, ExprId> exprIdReplaceMap = context.exprIdReplaceMap;
+        ArrayItemReference newOne;
         if (exprIdReplaceMap.containsKey(arrayItemSlot.getExprId())) {
-            ExprId newExprId = exprIdReplaceMap.get(arrayItemSlot.getExprId());
-            return new ArrayItemReference(newExprId, arrayItemSlot.getName(),
-                    arrayItemSlot.getArrayExpression());
+            newOne = new ArrayItemReference(exprIdReplaceMap.get(arrayItemSlot.getExprId()),
+                    arrayItemSlot.getName(), arrayExpression);
         } else {
-            ArrayItemReference newOne = new ArrayItemReference(arrayItemSlot.getName(),
-                    arrayItemSlot.getArrayExpression());
+            newOne = new ArrayItemReference(arrayItemSlot.getName(), arrayExpression);
             exprIdReplaceMap.put(arrayItemSlot.getExprId(), newOne.getExprId());
-            return newOne;
         }
+        return newOne;
     }
 
     @Override
