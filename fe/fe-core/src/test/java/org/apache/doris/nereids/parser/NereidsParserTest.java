@@ -153,6 +153,16 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testExplainTree() {
+        String sql = "explain tree select `AD``D` from t1 where a = 1";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
+        ExplainLevel explainLevel = explainCommand.getLevel();
+        Assertions.assertEquals(ExplainLevel.TREE, explainLevel);
+    }
+
+    @Test
     public void testExplainGraph() {
         String sql = "explain graph select `AD``D` from t1 where a = 1";
         NereidsParser nereidsParser = new NereidsParser();

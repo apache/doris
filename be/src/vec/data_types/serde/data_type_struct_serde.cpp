@@ -175,7 +175,8 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             continue;
         }
         // handle null element
-        if (field_rb.count() == 4 && strncmp(field_rb.position(), "null", 4) == 0) {
+        if (field_rb.count() == 4 && strncmp(field_rb.position(), NULL_IN_COMPLEX_TYPE.c_str(),
+                                             strlen(NULL_IN_COMPLEX_TYPE.c_str())) == 0) {
             auto& nested_null_col =
                     reinterpret_cast<ColumnNullable&>(struct_column.get_column(idx));
             nested_null_col.insert_null_elements(1);
@@ -333,7 +334,8 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
         }
 
         if (col.get_column_ptr(j)->is_null_at(col_index)) {
-            if (0 != result.push_string("null", strlen("null"))) {
+            if (0 != result.push_string(NULL_IN_COMPLEX_TYPE.c_str(),
+                                        strlen(NULL_IN_COMPLEX_TYPE.c_str()))) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
