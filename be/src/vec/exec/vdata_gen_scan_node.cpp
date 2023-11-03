@@ -137,7 +137,8 @@ Status VDataGenFunctionScanNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-Status VDataGenFunctionScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+Status VDataGenFunctionScanNode::set_scan_ranges(RuntimeState* state,
+                                                 const std::vector<TScanRangeParams>& scan_ranges) {
     return _table_func->set_scan_ranges(scan_ranges);
 }
 

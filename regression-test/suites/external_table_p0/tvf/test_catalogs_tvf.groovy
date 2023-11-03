@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_catalogs_tvf") {
+suite("test_catalogs_tvf","p0,external,tvf,external_docker") {
     List<List<Object>> table =  sql """ select * from catalogs(); """
     assertTrue(table.size() > 0)
     assertEquals(5, table[0].size)

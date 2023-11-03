@@ -108,7 +108,7 @@
                     "items": [
                         "data-operate/export/export-manual",
                         "data-operate/export/outfile",
-                        "data-operate/export/export_with_mysql_dump"
+                        "data-operate/export/export-with-mysql-dump"
                     ]
                 },
                 {
@@ -117,6 +117,7 @@
                     "items": [
                         "data-operate/update-delete/batch-delete-manual",
                         "data-operate/update-delete/update",
+                        "data-operate/update-delete/partial-update",
                         "data-operate/update-delete/delete-manual",
                         "data-operate/update-delete/sequence-column-manual"
                     ]
@@ -168,9 +169,11 @@
                 "advanced/variables",
                 "advanced/time-zone",
                 "advanced/small-file-mgr",
-                "advanced/cold_hot_separation",
-                "advanced/compute_node",
-                "advanced/lateral-view"
+                "advanced/cold-hot-separation",
+                "advanced/compute-node",
+                "advanced/lateral-view",
+                "advanced/is-being-synced",
+                "advanced/sql-mode"
             ]
         },
         {
@@ -208,14 +211,15 @@
                         "lakehouse/multi-catalog/hudi",
                         "lakehouse/multi-catalog/paimon",
                         "lakehouse/multi-catalog/dlf",
-                        "lakehouse/multi-catalog/max_compute",
+                        "lakehouse/multi-catalog/max-compute",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc",
                         "lakehouse/multi-catalog/faq"
                     ]
                 },
                 "lakehouse/file",
-                "lakehouse/filecache"
+                "lakehouse/filecache",
+                "lakehouse/fs-benchmark-tool"
             ]
         },
         {
@@ -360,11 +364,11 @@
                                 "sql-manual/sql-functions/date-time-functions/date_format",
                                 "sql-manual/sql-functions/date-time-functions/datediff",
                                 "sql-manual/sql-functions/date-time-functions/microseconds_add",
-                                "sql-manual/sql-functions/date-time-functions/microseconds-diff",
-                                "sql-manual/sql-functions/date-time-functions/microseconds-sub",
-                                "sql-manual/sql-functions/date-time-functions/milliseconds-add",
-                                "sql-manual/sql-functions/date-time-functions/milliseconds-diff",
-                                "sql-manual/sql-functions/date-time-functions/milliseconds-sub",
+                                "sql-manual/sql-functions/date-time-functions/microseconds_diff",
+                                "sql-manual/sql-functions/date-time-functions/microseconds_sub",
+                                "sql-manual/sql-functions/date-time-functions/milliseconds_add",
+                                "sql-manual/sql-functions/date-time-functions/milliseconds_diff",
+                                "sql-manual/sql-functions/date-time-functions/milliseconds_sub",
                                 "sql-manual/sql-functions/date-time-functions/minutes_add",
                                 "sql-manual/sql-functions/date-time-functions/minutes_diff",
                                 "sql-manual/sql-functions/date-time-functions/minutes_sub",
@@ -618,7 +622,7 @@
                                 "sql-manual/sql-functions/json-functions/json_unquote",
                                 "sql-manual/sql-functions/json-functions/json_valid",
                                 "sql-manual/sql-functions/json-functions/json_contains",
-                                "sql-manual/sql-functions/json-functions/json-length",
+                                "sql-manual/sql-functions/json-functions/json_length",
                                 "sql-manual/sql-functions/json-functions/get_json_double",
                                 "sql-manual/sql-functions/json-functions/get_json_int",
                                 "sql-manual/sql-functions/json-functions/get_json_string"
@@ -699,21 +703,21 @@
                             "type": "category",
                             "label": "Table Functions",
                             "items": [
-                                "sql-manual/sql-functions/table-functions/explode-json-array",
+                                "sql-manual/sql-functions/table-functions/explode_json_array",
                                 "sql-manual/sql-functions/table-functions/explode",
-                                "sql-manual/sql-functions/table-functions/explode-split",
-                                "sql-manual/sql-functions/table-functions/explode-bitmap",
-                                "sql-manual/sql-functions/table-functions/outer-combinator",
+                                "sql-manual/sql-functions/table-functions/explode_split",
+                                "sql-manual/sql-functions/table-functions/explode_bitmap",
+                                "sql-manual/sql-functions/table-functions/outer_combinator",
                                 "sql-manual/sql-functions/table-functions/numbers",
-                                "sql-manual/sql-functions/table-functions/explode-numbers",
+                                "sql-manual/sql-functions/table-functions/explode_numbers",
                                 "sql-manual/sql-functions/table-functions/s3",
                                 "sql-manual/sql-functions/table-functions/hdfs",
                                 "sql-manual/sql-functions/table-functions/iceberg_meta",
                                 "sql-manual/sql-functions/table-functions/local",
                                 "sql-manual/sql-functions/table-functions/backends",
                                 "sql-manual/sql-functions/table-functions/frontends",
-                                "sql-manual/sql-functions/table-functions/workload-group",
-				"sql-manual/sql-functions/table-functions/catalogs"
+                                "sql-manual/sql-functions/table-functions/workload_group",
+				                "sql-manual/sql-functions/table-functions/catalogs"
                             ]
                         },
                         {
@@ -735,19 +739,20 @@
                                 "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-ROW-NUMBER",
                                 "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-NTILE",
                                 "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-WINDOW-FUNNEL"
+
                             ]
                         },
                         {
                             "type": "category",
                             "label": "IP Functions",
                             "items": [
-                                "sql-manual/sql-functions/ip-functions/IPV4-NUM-TO-STRING",
+                                "sql-manual/sql-functions/ip-functions/ipv4_num_to_string",
                                 "sql-manual/sql-functions/ip-functions/INET_NTOA"
                             ]
                         },
                         "sql-manual/sql-functions/cast",
-                        "sql-manual/sql-functions/digital-masking",
-                        "sql-manual/sql-functions/width-bucket"
+                        "sql-manual/sql-functions/digital_masking",
+                        "sql-manual/sql-functions/width_bucket"
                     ]
                 },
                 {
@@ -758,34 +763,34 @@
                             "type": "category",
                             "label": "Account Management",
                             "items": [
-                                "sql-manual/sql-reference/Account-Management-Statements/SET-PROPERTY",
-                                "sql-manual/sql-reference/Account-Management-Statements/REVOKE",
-                                "sql-manual/sql-reference/Account-Management-Statements/GRANT",
-                                "sql-manual/sql-reference/Account-Management-Statements/LDAP",
                                 "sql-manual/sql-reference/Account-Management-Statements/CREATE-ROLE",
-                                "sql-manual/sql-reference/Account-Management-Statements/DROP-ROLE",
                                 "sql-manual/sql-reference/Account-Management-Statements/CREATE-USER",
-                                "sql-manual/sql-reference/Account-Management-Statements/DROP-USER",
+                                "sql-manual/sql-reference/Account-Management-Statements/ALTER-USER",
                                 "sql-manual/sql-reference/Account-Management-Statements/SET-PASSWORD",
-                                "sql-manual/sql-reference/Account-Management-Statements/ALTER-USER"
+                                "sql-manual/sql-reference/Account-Management-Statements/SET-PROPERTY",
+                                "sql-manual/sql-reference/Account-Management-Statements/LDAP",
+                                "sql-manual/sql-reference/Account-Management-Statements/GRANT",
+                                "sql-manual/sql-reference/Account-Management-Statements/REVOKE",
+                                "sql-manual/sql-reference/Account-Management-Statements/DROP-ROLE",
+                                "sql-manual/sql-reference/Account-Management-Statements/DROP-USER"
                             ]
                         },
                         {
                             "type": "category",
                             "label": "Cluster management",
                             "items": [
-                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-FOLLOWER",
-                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DECOMMISSION-BACKEND",
-                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-OBSERVER",
-                                "sql-manual/sql-reference/Cluster-Management-Statements/CANCEL-ALTER-SYSTEM",
-                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-BROKER",
-                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-OBSERVER",
-                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-MODIFY-BACKEND",
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-FOLLOWER",
-                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-MODIFY-BROKER",
-                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-BROKER",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-OBSERVER",
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-BACKEND",
-                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-BACKEND"
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-BROKER",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-MODIFY-BACKEND",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DECOMMISSION-BACKEND",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-FOLLOWER",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-OBSERVER",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-BACKEND",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-BROKER",
+                                "sql-manual/sql-reference/Cluster-Management-Statements/CANCEL-ALTER-SYSTEM"
+
                             ]
                         },
                         {
@@ -812,6 +817,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY"
+
                                     ]
                                 },
                                 {
@@ -865,6 +871,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FUNCTION",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG"
+
                                     ]
                                 }
                             ]
@@ -892,6 +899,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD"
+
+
                                     ]
                                 },
                                 {
@@ -905,6 +914,7 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT-OVERWRITE"
+
                                     ]
                                 },
                                 "sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE"
@@ -934,7 +944,9 @@
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-COPY-TABLET",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REBALANCE-DISK",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK"
-                            ]
+                                ]
+
+                            
                         },
                         {
                             "type": "category",
@@ -1015,6 +1027,8 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-POLICY",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CATALOG-RECYCLE-BIN",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-QUERY-STATS"
+
+
                             ]
                         },
                         {
@@ -1041,7 +1055,9 @@
                                 "sql-manual/sql-reference/Data-Types/ARRAY",
                                 "sql-manual/sql-reference/Data-Types/MAP",
                                 "sql-manual/sql-reference/Data-Types/STRUCT",
-                                "sql-manual/sql-reference/Data-Types/JSON"
+                                "sql-manual/sql-reference/Data-Types/JSON",
+                                "sql-manual/sql-reference/Data-Types/MAP"
+
                             ]
                         },
                         {
@@ -1062,6 +1078,8 @@
                                 "sql-manual/sql-reference/Utility-Statements/REFRESH",
                                 "sql-manual/sql-reference/Utility-Statements/SYNC",
                                 "sql-manual/sql-reference/Utility-Statements/CLEAN-QUERY-STATS"
+
+
                             ]
                         }
                     ]
@@ -1267,10 +1285,13 @@
             "type": "category",
             "label": "Release notes",
             "items": [
-                "releasenotes/release-2.0-beta",
-                "releasenotes/release-2.0.0Alpha1",
+                "releasenotes/release-2.0.2",
+                "releasenotes/release-2.0.1",
+                "releasenotes/release-2.0.0",
+                "releasenotes/release-1.2.7",
+                "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",
-                "releasenotes/release-1.2.4.1",
+                "releasenotes/release-1.2.4",
                 "releasenotes/release-1.2.3",
                 "releasenotes/release-1.2.2",
                 "releasenotes/release-1.2.1",

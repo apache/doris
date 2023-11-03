@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_partitions", "p0") {
+suite("test_hive_partitions", "p0,external,hive,external_docker,external_docker_hive") {
     def q01 = {
         qt_q01 """
         select id, data from table_with_pars where dt_par = '2023-02-01' order by id;
@@ -42,10 +42,12 @@ suite("test_hive_partitions", "p0") {
         try {
             String hms_port = context.config.otherConfigs.get("hms_port")
             String catalog_name = "hive_test_partitions"
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
-                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );"""
             sql """use `${catalog_name}`.`default`"""
 

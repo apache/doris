@@ -16,3 +16,4 @@
 -- under the License.
 
 create database doris_test;
+create database show_test_do_not_modify;

@@ -62,8 +62,6 @@ public:
             }
         }
 
-        RETURN_IF_ERROR(validate_block_schema((*block).get()));
-
         _current_used_bytes -= (*block)->allocated_bytes();
         return Status::OK();
     }
@@ -79,6 +77,10 @@ public:
         if (_need_colocate_distribute) {
             std::vector<uint64_t> hash_vals;
             for (const auto& block : blocks) {
+                auto st = validate_block_schema(block.get());
+                if (!st.ok()) {
+                    set_status_on_error(st, false);
+                }
                 // vectorized calculate hash
                 int rows = block->rows();
                 const auto element_size = _num_parallel_instances;
@@ -110,6 +112,10 @@ public:
             }
         } else {
             for (const auto& block : blocks) {
+                auto st = validate_block_schema(block.get());
+                if (!st.ok()) {
+                    set_status_on_error(st, false);
+                }
                 local_bytes += block->allocated_bytes();
             }
 
@@ -158,10 +164,6 @@ public:
             _colocate_block_mutexs.emplace_back(new std::mutex);
         }
         _free_blocks_memory_usage->add(free_blocks_memory_usage);
-    }
-
-    bool has_enough_space_in_blocks_queue() const override {
-        return _current_used_bytes < _max_bytes_in_queue / 2 * _num_parallel_instances;
     }
 
     void _dispose_coloate_blocks_not_in_queue() override {
@@ -215,8 +217,7 @@ private:
                     std::lock_guard<std::mutex> queue_l(*_queue_mutexs[loc]);
                     _blocks_queues[loc].emplace_back(std::move(_colocate_blocks[loc]));
                 }
-                bool get_block_not_empty = true;
-                _colocate_blocks[loc] = get_free_block(&get_block_not_empty, get_block_not_empty);
+                _colocate_blocks[loc] = get_free_block();
                 _colocate_mutable_blocks[loc]->set_muatable_columns(
                         _colocate_blocks[loc]->mutate_columns());
             }

@@ -171,12 +171,13 @@ public:
 
     /// NOTE: std::has_unique_object_representations is only available since clang 6. As of Mar 2017 we still use clang 5 sometimes.
     template <typename T>
-        requires std::is_standard_layout_v<T>
     void update(const T& x) {
+        if constexpr (std::is_same_v<T, std::string>) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "String should not use SipHash!");
+        }
         update(reinterpret_cast<const char*>(&x), sizeof(x));
     }
-
-    void update(const std::string& x) { update(x.data(), x.length()); }
 
     /// Get the result in some form. This can only be done once!
 
@@ -216,22 +217,4 @@ inline void sip_hash128(const char* data, const size_t size, char* out) {
     SipHash hash;
     hash.update(data, size);
     hash.get128(out);
-}
-
-inline doris::vectorized::UInt64 sip_hash64(const char* data, const size_t size) {
-    SipHash hash;
-    hash.update(data, size);
-    return hash.get64();
-}
-
-template <typename T>
-    requires std::is_standard_layout_v<T>
-doris::vectorized::UInt64 sip_hash64(const T& x) {
-    SipHash hash;
-    hash.update(x);
-    return hash.get64();
-}
-
-inline doris::vectorized::UInt64 sip_hash64(const std::string& s) {
-    return sip_hash64(s.data(), s.size());
 }

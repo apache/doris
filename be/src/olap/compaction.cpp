@@ -47,6 +47,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/inverted_index_compaction.h"
+#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
@@ -317,6 +318,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                   << ", disk=" << _tablet->data_dir()->path()
                   << ", segments=" << _input_num_segments << ", input_row_num=" << _input_row_num
                   << ", output_row_num=" << _output_rowset->num_rows()
+                  << ", input_rowset_size=" << _input_rowsets_size
+                  << ", output_rowset_size=" << _output_rowset->data_disk_size()
                   << ". elapsed time=" << watch.get_elapse_second()
                   << "s. cumulative_compaction_policy="
                   << (cumu_policy == nullptr ? "quick" : cumu_policy->name());
@@ -472,6 +475,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                       << ". tablet=" << _tablet->full_name()
                       << ", input row number=" << _input_row_num
                       << ", output row number=" << _output_rowset->num_rows()
+                      << ", input_rowset_size=" << _input_rowsets_size
+                      << ", output_rowset_size=" << _output_rowset->data_disk_size()
                       << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
         } else {
             LOG(INFO) << "skip doing index compaction due to no output segments"
@@ -513,8 +518,12 @@ Status Compaction::do_compaction_impl(int64_t permits) {
               << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << _input_num_segments
+              << ", input_rowset_size=" << _input_rowsets_size
+              << ", output_rowset_size=" << _output_rowset->data_disk_size()
               << ", input_row_num=" << _input_row_num
               << ", output_row_num=" << _output_rowset->num_rows()
+              << ", filtered_row_num=" << stats.filtered_rows
+              << ", merged_row_num=" << stats.merged_rows
               << ". elapsed time=" << watch.get_elapse_second()
               << "s. cumulative_compaction_policy=" << cumu_policy->name()
               << ", compact_row_per_second=" << int(_input_row_num / watch.get_elapse_second());
@@ -541,6 +550,8 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                             BetaRowsetSharedPtr rowset =
                                     std::static_pointer_cast<BetaRowset>(src_rs);
                             if (rowset == nullptr) {
+                                LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                             << "] rowset is null, will skip index compaction";
                                 return false;
                             }
                             auto fs = rowset->rowset_meta()->fs();
@@ -548,6 +559,9 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                             auto index_meta =
                                     rowset->tablet_schema()->get_inverted_index(unique_id);
                             if (index_meta == nullptr) {
+                                LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                             << "] index_unique_id[" << unique_id
+                                             << "] index meta is null, will skip index compaction";
                                 return false;
                             }
                             for (auto i = 0; i < rowset->num_segments(); i++) {
@@ -563,8 +577,46 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                     return false;
                                 }
                                 if (!exists) {
-                                    LOG(WARNING) << inverted_index_src_file_path
+                                    LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                                 << "] index_unique_id[" << unique_id << "],"
+                                                 << inverted_index_src_file_path
                                                  << " is not exists, will skip index compaction";
+                                    return false;
+                                }
+
+                                // check idx file size
+                                int64_t file_size = 0;
+                                if (fs->file_size(inverted_index_src_file_path, &file_size) !=
+                                    Status::OK()) {
+                                    LOG(ERROR) << inverted_index_src_file_path
+                                               << " fs->file_size error";
+                                    return false;
+                                }
+                                if (file_size == 0) {
+                                    LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                                 << "] index_unique_id[" << unique_id << "],"
+                                                 << inverted_index_src_file_path
+                                                 << " is empty file, will skip index compaction";
+                                    return false;
+                                }
+
+                                // check index meta
+                                std::filesystem::path p(inverted_index_src_file_path);
+                                std::string dir_str = p.parent_path().string();
+                                std::string file_str = p.filename().string();
+                                lucene::store::Directory* dir =
+                                        DorisCompoundDirectory::getDirectory(fs, dir_str.c_str());
+                                auto reader = new DorisCompoundReader(dir, file_str.c_str());
+                                std::vector<std::string> files;
+                                reader->list(&files);
+
+                                // why is 3?
+                                // bkd index will write at least 3 files
+                                if (files.size() < 3) {
+                                    LOG(WARNING) << "tablet[" << _tablet->tablet_id()
+                                                 << "] index_unique_id[" << unique_id << "],"
+                                                 << inverted_index_src_file_path
+                                                 << " is corrupted, will skip index compaction";
                                     return false;
                                 }
                             }

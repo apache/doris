@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_basic_type", "external_docker,hive,external_docker_hive,p0,external") {
+suite("test_hive_basic_type", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "test_hive_basic_type"

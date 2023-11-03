@@ -16,7 +16,7 @@ package suites.external_catalog_p0.hive
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_different_parquet_types", "p0") {
+suite("test_different_parquet_types", "p0,external,hive,external_docker,external_docker_hive") {
 
     String hms_port = context.config.otherConfigs.get("hms_port")
     String hdfs_port = context.config.otherConfigs.get("hdfs_port")
@@ -176,8 +176,6 @@ suite("test_different_parquet_types", "p0") {
     }
 
 
-    
-
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
@@ -186,7 +184,7 @@ suite("test_different_parquet_types", "p0") {
 
             sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
-                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );"""
             sql """use `${catalog_name}`.`default`"""
 
