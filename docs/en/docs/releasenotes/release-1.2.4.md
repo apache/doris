@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Release 1.2.4.1",
+    "title": "Release 1.2.4",
     "language": "en"
 }
 ---

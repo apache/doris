@@ -117,6 +117,7 @@
                     "items": [
                         "data-operate/update-delete/batch-delete-manual",
                         "data-operate/update-delete/update",
+                        "data-operate/update-delete/partial-update",
                         "data-operate/update-delete/delete-manual",
                         "data-operate/update-delete/sequence-column-manual"
                     ]
@@ -1284,10 +1285,13 @@
             "type": "category",
             "label": "Release notes",
             "items": [
-                "releasenotes/release-2.0-beta",
-                "releasenotes/release-2.0.0Alpha1",
+                "releasenotes/release-2.0.2",
+                "releasenotes/release-2.0.1",
+                "releasenotes/release-2.0.0",
+                "releasenotes/release-1.2.7",
+                "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",
-                "releasenotes/release-1.2.4.1",
+                "releasenotes/release-1.2.4",
                 "releasenotes/release-1.2.3",
                 "releasenotes/release-1.2.2",
                 "releasenotes/release-1.2.1",
