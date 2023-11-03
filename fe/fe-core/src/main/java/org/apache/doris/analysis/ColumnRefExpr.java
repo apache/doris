@@ -26,6 +26,8 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Optional;
+
 public class ColumnRefExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(ColumnRefExpr.class);
     private String columnName;
@@ -56,7 +58,10 @@ public class ColumnRefExpr extends Expr {
 
     @Override
     protected String getExprName() {
-        return Utils.normalizeName(getName(), DEFAULT_EXPR_NAME);
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPR_NAME));
+        }
+        return this.exprName.get();
     }
 
     public void setName(String name) {

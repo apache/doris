@@ -41,6 +41,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * All data type literal expression in Nereids.
@@ -132,8 +133,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     }
 
     @Override
-    public String getExpressionName() {
-        return "literal";
+    protected String getExpressionName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of("literal");
+        }
+        return this.exprName.get();
     }
 
     @Override

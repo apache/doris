@@ -27,6 +27,7 @@ import com.google.common.base.Suppliers;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -56,8 +57,11 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     }
 
     @Override
-    public String getExpressionName() {
-        return Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME);
+    protected String getExpressionName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
+        }
+        return this.exprName.get();
     }
 
     public FunctionSignature getSignature() {

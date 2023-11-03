@@ -36,6 +36,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Optional;
 
 public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr> {
     private static final Logger LOG = LogManager.getLogger(LiteralExpr.class);
@@ -366,7 +367,10 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
 
     @Override
     protected String getExprName() {
-        return "literal";
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of("literal");
+        }
+        return this.exprName.get();
     }
 
     // Port from mysql get_param_length

@@ -28,6 +28,7 @@ import com.google.common.base.Joiner;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -62,8 +63,11 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     }
 
     @Override
-    public String getExpressionName() {
-        return Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME);
+    protected String getExpressionName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
+        }
+        return this.exprName.get();
     }
 
     public String getDbName() {
