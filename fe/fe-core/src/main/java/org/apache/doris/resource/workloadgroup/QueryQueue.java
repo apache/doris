@@ -38,8 +38,19 @@ public class QueryQueue {
     private int maxQueueSize;
     private int queueTimeout; // ms
     // running property
-    private int currentRunningQueryNum;
-    private int currentWaitingQueryNum;
+    private volatile int currentRunningQueryNum;
+    private volatile int currentWaitingQueryNum;
+
+    public static final String RUNNING_QUERY_NUM = "running_query_num";
+    public static final String WAITING_QUERY_NUM = "waiting_query_num";
+
+    int getCurrentRunningQueryNum() {
+        return currentRunningQueryNum;
+    }
+
+    int getCurrentWaitingQueryNum() {
+        return currentWaitingQueryNum;
+    }
 
     public QueryQueue(int maxConcurrency, int maxQueueSize, int queueTimeout) {
         this.maxConcurrency = maxConcurrency;

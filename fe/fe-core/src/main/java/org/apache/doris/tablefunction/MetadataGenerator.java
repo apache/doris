@@ -352,11 +352,17 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         for (List<String> rGroupsInfo : workloadGroupsInfo) {
             TRow trow = new TRow();
-            Long id = Long.valueOf(rGroupsInfo.get(0));
-            trow.addToColumnValue(new TCell().setLongVal(id));
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(1)));
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(2)));
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(3)));
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(0))));  // id
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(1)));             // name
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(2)))); // cpu_share
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(3)));             // mem_limit
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(4)));             //mem overcommit
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(5)))); // max concurrent
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(6)))); // max queue size
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(7)))); // queue timeout
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(8)));             // cpu hard limit
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(9)))); // running query num
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(10)))); // waiting query num
             dataBatch.add(trow);
         }
 
