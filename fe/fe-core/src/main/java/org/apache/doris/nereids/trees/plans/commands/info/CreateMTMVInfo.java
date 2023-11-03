@@ -17,18 +17,38 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.CreateMTMVStmt;
+import org.apache.doris.analysis.KeysDesc;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 /**
  * MTMV info in creating MTMV.
@@ -76,7 +96,116 @@ public class CreateMTMVInfo {
      * analyze create table info
      */
     public void analyze(ConnectContext ctx) {
+        // analyze table name
+        mvName.analyze(ctx);
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getDb(),
+                mvName.getTbl(), PrivPredicate.CREATE)) {
+            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("CREATE",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    mvName.getDb() + ": " + mvName.getTbl());
+            throw new AnalysisException(message);
+        }
+        analyzeProperties();
+        analyzeQuery(ctx);
+        // analyze column
+        final boolean finalEnableMergeOnWrite = false;
+        Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        keysSet.addAll(keys);
+        columns.forEach(c -> c.validate(keysSet, finalEnableMergeOnWrite, KeysType.DUP_KEYS));
 
+        if (distribution == null) {
+            throw new AnalysisException("Create MTMV should contain distribution desc");
+        }
+
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+
+        // analyze distribute
+        Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        columns.forEach(c -> columnMap.put(c.getName(), c));
+        distribution.updateCols(columns.get(0).getName());
+        distribution.validate(columnMap, KeysType.DUP_KEYS);
+        refreshInfo.validate();
+
+        analyzeProperties();
+    }
+
+    private void analyzeProperties() {
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD)) {
+            String gracePeriod = properties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD);
+            try {
+                Long.parseLong(gracePeriod);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException(
+                        "valid grace_period: " + properties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD));
+            }
+            mvProperties.put(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD, gracePeriod);
+            properties.remove(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD);
+        }
+    }
+
+    /**
+     * analyzeQuery
+     */
+    public void analyzeQuery(ConnectContext ctx) {
+        // create table as select
+        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        Plan plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
+        analyzeBaseTables(plan);
+        analyzeExpressions(plan);
+        getColumns(plan);
+    }
+
+    private void analyzeBaseTables(Plan plan) {
+        // TODO: 2023/11/3 check if has mtmv
+        return;
+    }
+
+    private void analyzeExpressions(Plan plan) {
+        // TODO: 2023/11/3 check if has mtmv
+        return;
+    }
+
+    private void getColumns(Plan plan) {
+        List<Slot> slots = plan.getOutput();
+        if (slots.isEmpty()) {
+            throw new AnalysisException("table should contain at least one column");
+        }
+        if (simpleColumnDefinitions != null && simpleColumnDefinitions.size() != slots.size()) {
+            throw new AnalysisException("simpleColumnDefinitions size is not equal to the query's");
+        }
+        Set<String> colNames = Sets.newHashSet();
+        for (int i = 0; i < slots.size(); i++) {
+            String colName = simpleColumnDefinitions == null ? slots.get(i).getName()
+                    : simpleColumnDefinitions.get(i).getName();
+            try {
+                FeNameFormat.checkColumnName(colName);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage());
+            }
+            if (colNames.contains(colName)) {
+                throw new AnalysisException("repeat cols:" + colName);
+            } else {
+                colNames.add(colName);
+            }
+            columns.add(new ColumnDefinition(
+                    colName, slots.get(i).getDataType(), true,
+                    simpleColumnDefinitions == null ? null : simpleColumnDefinitions.get(i).getComment()));
+        }
+    }
+
+    /**
+     * translate to catalog CreateMultiTableMaterializedViewStmt
+     */
+    public CreateMTMVStmt translateToLegacyStmt() {
+        TableName tableName = mvName.transferToTableName();
+        KeysDesc keysDesc = new KeysDesc(KeysType.DUP_KEYS, keys);
+        List<Column> catalogColumns = columns.stream()
+                .map(ColumnDefinition::translateToCatalogStyle)
+                .collect(Collectors.toList());
+        return new CreateMTMVStmt(ifNotExists, tableName, catalogColumns, refreshInfo, keysDesc,
+                distribution.translateToCatalogStyle(), properties, mvProperties, querySql, comment, envInfo);
     }
 
 }

@@ -79,6 +79,10 @@ public class ColumnDefinition {
         this(name, type, false, null, isNullable, Optional.empty(), "");
     }
 
+    public ColumnDefinition(String name, DataType type, boolean isNullable, String comment) {
+        this(name, type, false, null, isNullable, Optional.empty(), comment);
+    }
+
     public String getName() {
         return name;
     }

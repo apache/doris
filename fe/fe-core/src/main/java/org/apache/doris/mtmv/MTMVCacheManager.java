@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -29,13 +30,23 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -112,9 +123,22 @@ public class MTMVCacheManager implements MTMVHookService {
         return false;
     }
 
-    private MTMVCache generateMTMVCache(MTMV materializedView) {
+    private MTMVCache generateMTMVCache(MTMV mtmv) {
         // TODO: 2023/10/26 implement this method when transparently rewriting
         return new MTMVCache(Sets.newHashSet(), Sets.newHashSet());
+    }
+
+    private Plan getPlanBySql(String sql) {
+        List<StatementBase> statements;
+        try {
+            statements = new NereidsParser().parseSQL(sql);
+        } catch (Exception e) {
+            throw new ParseException("Nereids parse failed. " + e.getMessage());
+        }
+        StatementBase parsedStmt = statements.get(0);
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        NereidsPlanner planner = new NereidsPlanner(new StatementContext());
+        return planner.plan(logicalPlan, PhysicalProperties.ANY, ExplainLevel.NONE);
     }
 
     private Set<MTMV> getOrCreateMTMVs(BaseTableInfo baseTableInfo) {
