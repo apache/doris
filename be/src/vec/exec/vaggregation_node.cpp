@@ -41,7 +41,6 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_map_context_creator.h"
-#include "vec/common/hash_table/hash_table_utils.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/hash_table/string_hash_table.h"
 #include "vec/common/string_buffer.hpp"
