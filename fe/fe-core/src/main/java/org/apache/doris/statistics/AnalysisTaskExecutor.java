@@ -87,7 +87,7 @@ public class AnalysisTaskExecutor extends Thread {
                 taskWrapper.cancel(e.getMessage());
             }
         } catch (Throwable throwable) {
-            LOG.warn(throwable);
+            LOG.warn("cancel analysis task failed", throwable);
         }
     }
 

@@ -430,7 +430,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
-    public static final String INSERT_MERGE_ITEM_COUNT = "insert_merge_item_count";
+    public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -1279,8 +1279,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public String ignoreRuntimeFilterIds = "";
 
-    @VariableMgr.VarAttr(name = INSERT_MERGE_ITEM_COUNT, flag = VariableMgr.GLOBAL)
-    public int insertMergeItemCount = 200;
+    @VariableMgr.VarAttr(name = STATS_INSERT_MERGE_ITEM_COUNT, flag = VariableMgr.GLOBAL, description = {
+            "控制统计信息相关INSERT攒批数量", "Controls the batch size for stats INSERT merging."
+    }
+    )
+    public int statsInsertMergeItemCount = 200;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 

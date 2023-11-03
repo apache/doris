@@ -865,7 +865,8 @@ public class StatisticsUtil {
 
     public static int getInsertMergeCount() {
         try {
-            return findConfigFromGlobalSessionVar(SessionVariable.INSERT_MERGE_ITEM_COUNT).insertMergeItemCount;
+            return findConfigFromGlobalSessionVar(SessionVariable.STATS_INSERT_MERGE_ITEM_COUNT)
+                    .statsInsertMergeItemCount;
         } catch (Exception e) {
             LOG.warn("Failed to get value of insert_merge_item_count, return default", e);
         }
