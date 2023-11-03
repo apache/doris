@@ -14,13 +14,19 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Common/HashTable/HashTable.h
-// and modified by Doris
 
-#pragma once
+package org.apache.doris.catalog;
 
-template <typename T>
-struct HashTableTraits {
-    static constexpr bool is_phmap = false;
-};
+import org.apache.doris.common.io.Text;
+
+import java.io.DataInput;
+import java.io.IOException;
+
+public class MTMV extends OlapTable {
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        super.readFields(in);
+        Text.readString(in);
+    }
+}
