@@ -627,9 +627,6 @@ ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType&
             return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType>(value, 0, scale);
         }
 
-        if constexpr (std::is_same_v<FromFieldType, Int256>) {
-            return convert_decimals<DataTypeDecimal<Decimal256>, ToDataType>(value, 0, scale);
-        }
         return convert_decimals<DataTypeDecimal<Decimal64>, ToDataType>(value, 0, scale);
     }
 }
