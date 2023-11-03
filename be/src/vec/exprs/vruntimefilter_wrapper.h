@@ -45,14 +45,12 @@ class VRuntimeFilterWrapper final : public VExpr {
 
 public:
     VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl);
-    VRuntimeFilterWrapper(const VRuntimeFilterWrapper& vexpr);
     ~VRuntimeFilterWrapper() override = default;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
     std::string debug_string() const override { return _impl->debug_string(); }
-    bool is_constant() const override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }
