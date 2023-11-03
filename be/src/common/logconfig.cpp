@@ -162,7 +162,7 @@ void update_logging(const std::string& field, const std::string& value) {
         } else if (iequals(value, "FATAL")) {
             FLAGS_minloglevel = 3;
         } else {
-            LOG(WARNING) << "update sys_log_level failed, need to be INFO, WARNING, ERROR, FATAL"
+            LOG(WARNING) << "update sys_log_level failed, need to be INFO, WARNING, ERROR, FATAL";
         }
     }
 }
