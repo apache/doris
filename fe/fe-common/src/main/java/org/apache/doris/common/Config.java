@@ -1164,6 +1164,15 @@ public class Config extends ConfigBase {
     public static int decommission_tablet_check_threshold = 5000;
 
     /**
+     * Decommission a tablet need to wait all the previous txns finished.
+     * If wait timeout, decommission will fail.
+     * Need to increase this wait time if the txn take a long time.
+     *
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int decommission_tablet_wait_time_seconds = 3600;
+
+    /**
      * Define thrift server's server model, default is TThreadPoolServer model
      */
     @ConfField
