@@ -52,7 +52,7 @@ testSuites = ""
 testDirectories = ""
 
 // this groups will not be executed
-excludeGroups = "p0/http_stream"
+excludeGroups = "load_p0/http_stream"
 // this suites will not be executed
 
 excludeSuites =
