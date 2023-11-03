@@ -324,5 +324,10 @@ suite("cte") {
         ) tab
         WHERE Id IN (1, 2)
     """
+
+    // rewrite cte children should work well with cost based rewrite rule. rely on rewrite rule: InferSetOperatorDistinct
+    sql """
+        WITH cte_0 AS ( SELECT 1 AS a ), cte_1 AS ( SELECT 1 AS a ) select * from cte_0, cte_1 union select * from cte_0, cte_1
+    """
 }
 
