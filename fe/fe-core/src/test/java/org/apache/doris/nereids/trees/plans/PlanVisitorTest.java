@@ -24,8 +24,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.trees.plans.visitor.PlanVisitors;
-import org.apache.doris.nereids.trees.plans.visitor.PlanVisitors.TableCollectorContext;
+import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
+import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
+import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -90,14 +91,13 @@ public class PlanVisitorTest extends TestWithFeService {
                             PhysicalPlan physicalPlan = nereidsPlanner.getPhysicalPlan();
                             List<TreeNode<Expression>> collectResult = new ArrayList<>();
                             // Check nondeterministic collect
-                            physicalPlan.accept(PlanVisitors.NONDETERMINISTIC_FUNCTION_COLLECTOR,
-                                    collectResult);
+                            physicalPlan.accept(NondeterministicFunctionCollector.INSTANCE, collectResult);
                             Assertions.assertEquals(1, collectResult.size());
                             Assertions.assertTrue(collectResult.get(0) instanceof Now);
                             // Check get tables
                             TableCollectorContext collectorContext =
-                                    new PlanVisitors.TableCollectorContext(Sets.newHashSet(TableType.OLAP));
-                            physicalPlan.accept(PlanVisitors.TABLE_COLLECTOR, collectorContext);
+                                    new TableCollector.TableCollectorContext(Sets.newHashSet(TableType.OLAP));
+                            physicalPlan.accept(TableCollector.INSTANCE, collectorContext);
                             Assertions.assertEquals(3, collectorContext.getCollectedTables().size());
                             List<String> expectedTables = new ArrayList<>();
                             expectedTables.add("table1");
@@ -121,15 +121,14 @@ public class PlanVisitorTest extends TestWithFeService {
                             PhysicalPlan physicalPlan = nereidsPlanner.getPhysicalPlan();
                             List<TreeNode<Expression>> collectResult = new ArrayList<>();
                             // Check nondeterministic collect
-                            physicalPlan.accept(PlanVisitors.NONDETERMINISTIC_FUNCTION_COLLECTOR,
-                                    collectResult);
+                            physicalPlan.accept(NondeterministicFunctionCollector.INSTANCE, collectResult);
                             Assertions.assertEquals(2, collectResult.size());
                             Assertions.assertTrue(collectResult.get(0) instanceof Now);
                             Assertions.assertTrue(collectResult.get(1) instanceof CurrentDate);
                             // Check get tables
                             TableCollectorContext collectorContext =
-                                    new PlanVisitors.TableCollectorContext(Sets.newHashSet(TableType.OLAP));
-                            physicalPlan.accept(PlanVisitors.TABLE_COLLECTOR, collectorContext);
+                                    new TableCollector.TableCollectorContext(Sets.newHashSet(TableType.OLAP));
+                            physicalPlan.accept(TableCollector.INSTANCE, collectorContext);
                             Assertions.assertEquals(4, collectorContext.getCollectedTables().size());
                             List<String> expectedTables = new ArrayList<>();
                             expectedTables.add("table1");
