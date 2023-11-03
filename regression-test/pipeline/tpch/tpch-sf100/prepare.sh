@@ -5,7 +5,7 @@
 #!/bin/bash
 
 teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
-if [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/prepare.sh ]]; then
+if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/tpch/tpch-sf100/prepare.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/
     bash -x prepare.sh
 else
