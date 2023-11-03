@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
@@ -862,6 +863,7 @@ public class SelectStmtTest {
 
     @Test
     public void testSelectSampleHashBucketTable() throws Exception {
+        FeConstants.runningUnitTest = true;
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("table1");
         long tabletId = 10031L;
@@ -894,7 +896,7 @@ public class SelectStmtTest {
         String sql4 = "SELECT * FROM db1.table1 TABLESAMPLE(9500 ROWS)";
         OriginalPlanner planner4 = (OriginalPlanner) dorisAssert.query(sql4).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds4 = ((OlapScanNode) planner4.getScanNodes().get(0)).getSampleTabletIds();
-        Assert.assertEquals(0, sampleTabletIds4.size()); // no sample, all tablet
+        Assert.assertEquals(10, sampleTabletIds4.size());
 
         String sql5 = "SELECT * FROM db1.table1 TABLESAMPLE(11000 ROWS)";
         OriginalPlanner planner5 = (OriginalPlanner) dorisAssert.query(sql5).internalExecuteOneAndGetPlan();
@@ -963,10 +965,12 @@ public class SelectStmtTest {
         OriginalPlanner planner16 = (OriginalPlanner) dorisAssert.query(sql16).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds16 = ((OlapScanNode) planner16.getScanNodes().get(0)).getSampleTabletIds();
         Assert.assertEquals(1, sampleTabletIds16.size());
+        FeConstants.runningUnitTest = false;
     }
 
     @Test
     public void testSelectSampleRandomBucketTable() throws Exception {
+        FeConstants.runningUnitTest = true;
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("table3");
         long tabletId = 10031L;
@@ -999,7 +1003,7 @@ public class SelectStmtTest {
         String sql4 = "SELECT * FROM db1.table3 TABLESAMPLE(9500 ROWS)";
         OriginalPlanner planner4 = (OriginalPlanner) dorisAssert.query(sql4).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds4 = ((OlapScanNode) planner4.getScanNodes().get(0)).getSampleTabletIds();
-        Assert.assertEquals(0, sampleTabletIds4.size()); // no sample, all tablet
+        Assert.assertEquals(10, sampleTabletIds4.size());
 
         String sql5 = "SELECT * FROM db1.table3 TABLESAMPLE(11000 ROWS)";
         OriginalPlanner planner5 = (OriginalPlanner) dorisAssert.query(sql5).internalExecuteOneAndGetPlan();
@@ -1068,6 +1072,7 @@ public class SelectStmtTest {
         OriginalPlanner planner16 = (OriginalPlanner) dorisAssert.query(sql16).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds16 = ((OlapScanNode) planner16.getScanNodes().get(0)).getSampleTabletIds();
         Assert.assertEquals(1, sampleTabletIds16.size());
+        FeConstants.runningUnitTest = false;
     }
 
 
