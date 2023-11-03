@@ -279,7 +279,6 @@ public class LoadAction extends RestBaseController {
         String authToken = request.getHeader("token");
 
         if (Strings.isNullOrEmpty(authToken)) {
-            LOG.warn("Failed to check cluster token.");
             return false;
         }
 
