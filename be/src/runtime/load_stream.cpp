@@ -441,6 +441,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
                                                  hdr.tablets_to_commit().end());
         auto st = close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablet_ids);
         _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
+        LOG(INFO) << "close load on stream " << id;
         brpc::StreamClose(id);
     } break;
     default:
@@ -450,6 +451,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
 }
 
 void LoadStream::on_idle_timeout(StreamId id) {
+    LOG(INFO) << "idle timeout on stream " << id;
     brpc::StreamClose(id);
 }
 

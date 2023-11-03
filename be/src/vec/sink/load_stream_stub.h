@@ -143,9 +143,9 @@ public:
 #ifdef BE_TEST
     virtual
 #endif
-            ~LoadStreamStub();
+    ~LoadStreamStub();
 
-    void prepare() { ++_use_cnt; };
+    void prepare();
 
     // open_load_stream
     Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
@@ -157,9 +157,8 @@ public:
 #ifdef BE_TEST
     virtual
 #endif
-            // APPEND_DATA
-            Status
-            append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
+     // APPEND_DATA
+     Status append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                         int64_t segment_id, std::span<const Slice> data, bool segment_eos = false);
 
     // ADD_SEGMENT

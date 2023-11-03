@@ -84,13 +84,15 @@ void LoadStreamStub::LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
 }
 
 LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id)
-        : _load_id(load_id),
+        : _is_init(false),
+          _load_id(load_id),
           _src_id(src_id),
           _tablet_schema_for_index(std::make_shared<IndexToTabletSchema>()),
           _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()) {};
 
 LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
-        : _load_id(stub._load_id),
+        : _is_init(stub._is_init),
+          _load_id(stub._load_id),
           _src_id(stub._src_id),
           _tablet_schema_for_index(stub._tablet_schema_for_index),
           _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {};
@@ -99,6 +101,14 @@ LoadStreamStub::~LoadStreamStub() {
     if (_is_init.load() && !_handler.is_closed()) {
         brpc::StreamClose(_stream_id);
     }
+}
+
+void LoadStreamStub::prepare(); {
+    if (_is_init) {
+        LOG(WARNING) << "stream " << _stream_id << "is already inited";
+        return Status::InternalError("stream {} is already inited", _stream_id);
+    }
+    ++_use_cnt;
 }
 
 // open_load_stream
