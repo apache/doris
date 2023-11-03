@@ -144,8 +144,6 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _probe_ignore_null |= !probe_not_ignore_null[i];
     }
 
-    _probe_column_disguise_null.reserve(eq_join_conjuncts.size());
-
     if (tnode.hash_join_node.__isset.other_join_conjuncts &&
         !tnode.hash_join_node.other_join_conjuncts.empty()) {
         RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.hash_join_node.other_join_conjuncts,
@@ -596,15 +594,6 @@ void HashJoinNode::_add_tuple_is_null_column(Block* block) {
 }
 
 void HashJoinNode::_prepare_probe_block() {
-    // clear_column_data of _probe_block
-    if (!_probe_column_disguise_null.empty()) {
-        for (int i = 0; i < _probe_column_disguise_null.size(); ++i) {
-            auto column_to_erase = _probe_column_disguise_null[i];
-            _probe_block.erase(column_to_erase - i);
-        }
-        _probe_column_disguise_null.clear();
-    }
-
     // remove add nullmap of probe columns
     for (auto index : _probe_column_convert_to_null) {
         auto& column_type = _probe_block.safe_get_by_position(index);

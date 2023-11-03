@@ -420,7 +420,6 @@ private:
     // mark the build hash table whether it needs to store null value
     std::vector<bool> _store_null_in_hash_table;
 
-    std::vector<uint16_t> _probe_column_disguise_null;
     std::vector<uint16_t> _probe_column_convert_to_null;
 
     DataTypes _right_table_data_types;

@@ -45,7 +45,6 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
         RETURN_IF_ERROR(p._other_join_conjuncts[i]->clone(state, _other_join_conjuncts[i]));
     }
     _construct_mutable_join_block();
-    _probe_column_disguise_null.reserve(_probe_expr_ctxs.size());
     _probe_arena_memory_usage =
             profile()->AddHighWaterMarkCounter("ProbeKeyArena", TUnit::BYTES, "MemoryUsage");
     // Probe phase
@@ -196,15 +195,6 @@ void HashJoinProbeLocalState::add_tuple_is_null_column(vectorized::Block* block)
 }
 
 void HashJoinProbeLocalState::_prepare_probe_block() {
-    // clear_column_data of _probe_block
-    if (!_probe_column_disguise_null.empty()) {
-        for (int i = 0; i < _probe_column_disguise_null.size(); ++i) {
-            auto column_to_erase = _probe_column_disguise_null[i];
-            _probe_block.erase(column_to_erase - i);
-        }
-        _probe_column_disguise_null.clear();
-    }
-
     // remove add nullmap of probe columns
     for (auto index : _probe_column_convert_to_null) {
         auto& column_type = _probe_block.safe_get_by_position(index);

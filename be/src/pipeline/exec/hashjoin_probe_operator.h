@@ -111,7 +111,6 @@ private:
     vectorized::VExprContextSPtrs _other_join_conjuncts;
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
-    std::vector<uint16_t> _probe_column_disguise_null;
     std::vector<uint16_t> _probe_column_convert_to_null;
 
     bool _need_null_map_for_probe = false;
