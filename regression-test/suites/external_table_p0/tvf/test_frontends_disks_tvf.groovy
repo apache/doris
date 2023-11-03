@@ -46,4 +46,13 @@ suite("test_frontends_disks_tvf") {
             DirType, Dir, Filesystem, Capacity, Used
             Available, UseRate, MountOn from frontends_disks();
     """
+
+    // test exception
+    test {
+        sql """ select * from frontends_disks("Host" = "127.0.0.1"); """
+        
+        // check exception
+        exception "frontends_disks table-valued-function does not support any params"
+    }
+
 }
