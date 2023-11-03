@@ -75,7 +75,7 @@ public class PatternDescriptor<INPUT_TYPE extends Plan> {
             try {
                 return matchedAction.apply(ctx);
             } catch (Exception ex) {
-                LOG.warn("nereids apply rule failed, because {}", ex.getMessage());
+                LOG.warn("nereids apply rule failed, because {}", ex.getMessage(), ex);
                 return null;
             }
         };
