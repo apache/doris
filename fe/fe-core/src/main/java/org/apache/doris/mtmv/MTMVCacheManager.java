@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -127,7 +128,7 @@ public class MTMVCacheManager implements MTMVHookService {
     }
 
     private MTMVCache generateMTMVCache(MTMV mtmv) {
-        Plan plan = getPlanBySql(mtmv.getQuerySql());
+        Plan plan = getPlanBySql(mtmv);
         return new MTMVCache(getBaseTables(plan), getBaseViews(plan));
     }
 
@@ -157,25 +158,32 @@ public class MTMVCacheManager implements MTMVHookService {
         return result;
     }
 
-    private Plan getPlanBySql(String sql) {
+    private Plan getPlanBySql(MTMV mtmv) {
         List<StatementBase> statements;
         try {
-            statements = new NereidsParser().parseSQL(sql);
+            statements = new NereidsParser().parseSQL(mtmv.getQuerySql());
         } catch (Exception e) {
             throw new ParseException("Nereids parse failed. " + e.getMessage());
         }
         StatementBase parsedStmt = statements.get(0);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setDatabase(mtmv.getEnvInfo().getDbName());
+        ctx.changeDefaultCatalog(mtmv.getEnvInfo().getDbName());
+        ctx.setQualifiedUser(mtmv.getEnvInfo().getCtlName());
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        ctx.getState().reset();
+        ctx.setThreadLocalInfo();
         NereidsPlanner planner = new NereidsPlanner(new StatementContext());
         return planner.plan(logicalPlan, PhysicalProperties.ANY, ExplainLevel.NONE);
     }
 
     private Set<MTMV> getOrCreateMTMVs(BaseTableInfo baseTableInfo) {
-        if (tableMTMVs.containsKey(baseTableInfo)) {
-            return tableMTMVs.get(baseTableInfo);
-        } else {
-            return tableMTMVs.put(baseTableInfo, Sets.newConcurrentHashSet());
+        if (!tableMTMVs.containsKey(baseTableInfo)) {
+            tableMTMVs.put(baseTableInfo, Sets.newConcurrentHashSet());
         }
+        return tableMTMVs.get(baseTableInfo);
     }
 
     @Override

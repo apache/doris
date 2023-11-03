@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
@@ -160,9 +161,9 @@ public class CreateMTMVInfo {
     public void analyzeQuery(ConnectContext ctx) {
         // create table as select
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        Plan plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
+        Plan plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
         analyzeBaseTables(plan);
-        analyzeExpressions(planner);
+        analyzeExpressions((PhysicalPlan) plan);
         getColumns(plan);
     }
 
@@ -176,9 +177,9 @@ public class CreateMTMVInfo {
         }
     }
 
-    private void analyzeExpressions(NereidsPlanner planner) {
+    private void analyzeExpressions(PhysicalPlan plan) {
         List<TreeNode<Expression>> functionCollectResult = new ArrayList<>();
-        planner.getPhysicalPlan().accept(NondeterministicFunctionCollector.INSTANCE, functionCollectResult);
+        plan.accept(NondeterministicFunctionCollector.INSTANCE, functionCollectResult);
         if (!CollectionUtils.isEmpty(functionCollectResult)) {
             throw new AnalysisException("can not contain invalid expression");
         }
@@ -189,12 +190,12 @@ public class CreateMTMVInfo {
         if (slots.isEmpty()) {
             throw new AnalysisException("table should contain at least one column");
         }
-        if (simpleColumnDefinitions != null && simpleColumnDefinitions.size() != slots.size()) {
+        if (!CollectionUtils.isEmpty(simpleColumnDefinitions) && simpleColumnDefinitions.size() != slots.size()) {
             throw new AnalysisException("simpleColumnDefinitions size is not equal to the query's");
         }
         Set<String> colNames = Sets.newHashSet();
         for (int i = 0; i < slots.size(); i++) {
-            String colName = simpleColumnDefinitions == null ? slots.get(i).getName()
+            String colName = CollectionUtils.isEmpty(simpleColumnDefinitions) ? slots.get(i).getName()
                     : simpleColumnDefinitions.get(i).getName();
             try {
                 FeNameFormat.checkColumnName(colName);
@@ -208,7 +209,8 @@ public class CreateMTMVInfo {
             }
             columns.add(new ColumnDefinition(
                     colName, slots.get(i).getDataType(), true,
-                    simpleColumnDefinitions == null ? null : simpleColumnDefinitions.get(i).getComment()));
+                    CollectionUtils.isEmpty(simpleColumnDefinitions) ? null
+                            : simpleColumnDefinitions.get(i).getComment()));
         }
     }
 

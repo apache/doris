@@ -41,7 +41,7 @@ public class MTMVService {
     private MTMVJobManager jobManager = new MTMVJobManager();
 
     public MTMVService() {
-        registerHook("MTMVCacheManager", cacheManager);
+//        registerHook("MTMVCacheManager", cacheManager);
         registerHook("MTMVJobManager", jobManager);
     }
 

@@ -31,6 +31,8 @@ import org.apache.doris.mtmv.MTMVTaskResult;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -39,6 +41,8 @@ import java.util.Map;
 
 
 public class MTMV extends OlapTable {
+    private static final Logger LOG = LogManager.getLogger(MTMV.class);
+
     @SerializedName("ri")
     private MTMVRefreshInfo refreshInfo;
     @SerializedName("qs")
@@ -155,7 +159,13 @@ public class MTMV extends OlapTable {
         envInfo = materializedView.envInfo;
         jobInfo = materializedView.jobInfo;
         mvProperties = materializedView.mvProperties;
-        Env.getCurrentEnv().getMtmvService().registerMTMV(this);
+        try {
+            Env.getCurrentEnv().getMtmvService().registerMTMV(this);
+        } catch (Exception e) {
+            LOG.warn("read MTMV failed: " + name);
+            e.printStackTrace();
+        }
+
     }
 
 }

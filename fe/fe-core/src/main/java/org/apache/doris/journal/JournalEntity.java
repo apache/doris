@@ -58,6 +58,7 @@ import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
@@ -870,6 +871,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DELETE_TABLE_STATS: {
                 data = TableStatsDeletionLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_MTMV: {
+                data = AlterMTMV.read(in);
                 isRead = true;
                 break;
             }

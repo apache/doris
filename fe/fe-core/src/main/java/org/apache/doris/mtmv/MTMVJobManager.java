@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.constants.JobCategory;
+import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.constants.JobType;
 import org.apache.doris.scheduler.job.Job;
 
@@ -56,6 +57,7 @@ public class MTMVJobManager implements MTMVHookService {
         Job job = new Job();
         job.setJobType(JobType.MANUAL);
         job.setBaseName(mtmv.getId() + "");
+        job.setJobStatus(JobStatus.RUNNING);
         job.setDbName(ConnectContext.get().getDatabase());
         job.setJobName(mtmv.getJobInfo().getJobName());
         job.setExecutor(generateJobExecutor(mtmv));
@@ -70,6 +72,7 @@ public class MTMVJobManager implements MTMVHookService {
         Job job = new Job();
         job.setJobType(JobType.RECURRING);
         job.setBaseName(mtmv.getId() + "");
+        job.setJobStatus(JobStatus.RUNNING);
         job.setDbName(ConnectContext.get().getDatabase());
         job.setJobName(mtmv.getJobInfo().getJobName());
         job.setExecutor(generateJobExecutor(mtmv));
@@ -91,7 +94,12 @@ public class MTMVJobManager implements MTMVHookService {
 
     @Override
     public void dropMTMV(MTMV mtmv) throws DdlException {
-        Env.getCurrentEnv().getJobRegister().stopJob(null, mtmv.getJobInfo().getJobName(), null);
+        List<Job> jobs = Env.getCurrentEnv().getJobRegister()
+                .getJobs(null, mtmv.getJobInfo().getJobName(), JobCategory.MTMV, null);
+        if (!CollectionUtils.isEmpty(jobs)) {
+            Env.getCurrentEnv().getJobRegister()
+                    .stopJob(jobs.get(0).getDbName(), mtmv.getJobInfo().getJobName(), jobs.get(0).getJobCategory());
+        }
     }
 
     @Override

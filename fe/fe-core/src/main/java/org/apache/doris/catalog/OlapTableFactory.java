@@ -54,7 +54,9 @@ public class OlapTableFactory {
     private BuildParams params;
 
     public static TableType getTableType(DdlStmt stmt) {
-        if (stmt instanceof CreateTableStmt) {
+        if (stmt instanceof CreateMTMVStmt) {
+            return TableType.MATERIALIZED_VIEW;
+        } else if (stmt instanceof CreateTableStmt) {
             return TableType.OLAP;
         } else {
             throw new IllegalArgumentException("Invalid DDL statement: " + stmt.toSql());
@@ -62,22 +64,28 @@ public class OlapTableFactory {
     }
 
     public OlapTableFactory init(TableType type) {
-        params = new OlapTableParams();
+        params = (type == TableType.OLAP) ? new OlapTableParams() : new MTMVParams();
         return this;
     }
 
     public Table build() {
         Preconditions.checkNotNull(params, "The factory isn't initialized.");
-        OlapTableParams olapTableParams = (OlapTableParams) params;
-        return new OlapTable(
-                olapTableParams.tableId,
-                olapTableParams.tableName,
-                olapTableParams.schema,
-                olapTableParams.keysType,
-                olapTableParams.partitionInfo,
-                olapTableParams.distributionInfo,
-                olapTableParams.indexes
-        );
+
+        if (params instanceof OlapTableParams) {
+            OlapTableParams olapTableParams = (OlapTableParams) params;
+            return new OlapTable(
+                    olapTableParams.tableId,
+                    olapTableParams.tableName,
+                    olapTableParams.schema,
+                    olapTableParams.keysType,
+                    olapTableParams.partitionInfo,
+                    olapTableParams.distributionInfo,
+                    olapTableParams.indexes
+            );
+        } else {
+            MTMVParams mtmvParams = (MTMVParams) params;
+            return new MTMV(mtmvParams);
+        }
     }
 
     public OlapTableFactory withTableId(long tableId) {

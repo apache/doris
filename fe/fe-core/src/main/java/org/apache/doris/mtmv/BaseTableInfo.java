@@ -19,7 +19,6 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.datasource.CatalogIf;
 
 import com.google.common.base.Objects;
@@ -37,8 +36,7 @@ public class BaseTableInfo {
 
     public BaseTableInfo(String tableName, String dbName, String ctlName) {
         this.tableName = java.util.Objects.requireNonNull(tableName, "require tableName object");
-        this.dbName = ClusterNamespace
-                .getNameFromFullName(java.util.Objects.requireNonNull(dbName, "require dbName object"));
+        this.dbName = java.util.Objects.requireNonNull(dbName, "require dbName object");
         this.ctlName = java.util.Objects.requireNonNull(ctlName, "require ctlName object");
     }
 

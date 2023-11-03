@@ -242,6 +242,7 @@ public class TimerJobManager implements Closeable, Writable {
         }
         stopJob(optionalJob.get());
         Env.getCurrentEnv().getEditLog().logDeleteJob(optionalJob.get());
+        jobMap.remove(job.getJobId());
     }
 
     private void stopJob(Job job) {

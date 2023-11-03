@@ -929,7 +929,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             Env.getCurrentEnv().getMtmvService().dropTable(table);
         } catch (UserException e) {
-            throw new DdlException(e.getMessage());
+            throw new DdlException(e.getMessage(), e);
         } finally {
             db.writeUnlock();
         }
