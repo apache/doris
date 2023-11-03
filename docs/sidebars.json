@@ -1131,7 +1131,7 @@
                             "type": "category",
                             "label": "Operators",
                             "items": [
-                                "sql-manual/sql-reference/operators/in"
+                                "sql-manual/sql-reference/Operators/in"
                             ]
                         },
                         {
