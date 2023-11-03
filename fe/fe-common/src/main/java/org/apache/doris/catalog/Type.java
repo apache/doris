@@ -1871,6 +1871,38 @@ public abstract class Type {
         compatibilityMatrix[TIMEV2.ordinal()][IPV6.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TIMEV2.ordinal()][AGG_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
+        // IPV4
+        compatibilityMatrix[IPV4.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][VARIANT.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][DECIMAL256.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][IPV6.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][AGG_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
+
+        // IPV6
+        compatibilityMatrix[IPV6.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][VARIANT.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][DECIMAL256.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][IPV4.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][AGG_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
+
         // Check all of the necessary entries that should be filled.
         // ignore binary and all
         for (int i = 0; i < PrimitiveType.values().length - 2; ++i) {
@@ -2169,6 +2201,17 @@ public abstract class Type {
                     return false;
                 }
                 return matchExactType(((ArrayType) type2).getItemType(), ((ArrayType) type1).getItemType());
+            } else if (type2.isMapType()) {
+                // For types array, we also need to check contains null for case like
+                // cast(array<not_null(int)> as array<int>)
+                if (!((MapType) type2).getIsKeyContainsNull() == ((MapType) type1).getIsKeyContainsNull()) {
+                    return false;
+                }
+                if (!((MapType) type2).getIsValueContainsNull() == ((MapType) type1).getIsValueContainsNull()) {
+                    return false;
+                }
+                return matchExactType(((MapType) type2).getKeyType(), ((MapType) type1).getKeyType())
+                    && matchExactType(((MapType) type2).getValueType(), ((MapType) type1).getValueType());
             } else {
                 return true;
             }

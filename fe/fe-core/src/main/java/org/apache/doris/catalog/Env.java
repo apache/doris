@@ -2678,14 +2678,20 @@ public class Env {
                 throw new DdlException("frontend name already exists " + nodeName + ". Try again");
             }
 
-            fe = new Frontend(role, nodeName, host, editLogPort);
-            frontends.put(nodeName, fe);
             BDBHA bdbha = (BDBHA) haProtocol;
+            bdbha.removeConflictNodeIfExist(host, editLogPort);
+            int targetFollowerCount = getFollowerCount() + 1;
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
                 helperNodes.add(new HostInfo(host, editLogPort));
-                bdbha.addUnReadyElectableNode(nodeName, getFollowerCount());
+                bdbha.addUnReadyElectableNode(nodeName, targetFollowerCount);
             }
-            bdbha.removeConflictNodeIfExist(host, editLogPort);
+
+            // Only add frontend after removing the conflict nodes, to ensure the exception safety.
+            fe = new Frontend(role, nodeName, host, editLogPort);
+            frontends.put(nodeName, fe);
+
+            LOG.info("add frontend: {}", fe);
+
             editLog.logAddFrontend(fe);
         } finally {
             unlock();
@@ -2709,6 +2715,8 @@ public class Env {
             if (fe == null) {
                 throw new DdlException("frontend does not exist, nodeName:" + nodeName);
             }
+
+            LOG.info("modify frontend with new host: {}, exist frontend: {}", fe.getHost(), fe);
             boolean needLog = false;
             // we use hostname as address of bdbha, so we don't need to update node address when ip changed
             if (!Strings.isNullOrEmpty(destHost) && !destHost.equals(fe.getHost())) {
@@ -2743,15 +2751,22 @@ public class Env {
                 throw new DdlException(role.toString() + " does not exist[" + NetUtils
                         .getHostPortInAccessibleFormat(host, port) + "]");
             }
-            frontends.remove(fe.getNodeName());
-            removedFrontends.add(fe.getNodeName());
 
+            int targetFollowerCount = getFollowerCount() - 1;
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                 haProtocol.removeElectableNode(fe.getNodeName());
                 removeHelperNode(host, port);
                 BDBHA ha = (BDBHA) haProtocol;
-                ha.removeUnReadyElectableNode(fe.getNodeName(), getFollowerCount());
+                ha.removeUnReadyElectableNode(fe.getNodeName(), targetFollowerCount);
             }
+
+            LOG.info("remove frontend: {}", fe);
+
+            // Only remove frontend after removing the electable node success, to ensure the
+            // exception safety.
+            frontends.remove(fe.getNodeName());
+            removedFrontends.add(fe.getNodeName());
+
             editLog.logRemoveFrontend(fe);
         } finally {
             unlock();
@@ -3535,6 +3550,7 @@ public class Env {
                 }
                 return;
             }
+            LOG.info("replay add frontend: {}", fe);
             frontends.put(fe.getNodeName(), fe);
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
                 // DO NOT add helper sockets here, cause BDBHA is not instantiated yet.
@@ -3557,6 +3573,7 @@ public class Env {
                 return;
             }
             // modify fe in frontends
+            LOG.info("replay modify frontend with new host: {}, exist frontend: {}", fe.getHost(), existFe);
             existFe.setHost(fe.getHost());
         } finally {
             unlock();
@@ -3568,9 +3585,10 @@ public class Env {
         try {
             Frontend removedFe = frontends.remove(frontend.getNodeName());
             if (removedFe == null) {
-                LOG.error(frontend.toString() + " does not exist.");
+                LOG.error(frontend + " does not exist.");
                 return;
             }
+            LOG.info("replay drop frontend: {}", removedFe);
             if (removedFe.getRole() == FrontendNodeType.FOLLOWER || removedFe.getRole() == FrontendNodeType.REPLICA) {
                 removeHelperNode(removedFe.getHost(), removedFe.getEditLogPort());
             }
