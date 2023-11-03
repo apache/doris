@@ -253,7 +253,7 @@ suite("cte") {
                 ORDER BY dd.s_suppkey;
     """
 
-    sql "set experimental_enable_pipeline_engine=true"
+    sql "set enable_pipeline_engine=true"
 
     qt_cte14 """
             SELECT abs(dd.s_suppkey)
@@ -307,6 +307,11 @@ suite("cte") {
     }
 
     sql "WITH cte_0 AS ( SELECT 1 AS a ) SELECT * from cte_0 t1 LIMIT 10 UNION SELECT * from cte_0 t1 LIMIT 10"
+
+    qt_cte_with_repeat """
+        with cte_0 as (select lo_orderkey, lo_linenumber, grouping_id(lo_orderkey) as id from lineorder group by cube(lo_orderkey, lo_linenumber))
+        select * from cte_0 order by lo_orderkey, lo_linenumber, id
+    """
 
     qt_test """
         SELECT * FROM (
