@@ -52,7 +52,7 @@ public class StatisticProcNode implements ProcNodeInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        List<DBStatistic> statistics = env.getCatalogMgr().getDbIds().parallelStream()
+        List<DBStatistic> statistics = env.getInternalCatalog().getDbIds().parallelStream()
                 // skip information_schema database
                 .flatMap(id -> Stream.of(id == 0 ? null : env.getCatalogMgr().getDbNullable(id)))
                 .filter(Objects::nonNull).map(DBStatistic::new)
