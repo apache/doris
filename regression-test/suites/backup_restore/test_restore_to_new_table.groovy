@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_backup_restore", "backup_restore") {
-    String repoName = "test_backup_restore_repo"
-    String dbName = "backup_restore_db"
-    String tableName = "test_backup_restore_table"
+suite("test_restore_to_new_table", "backup_restore") {
+    String repoName = "test_restore_to_new_table_repo"
+    String dbName = "restore_to_new_table_db"
+    String tableName = "test_restore_to_new_table_table"
+    String snapshotName = "test_backup_restore_snapshot"
 
     def syncer = getSyncer()
     syncer.createS3Repository(repoName)
@@ -45,7 +46,6 @@ suite("test_backup_restore", "backup_restore") {
     def result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());
 
-    String snapshotName = "test_backup_restore_snapshot"
     sql """
         BACKUP SNAPSHOT ${dbName}.${snapshotName}
         TO `${repoName}`
@@ -59,7 +59,7 @@ suite("test_backup_restore", "backup_restore") {
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
-    sql "TRUNCATE TABLE ${dbName}.${tableName}"
+    sql "DROP TABLE ${dbName}.${tableName} FORCE"
 
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}

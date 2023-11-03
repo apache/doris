@@ -15,41 +15,48 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_backup_restore", "backup_restore") {
-    String repoName = "test_backup_restore_repo"
-    String dbName = "backup_restore_db"
-    String tableName = "test_backup_restore_table"
+suite("test_backup_restore_db", "backup_restore") {
+    String dbName = "backup_restore_db_1"
+    String suiteName = "test_backup_restore_db"
+    String repoName = "${suiteName}_repo"
+    String snapshotName = "${suiteName}_snapshot"
+    String tableNamePrefix = "${suiteName}_tables"
 
     def syncer = getSyncer()
     syncer.createS3Repository(repoName)
-
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
-    sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
-    sql """
-        CREATE TABLE ${dbName}.${tableName} (
-            `id` LARGEINT NOT NULL,
-            `count` LARGEINT SUM DEFAULT "0")
-        AGGREGATE KEY(`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 2
-        PROPERTIES
-        (
-            "replication_num" = "1"
-        )
-        """
 
-    List<String> values = []
-    for (int i = 1; i <= 10; ++i) {
-        values.add("(${i}, ${i})")
+    int numTables = 10;
+    int numRows = 10;
+    List<String> tables = []
+    for (int i = 0; i < numTables; ++i) {
+        String tableName = "${tableNamePrefix}_${i}"
+        tables.add(tableName)
+        sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
+        sql """
+            CREATE TABLE ${dbName}.${tableName} (
+                `id` LARGEINT NOT NULL,
+                `count` LARGEINT SUM DEFAULT "0"
+            )
+            AGGREGATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 2
+            PROPERTIES
+            (
+                "replication_num" = "1"
+            )
+            """
+        List<String> values = []
+        for (int j = 1; j <= numRows; ++j) {
+            values.add("(${j}, ${j})")
+        }
+        sql "INSERT INTO ${dbName}.${tableName} VALUES ${values.join(",")}"
+        def result = sql "SELECT * FROM ${dbName}.${tableName}"
+        assertEquals(result.size(), numRows);
     }
-    sql "INSERT INTO ${dbName}.${tableName} VALUES ${values.join(",")}"
-    def result = sql "SELECT * FROM ${dbName}.${tableName}"
-    assertEquals(result.size(), values.size());
 
-    String snapshotName = "test_backup_restore_snapshot"
     sql """
         BACKUP SNAPSHOT ${dbName}.${snapshotName}
         TO `${repoName}`
-        ON (${tableName})
     """
 
     while (!syncer.checkSnapshotFinish(dbName)) {
@@ -59,12 +66,13 @@ suite("test_backup_restore", "backup_restore") {
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
-    sql "TRUNCATE TABLE ${dbName}.${tableName}"
+    for (def tableName in tables) {
+        sql "TRUNCATE TABLE ${dbName}.${tableName}"
+    }
 
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
         FROM `${repoName}`
-        ON ( `${tableName}`)
         PROPERTIES
         (
             "backup_timestamp" = "${snapshot}",
@@ -76,10 +84,12 @@ suite("test_backup_restore", "backup_restore") {
         Thread.sleep(3000)
     }
 
-    result = sql "SELECT * FROM ${dbName}.${tableName}"
-    assertEquals(result.size(), values.size());
+    for (def tableName in tables) {
+        result = sql "SELECT * FROM ${dbName}.${tableName}"
+        assertEquals(result.size(), numRows);
+        sql "DROP TABLE ${dbName}.${tableName} FORCE"
+    }
 
-    sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
     sql "DROP REPOSITORY `${repoName}`"
 }

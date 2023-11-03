@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_backup_restore", "backup_restore") {
-    String repoName = "test_backup_restore_repo"
-    String dbName = "backup_restore_db"
-    String tableName = "test_backup_restore_table"
+suite("test_backup_restore_alias", "backup_restore") {
+    String repoName = "test_backup_restore_alias_repo"
+    String dbName = "backup_restore_alias_db"
+    String tableName = "test_backup_restore_alias_table"
+    String aliasName = "test_backup_restore_alias_table_alias"
 
     def syncer = getSyncer()
     syncer.createS3Repository(repoName)
@@ -59,12 +60,13 @@ suite("test_backup_restore", "backup_restore") {
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
-    sql "TRUNCATE TABLE ${dbName}.${tableName}"
+    sql "INSERT INTO ${dbName}.${tableName} VALUES (20, 21), (123, 341)"
+    qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY id"
 
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
         FROM `${repoName}`
-        ON ( `${tableName}`)
+        ON ( `${tableName}` AS `${aliasName}` )
         PROPERTIES
         (
             "backup_timestamp" = "${snapshot}",
@@ -76,8 +78,8 @@ suite("test_backup_restore", "backup_restore") {
         Thread.sleep(3000)
     }
 
-    result = sql "SELECT * FROM ${dbName}.${tableName}"
-    assertEquals(result.size(), values.size());
+    qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY id"
+    qt_select "SELECT * FROM ${dbName}.${aliasName} ORDER BY id"
 
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
