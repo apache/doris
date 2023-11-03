@@ -295,13 +295,13 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
                                                  no_scan_ranges);
             const bool shared_scan =
                     find_with_default(local_params.per_node_shared_scans, scan_node->id(), false);
-            scan_node->set_scan_ranges(scan_ranges);
+            scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges);
             scan_node->set_shared_scan(_runtime_state.get(), shared_scan);
         } else {
             ScanNode* scan_node = static_cast<ScanNode*>(node);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
-            scan_node->set_scan_ranges(scan_ranges);
+            scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges);
             VLOG_CRITICAL << "scan_node_Id=" << scan_node->id()
                           << " size=" << scan_ranges.get().size();
         }

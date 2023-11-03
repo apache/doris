@@ -308,7 +308,6 @@ Status PipelineTask::_collect_query_statistics() {
     return Status::OK();
 }
 
-
 Status PipelineTask::try_close() {
     if (_try_close_flag) {
         return Status::OK();
