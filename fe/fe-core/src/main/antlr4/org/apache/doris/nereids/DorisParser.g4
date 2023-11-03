@@ -989,7 +989,6 @@ nonReserved
     | JOBS
     | JSON
     | JSONB
-    | KEY
     | LABEL
     | LAST
     | LDAP
