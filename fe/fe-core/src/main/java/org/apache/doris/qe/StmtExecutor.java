@@ -1363,12 +1363,16 @@ public class StmtExecutor {
 
     // Process a select statement.
     private void handleQueryStmt() throws Exception {
-        LOG.info("Handling query {} with query id {}",
-                originStmt.originStmt, DebugUtil.printId(context.queryId));
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Handling query {} with query id {}",
+                          originStmt.originStmt, DebugUtil.printId(context.queryId));
+        }
+        
         if (context.getConnectType() == ConnectType.MYSQL) {
             // Every time set no send flag and clean all data in buffer
             context.getMysqlChannel().reset();
         }
+
         Queriable queryStmt = (Queriable) parsedStmt;
 
         QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
@@ -1383,7 +1387,7 @@ public class StmtExecutor {
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(queryStmt.getExplainOptions());
             handleExplainStmt(explainString, false);
-            LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+            LOG.debug("Query {} finished", DebugUtil.printId(context.queryId));
             return;
         }
 
@@ -1391,7 +1395,7 @@ public class StmtExecutor {
         Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
         if (resultSet.isPresent()) {
             sendResultSet(resultSet.get());
-            LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+            LOG.debug("Query {} finished", DebugUtil.printId(context.queryId));
             return;
         }
 
@@ -1409,7 +1413,7 @@ public class StmtExecutor {
                 && context.getSessionVariable().getDefaultOrderByLimit() < 0) {
             if (queryStmt instanceof QueryStmt || queryStmt instanceof LogicalPlanAdapter) {
                 handleCacheStmt(cacheAnalyzer, channel);
-                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+                LOG.debug("Query {} finished", DebugUtil.printId(context.queryId));
                 return;
             }
         }
@@ -1419,16 +1423,19 @@ public class StmtExecutor {
         if (channel != null && parsedStmt instanceof SelectStmt) {
             SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
             if (parsedSelectStmt.getLimit() == 0) {
-                LOG.info("ignore handle limit 0 ,sql:{}", parsedSelectStmt.toSql());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("ignore handle limit 0 ,sql:{}", parsedSelectStmt.toSql());
+                }
+
                 sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
                 context.getState().setEof();
-                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+                LOG.debug("Query {} finished", DebugUtil.printId(context.queryId));
                 return;
             }
         }
 
         sendResult(isOutfileQuery, false, queryStmt, channel, null, null);
-        LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+        LOG.debug("Query {} finished", DebugUtil.printId(context.queryId));
     }
 
     private void sendResult(boolean isOutfileQuery, boolean isSendFields, Queriable queryStmt, MysqlChannel channel,
