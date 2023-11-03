@@ -101,6 +101,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        runInternal(ctx, executor);
+    }
+
+    public void statefulRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        runInternal(ctx, executor);
+    }
+
+    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();

@@ -182,6 +182,7 @@ import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.jobs.load.LoadMgr;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -348,6 +349,7 @@ public class Env {
     private GroupCommitManager groupCommitManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
+    private LoadMgr loadMgr;
     private SyncJobManager syncJobManager;
     private Alter alter;
     private ConsistencyChecker consistencyChecker;
@@ -622,6 +624,7 @@ public class Env {
         this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.exportMgr = new ExportMgr();
+        this.loadMgr = new LoadMgr();
         this.syncJobManager = new SyncJobManager();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
@@ -639,6 +642,8 @@ public class Env {
         this.jobManager = new JobManager<>();
         this.transientTaskManager = new TransientTaskManager();
         this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
+        this.transientTaskManager = new TransientTaskManager();
+
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
         this.isElectable = false;
@@ -3832,6 +3837,10 @@ public class Env {
 
     public ExportMgr getExportMgr() {
         return this.exportMgr;
+    }
+
+    public LoadMgr getLoadMgr() {
+        return this.loadMgr;
     }
 
     public SyncJobManager getSyncJobManager() {

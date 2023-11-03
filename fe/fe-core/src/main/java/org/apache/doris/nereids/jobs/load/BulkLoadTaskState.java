@@ -15,26 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.executor;
-
-import org.apache.doris.scheduler.exception.JobException;
+package org.apache.doris.nereids.jobs.load;
 
 /**
- * A functional interface for executing a memory task.
+ * load state
  */
-public interface TransientTaskExecutor {
+public class BulkLoadTaskState extends AbstractLoadTaskState {
 
-    /**
-     * Executes the memory task.
-     * Exceptions will be caught internally, so there is no need to define or throw them separately.
-     */
-    void execute() throws JobException;
+    public BulkLoadTaskState(LoadTaskState.TaskType initialTaskType) {
+        super(initialTaskType);
+    }
 
-    /**
-     * Cancel the memory task.
-     */
-    void cancel() throws JobException;
+    @Override
+    public void onTaskPending() {
 
-    Long getId();
+    }
+
+    @Override
+    public void onTaskRunning() {
+
+    }
+
+    @Override
+    public void onTaskFinished() {
+
+    }
+
+    @Override
+    public void onTaskFailed() {
+
+    }
+
+    @Override
+    public void onTaskCancelled() {
+
+    }
 }
-

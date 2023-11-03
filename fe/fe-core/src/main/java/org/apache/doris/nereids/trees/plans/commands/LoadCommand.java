@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -52,8 +53,8 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryStateException;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.scheduler.executor.LoadJobExecutor;
 import org.apache.doris.tablefunction.HdfsTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 
@@ -85,7 +86,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
     private final List<BulkLoadDataDesc> sourceInfos;
     private final Map<String, String> properties;
     private final String comment;
-    private final List<LogicalPlan> plans = new ArrayList<>();
+    private List<InsertIntoTableCommand> plans = new ArrayList<>();
     private Profile profile;
 
     /**
@@ -118,15 +119,16 @@ public class LoadCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // TODO: begin txn form multi insert sql
-        /* this.profile = new Profile("Query", ctx.getSessionVariable().enableProfile);
-          profile.getSummaryProfile().setQueryBeginTime();
-          for (BulkLoadDataDesc dataDesc : sourceInfos) {
-               plans.add(new InsertIntoTableCommand(completeQueryPlan(ctx, dataDesc), Optional.of(labelName), false));
-          }
-          profile.getSummaryProfile().setQueryPlanFinishTime();
-         * executeInsertStmtPlan(ctx, executor, plans);  */
-        throw new AnalysisException("Fallback to legacy planner temporary.");
+        this.profile = new Profile("Query", ctx.getSessionVariable().enableProfile);
+        profile.getSummaryProfile().setQueryBeginTime();
+        if (sourceInfos.size() == 1) {
+            plans = ImmutableList.of(new InsertIntoTableCommand(completeQueryPlan(ctx, sourceInfos.get(0)),
+                    Optional.of(labelName)));
+        } else {
+            throw new AnalysisException("Multi insert into statements are unsupported.");
+        }
+        profile.getSummaryProfile().setQueryPlanFinishTime();
+        executeInsertStmtPlan(ctx, executor, plans);
     }
 
     private LogicalPlan completeQueryPlan(ConnectContext ctx, BulkLoadDataDesc dataDesc)
@@ -472,12 +474,9 @@ public class LoadCommand extends Command implements ForwardWithSync {
 
     private void executeInsertStmtPlan(ConnectContext ctx, StmtExecutor executor, List<InsertIntoTableCommand> plans) {
         try {
-            for (LogicalPlan logicalPlan : plans) {
-                ((Command) logicalPlan).run(ctx, executor);
-            }
-        } catch (QueryStateException e) {
-            ctx.setState(e.getQueryState());
-            throw new NereidsException("Command process failed", new AnalysisException(e.getMessage(), e));
+            LoadJobExecutor jobExecutor = new LoadJobExecutor(ctx, executor, labelName, plans);
+            Env.getCurrentEnv().getLoadMgr().addLoadJob(jobExecutor);
+            throw new AnalysisException("Fallback to legacy planner temporary.");
         } catch (UserException e) {
             // Return message to info client what happened.
             ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());

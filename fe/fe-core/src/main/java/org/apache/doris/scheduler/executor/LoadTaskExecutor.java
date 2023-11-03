@@ -17,24 +17,49 @@
 
 package org.apache.doris.scheduler.executor;
 
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.load.loadv2.JobState;
+import org.apache.doris.nereids.jobs.load.InsertLoadTask;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.exception.JobException;
 
+import lombok.extern.slf4j.Slf4j;
+
+import java.io.DataOutput;
+import java.io.IOException;
+
 /**
- * A functional interface for executing a memory task.
+ * we use this executor to execute sql job
+ *
  */
-public interface TransientTaskExecutor {
+@Slf4j
+public class LoadTaskExecutor implements TransientTaskExecutor, Writable {
 
-    /**
-     * Executes the memory task.
-     * Exceptions will be caught internally, so there is no need to define or throw them separately.
-     */
-    void execute() throws JobException;
+    protected String labelName;
+    protected JobState state;
 
-    /**
-     * Cancel the memory task.
-     */
-    void cancel() throws JobException;
+    public LoadTaskExecutor(ConnectContext ctx, InsertLoadTask task) {
+        task.prepare();
+    }
 
-    Long getId();
+    @Override
+    public Long getId() {
+        return null;
+    }
+
+    @Override
+    public void execute() throws JobException {
+        task.
+
+    }
+
+    @Override
+    public void cancel() throws JobException {
+
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+
+    }
 }
-

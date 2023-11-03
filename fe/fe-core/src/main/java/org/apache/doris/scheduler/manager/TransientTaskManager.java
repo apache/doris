@@ -51,8 +51,8 @@ public class TransientTaskManager {
         return taskExecutorMap.get(taskId);
     }
 
-    public Long registerMemoryTask(TransientTaskExecutor executor) {
-        Long taskId = UUID.randomUUID().getMostSignificantBits();
+    public Long addMemoryTask(TransientTaskExecutor executor) {
+        Long taskId = executor.getId();
         taskExecutorMap.put(taskId, executor);
         disruptor.tryPublishTask(taskId);
         return taskId;

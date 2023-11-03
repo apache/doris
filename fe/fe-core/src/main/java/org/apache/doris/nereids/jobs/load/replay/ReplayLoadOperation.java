@@ -15,26 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.executor;
-
-import org.apache.doris.scheduler.exception.JobException;
+package org.apache.doris.nereids.jobs.load.replay;
 
 /**
- * A functional interface for executing a memory task.
+ * for load replay
  */
-public interface TransientTaskExecutor {
+public class ReplayLoadOperation {
 
-    /**
-     * Executes the memory task.
-     * Exceptions will be caught internally, so there is no need to define or throw them separately.
-     */
-    void execute() throws JobException;
+    public static ReplayCreateLoadOperation replayCreateLoadOperation() {
+        return new ReplayCreateLoadOperation();
+    }
 
-    /**
-     * Cancel the memory task.
-     */
-    void cancel() throws JobException;
+    public static ReplayEndLoadOperation replayEndLoadOperation() {
+        return new ReplayEndLoadOperation();
+    }
 
-    Long getId();
+    public static ReplayUpdateLoadInfoOperation replayUpdateLoadInfoOperation() {
+        return new ReplayUpdateLoadInfoOperation();
+    }
+
+    private static class ReplayCreateLoadOperation {
+    }
+
+    private static class ReplayEndLoadOperation {
+    }
+
+    private static class ReplayUpdateLoadInfoOperation {
+    }
 }
-

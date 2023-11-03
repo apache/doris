@@ -53,38 +53,16 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-public class ExportMgr {
+public class ExportMgr extends DataTransFormMgr {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
-
-    // lock for export job
-    // lock is private and must use after db lock
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-
     private Map<Long, ExportJob> exportIdToJob = Maps.newHashMap(); // exportJobId to exportJob
     // dbid -> <label -> job>
     private Map<Long, Map<String, Long>> dbTolabelToExportJobId = Maps.newHashMap();
 
     public ExportMgr() {
-    }
-
-    public void readLock() {
-        lock.readLock().lock();
-    }
-
-    public void readUnlock() {
-        lock.readLock().unlock();
-    }
-
-    private void writeLock() {
-        lock.writeLock().lock();
-    }
-
-    private void writeUnlock() {
-        lock.writeLock().unlock();
     }
 
     public List<ExportJob> getJobs() {
@@ -101,9 +79,8 @@ public class ExportMgr {
                 throw new LabelAlreadyUsedException(job.getLabel());
             }
             unprotectAddJob(job);
-            job.getJobExecutorList().forEach(executor -> {
-                Long taskId = Env.getCurrentEnv().getExportTaskRegister().registerTask(executor);
-                executor.setTaskId(taskId);
+            job.getTaskExecutors().forEach(executor -> {
+                Long taskId = Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
                 job.getTaskIdToExecutor().put(taskId, executor);
             });
             Env.getCurrentEnv().getEditLog().logExportCreate(job);

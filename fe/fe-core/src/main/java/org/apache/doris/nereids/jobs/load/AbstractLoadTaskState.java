@@ -15,26 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.executor;
-
-import org.apache.doris.scheduler.exception.JobException;
+package org.apache.doris.nereids.jobs.load;
 
 /**
- * A functional interface for executing a memory task.
+ * for general load task state
  */
-public interface TransientTaskExecutor {
+public abstract class AbstractLoadTaskState implements LoadTaskState {
 
-    /**
-     * Executes the memory task.
-     * Exceptions will be caught internally, so there is no need to define or throw them separately.
-     */
-    void execute() throws JobException;
+    private LoadTaskState.TaskType taskType;
+    private LoadTaskState.MergeType mergeType = MergeType.APPEND;
 
-    /**
-     * Cancel the memory task.
-     */
-    void cancel() throws JobException;
+    public AbstractLoadTaskState(LoadTaskState.TaskType initialTaskType) {
+        this.taskType = initialTaskType;
+    }
 
-    Long getId();
+    public TaskType getTaskType() {
+        return taskType;
+    }
+
+    public MergeType getMergeType() {
+        return mergeType;
+    }
 }
-
