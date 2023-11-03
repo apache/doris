@@ -1830,17 +1830,6 @@ public class StmtExecutor {
                 }
                 Future<PGroupCommitInsertResponse> future = groupCommitPlanner
                         .prepareGroupCommitInsertRequest(context, rows);
-                TUniqueId loadId = nativeInsertStmt.getLoadId();
-                PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
-                        .setDbId(insertStmt.getTargetTable().getDatabase().getId())
-                        .setTableId(insertStmt.getTargetTable().getId())
-                        .setBaseSchemaVersion(nativeInsertStmt.getBaseSchemaVersion())
-                        .setExecPlanFragmentRequest(nativeInsertStmt.getExecPlanFragmentRequest())
-                        .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
-                                .build()).addAllData(rows)
-                        .build();
-                Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
-                        .groupCommitInsert(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
                 PGroupCommitInsertResponse response = future.get();
                 TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
                 if (code == TStatusCode.DATA_QUALITY_ERROR) {
@@ -1861,11 +1850,11 @@ public class StmtExecutor {
                         continue;
                     } else {
                         errMsg = "group commit insert failed. backend id: "
-                                + groupCommitPlanner.getBackend()。getId() + ", status: " + response.getStatus();
+                                + groupCommitPlanner.getBackend().getId() + ", status: " + response.getStatus();
                     }
                 } else if (code != TStatusCode.OK) {
-                    errMsg = "group commit insert failed. backend id: " + groupCommitPlanner.getBackend()。getId() + ", status: "
-                            + response.getStatus();
+                    errMsg = "group commit insert failed. backend id: " + groupCommitPlanner.getBackend().getId()
+                            + ", status: " + response.getStatus();
                     ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
                 }
                 label = response.getLabel();

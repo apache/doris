@@ -19,7 +19,6 @@ package org.apache.doris.planner;
 
 
 import org.apache.doris.analysis.ArrayLiteral;
-import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.catalog.Database;
@@ -37,13 +36,12 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMergeType;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPlan;
-import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
@@ -70,13 +68,12 @@ public class GroupCommitPlanner {
     private Database db;
     private OlapTable table;
     private TUniqueId loadId;
-    private TPlan plan;
     private Backend backend;
-    private DescriptorTable descTable;
-    private TScanRangeParams scanRangeParam;
+    private TExecPlanFragmentParamsList paramsList;
+    private ByteString execPlanFragmentParamsBytes;
 
     public GroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames, TUniqueId queryId)
-                throws UserException {
+            throws UserException, TException {
         this.db = db;
         this.table = table;
         TStreamLoadPutRequest streamLoadPutRequest = new TStreamLoadPutRequest();
@@ -94,9 +91,6 @@ public class GroupCommitPlanner {
         StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
         // Will using load id as query id in fragment
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-        descTable = planner.getDescTable();
-        TPlanFragment fragment = tRequest.getFragment();
-        plan = fragment.getPlan();
         for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
             for (TScanRangeParams scanRangeParams : entry.getValue()) {
                 scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
@@ -109,7 +103,10 @@ public class GroupCommitPlanner {
                 .flatMap(Collection::stream).collect(Collectors.toList());
         Preconditions.checkState(scanRangeParams.size() == 1);
         loadId = queryId;
-        scanRangeParam = scanRangeParams.get(0);
+        // see BackendServiceProxy#execPlanFragmentsAsync
+        paramsList = new TExecPlanFragmentParamsList();
+        paramsList.addToParamsList(tRequest);
+        execPlanFragmentParamsBytes = ByteString.copyFrom(new TSerializer().serialize(paramsList));
     }
 
     public Future<PGroupCommitInsertResponse> prepareGroupCommitInsertRequest(ConnectContext ctx,
@@ -127,10 +124,10 @@ public class GroupCommitPlanner {
         PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
                 .setDbId(db.getId())
                 .setTableId(table.getId())
-                .setDescTbl(ByteString.copyFrom(new TSerializer().serialize(descTable.toThrift())))
                 .setBaseSchemaVersion(table.getBaseSchemaVersion())
-                .setPlanNode(ByteString.copyFrom(new TSerializer().serialize(plan)))
-                .setScanRangeParams(ByteString.copyFrom(new TSerializer().serialize(scanRangeParam)))
+                .setExecPlanFragmentRequest(InternalService.PExecPlanFragmentRequest.newBuilder()
+                        .setRequest(execPlanFragmentParamsBytes)
+                        .setCompact(false).setVersion(InternalService.PFragmentRequestVersion.VERSION_2).build())
                 .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
                 .build()).addAllData(rows)
                 .build();
@@ -172,20 +169,13 @@ public class GroupCommitPlanner {
         }
     }
 
-    public TPlan getPlan() {
-        return plan;
-    }
-
-    public DescriptorTable getDescTable() {
-        return descTable;
-    }
-
-    public TScanRangeParams getScanRangeParam() {
-        return scanRangeParam;
-    }
-
     public Backend getBackend() {
         return backend;
     }
+
+    public TExecPlanFragmentParamsList getParamsList() {
+        return paramsList;
+    }
+
 }
 
