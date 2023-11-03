@@ -13,7 +13,7 @@
 \N
 
 -- !sql2 --
-{"":NULL}
+{"":null}
 
 -- !sql3 --
 {"1":2}
@@ -35,14 +35,14 @@
 {"b":"12", "123":"7777"}
 
 -- !sql8 --
-{NULL:"1", NULL:"2", 1234567:"77"}
-{NULL:"12", 123:"7777"}
+{null:"1", null:"2", 1234567:"77"}
+{null:"12", 123:"7777"}
 
 -- !sql9 --
-{NULL:1, NULL:2, 1234567:77}
-{NULL:12, 123:7777}
+{null:1, null:2, 1234567:77}
+{null:12, 123:7777}
 
 -- !sql10 --
-{NULL:NULL, NULL:NULL, 1234567:NULL}
-{NULL:NULL, 123:NULL}
+{null:null, null:null, 1234567:null}
+{null:null, 123:null}
 
