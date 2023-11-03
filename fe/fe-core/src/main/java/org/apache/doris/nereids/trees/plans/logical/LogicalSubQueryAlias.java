@@ -24,11 +24,13 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
@@ -36,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -45,6 +48,7 @@ import java.util.function.Supplier;
  */
 public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
 
+    protected RelationId relationId;
     private final List<String> qualifier;
     private final Optional<List<String>> columnAliases;
 
@@ -169,5 +173,20 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         }
         builder.replace(replaceMap);
         return builder.build();
+    }
+
+    public void setRelationId(RelationId relationId) {
+        this.relationId = relationId;
+    }
+
+    public RelationId getRelationId() {
+        return relationId;
+    }
+
+    @Override
+    public Set<RelationId> getInputRelations() {
+        Set<RelationId> relationIdSet = Sets.newHashSet();
+        relationIdSet.add(relationId);
+        return relationIdSet;
     }
 }

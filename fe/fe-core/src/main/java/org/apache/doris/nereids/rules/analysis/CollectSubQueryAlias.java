@@ -17,12 +17,12 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.trees.plans.RelationId;
 
 /**
  * Eliminate the logical sub query and alias node after analyze and before rewrite
@@ -30,14 +30,21 @@ import com.google.common.collect.ImmutableList;
  * <p>
  * TODO: refactor group merge strategy to support the feature above
  */
-public class LogicalSubQueryAliasToLogicalProject extends OneRewriteRuleFactory {
+public class CollectSubQueryAlias extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return RuleType.LOGICAL_SUB_QUERY_ALIAS_TO_LOGICAL_PROJECT.build(
+        return RuleType.COLLECT_SUB_QUERY_ALIAS.build(
                 logicalSubQueryAlias().thenApply(ctx -> {
-                    LogicalProject project = new LogicalProject<>(
-                            ImmutableList.copyOf(ctx.root.getOutput()), ctx.root.child());
-                    return project;
+                    if (ctx.cascadesContext.getStatementContext().isLeadingJoin()) {
+                        String aliasName = ctx.root.getAlias();
+                        LeadingHint leading = (LeadingHint) ctx.cascadesContext.getStatementContext()
+                                .getHintMap().get("Leading");
+                        RelationId newId = ctx.statementContext.getNextRelationId();
+                        leading.putRelationIdAndTableName(Pair.of(newId, aliasName));
+                        leading.getRelationIdToScanMap().put(newId, ctx.root);
+                        ctx.root.setRelationId(newId);
+                    }
+                    return ctx.root;
                 })
         );
     }

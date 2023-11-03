@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.Maps;
@@ -311,13 +312,13 @@ public class LeadingHint extends Hint {
     public JoinType computeJoinType(Long left, Long right, List<Expression> conditions) {
         Pair<JoinConstraint, Boolean> joinConstraintBooleanPair
                 = getJoinConstraint(LongBitmap.or(left, right), left, right);
-        if (!joinConstraintBooleanPair.second) {
-            this.setStatus(HintStatus.UNUSED);
-        } else if (joinConstraintBooleanPair.first == null) {
+        if (joinConstraintBooleanPair.first == null) {
             if (conditions.isEmpty()) {
                 return JoinType.CROSS_JOIN;
             }
             return JoinType.INNER_JOIN;
+        } else if (!joinConstraintBooleanPair.second) {
+            this.setStatus(HintStatus.UNUSED);
         } else {
             JoinConstraint joinConstraint = joinConstraintBooleanPair.first;
             if (joinConstraint.isReversed()) {
@@ -468,6 +469,8 @@ public class LeadingHint extends Hint {
             return getBitmap((LogicalPlan) root.child(0));
         } else if (root instanceof LogicalProject) {
             return getBitmap((LogicalPlan) root.child(0));
+        } else if (root instanceof LogicalSubQueryAlias) {
+            return LongBitmap.set(0L, (((LogicalSubQueryAlias) root).getRelationId().asInt()));
         } else {
             return null;
         }
@@ -482,11 +485,6 @@ public class LeadingHint extends Hint {
         if (hasSameName()) {
             this.setStatus(HintStatus.SYNTAX_ERROR);
             this.setErrorMessage("duplicated table");
-            return totalBitmap;
-        }
-        if (tables != null && getTablelist().size() != tables.size()) {
-            this.setStatus(HintStatus.SYNTAX_ERROR);
-            this.setErrorMessage("tables should be same as join tables");
             return totalBitmap;
         }
         for (int index = 0; index < getTablelist().size(); index++) {
