@@ -124,7 +124,7 @@ userIdentify
 
 explain
     : (EXPLAIN planType? | DESC | DESCRIBE)
-          level=(VERBOSE | GRAPH | PLAN)?
+          level=(VERBOSE | TREE | GRAPH | PLAN)?
     ;
 
 planType
@@ -748,6 +748,7 @@ primitiveColType:
     | type=VARCHAR
     | type=CHAR
     | type=DECIMAL
+    | type=DECIMALV2
     | type=DECIMALV3
     | type=IPV4
     | type=IPV6
@@ -884,6 +885,7 @@ nonReserved
     | DAYS_ADD
     | DAYS_SUB
     | DECIMAL
+    | DECIMALV2
     | DECIMALV3
     | DEFERRED
     | DEMAND
@@ -1064,6 +1066,7 @@ nonReserved
     | TIMESTAMPADD
     | TIMESTAMPDIFF
     | TRANSACTION
+    | TREE
     | TRIGGERS
     | TRUNCATE
     | TYPE
