@@ -139,9 +139,9 @@ public abstract class AbstractSelectMaterializedIndexRule {
         mvColNames.addAll(indexConjuncts);
 
         return mvColNames.containsAll(requiredMvColumnNames)
-                && ((indexConjuncts.isEmpty() || commonConjuncts.size() == predicateExprSql.size())
+                && (indexConjuncts.isEmpty() || commonConjuncts.size() == predicateExprSql.size())
                 || requiredExpr.stream().filter(e -> !containsAllColumn(e, mvColNames)).collect(Collectors.toSet())
-                        .isEmpty());
+                        .isEmpty();
     }
 
     public static String parseMvColumnToSql(String mvName) {

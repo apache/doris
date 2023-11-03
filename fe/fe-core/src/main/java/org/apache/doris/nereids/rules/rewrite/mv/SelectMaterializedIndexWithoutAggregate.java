@@ -106,7 +106,8 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                             LogicalOlapScan scan = filter.child();
                             LogicalOlapScan mvPlan = select(
                                     scan, filter::getOutputSet, filter::getConjuncts,
-                                    new HashSet<>(filter.getExpressions()));
+                                    Stream.concat(filter.getExpressions().stream(),
+                                            filter.getOutputSet().stream()).collect(ImmutableSet.toImmutableSet()));
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
 
                             return new LogicalProject(
