@@ -133,7 +133,7 @@ public class Alter {
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
-            final String clusterName, Database db) throws UserException {
+                                          final String clusterName, Database db) throws UserException {
         if (olapTable.getDataSortInfo() != null
                 && olapTable.getDataSortInfo().getSortType() == TSortType.ZORDER) {
             throw new UserException("z-order table can not support schema change!");
@@ -391,7 +391,7 @@ public class Alter {
     }
 
     private void processModifyEngineInternal(Database db, Table externalTable,
-            Map<String, String> prop, boolean isReplay) {
+                                             Map<String, String> prop, boolean isReplay) {
         MysqlTable mysqlTable = (MysqlTable) externalTable;
         Map<String, String> newProp = Maps.newHashMap(prop);
         newProp.put(OdbcTable.ODBC_HOST, mysqlTable.getHost());
@@ -494,13 +494,13 @@ public class Alter {
                         || properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)
                         || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)
                         || properties
-                        .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)
+                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)
                         || properties
-                        .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)
+                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)
                         || properties
-                        .containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
+                            .containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
                         || properties
-                        .containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD));
+                            .containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD));
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
@@ -580,7 +580,7 @@ public class Alter {
      * 1.2 rename B to A, drop old A, and add new A to database.
      */
     private void replaceTableInternal(Database db, OlapTable origTable, OlapTable newTbl, boolean swapTable,
-            boolean isReplay)
+                                      boolean isReplay)
             throws DdlException {
         String oldTblName = origTable.getName();
         String newTblName = newTbl.getName();
@@ -615,7 +615,7 @@ public class Alter {
     }
 
     private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode,
-            List<Column> newFullSchema) throws DdlException {
+                               List<Column> newFullSchema) throws DdlException {
         db.writeLockOrDdlException();
         try {
             view.writeLockOrDdlException();
@@ -716,10 +716,10 @@ public class Alter {
      * caller should hold the table lock
      */
     public void modifyPartitionsProperty(Database db,
-            OlapTable olapTable,
-            List<String> partitionNames,
-            Map<String, String> properties,
-            boolean isTempPartition)
+                                         OlapTable olapTable,
+                                         List<String> partitionNames,
+                                         Map<String, String> properties,
+                                         boolean isTempPartition)
             throws DdlException, AnalysisException {
         Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
         List<ModifyPartitionInfo> modifyPartitionInfos = Lists.newArrayList();
