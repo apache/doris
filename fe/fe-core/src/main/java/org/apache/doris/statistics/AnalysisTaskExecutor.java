@@ -36,7 +36,7 @@ public class AnalysisTaskExecutor extends Thread {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisTaskExecutor.class);
 
-    private final ThreadPoolExecutor executors;
+    protected final ThreadPoolExecutor executors;
 
     private final BlockingQueue<AnalysisTaskWrapper> taskQueue =
             new PriorityBlockingQueue<AnalysisTaskWrapper>(20,
@@ -72,18 +72,22 @@ public class AnalysisTaskExecutor extends Thread {
 
     private void doCancelExpiredJob() {
         for (;;) {
+            tryToCancel();
+        }
+    }
+
+    protected void tryToCancel() {
+        try {
+            AnalysisTaskWrapper taskWrapper = taskQueue.take();
             try {
-                AnalysisTaskWrapper taskWrapper = taskQueue.take();
-                try {
-                    long timeout = TimeUnit.HOURS.toMillis(Config.analyze_task_timeout_in_hours)
-                            - (System.currentTimeMillis() - taskWrapper.getStartTime());
-                    taskWrapper.get(timeout < 0 ? 0 : timeout, TimeUnit.MILLISECONDS);
-                } catch (Exception e) {
-                    taskWrapper.cancel(e.getMessage());
-                }
-            } catch (Throwable throwable) {
-                LOG.warn(throwable);
+                long timeout = TimeUnit.HOURS.toMillis(Config.analyze_task_timeout_in_hours)
+                        - (System.currentTimeMillis() - taskWrapper.getStartTime());
+                taskWrapper.get(timeout < 0 ? 0 : timeout, TimeUnit.MILLISECONDS);
+            } catch (Exception e) {
+                taskWrapper.cancel(e.getMessage());
             }
+        } catch (Throwable throwable) {
+            LOG.warn(throwable);
         }
     }
 

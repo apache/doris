@@ -32,9 +32,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class AnalysisJobTest {
 
+    // make user task has been set corresponding job
     @Test
     public void initTest(@Mocked AnalysisInfo jobInfo, @Mocked OlapAnalysisTask task) {
         AnalysisJob analysisJob = new AnalysisJob(jobInfo, Arrays.asList(task));
@@ -43,9 +45,11 @@ public class AnalysisJobTest {
 
     @Test
     public void testAppendBufTest1(@Mocked AnalysisInfo analysisInfo, @Mocked OlapAnalysisTask olapAnalysisTask) {
+        AtomicInteger writeBufInvokeTimes = new AtomicInteger();
         new MockUp<AnalysisJob>() {
             @Mock
             protected void writeBuf() {
+                writeBufInvokeTimes.incrementAndGet();
             }
 
             @Mock
@@ -63,20 +67,20 @@ public class AnalysisJobTest {
         job.buf = new ArrayList<>();
         job.totalTaskCount = 20;
 
+        // not all task finished nor cached limit exceed, shouldn't  write
         job.appendBuf(olapAnalysisTask, Arrays.asList(new ColStatsData()));
-        new Expectations() {
-            {
-                job.writeBuf();
-                times = 0;
-            }
-        };
+        Assertions.assertEquals(0, writeBufInvokeTimes.get());
     }
 
     @Test
     public void testAppendBufTest2(@Mocked AnalysisInfo analysisInfo, @Mocked OlapAnalysisTask olapAnalysisTask) {
+        AtomicInteger writeBufInvokeTimes = new AtomicInteger();
+        AtomicInteger deregisterTimes = new AtomicInteger();
+
         new MockUp<AnalysisJob>() {
             @Mock
             protected void writeBuf() {
+                writeBufInvokeTimes.incrementAndGet();
             }
 
             @Mock
@@ -85,6 +89,7 @@ public class AnalysisJobTest {
 
             @Mock
             public void deregisterJob() {
+                deregisterTimes.getAndIncrement();
             }
         };
         AnalysisJob job = new AnalysisJob(analysisInfo, Arrays.asList(olapAnalysisTask));
@@ -95,21 +100,19 @@ public class AnalysisJobTest {
         job.totalTaskCount = 1;
 
         job.appendBuf(olapAnalysisTask, Arrays.asList(new ColStatsData()));
-        new Expectations() {
-            {
-                job.writeBuf();
-                times = 1;
-                job.deregisterJob();
-                times = 1;
-            }
-        };
+        // all task finished, should write and deregister this job
+        Assertions.assertEquals(1, writeBufInvokeTimes.get());
+        Assertions.assertEquals(1, deregisterTimes.get());
     }
 
     @Test
     public void testAppendBufTest3(@Mocked AnalysisInfo analysisInfo, @Mocked OlapAnalysisTask olapAnalysisTask) {
+        AtomicInteger writeBufInvokeTimes = new AtomicInteger();
+
         new MockUp<AnalysisJob>() {
             @Mock
             protected void writeBuf() {
+                writeBufInvokeTimes.incrementAndGet();
             }
 
             @Mock
@@ -132,12 +135,8 @@ public class AnalysisJobTest {
         job.totalTaskCount = 100;
 
         job.appendBuf(olapAnalysisTask, Arrays.asList(new ColStatsData()));
-        new Expectations() {
-            {
-                job.writeBuf();
-                times = 1;
-            }
-        };
+        // cache limit exceed, should write them
+        Assertions.assertEquals(1, writeBufInvokeTimes.get());
     }
 
     @Test
@@ -145,9 +144,11 @@ public class AnalysisJobTest {
             @Mocked AnalysisInfo info,
             @Mocked OlapAnalysisTask task1,
             @Mocked OlapAnalysisTask task2) {
+        AtomicInteger updateTaskStatusInvokeTimes = new AtomicInteger();
         new MockUp<AnalysisManager>() {
             @Mock
             public void updateTaskStatus(AnalysisInfo info, AnalysisState taskState, String message, long time) {
+                updateTaskStatusInvokeTimes.getAndIncrement();
             }
         };
         AnalysisManager analysisManager = new AnalysisManager();
@@ -161,12 +162,7 @@ public class AnalysisJobTest {
         job.queryFinished = new HashSet<>();
         job.queryFinished.add(task2);
         job.updateTaskState(AnalysisState.FAILED, "");
-        new Expectations() {
-            {
-                analysisManager.updateTaskStatus((AnalysisInfo) any, (AnalysisState) any, anyString, anyLong);
-                times = 2;
-            }
-        };
+        Assertions.assertEquals(2, updateTaskStatusInvokeTimes.get());
     }
 
     @Test

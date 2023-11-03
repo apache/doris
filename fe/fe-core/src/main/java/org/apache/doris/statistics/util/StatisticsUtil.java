@@ -847,7 +847,7 @@ public class StatisticsUtil {
         }
     }
 
-    private static SessionVariable findConfigFromGlobalSessionVar(String varName) throws Exception {
+    protected static SessionVariable findConfigFromGlobalSessionVar(String varName) throws Exception {
         SessionVariable sessionVariable =  VariableMgr.newSessionVariable();
         VariableExpr variableExpr = new VariableExpr(varName, SetType.GLOBAL);
         VariableMgr.getValue(sessionVariable, variableExpr);
