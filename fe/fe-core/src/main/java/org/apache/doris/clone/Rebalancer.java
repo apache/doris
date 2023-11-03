@@ -77,6 +77,11 @@ public abstract class Rebalancer {
     protected abstract List<TabletSchedCtx> selectAlternativeTabletsForCluster(
             LoadStatisticForTag clusterStat, TStorageMedium medium);
 
+    protected boolean isNeedBalanced(LoadStatisticForTag clusterStat, TStorageMedium medium,
+                                     List<Long> fromBes, List<Long> toBes) {
+        return true;
+    }
+
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)
             throws SchedException {
         completeSchedCtx(tabletCtx);

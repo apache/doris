@@ -31,6 +31,7 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -54,10 +55,20 @@ import java.util.Set;
  */
 public class BeLoadRebalancer extends Rebalancer {
     private static final Logger LOG = LogManager.getLogger(BeLoadRebalancer.class);
+    private long cacheEmptyTimestamp = -1L;
 
     public BeLoadRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
             Map<Long, PathSlot> backendsWorkingSlots) {
         super(infoService, invertedIndex, backendsWorkingSlots);
+    }
+
+    public boolean checkCacheEmptyForLong() {
+        return cacheEmptyTimestamp > 0 && System.currentTimeMillis() > cacheEmptyTimestamp + 10 * 60 * 1000L;
+    }
+
+    protected boolean isNeedBalanced(LoadStatisticForTag clusterStat, TStorageMedium medium,
+                                     List<Long> fromBes, List<Long> toBes) {
+        return checkCacheEmptyForLong();
     }
 
     /*
@@ -372,4 +383,14 @@ public class BeLoadRebalancer extends Rebalancer {
         throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                 "unable to find low backend");
     }
+
+    public void updateLoadStatistic(Map<Tag, LoadStatisticForTag> statisticMap) {
+        super.updateLoadStatistic(statisticMap);
+        if (statisticMap.size() > 0) {
+            cacheEmptyTimestamp = -1;
+        } else if (cacheEmptyTimestamp < 0) {
+            cacheEmptyTimestamp = System.currentTimeMillis();
+        }
+    }
+
 }

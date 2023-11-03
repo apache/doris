@@ -30,7 +30,6 @@ import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.BalanceType;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -42,10 +41,12 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /*
 
@@ -129,14 +130,17 @@ public class DiskRebalancer extends Rebalancer {
         List<BackendLoadStatistic> highBEs = Lists.newArrayList();
         clusterStat.getBackendStatisticByClass(lowBEs, midBEs, highBEs, medium);
 
-        if (Config.tablet_rebalancer_type.equalsIgnoreCase("partition")) {
-            PartitionRebalancer rebalancer = (PartitionRebalancer) Env.getCurrentEnv()
-                    .getTabletScheduler().getRebalancer();
-            if (rebalancer != null && rebalancer.checkCacheEmptyForLong()) {
-                midBEs.addAll(lowBEs);
-                midBEs.addAll(highBEs);
-            }
-        } else if (!(lowBEs.isEmpty() && highBEs.isEmpty())) {
+        Rebalancer rebalancer = Env.getCurrentEnv().getTabletScheduler().getRebalancer();
+        List<Long> fromBes = new ArrayList<>();
+        List<Long> toBes = new ArrayList<>();
+        if (rebalancer != null && rebalancer.isNeedBalanced(clusterStat, medium, fromBes, toBes)) {
+            midBEs.addAll(lowBEs);
+            midBEs.addAll(highBEs);
+            midBEs = midBEs.stream().filter(be -> fromBes.contains(be.getBeId()))
+                    .filter(be -> toBes.contains(be.getBeId())).collect(Collectors.toList());
+        }
+
+        if (!(lowBEs.isEmpty() && highBEs.isEmpty())) {
             // the cluster is not balanced
             if (prioBackends.isEmpty()) {
                 LOG.info("cluster is not balanced with medium: {}. skip", medium);

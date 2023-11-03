@@ -234,6 +234,21 @@ public class PartitionRebalancer extends Rebalancer {
         return !bes.contains(move.fromBe) && bes.contains(move.toBe);
     }
 
+    public boolean isNeedBalanced(LoadStatisticForTag clusterStat, TStorageMedium medium,
+                                  List<Long> fromBes, List<Long> toBes) {
+        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(clusterStat.getTag(), medium);
+        if (movesInProgress == null) {
+            return checkCacheEmptyForLong();
+        }
+
+        fromBes.addAll(movesInProgress.get().asMap().values().stream()
+                .filter(p -> p.second != -1L).map(p -> p.first.fromBe).collect(Collectors.toList()));
+        toBes.addAll(movesInProgress.get().asMap().values().stream()
+                .filter(p -> p.second != -1L).map(p -> p.first.toBe).collect(Collectors.toList()));
+
+        return checkCacheEmptyForLong();
+    }
+
     // cache empty for 10 min
     public boolean checkCacheEmptyForLong() {
         return cacheEmptyTimestamp > 0 && System.currentTimeMillis() > cacheEmptyTimestamp + 10 * 60 * 1000L;
