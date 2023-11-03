@@ -49,7 +49,7 @@ testGroups = ""
 // empty suite will test all suite
 testSuites = ""
 // empty directories will test all directories
-testDirectories = "load_p0/http_stream"
+testDirectories = ""
 
 // this groups will not be executed
 excludeGroups = ""
@@ -59,7 +59,7 @@ excludeSuites =
 "test_sql_block_rule,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_jdbc_query_mysql,test_streamload_perfomance"
 
 // this directories will not be executed
-excludeDirectories = "workload_manager_p1,fault_injection_p0"
+excludeDirectories = "workload_manager_p1,fault_injection_p0,load_p0/http_stream"
 
 customConf1 = "test_custom_conf_value"
 
