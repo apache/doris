@@ -89,6 +89,7 @@ struct IngestBinlogArg {
     int64_t local_tablet_id;
     TabletSharedPtr local_tablet;
     TIngestBinlogRequest request;
+    TStatus* tstatus;
 };
 
 void _ingest_binlog(IngestBinlogArg* arg) {
@@ -100,8 +101,12 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     auto& request = arg->request;
 
     TStatus tstatus;
-    Defer defer {[&tstatus]() {
+    Defer defer {[&tstatus, ingest_binlog_tstatus = arg->tstatus]() {
         LOG(INFO) << "ingest binlog. result: " << apache::thrift::ThriftDebugString(tstatus);
+
+        if (ingest_binlog_tstatus) {
+            *ingest_binlog_tstatus = std::move(tstatus);
+        }
     }};
 
     auto set_tstatus = [&tstatus](TStatusCode::type code, std::string error_msg) {
@@ -775,7 +780,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     bool is_async = (_ingest_binlog_workers != nullptr);
     result.__set_is_async(is_async);
 
-    auto ingest_binlog_func = [=]() {
+    auto ingest_binlog_func = [=, tstatus = &tstatus]() {
         IngestBinlogArg ingest_binlog_arg = {
                 .txn_id = txn_id,
                 .partition_id = partition_id,
@@ -783,6 +788,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
                 .local_tablet = local_tablet,
 
                 .request = std::move(request),
+                .tstatus = is_async ? nullptr : tstatus,
         };
 
         _ingest_binlog(&ingest_binlog_arg);
@@ -796,6 +802,8 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         }
     } else {
         ingest_binlog_func();
+        LOG(INFO) << "sync mode ingest binlog. result: "
+                  << apache::thrift::ThriftDebugString(result);
     }
 }
 
