@@ -62,12 +62,12 @@ public:
     ScannerContext(RuntimeState* state_, VScanNode* parent,
                    const TupleDescriptor* output_tuple_desc,
                    const std::list<VScannerSPtr>& scanners_, int64_t limit_,
-                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances = 0);
+                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances = 1);
 
     virtual ~ScannerContext() = default;
     virtual Status init();
 
-    vectorized::BlockUPtr get_free_block(bool* has_free_block, bool get_not_empty_block = false);
+    vectorized::BlockUPtr get_free_block();
     void return_free_block(std::unique_ptr<vectorized::Block> block);
 
     // Append blocks from scanners to the blocks queue.
@@ -136,18 +136,23 @@ public:
     virtual bool empty_in_queue(int id);
 
     // todo(wb) rethinking how to calculate ```_max_bytes_in_queue``` when executing shared scan
-    virtual inline bool has_enough_space_in_blocks_queue() const {
-        return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
+    inline bool should_be_scheduled() const {
+        return (_cur_bytes_in_queue < _max_bytes_in_queue / 2) &&
+               (_serving_blocks_num < allowed_blocks_num());
     }
 
-    int cal_thread_slot_num_by_free_block_num() {
+    int get_available_thread_slot_num() {
         int thread_slot_num = 0;
-        thread_slot_num = (_free_blocks_capacity + _block_per_scanner - 1) / _block_per_scanner;
+        thread_slot_num = (allowed_blocks_num() + _block_per_scanner - 1) / _block_per_scanner;
         thread_slot_num = std::min(thread_slot_num, _max_thread_num - _num_running_scanners);
-        if (thread_slot_num <= 0) {
-            thread_slot_num = 1;
-        }
         return thread_slot_num;
+    }
+
+    int32_t allowed_blocks_num() const {
+        int32_t blocks_num = std::min(_free_blocks_capacity,
+                                      int32_t((_max_bytes_in_queue + _estimated_block_bytes - 1) /
+                                              _estimated_block_bytes));
+        return blocks_num;
     }
 
     void reschedule_scanner_ctx();
@@ -203,10 +208,12 @@ protected:
 
     // Lazy-allocated blocks for all scanners to share, for memory reuse.
     moodycamel::ConcurrentQueue<vectorized::BlockUPtr> _free_blocks;
+    std::atomic<int32_t> _serving_blocks_num = 0;
     // The current number of free blocks available to the scanners.
     // Used to limit the memory usage of the scanner.
     // NOTE: this is NOT the size of `_free_blocks`.
-    std::atomic_int32_t _free_blocks_capacity = 0;
+    int32_t _free_blocks_capacity = 0;
+    int64_t _estimated_block_bytes = 0;
 
     int _batch_size;
     // The limit from SQL's limit clause
@@ -231,6 +238,7 @@ protected:
     int64_t _cur_bytes_in_queue = 0;
     // The max limit bytes of blocks in blocks queue
     const int64_t _max_bytes_in_queue;
+    std::atomic<int64_t> _bytes_allocated = 0;
 
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
     // List "scanners" saves all "unfinished" scanners.
