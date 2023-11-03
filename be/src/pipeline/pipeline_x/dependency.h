@@ -95,10 +95,7 @@ public:
 
     void set_parent(std::weak_ptr<Dependency> parent) { _parent = parent; }
 
-    void add_child(std::shared_ptr<Dependency> child) {
-        _children.push_back(child);
-        child->set_parent(weak_from_this());
-    }
+    void add_child(std::shared_ptr<Dependency> child) { _children.push_back(child); }
 
     void remove_first_child() { _children.erase(_children.begin()); }
 

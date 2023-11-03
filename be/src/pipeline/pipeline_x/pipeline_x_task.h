@@ -72,11 +72,10 @@ public:
 
     Dependency* read_blocked_dependency() {
         for (auto* op_dep : _read_dependencies) {
-            auto* dep = op_dep->read_blocked_by();
-            if (dep != nullptr) {
-                dep->start_read_watcher();
-                set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
-                return dep;
+            _blocked_dep = op_dep->read_blocked_by();
+            if (_blocked_dep != nullptr) {
+                _blocked_dep->start_read_watcher();
+                return _blocked_dep;
             }
         }
         return nullptr;
@@ -86,61 +85,48 @@ public:
         if (_dry_run) {
             return true;
         }
-        auto* dep = read_blocked_dependency();
-        return dep == nullptr;
+        return read_blocked_dependency() == nullptr;
     }
 
-    RuntimeFilterDependency* filter_blocked_dependency() {
-        auto* dep = _filter_dependency->filter_blocked_by();
-        if (dep != nullptr) {
-            set_state(PipelineTaskState::BLOCKED_FOR_RF);
-            dep->add_block_task(this);
-            return dep;
+    Dependency* filter_blocked_dependency() {
+        _blocked_dep = _filter_dependency->filter_blocked_by();
+        if (_blocked_dep != nullptr) {
+            return _blocked_dep;
         }
         return nullptr;
     }
 
     bool runtime_filters_are_ready_or_timeout() override {
-        auto* dep = filter_blocked_dependency();
-        return dep == nullptr;
+        return filter_blocked_dependency() == nullptr;
     }
 
-    WriteDependency* write_blocked_dependency() {
-        auto* dep = _write_dependencies->write_blocked_by();
-        if (dep != nullptr) {
-            dep->start_write_watcher();
-            set_state(PipelineTaskState::BLOCKED_FOR_SINK);
-            dep->add_block_task(this);
-            return dep;
+    Dependency* write_blocked_dependency() {
+        _blocked_dep = _write_dependencies->write_blocked_by();
+        if (_blocked_dep != nullptr) {
+            static_cast<WriteDependency*>(_blocked_dep)->start_write_watcher();
+            return _blocked_dep;
         }
         return nullptr;
     }
 
-    bool sink_can_write() override {
-        auto* dep = write_blocked_dependency();
-        return dep == nullptr;
-    }
+    bool sink_can_write() override { return write_blocked_dependency() == nullptr; }
 
     Status finalize() override;
 
     std::string debug_string() override;
 
-    FinishDependency* finish_blocked_dependency() {
+    Dependency* finish_blocked_dependency() {
         for (auto* fin_dep : _finish_dependencies) {
-            auto* dep = fin_dep->finish_blocked_by();
-            if (dep != nullptr) {
-                dep->start_finish_watcher();
-                set_state(PipelineTaskState::PENDING_FINISH);
-                return dep;
+            _blocked_dep = fin_dep->finish_blocked_by();
+            if (_blocked_dep != nullptr) {
+                static_cast<FinishDependency*>(_blocked_dep)->start_finish_watcher();
+                return _blocked_dep;
             }
         }
         return nullptr;
     }
 
-    bool is_pending_finish() override {
-        auto* dep = finish_blocked_dependency();
-        return dep != nullptr;
-    }
+    bool is_pending_finish() override { return finish_blocked_dependency() != nullptr; }
 
     std::vector<DependencySPtr>& get_downstream_dependency() { return _downstream_dependency; }
 
@@ -181,8 +167,14 @@ public:
 
     OperatorXs operatorXs() { return _operators; }
 
+    void push_blocked_task_to_dep() {
+        DCHECK(_blocked_dep);
+        _blocked_dep->add_block_task(this);
+        _blocked_dep = nullptr;
+    }
+
 private:
-    [[nodiscard]] bool _make_run(PipelineTaskState state = PipelineTaskState::RUNNABLE);
+    void _make_run(PipelineTaskState state = PipelineTaskState::RUNNABLE);
     void set_close_pipeline_time() override {}
     void _init_profile() override;
     void _fresh_profile_counter() override;
@@ -205,6 +197,8 @@ private:
     std::shared_ptr<LocalExchangeSharedState> _local_exchange_state;
     int _task_idx;
     bool _dry_run = false;
+
+    Dependency* _blocked_dep;
 };
 
 } // namespace doris::pipeline

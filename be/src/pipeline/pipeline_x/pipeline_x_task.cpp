@@ -182,9 +182,8 @@ Status PipelineXTask::_open() {
         auto* local_state = _state->get_local_state(o->operator_id());
         auto st = local_state->open(_state);
         if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
-            auto* filer_dep = local_state->filterdependency();
+            _blocked_dep = local_state->filterdependency();
             set_state(PipelineTaskState::BLOCKED_FOR_RF);
-            filer_dep->add_block_task(this);
         } else if (st.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
         }
@@ -243,7 +242,7 @@ Status PipelineXTask::execute(bool* eos) {
         }
         if (!sink_can_write()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
-            break;
+            return Status::OK();
         }
         if (time_spent > THREAD_TIME_SLICE) {
             COUNTER_UPDATE(_yield_counts, 1);
@@ -366,10 +365,12 @@ bool PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
     if (state == PipelineTaskState::PENDING_FINISH) {
         block_dep = finish_blocked_dependency();
     } else if (query_context()->is_cancelled()) {
-        return _make_run();
+        _make_run();
+        return true;
     } else if (query_context()->is_timeout(now)) {
         query_context()->cancel(true, "", Status::Cancelled(""));
-        return _make_run();
+        _make_run();
+        return true;
     } else {
         if (state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
             block_dep = read_blocked_dependency();
@@ -380,16 +381,17 @@ bool PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
         }
     }
     if (block_dep == nullptr) {
-        return _make_run();
+        _make_run();
+        return true;
     }
     // block_dep != nullptr , block task has trans to other dep
     DCHECK(wake_up_dep != block_dep);
+    push_blocked_task_to_dep();
     return false;
 }
 
-bool PipelineXTask::_make_run(PipelineTaskState t_state) {
+void PipelineXTask::_make_run(PipelineTaskState t_state) {
     set_state(t_state);
     static_cast<void>(get_task_queue()->push_back(this));
-    return true;
 }
 } // namespace doris::pipeline

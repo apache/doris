@@ -45,7 +45,7 @@ void Dependency::try_to_wake_up_task() {
             _wake_up_task_counter++;
         }
     }
-    _block_task.clear();
+    std::vector<PipelineXTask*> {}.swap(_block_task);
 }
 
 template Status HashJoinDependency::extract_join_column<true>(
