@@ -691,6 +691,9 @@ bool SegmentIterator::_check_apply_by_bitmap_index(ColumnPredicate* pred) {
 }
 
 bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
+        return false;
+    }
     if (_inverted_index_iterators[pred->column_id()] == nullptr) {
         //this column without inverted index
         return false;
@@ -735,9 +738,6 @@ Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(
 
 Status SegmentIterator::_apply_inverted_index_except_leafnode_of_andnode(
         ColumnPredicate* pred, roaring::Roaring* output_result) {
-    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
-        return Status::OK();
-    }
     RETURN_IF_ERROR(pred->evaluate(*_schema, _inverted_index_iterators[pred->column_id()].get(),
                                    num_rows(), output_result));
     return Status::OK();
@@ -1648,8 +1648,11 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         }
         for (auto& range : _split_row_ranges) {
             size_t nrows = range.second - range.first;
-
-            RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
+            {
+                _opts.stats->block_first_read_seek_num += 1;
+                SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
+                RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
+            }
             size_t rows_read = nrows;
             RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
             if (rows_read != nrows) {

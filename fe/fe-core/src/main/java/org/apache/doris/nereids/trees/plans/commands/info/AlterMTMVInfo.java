@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -41,11 +42,14 @@ public abstract class AlterMTMVInfo {
     /**
      * analyze alter table info
      */
-    public void analyze(ConnectContext ctx) throws org.apache.doris.common.AnalysisException {
+    public void analyze(ConnectContext ctx) throws AnalysisException {
         mvName.analyze(ctx);
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getDb(),
                 mvName.getTbl(), PrivPredicate.ALTER)) {
-            throw new AnalysisException("Access denied");
+            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("ALTER",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    mvName.getDb() + ": " + mvName.getTbl());
+            throw new AnalysisException(message);
         }
     }
 

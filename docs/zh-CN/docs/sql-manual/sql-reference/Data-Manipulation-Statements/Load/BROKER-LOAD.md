@@ -143,6 +143,14 @@ WITH BROKER broker_name
 
     指定导入的format的一些参数。如导入的文件是`json`格式，则可以在这里指定`json_root`、`jsonpaths`、`fuzzy_parse`等参数。
 
+    - <version since="dev" type="inline"> enclose </version>
+  
+      包围符。当csv数据字段中含有行分隔符或列分隔符时，为防止意外截断，可指定单字节字符作为包围符起到保护作用。例如列分隔符为","，包围符为"'"，数据为"a,'b,c'",则"b,c"会被解析为一个字段。
+
+    - <version since="dev" type="inline"> escape </version>
+
+      转义符。用于转义在字段中出现的与包围符相同的字符。例如数据为"a,'b,'c'"，包围符为"'"，希望"b,'c被作为一个字段解析，则需要指定单字节转义符，例如"\"，然后将数据修改为"a,'b,\'c'"。
+
 - `WITH BROKER broker_name`
 
   指定需要使用的 Broker 服务名称。在公有云 Doris 中。Broker 服务名称为 `bos`
@@ -202,14 +210,6 @@ WITH BROKER broker_name
     - <version since="dev" type="inline"> priority </version>
 
       设置导入任务的优先级，可选 `HIGH/NORMAL/LOW` 三种优先级，默认为 `NORMAL`，对于处在 `PENDING` 状态的导入任务，更高优先级的任务将优先被执行进入 `LOADING` 状态。
-
-    - <version since="dev" type="inline"> enclose </version>
-  
-      包围符。当csv数据字段中含有行分隔符或列分隔符时，为防止意外截断，可指定单字节字符作为包围符起到保护作用。例如列分隔符为","，包围符为"'"，数据为"a,'b,c'",则"b,c"会被解析为一个字段。
-
-    - <version since="dev" type="inline"> escape </version>
-
-      转义符。用于转义在字段中出现的与包围符相同的字符。例如数据为"a,'b,'c'"，包围符为"'"，希望"b,'c被作为一个字段解析，则需要指定单字节转义符，例如"\"，然后将数据修改为"a,'b,\'c'"。
 
 -  <version since="1.2.3" type="inline"> comment </version>
 

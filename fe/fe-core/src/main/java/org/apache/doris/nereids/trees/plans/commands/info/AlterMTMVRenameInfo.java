@@ -17,12 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Objects;
@@ -41,15 +38,22 @@ public class AlterMTMVRenameInfo extends AlterMTMVInfo {
         this.newName = Objects.requireNonNull(newName, "require newName object");
     }
 
+    /**
+     * analyze
+     * @param ctx ctx
+     * @throws AnalysisException AnalysisException
+     */
     public void analyze(ConnectContext ctx) throws AnalysisException {
         super.analyze(ctx);
-        FeNameFormat.checkTableName(newName);
+        try {
+            FeNameFormat.checkTableName(newName);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
     }
 
     @Override
     public void run() throws DdlException {
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
-        Table table = db.getTableOrDdlException(mvName.getTbl());
-        Env.getCurrentEnv().renameTable(db, table, newName);
+        throw new AnalysisException("current not support.");
     }
 }

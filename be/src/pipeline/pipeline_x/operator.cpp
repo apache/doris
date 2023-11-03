@@ -229,9 +229,11 @@ void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, SourceStat
         source_state = SourceState::FINISHED;
     }
 
-    _num_rows_returned += block->rows();
-    COUNTER_UPDATE(_blocks_returned_counter, 1);
-    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+    if (auto rows = block->rows()) {
+        _num_rows_returned += rows;
+        COUNTER_UPDATE(_blocks_returned_counter, 1);
+        COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+    }
 }
 
 std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
@@ -315,7 +317,7 @@ PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXB
           _state(state),
           _finish_dependency(new FinishDependency(parent->operator_id(), parent->node_id(),
                                                   parent->get_name() + "_FINISH_DEPENDENCY")) {
-    _filter_dependency = std::make_unique<FilterDependency>(
+    _filter_dependency = std::make_shared<RuntimeFilterDependency>(
             parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY");
 }
 
