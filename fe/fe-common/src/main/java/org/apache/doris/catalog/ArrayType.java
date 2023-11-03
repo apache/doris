@@ -163,6 +163,16 @@ public class ArrayType extends Type {
         return Type.canCastTo(type.getItemType(), targetType.getItemType());
     }
 
+    public static Type getAssignmentCompatibleType(ArrayType t1, ArrayType t2, boolean strict) {
+        Type itemCompatibleType = Type.getAssignmentCompatibleType(t1.getItemType(), t2.getItemType(), strict);
+
+        if (itemCompatibleType.isInvalid()) {
+            return ScalarType.INVALID;
+        }
+
+        return new ArrayType(itemCompatibleType, t1.getContainsNull() || t2.getContainsNull());
+    }
+
     @Override
     public void toThrift(TTypeDesc container) {
         TTypeNode node = new TTypeNode();
