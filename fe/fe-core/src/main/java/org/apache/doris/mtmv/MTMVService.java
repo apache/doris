@@ -17,7 +17,6 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
@@ -113,9 +112,7 @@ public class MTMVService {
     }
 
     private void processBaseTableChange(Table table, String msgPrefix) throws UserException {
-        DatabaseIf database = table.getDatabase();
-        BaseTableInfo baseTableInfo = new BaseTableInfo(database.getCatalog().getName(), database.getFullName(),
-                table.getName());
+        BaseTableInfo baseTableInfo = new BaseTableInfo(table);
         Set<MTMV> mtmvsByBaseTable = cacheManager.getMtmvsByBaseTable(baseTableInfo);
         if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
             return;

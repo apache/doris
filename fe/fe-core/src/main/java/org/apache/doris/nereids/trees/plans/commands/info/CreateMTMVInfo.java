@@ -23,6 +23,8 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -32,17 +34,24 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
+import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
+import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -153,18 +162,26 @@ public class CreateMTMVInfo {
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         Plan plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
         analyzeBaseTables(plan);
-        analyzeExpressions(plan);
+        analyzeExpressions(planner);
         getColumns(plan);
     }
 
     private void analyzeBaseTables(Plan plan) {
-        // TODO: 2023/11/3 check if has mtmv
-        return;
+        TableCollectorContext collectorContext =
+                new TableCollector.TableCollectorContext(Sets.newHashSet(TableType.MATERIALIZED_VIEW));
+        plan.accept(TableCollector.INSTANCE, collectorContext);
+        List<TableIf> collectedTables = collectorContext.getCollectedTables();
+        if (!CollectionUtils.isEmpty(collectedTables)) {
+            throw new AnalysisException("can not contain MATERIALIZED_VIEW");
+        }
     }
 
-    private void analyzeExpressions(Plan plan) {
-        // TODO: 2023/11/3 check if has mtmv
-        return;
+    private void analyzeExpressions(NereidsPlanner planner) {
+        List<TreeNode<Expression>> functionCollectResult = new ArrayList<>();
+        planner.getPhysicalPlan().accept(NondeterministicFunctionCollector.INSTANCE, functionCollectResult);
+        if (!CollectionUtils.isEmpty(functionCollectResult)) {
+            throw new AnalysisException("can not contain invalid expression");
+        }
     }
 
     private void getColumns(Plan plan) {

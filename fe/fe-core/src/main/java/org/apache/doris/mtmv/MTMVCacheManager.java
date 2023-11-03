@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -40,6 +41,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
+import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 
@@ -124,8 +127,34 @@ public class MTMVCacheManager implements MTMVHookService {
     }
 
     private MTMVCache generateMTMVCache(MTMV mtmv) {
-        // TODO: 2023/10/26 implement this method when transparently rewriting
-        return new MTMVCache(Sets.newHashSet(), Sets.newHashSet());
+        Plan plan = getPlanBySql(mtmv.getQuerySql());
+        return new MTMVCache(getBaseTables(plan), getBaseViews(plan));
+    }
+
+    private Set<BaseTableInfo> getBaseTables(Plan plan) {
+        TableCollectorContext collectorContext =
+                new TableCollector.TableCollectorContext(
+                        Sets.newHashSet(TableType.MATERIALIZED_VIEW, TableType.OLAP));
+        plan.accept(TableCollector.INSTANCE, collectorContext);
+        List<TableIf> collectedTables = collectorContext.getCollectedTables();
+        return transferTableIfToInfo(collectedTables);
+    }
+
+    private Set<BaseTableInfo> getBaseViews(Plan plan) {
+        TableCollectorContext collectorContext =
+                new TableCollector.TableCollectorContext(
+                        Sets.newHashSet(TableType.VIEW));
+        plan.accept(TableCollector.INSTANCE, collectorContext);
+        List<TableIf> collectedTables = collectorContext.getCollectedTables();
+        return transferTableIfToInfo(collectedTables);
+    }
+
+    private Set<BaseTableInfo> transferTableIfToInfo(List<TableIf> tables) {
+        Set<BaseTableInfo> result = Sets.newHashSet();
+        for (TableIf table : tables) {
+            result.add(new BaseTableInfo(table));
+        }
+        return result;
     }
 
     private Plan getPlanBySql(String sql) {

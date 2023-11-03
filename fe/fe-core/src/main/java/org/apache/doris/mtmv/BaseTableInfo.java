@@ -17,7 +17,10 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.datasource.CatalogIf;
 
 import com.google.common.base.Objects;
 import com.google.gson.annotations.SerializedName;
@@ -37,6 +40,16 @@ public class BaseTableInfo {
         this.dbName = ClusterNamespace
                 .getNameFromFullName(java.util.Objects.requireNonNull(dbName, "require dbName object"));
         this.ctlName = java.util.Objects.requireNonNull(ctlName, "require ctlName object");
+    }
+
+    public BaseTableInfo(TableIf table) {
+        DatabaseIf database = table.getDatabase();
+        java.util.Objects.requireNonNull(database, "database is null");
+        CatalogIf catalog = database.getCatalog();
+        java.util.Objects.requireNonNull(database, "catalog is null");
+        this.tableName = table.getName();
+        this.dbName = database.getFullName();
+        this.ctlName = catalog.getName();
     }
 
     @Override
