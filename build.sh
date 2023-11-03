@@ -281,6 +281,13 @@ update_submodule() {
     echo "Update ${submodule_name} submodule ..."
     git submodule update --init --recursive "${submodule_path}"
     exit_code=$?
+    if [[ "${exit_code}" -eq 0 ]]; then
+        cd "${submodule_path}"
+        submodule_commit_id=$(git rev-parse HEAD)
+        cd -
+        expect_submodule_commit_id=$(git ls-tree HEAD "${submodule_path}" | awk '{print $3}')
+        echo "Current commit ID of ${submodule_name} submodule: ${submodule_commit_id}, expected is ${expect_submodule_commit_id}"
+    fi
     set -e
     if [[ "${exit_code}" -ne 0 ]]; then
         # try to get submodule's current commit
