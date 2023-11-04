@@ -85,6 +85,10 @@ class LoadStreamStub {
 private:
     class LoadStreamReplyHandler : public brpc::StreamInputHandler {
     public:
+        LoadStreamReplyHandler(PUniqueId load_id) {
+            _load_id = load_id;
+        }
+
         int on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
                                  size_t size) override;
 
@@ -99,13 +103,17 @@ private:
             if (_is_closed) {
                 return Status::OK();
             }
+            int ret = 0;
             if (timeout_ms > 0) {
-                int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
-                return ret == 0 ? Status::OK()
-                                : Status::Error<true>(ret, "stream close_wait timeout");
+                ret = _close_cv.wait_for(lock, timeout_ms * 1000);
+                if (!_is_closed) {
+                    // avoid use after free on on_closed
+                    brpc::StreamClose(_stream_id);
+                }
             }
             _close_cv.wait(lock);
-            return Status::OK();
+            return ret == 0 ? Status::OK()
+                            : Status::Error<true>(ret, "stream close_wait timeout");
         };
 
         std::vector<int64_t> success_tablets() {
@@ -120,7 +128,11 @@ private:
 
         void set_dst_id(int64_t dst_id) { _dst_id = dst_id; }
 
+        void set_stream_id(brpc::StreamId stream_id) { _stream_id = stream_id; }
+
     private:
+        PUniqueId _load_id;
+        brpc::StreamId _stream_id;
         int64_t _dst_id = -1; // for logging
         std::atomic<bool> _is_closed;
         bthread::Mutex _mutex;

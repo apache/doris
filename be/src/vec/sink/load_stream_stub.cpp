@@ -87,6 +87,7 @@ LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id)
         : _is_init(false),
           _load_id(load_id),
           _src_id(src_id),
+          _handler(load_id),
           _tablet_schema_for_index(std::make_shared<IndexToTabletSchema>()),
           _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()) {}
 
@@ -94,6 +95,7 @@ LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
         : _is_init(stub._is_init.load()),
           _load_id(stub._load_id),
           _src_id(stub._src_id),
+          _handler(stub._load_id),
           _tablet_schema_for_index(stub._tablet_schema_for_index),
           _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {}
 
@@ -135,6 +137,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     if (int ret = StreamCreate(&_stream_id, cntl, &opt)) {
         return Status::Error<true>(ret, "Failed to create stream");
     }
+    _handler.set_stream_id(_stream_id);
     cntl.set_timeout_ms(config::open_load_stream_timeout_ms);
     POpenStreamSinkRequest request;
     *request.mutable_load_id() = _load_id;
