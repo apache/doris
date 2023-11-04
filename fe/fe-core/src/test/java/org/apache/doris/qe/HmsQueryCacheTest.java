@@ -120,6 +120,8 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
         Deencapsulation.setField(tbl, "objectCreated", true);
         Deencapsulation.setField(tbl, "rwLock", new ReentrantReadWriteLock(true));
+        Deencapsulation.setField(tbl, "schemaUpdateTime", NOW);
+        Deencapsulation.setField(tbl, "eventUpdateTime", 0);
         new Expectations(tbl) {
             {
                 tbl.getId();
@@ -154,15 +156,15 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 minTimes = 0;
                 result = DLAType.HIVE;
 
-                tbl.getUpdateTime();
-                minTimes = 0;
-                result = NOW;
+                // mock initSchemaAndUpdateTime and do nothing
+                tbl.initSchemaAndUpdateTime();
             }
         };
 
         Deencapsulation.setField(tbl2, "objectCreated", true);
         Deencapsulation.setField(tbl2, "rwLock", new ReentrantReadWriteLock(true));
-
+        Deencapsulation.setField(tbl2, "schemaUpdateTime", NOW);
+        Deencapsulation.setField(tbl2, "eventUpdateTime", 0);
         new Expectations(tbl2) {
             {
                 tbl2.getId();
@@ -197,8 +199,8 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 minTimes = 0;
                 result = DLAType.HIVE;
 
-                // mock init schema and do nothing
-                tbl2.initSchema();
+                // mock initSchemaAndUpdateTime and do nothing
+                tbl2.initSchemaAndUpdateTime();
                 minTimes = 0;
             }
         };
@@ -383,7 +385,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
             // do nothing
         }
         long later = System.currentTimeMillis();
-        tbl2.setPartitionUpdateTime(later);
+        tbl2.setEventUpdateTime(later);
 
         // check cache mode again
         ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
@@ -431,7 +433,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
             // do nothing
         }
         long later = System.currentTimeMillis();
-        tbl2.setPartitionUpdateTime(later);
+        tbl2.setEventUpdateTime(later);
 
         // check cache mode again
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
