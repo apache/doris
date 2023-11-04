@@ -35,5 +35,15 @@ suite("test_alter_table_column_rename") {
     // rename column name
     sql """ ALTER TABLE ${tbName} RENAME COLUMN value2 new_col """
 
-    sql """ select * from ${tbName} where new_col = 2 """
+    List<List<Object>> result = sql """ show frontends """
+    for (row : result) {
+        //println row
+        String jdbcUrl = "jdbc:mysql://" + row[1] + ":" + row[4]
+        def result1 = connect(user = 'root', password = '', jdbcUrl) {
+            sql """ SYNC """
+            sql """ use regression_test_schema_change_p0 """
+            sql """ select * from ${tbName} where new_col = 2 """
+        }
+    }
+
 }
