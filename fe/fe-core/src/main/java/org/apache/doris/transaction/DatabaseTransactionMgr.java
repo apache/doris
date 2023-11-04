@@ -1158,7 +1158,8 @@ public class DatabaseTransactionMgr {
             return false;
         }
 
-        return unfinishedAlterJobs.stream().anyMatch(job -> job.getWatershedTxnId() < transactionId);
+        return unfinishedAlterJobs.stream().anyMatch(
+                job -> job.getWatershedTxnId() < 0 || transactionId < job.getWatershedTxnId());
     }
 
     private void checkReplicaContinuousVersionSucc(long tabletId, Replica replica, boolean ignoreAlterReplica,

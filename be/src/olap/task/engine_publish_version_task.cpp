@@ -239,10 +239,12 @@ Status EnginePublishVersionTask::finish() {
                     bool exist_version = tablet->check_version_exist(version);
                     bool is_converting = false;
                     if (!exist_version && tablet->tablet_state() == TabletState::TABLET_NOTREADY) {
+                        bool is_mow = tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                                      tablet->enable_unique_key_merge_on_write();
                         auto sc_param = SchemaChangeHandler::get_tablet_converting_param(tablet_id);
                         is_converting =
                                 sc_param != nullptr &&
-                                par_ver_info.version < sc_param->alter_version &&
+                                (is_mow || par_ver_info.version <= sc_param->alter_version) &&
                                 (sc_param->alter_tablet_type == AlterTabletType::ROLLUP ||
                                  sc_param->alter_tablet_type == AlterTabletType::SCHEMA_CHANGE);
                     }

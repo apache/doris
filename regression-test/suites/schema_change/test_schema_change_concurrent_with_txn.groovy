@@ -101,8 +101,14 @@ suite('test_schema_change_concurrent_with_txn') {
         sql 'INSERT INTO tbl_3 VALUES (5, 55, 555)'
         sql 'INSERT INTO tbl_4(k1, k2) VALUES (5, 50)'
 
-        cluster.clearFrontendDebugPoints()
-        sleep(5000)
+        // After fe restart, transaction's loadedTblIndexes will clear,
+        // then fe will send publish task to all indexes.
+        // But the alter index  may add after commit txn, then publish will failed.
+        cluster.restartFrontends()
+        sleep(30000)
+        context.reconnectFe()
+
+        //cluster.clearFrontendDebugPoints()
 
         // should publish visible
         order_qt_select_1_3 'SELECT * FROM tbl_1'
