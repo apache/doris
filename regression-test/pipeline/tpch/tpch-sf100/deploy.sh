@@ -22,8 +22,9 @@ source ../../common/doris-utils.sh
 set -e
 shopt -s inherit_errexit
 
-
 echo "#### Deploy Doris ####"
+DORIS_HOME="${teamcity_build_checkoutDir}/output"
+export DORIS_HOME
 echo "#### 1. try to kill old doris process and remove old doris binary"
 stop_doris && rm -rf output
 
@@ -39,8 +40,6 @@ if download_oss_file "${pull_request_id:-}_${commit_id:-}.tar.gz"; then
     tar -I pigz -xf "${pull_request_id:-}_${commit_id:-}.tar.gz"
     if [[ -d output && -d output/fe && -d output/be ]]; then
         echo "INFO: be version: $(./output/be/lib/doris_be --version)"
-        DORIS_HOME="${teamcity_build_checkoutDir}/output"
-        export DORIS_HOME
         rm -rf "${pull_request_id}_${commit_id}.tar.gz"
     fi
 else
