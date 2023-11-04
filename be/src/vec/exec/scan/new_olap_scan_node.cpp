@@ -483,7 +483,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
             auto& read_source = tablets_read_source.emplace_back();
             {
                 std::shared_lock rdlock(tablet->get_header_lock());
-                auto st = tablet->capture_rs_readers({0, version}, &read_source.rs_splits);
+                auto st = tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false);
                 if (!st.ok()) {
                     LOG(WARNING) << "fail to init reader.res=" << st;
                     return Status::InternalError(
