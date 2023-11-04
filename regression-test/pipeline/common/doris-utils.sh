@@ -104,7 +104,6 @@ function add_doris_be_to_fe() {
 }
 
 function stop_doris() {
-    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     if "${DORIS_HOME}"/fe/bin/stop_fe.sh &&
         "${DORIS_HOME}"/be/bin/start_be.sh; then
         echo "INFO: normally stoped doris"
