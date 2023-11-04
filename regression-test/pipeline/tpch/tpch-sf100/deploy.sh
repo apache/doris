@@ -26,10 +26,10 @@ echo "#### Deploy Doris ####"
 echo "#### 1. download doris binary tar ball"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
 cd "${teamcity_build_checkoutDir}"
-####DEBUG####
-pull_request_id="26344"
-commit_id="97ee15f75e88f5af6de308d948361eaa7c261602"
-####DEBUG####
+if ${DEBUG:-false}; then
+    pull_request_id="26344"
+    commit_id="97ee15f75e88f5af6de308d948361eaa7c261602"
+fi
 if download_oss_file "${pull_request_id:-}_${commit_id:-}.tar.gz"; then
     tar -I pigz -xf "${pull_request_id:-}_${commit_id:-}.tar.gz"
     if [[ -d output && -d output/fe && -d output/be ]]; then

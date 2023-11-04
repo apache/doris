@@ -24,9 +24,9 @@ shopt -s inherit_errexit
 echo "#### Run tpch-sf100 test on Doris ####"
 echo "## 1. check if need to load data"
 SF="100" # SCALE FACTOR
-####DEBUG####
-SF="1"
-####DEBUG####
+if ${DEBUG:-false}; then
+    SF="1"
+fi
 TPCH_DATA_DIR="/data/tpch/sf_${SF}"                                               # no / at the end
 TPCH_DATA_DIR_LINK="${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/tpch-data # no / at the end
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
