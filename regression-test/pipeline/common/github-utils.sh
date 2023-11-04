@@ -8,7 +8,7 @@ function create_an_issue_comment() {
 
     local OWNER='apache'
     local REPO='doris'
-    if curl \
+    if curl -s \
         -X POST \
         -H "Accept: application/vnd.github+json" \
         -H "Authorization: Bearer ${GITHUB_TOKEN:-}" \

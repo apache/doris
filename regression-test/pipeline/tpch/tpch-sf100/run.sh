@@ -79,10 +79,12 @@ set_session_variable runtime_filter_mode off
 bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
 line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpch-queries.log)
 line_begin=$((line_end - 24))
-comment_body="run tpch-sf${SF} query with default conf and set session variables runtime_filter_mode=off
+comment_body="${comment_body}
+run tpch-sf${SF} query with default conf and set session variables runtime_filter_mode=off on commit ${commit_id:-}
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-queries.log)"
 
 echo "## 4. comment result on tpch"
+comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\n/\\n/g') # 将所有的换行符替换为\n
 create_an_issue_comment "${pull_request_id:-}" "${comment_body}"
 
 stop_doris
