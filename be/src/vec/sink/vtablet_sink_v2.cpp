@@ -370,6 +370,11 @@ Status VOlapTableSinkV2::_cancel(Status status) {
         _delta_writer_for_tablet->cancel(status);
         _delta_writer_for_tablet.reset();
     }
+    for (const auto& [_, streams] : _streams_for_node) {
+        for (const auto& stream : *streams) {
+            RETURN_IF_ERROR(stream->close_wait(1));
+        }
+    }
     return Status::OK();
 }
 
@@ -410,6 +415,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             SCOPED_TIMER(_close_load_timer);
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : *streams) {
+                    // TODO: remaining timeout
                     RETURN_IF_ERROR(stream->close_wait());
                 }
             }
@@ -447,7 +453,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
     }
 
     _close_status = status;
-    static_cast<void>(DataSink::close(state, exec_status));
+    RETURN_IF_ERROR(DataSink::close(state, exec_status));
     return status;
 }
 
