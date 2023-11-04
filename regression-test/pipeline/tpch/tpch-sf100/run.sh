@@ -13,7 +13,8 @@ else
 fi
 EOF
 
-## deploy.sh content ##
+## run.sh content ##
+
 # check_tpch_table_rows, stop_doris, set_session_variable
 source ../../common/doris-utils.sh
 # create_an_issue_comment
