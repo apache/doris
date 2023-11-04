@@ -158,6 +158,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
                 // mock initSchemaAndUpdateTime and do nothing
                 tbl.initSchemaAndUpdateTime();
+                minTimes = 0;
             }
         };
 
