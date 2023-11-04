@@ -14,3 +14,18 @@ fi
 EOF
 
 echo "Prepare to run tpch sf100 test"
+if [[ -z ${commit_id:-} || -z ${pull_request_id:-} ]]; then
+    echo "ERROR: env commit_id or pull_request_id not set" && exit 1
+else commit_id_from_checkout=${commit_id}; fi
+
+if ${DEBUG:-false}; then commit_id_from_trigger=${commit_id}; fi
+
+if [[ "${commit_id_from_trigger}" != "${commit_id_from_checkout}" ]]; then
+    echo -e "ERROR: PR(${pull_request_id}),
+    the lastest commit id
+    ${commit_id_from_checkout}
+    not equail to the commit_id_from_trigger
+    ${commit_id_from_trigger}
+    commit_id_from_trigger is outdate"
+    exit 1
+fi

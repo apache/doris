@@ -22,6 +22,7 @@ source ../../common/doris-utils.sh
 set -e
 shopt -s inherit_errexit
 
+
 echo "#### Deploy Doris ####"
 echo "#### 1. try to kill old doris process and remove old doris binary"
 stop_doris && rm -rf output
@@ -41,6 +42,8 @@ if download_oss_file "${pull_request_id:-}_${commit_id:-}.tar.gz"; then
         export DORIS_HOME
         rm -rf "${pull_request_id}_${commit_id}.tar.gz"
     fi
+else
+    echo "ERROR: download compiled binary failed" && exit 1
 fi
 
 echo "#### 3. copy conf from regression-test/pipeline/tpch/tpch-sf100/conf/"
