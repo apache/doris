@@ -132,7 +132,7 @@ public:
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
 private:
-    void _init_streams(int64_t src_id);
+    Status _init_streams(int64_t src_id);
 
     Status _open_streams();
 

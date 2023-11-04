@@ -161,7 +161,7 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
         _delta_writer_for_tablet = std::make_shared<DeltaWriterV2Map>(_load_id);
     }
     _build_tablet_node_mapping();
-    _init_streams(state->backend_id());
+    RETURN_IF_ERROR(_init_streams(state->backend_id()));
     return Status::OK();
 }
 
@@ -177,15 +177,16 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     return Status::OK();
 }
 
-void VOlapTableSinkV2::_init_streams(int64_t src_id) {
+Status VOlapTableSinkV2::_init_streams(int64_t src_id) {
     for (auto& [dst_id, _] : _tablets_for_node) {
         auto streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
                 _load_id, src_id, dst_id, _stream_per_node);
         for (auto& stream : *streams) {
-            stream->prepare();
+            RETURN_IF_ERROR(stream->prepare());
         }
         _streams_for_node[dst_id] = streams;
     }
+    return Status::OK();
 }
 
 Status VOlapTableSinkV2::_open_streams() {

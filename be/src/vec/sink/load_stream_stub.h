@@ -145,7 +145,7 @@ public:
 #endif
     ~LoadStreamStub();
 
-    void prepare();
+    Status prepare();
 
     // open_load_stream
     Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,

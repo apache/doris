@@ -88,14 +88,14 @@ LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id)
           _load_id(load_id),
           _src_id(src_id),
           _tablet_schema_for_index(std::make_shared<IndexToTabletSchema>()),
-          _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()) {};
+          _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()) {}
 
 LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
-        : _is_init(stub._is_init),
+        : _is_init(stub._is_init.load()),
           _load_id(stub._load_id),
           _src_id(stub._src_id),
           _tablet_schema_for_index(stub._tablet_schema_for_index),
-          _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {};
+          _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {}
 
 LoadStreamStub::~LoadStreamStub() {
     if (_is_init.load() && !_handler.is_closed()) {
@@ -103,13 +103,14 @@ LoadStreamStub::~LoadStreamStub() {
     }
 }
 
-void LoadStreamStub::prepare() {
+Status LoadStreamStub::prepare() {
     if (_is_init) {
         LOG(WARNING) << "stream " << _stream_id << "is already inited by " << _load_id;
-        return Status::InternalError("stream {} is already inited by {}", _stream_id, _load_id);
+        return Status::InternalError("stream {} is already inited", _stream_id);
     }
     ++_use_cnt;
     LOG(WARNING) << "prepare stream " << _stream_id << " load_id " << _load_id << " use_cnt " << _use_cnt;
+    return Status::OK();
 }
 
 // open_load_stream
@@ -208,10 +209,12 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
         _tablets_to_commit.insert(_tablets_to_commit.end(), tablets_to_commit.begin(),
                                   tablets_to_commit.end());
     }
+    LOG(INFO) << "stream " << _stream_id << "close, load_id " << _load_id << " use cnt " << _use_cnt;
     if (--_use_cnt > 0) {
         return Status::OK();
     }
-    if (_use_cnt <= 0) {
+    if (_use_cnt < 0) {
+        LOG(WARNING) << "stream " << _stream_id << "already closed, load_id " << _load_id;
         return Status::InternalError("stream {} already closed", _stream_id);
     }
 
