@@ -149,7 +149,7 @@ get_session_variable() {
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
 
-    if ret=$(${cl} -e"show variables like '${sv}'\G" | grep "Value: "); then
+    if ret=$(${cl} -e"show variables like '${sv}'\G" | grep " Value: "); then
         echo "${ret/*Value: /}"
     else
         return 1
