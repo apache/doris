@@ -15,7 +15,7 @@
 []
 
 -- !sql6 --
-[NULL, NULL, NULL]
+[null, null, null]
 
 -- !sql7 --
 ["a", "b", "c"]

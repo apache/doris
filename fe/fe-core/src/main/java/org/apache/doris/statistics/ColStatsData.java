@@ -19,6 +19,8 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.StringJoiner;
 
 /**
@@ -73,8 +75,10 @@ public class ColStatsData {
         sj.add(String.valueOf(count));
         sj.add(String.valueOf(ndv));
         sj.add(String.valueOf(nullCount));
-        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(minLit)));
-        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(maxLit)));
+        sj.add(minLit == null ? "NULL" :
+                "'" + Base64.getEncoder().encodeToString(minLit.getBytes(StandardCharsets.UTF_8)) + "'");
+        sj.add(maxLit == null ? "NULL" :
+                "'" + Base64.getEncoder().encodeToString(maxLit.getBytes(StandardCharsets.UTF_8)) + "'");
         sj.add(String.valueOf(dataSizeInBytes));
         sj.add(StatisticsUtil.quote(updateTime));
         return sj.toString();

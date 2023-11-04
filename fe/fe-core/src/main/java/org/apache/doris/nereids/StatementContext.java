@@ -85,7 +85,8 @@ public class StatementContext {
     private final Map<CTEId, Set<RelationId>> cteIdToConsumerUnderProjects = new HashMap<>();
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
-    private final Map<CTEId, LogicalPlan> rewrittenCtePlan = new HashMap<>();
+    private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
+    private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
     private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
 
@@ -230,8 +231,12 @@ public class StatementContext {
         return cteIdToConsumerGroup;
     }
 
-    public Map<CTEId, LogicalPlan> getRewrittenCtePlan() {
-        return rewrittenCtePlan;
+    public Map<CTEId, LogicalPlan> getRewrittenCteProducer() {
+        return rewrittenCteProducer;
+    }
+
+    public Map<CTEId, LogicalPlan> getRewrittenCteConsumer() {
+        return rewrittenCteConsumer;
     }
 
     public void addViewDdlSql(String ddlSql) {

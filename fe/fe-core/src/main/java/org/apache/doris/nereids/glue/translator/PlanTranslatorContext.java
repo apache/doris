@@ -43,6 +43,8 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -62,6 +64,7 @@ import javax.annotation.Nullable;
  * Context of physical plan.
  */
 public class PlanTranslatorContext {
+    private final ConnectContext connectContext;
     private final List<PlanFragment> planFragments = Lists.newArrayList();
 
     private final DescriptorTable descTable = new DescriptorTable();
@@ -110,12 +113,14 @@ public class PlanTranslatorContext {
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
 
     public PlanTranslatorContext(CascadesContext ctx) {
+        this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
     }
 
     @VisibleForTesting
     public PlanTranslatorContext() {
-        translator = null;
+        this.connectContext = null;
+        this.translator = null;
     }
 
     /**
@@ -140,6 +145,10 @@ public class PlanTranslatorContext {
 
     public void removeScanFromStatsUnknownColumnsMap(ScanNode scan) {
         statsUnknownColumnsMap.remove(scan);
+    }
+
+    public SessionVariable getSessionVariable() {
+        return connectContext == null ? null : connectContext.getSessionVariable();
     }
 
     public Set<ScanNode> getScanNodeWithUnknownColumnStats() {
