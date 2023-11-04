@@ -66,13 +66,14 @@ public class JdbcClickHouseClient extends JdbcClient {
 
         if (ckType.startsWith("DateTime")) {
             // DateTime with second precision
-            if (ckType.equals("DateTime")) {
+            if (ckType.startsWith("DateTime(")) {
                 return ScalarType.createDatetimeV2Type(0);
             } else {
                 int indexStart = ckType.indexOf('(');
                 int indexEnd = ckType.indexOf(')');
                 if (indexStart != -1 && indexEnd != -1) {
-                    int scale = fieldSchema.getDecimalDigits();
+                    String scaleStr = ckType.substring(indexStart + 1, indexEnd);
+                    int scale = Integer.parseInt(scaleStr);
                     if (scale > JDBC_DATETIME_SCALE) {
                         scale = JDBC_DATETIME_SCALE;
                     }
