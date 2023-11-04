@@ -103,6 +103,17 @@ function add_doris_be_to_fe() {
     if [[ ${i} -eq 60 ]]; then echo "ERROR: Add Doris Backend Failed after 2 mins wait..." && return 1; fi
 }
 
+function stop_doris() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if "${DORIS_HOME}"/fe/bin/stop_fe.sh &&
+        "${DORIS_HOME}"/be/bin/start_be.sh; then
+        echo "INFO: normally stoped doris"
+    else
+        pgrep -fi doris | xargs kill -9
+        echo "WARNING: force stoped doris"
+    fi
+}
+
 function check_tpch_table_rows() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     db_name="$1"

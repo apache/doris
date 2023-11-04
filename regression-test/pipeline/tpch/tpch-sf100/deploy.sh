@@ -17,13 +17,16 @@ EOF
 
 # download_oss_file
 source ../../common/oss-utils.sh
-# start_doris_fe, get_doris_conf_value, start_doris_be
+# start_doris_fe, get_doris_conf_value, start_doris_be, stop_doris
 source ../../common/doris-utils.sh
 set -e
 shopt -s inherit_errexit
 
 echo "#### Deploy Doris ####"
-echo "#### 1. download doris binary tar ball"
+echo "#### 1. try to kill old doris process and remove old doris binary"
+stop_doris && rm -rf output
+
+echo "#### 2. download doris binary tar ball"
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
 cd "${teamcity_build_checkoutDir}"
 if ${DEBUG:-false}; then
@@ -39,11 +42,9 @@ if download_oss_file "${pull_request_id:-}_${commit_id:-}.tar.gz"; then
         rm -rf "${pull_request_id}_${commit_id}.tar.gz"
     fi
 fi
-echo "#### 2. try to kill old doris process"
-if pgrep -fia doris; then pgrep -fi doris | xargs kill -9; fi
 
 echo "#### 3. copy conf from regression-test/pipeline/tpch/tpch-sf100/conf/"
-rm -f output/fe/conf/fe_custom.conf output/be/conf/be_custom.conf
+rm -f "${DORIS_HOME}"/fe/conf/fe_custom.conf "${DORIS_HOME}"/be/conf/be_custom.conf
 cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/fe.conf "${DORIS_HOME}"/fe/conf/
 cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/be.conf "${DORIS_HOME}"/be/conf/
 
@@ -55,6 +56,8 @@ mkdir -p "${storage_root_path}"
 if ! start_doris_fe; then
     echo "WARNING: --------------------${DORIS_HOME}/fe/log/fe.out--------------------"
     cat "${DORIS_HOME}"/fe/log/fe.out
+    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.log--------------------"
+    tail -n 100 "${DORIS_HOME}"/fe/log/fe.log
     echo "WARNING: ----------------------------------------"
     echo "WARNING: delete meta_dir and storage_root_path, then retry"
     rm -rf "${meta_dir:?}/"*
@@ -64,6 +67,8 @@ fi
 if ! start_doris_be; then
     echo "WARNING: --------------------${DORIS_HOME}/be/log/be.out--------------------"
     cat "${DORIS_HOME}"/be/log/be.out
+    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.INFO--------------------"
+    tail -n 100 "${DORIS_HOME}"/be/log/be.INFO
     echo "WARNING: ----------------------------------------"
     echo "WARNING: delete storage_root_path, then retry"
     rm -rf "${storage_root_path:?}/"*

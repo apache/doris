@@ -14,7 +14,7 @@ fi
 EOF
 
 ## deploy.sh content ##
-# check_tpch_table_rows
+# check_tpch_table_rows, stop_doris
 source ../../common/doris-utils.sh
 # create_an_issue_comment
 source ../../common/github-utils.sh
@@ -84,3 +84,5 @@ $(sed -n "${line_begin},${line_end}" run-tpch-queries.log)"
 
 echo "## 4. comment result on tpch"
 create_an_issue_comment "${pull_request_id:-}" "${comment_body}"
+
+stop_doris
