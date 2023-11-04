@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -553,6 +554,7 @@ public class DatabaseTransactionMgr {
                                 throw new TransactionCommitFailedException("could not find replica for tablet ["
                                         + tabletId + "], backend [" + tabletBackend + "]");
                             }
+
                             // if the tablet have no replica's to commit or the tablet is a rolling up tablet,
                             // the commit backends maybe null
                             // if the commit backends is null, set all replicas as error replicas
@@ -986,6 +988,7 @@ public class DatabaseTransactionMgr {
                     continue;
                 }
 
+                boolean ignoreAlterReplica = isCheckTxnIgnoreAlterReplica(transactionId, table);
                 Iterator<PartitionCommitInfo> partitionCommitInfoIterator
                         = tableCommitInfo.getIdToPartitionCommitInfo().values().iterator();
                 while (partitionCommitInfoIterator.hasNext()) {
@@ -1038,7 +1041,7 @@ public class DatabaseTransactionMgr {
                             tabletWriteFailedReplicas.clear();
                             tabletVersionFailedReplicas.clear();
                             for (Replica replica : tablet.getReplicas()) {
-                                checkReplicaContinuousVersionSucc(tablet.getId(), replica,
+                                checkReplicaContinuousVersionSucc(tablet.getId(), replica, ignoreAlterReplica,
                                         partitionCommitInfo.getVersion(), publishTasks.get(replica.getBackendId()),
                                         errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
                                         tabletVersionFailedReplicas);
@@ -1140,8 +1143,27 @@ public class DatabaseTransactionMgr {
         LOG.info("finish transaction {} successfully, publish result: {}", transactionState, publishResult.name());
     }
 
-    private void checkReplicaContinuousVersionSucc(long tabletId, Replica replica, long version,
-            PublishVersionTask backendPublishTask, Set<Long> errorReplicaIds, List<Replica> tabletSuccReplicas,
+    private boolean isCheckTxnIgnoreAlterReplica(long transactionId, OlapTable table) {
+        if (!Config.publish_version_check_alter_replica) {
+            return true;
+        }
+        List<AlterJobV2> unfinishedAlterJobs = null;
+        if (table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
+            unfinishedAlterJobs = Env.getCurrentEnv().getAlterInstance().getSchemaChangeHandler()
+                    .getUnfinishedAlterJobV2ByTableId(table.getId());
+        } else if (table.getState() == OlapTable.OlapTableState.ROLLUP) {
+            unfinishedAlterJobs = Env.getCurrentEnv().getAlterInstance().getMaterializedViewHandler()
+                    .getUnfinishedAlterJobV2ByTableId(table.getId());
+        } else {
+            return false;
+        }
+
+        return unfinishedAlterJobs.stream().anyMatch(job -> job.getWatershedTxnId() < transactionId);
+    }
+
+    private void checkReplicaContinuousVersionSucc(long tabletId, Replica replica, boolean ignoreAlterReplica,
+            long version, PublishVersionTask backendPublishTask,
+            Set<Long> errorReplicaIds, List<Replica> tabletSuccReplicas,
             List<Replica> tabletWriteFailedReplicas, List<Replica> tabletVersionFailedReplicas) {
         if (backendPublishTask == null || !backendPublishTask.isFinished()) {
             errorReplicaIds.add(replica.getId());
@@ -1161,6 +1183,9 @@ public class DatabaseTransactionMgr {
                     errorReplicaIds.add(replica.getId());
                 }
             }
+        }
+        if (ignoreAlterReplica && replica.getState() == Replica.ReplicaState.ALTER) {
+            errorReplicaIds.remove(replica.getId());
         }
 
         if (!errorReplicaIds.contains(replica.getId())) {

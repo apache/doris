@@ -30,7 +30,6 @@
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -63,6 +62,26 @@ namespace vectorized {
 class Block;
 class OlapBlockDataConvertor;
 } // namespace vectorized
+
+struct AlterMaterializedViewParam {
+    std::string column_name;
+    std::string origin_column_name;
+    std::shared_ptr<TExpr> expr;
+};
+
+struct SchemaChangeParams {
+    AlterTabletType alter_tablet_type;
+    TabletSharedPtr base_tablet;
+    TabletSharedPtr new_tablet;
+    TabletSchemaSPtr base_tablet_schema = nullptr;
+    std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
+    DeleteHandler* delete_handler = nullptr;
+    std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;
+    DescriptorTbl* desc_tbl = nullptr;
+    ObjectPool pool;
+    int32_t be_exec_version;
+    int64_t alter_version;
+};
 
 class BlockChanger {
 public:
@@ -237,31 +256,12 @@ public:
         return std::make_unique<LinkedSchemaChange>(changer);
     }
 
-    static bool tablet_in_converting(int64_t tablet_id);
+    static std::shared_ptr<SchemaChangeParams> get_tablet_converting_param(int64_t tablet_id);
 
 private:
     static Status _get_versions_to_be_changed(TabletSharedPtr base_tablet,
                                               std::vector<Version>* versions_to_be_changed,
                                               RowsetSharedPtr* max_rowset);
-
-    struct AlterMaterializedViewParam {
-        std::string column_name;
-        std::string origin_column_name;
-        std::shared_ptr<TExpr> expr;
-    };
-
-    struct SchemaChangeParams {
-        AlterTabletType alter_tablet_type;
-        TabletSharedPtr base_tablet;
-        TabletSharedPtr new_tablet;
-        TabletSchemaSPtr base_tablet_schema = nullptr;
-        std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
-        DeleteHandler* delete_handler = nullptr;
-        std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;
-        DescriptorTbl* desc_tbl = nullptr;
-        ObjectPool pool;
-        int32_t be_exec_version;
-    };
 
     static Status _do_process_alter_tablet_v2(const TAlterTabletReqV2& request);
 
@@ -278,7 +278,8 @@ private:
                                        const TabletColumn& column_schema, const std::string& value);
 
     static std::shared_mutex _mutex;
-    static std::unordered_set<int64_t> _tablet_ids_in_converting;
+    static std::unordered_map<int64_t, std::shared_ptr<SchemaChangeParams>>
+            _tablet_converting_params;
     static std::set<std::string> _supported_functions;
 };
 } // namespace doris

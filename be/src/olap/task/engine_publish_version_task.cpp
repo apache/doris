@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
@@ -235,7 +236,17 @@ Status EnginePublishVersionTask::finish() {
             } else {
                 // check if the version exist, if not exist, then set publish failed
                 if (_error_tablet_ids->find(tablet_id) == _error_tablet_ids->end()) {
-                    if (tablet->check_version_exist(version)) {
+                    bool exist_version = tablet->check_version_exist(version);
+                    bool is_converting = false;
+                    if (!exist_version && tablet->tablet_state() == TabletState::TABLET_NOTREADY) {
+                        auto sc_param = SchemaChangeHandler::get_tablet_converting_param(tablet_id);
+                        is_converting =
+                                sc_param != nullptr &&
+                                par_ver_info.version < sc_param->alter_version &&
+                                (sc_param->alter_tablet_type == AlterTabletType::ROLLUP ||
+                                 sc_param->alter_tablet_type == AlterTabletType::SCHEMA_CHANGE);
+                    }
+                    if (exist_version || is_converting) {
                         // it's better to report the max continous succ version,
                         // but it maybe time cost now.
                         // current just report 0

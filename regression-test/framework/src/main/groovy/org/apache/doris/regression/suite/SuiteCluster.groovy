@@ -91,17 +91,17 @@ class ServerNode {
 
     void enableDebugPoint(String name, Map<String, String> params = null) {
         def (host, port) = getHttpAddress()
-        DebugPoint.enableDebugPoint(host, port, getNodeType(), name, params)
+        DebugPoint.enableDebugPoint(host, String.valueOf(port), getNodeType(), name, params)
     }
 
     void disableDebugPoint(String name) {
         def (host, port) = getHttpAddress()
-        DebugPoint.disableDebugPoint(host, port, getNodeType(), name)
+        DebugPoint.disableDebugPoint(host, String.valueOf(port), getNodeType(), name)
     }
 
     void clearDebugPoints() {
         def (host, port) = getHttpAddress()
-        DebugPoint.clearDebugPoints(host, port, getNodeType())
+        DebugPoint.clearDebugPoints(host, String.valueOf(port), getNodeType())
     }
 
     NodeType getNodeType() {
