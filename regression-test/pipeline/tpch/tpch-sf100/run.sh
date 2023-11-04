@@ -66,21 +66,21 @@ fi
 
 echo "## 2. run tpch-sf${SF} query"
 sed -i "s|^SCALE_FACTOR=[0-9]\+$|SCALE_FACTOR=${SF}|g" "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh
-bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh | tee run-tpch-queries.log
-line_end=$(sed -n '/^Total hot run time/=' run-tpch-queries.log)
+bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
+line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpch-queries.log)
 line_begin=$((line_end - 24))
 
 comment_body="Tpch sf${SF} test resutl on commit ${commit_id:-}
 run tpch-sf${SF} query with default conf and session variables
-$(sed -n "${line_begin},${line_end}" run-tpch-queries.log)"
+$(sed -n "${line_begin},${line_end}" "${teamcity_build_checkoutDir}"/run-tpch-queries.log)"
 
 echo "## 3. run tpch-sf${SF} query with runtime_filter_mode=off"
 set_session_variable runtime_filter_mode off
-bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh | tee run-tpch-queries.log
-line_end=$(sed -n '/^Total hot run time/=' run-tpch-queries.log)
+bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
+line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpch-queries.log)
 line_begin=$((line_end - 24))
 comment_body="run tpch-sf${SF} query with default conf and set session variables runtime_filter_mode=off
-$(sed -n "${line_begin},${line_end}" run-tpch-queries.log)"
+$(sed -n "${line_begin},${line_end}" "${teamcity_build_checkoutDir}"/run-tpch-queries.log)"
 
 echo "## 4. comment result on tpch"
 create_an_issue_comment "${pull_request_id:-}" "${comment_body}"

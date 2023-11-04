@@ -33,6 +33,7 @@ cd "${teamcity_build_checkoutDir}"
 if ${DEBUG:-false}; then
     pull_request_id="26344"
     commit_id="edc044e95a530c71851ee5019a6fe00898517cd8"
+    commit_id="97ee15f75e88f5af6de308d948361eaa7c261602"
 fi
 if download_oss_file "${pull_request_id:-}_${commit_id:-}.tar.gz"; then
     tar -I pigz -xf "${pull_request_id:-}_${commit_id:-}.tar.gz"
