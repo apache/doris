@@ -121,7 +121,7 @@ public:
 private:
     void _init_row_distribution();
 
-    void _init_streams(int64_t src_id);
+    Status _init_streams(int64_t src_id);
 
     Status _open_streams();
 

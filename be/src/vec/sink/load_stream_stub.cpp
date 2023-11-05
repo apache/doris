@@ -87,18 +87,28 @@ LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id)
         : _load_id(load_id),
           _src_id(src_id),
           _tablet_schema_for_index(std::make_shared<IndexToTabletSchema>()),
-          _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()) {};
+          _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()) {}
 
 LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
         : _load_id(stub._load_id),
           _src_id(stub._src_id),
           _tablet_schema_for_index(stub._tablet_schema_for_index),
-          _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {};
+          _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {}
 
 LoadStreamStub::~LoadStreamStub() {
     if (_is_init.load() && !_handler.is_closed()) {
         brpc::StreamClose(_stream_id);
     }
+}
+
+Status LoadStreamStub::prepare() {
+    if (_is_init) {
+        LOG(WARNING) << "stream " << _stream_id << "is already inited by " << _load_id;
+        return Status::InternalError("stream {} is already inited", _stream_id);
+    }
+    int num_use = ++_use_cnt;
+    LOG(WARNING) << "prepare stream " << _stream_id << " load_id " << _load_id << " use_cnt " << num_use;
+    return Status::OK();
 }
 
 // open_load_stream
@@ -197,14 +207,22 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
         _tablets_to_commit.insert(_tablets_to_commit.end(), tablets_to_commit.begin(),
                                   tablets_to_commit.end());
     }
-    if (--_use_cnt > 0) {
+    const int num_use = --_use_cnt;
+    LOG(INFO) << "stream " << _stream_id << " close, load_id " << _load_id << " use cnt " << num_use;
+    if (num_use > 0) {
         return Status::OK();
     }
+    if (num_use < 0) {
+        LOG(WARNING) << "stream " << _stream_id << "already closed, load_id " << _load_id;
+        return Status::InternalError("stream {} already closed", _stream_id);
+    }
+
+    DCHECK(num_use == 0);
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
     header.set_src_id(_src_id);
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
-    LOG(INFO) << "issue close load stream " << _stream_id;
+    LOG(INFO) << "send close load on stream " << _stream_id << " load_id " << _load_id;
     {
         std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
         for (const auto& tablet : _tablets_to_commit) {
