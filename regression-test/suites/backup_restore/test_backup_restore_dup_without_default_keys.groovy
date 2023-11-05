@@ -16,19 +16,20 @@
 // under the License.
 
 suite("test_backup_restore_dup_without_default_keys", "backup_restore"){
-    String repoName = "test_backup_restore_repo"
-    String dbName = "backup_restore_db"
-    String tableName = "test_backup_restore_table"
+    String repoName = "test_backup_restore_dup_without_default_keys"
+    String dbName = "backup_restore_dup_without_default_keys_db"
+    String tableName = "dup_without_keys_table"
 
     // backup & restore for duplicate without keys by default
     def syncer = getSyncer()
     syncer.createS3Repository(repoName)
+
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     sql """
         CREATE TABLE ${dbName}.${tableName} (
             `id` LARGEINT NOT NULL,
-            `count` LARGEINT SUM DEFAULT "0")
+            `count` LARGEINT)
         DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES
         (
@@ -37,9 +38,9 @@ suite("test_backup_restore_dup_without_default_keys", "backup_restore"){
         )
         """
 
-    List<String> values []
+    List<String> values = []
     for(int i = 1;i <= 10; ++i){
-      value.add("(${i},${i})")
+      values.add("(${i}, ${i})")
     }
     sql "INSERT INTO ${dbName}.${tableName} VALUES ${values.join(",")}"
 
@@ -52,6 +53,7 @@ suite("test_backup_restore_dup_without_default_keys", "backup_restore"){
         TO `${repoName}`
         ON (${tableName})
     """    
+
     while (!syncer.checkSnapshotFinish(dbName)) {
         Thread.sleep(3000)
     }
@@ -68,7 +70,6 @@ suite("test_backup_restore_dup_without_default_keys", "backup_restore"){
         (
             "backup_timestamp" = "${snapshot}",
             "replication_num" = "1",
-            "enable_duplicate_without_keys_by_default" = "true"
         )
     """
     while (!syncer.checkAllRestoreFinish(dbName)) {
