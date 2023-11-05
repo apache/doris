@@ -43,9 +43,9 @@ under the License.
 
 ## 收集统计信息
 
-### 使用ANALYZE语句
+### 使用ANALYZE语句手动收集
 
-Doris支持用户通过提交ANALYZE语句来触发统计信息的收集和更新。
+Doris支持用户通过提交ANALYZE语句来手动触发统计信息的收集和更新。
 
 语法：
 
@@ -58,24 +58,34 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 
 其中：
 
-- table_name: 指定的的目标表。可以是  `db_name.table_name`  形式。
+- table_name: 指定的目标表。可以是  `db_name.table_name`  形式。
 - column_name: 指定的目标列。必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 - sync：同步收集统计信息。收集完后返回。若不指定则异步执行并返回任务 ID。
 - sample percent | rows：抽样收集统计信息。可以指定抽样比例或者抽样行数。
 - sql：执行sql来收集外表分区列统计信息。默认从元数据收集分区列信息，这样效率比较高但是行数和数据量大小可能不准。用户可以指定使用sql来收集，这样可以收集到准确的分区列信息。
 
 
+下面是一些例子
+
+对一张表按照10%的比例采样收集统计数据：
+
+```sql
+ANALYZE TABLE lineitem WITH SAMPLE PERCENT 10;
+```
+
+对一张表按采样10万行收集统计数据
+
+```sql
+ANALYZE TABLE lineitem WITH SAMPLE ROWS 100000;
+```
+
 ### 自动收集
 
-在指定的时间段内自动收集满足条件的库表上的统计信息。用户可以通过设置参数`full_auto_analyze_start_time`（默认为00:00:00）和参数`full_auto_analyze_end_time`（默认为23:59:59）来指定自动收集的时间段。
+此功能从2.0.3开始正式支持，默认为全天开启状态。下面对其基本运行逻辑进行阐述，在每次导入事务提交后，Doris将记录本次导入事务更新的表行数用以估算当前已有表的统计数据的健康度（对于没有收集过统计数据的表，其健康度为0）。当表的健康度低于80%（可通过参数`table_stats_health_threshold`调节）时，Doris会认为该表的统计信息已经过时，从而在之后触发对该表的统计信息收集作业。而对于统计信息健康度高于80的表，则不会重复进行收集。
 
-此功能仅对没有统计信息或者统计信息过时的库表进行收集。当一个表的数据更新了20%（该值可通过参数`table_stats_health_threshold`（默认为80）配置）以上时，Doris会认为该表的统计信息已经过时。
+统计信息的收集作业本身需要占用一定的系统资源，为了尽可能降低开销，对于数据量较大（默认为5GiB，可通过设置FE参数`huge_table_lower_bound_size_in_bytes`来调节此行为）的表，Doris会自动采取采样的方式去收集，自动采样默认采样4194304(2^22)行，以尽可能降低对系统造成的负担并尽快完成收集作业。如果希望采样更多的行以获得更准确的数据分布信息，可通过FE参数`huge_table_default_sample_rows`配置增大采样行数。另外对于数据量大于`huge_table_lower_bound_size_in_bytes` * 5 的表，Doris保证其收集时间间隔不小于12小时（该时间可通过FE参数`huge_table_auto_analyze_interval_in_millis`控制）。
 
-对于数据量较大（默认为5GiB）的表，Doris会自动采取采样的方式去收集，以尽可能降低对系统造成的负担并尽快完成收集作业，用户可通过设置FE参数`huge_table_lower_bound_size_in_bytes`来调节此行为。同时对于数据量大于`huge_table_lower_bound_size_in_bytes` * 5 的表，Doris保证其收集时间间隔不小于12小时（该时间可通过FE参数`huge_table_auto_analyze_interval_in_millis`控制）。
-
-自动采样默认采样4194304(2^22)行，但由于实现方式的原因实际采样数可能大于该值。如果希望采样更多的行以获得更准确的数据分布信息，可通过FE参数`huge_table_default_sample_rows`配置。
-
-用户可以通过设置FE全局会话变量`SET GLOBAL enable_full_auto_analyze = false`来关闭本功能。
+如果担心自动收集作业对业务造成干扰，可结合自身需求通过设置参数`full_auto_analyze_start_time`和参数`full_auto_analyze_end_time`指定自动收集任务的执行时间段。也可以通过设置参数`enable_full_auto_analyze` 为`false`来彻底关闭本功能。
 
 ### 任务管理
 
@@ -86,10 +96,11 @@ ANALYZE < TABLE | DATABASE table_name | db_name >
 语法如下：
 
 ```SQL
-SHOW ANALYZE < table_name | job_id >
+SHOW [AUTO] ANALYZE < table_name | job_id >
     [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
 ```
 
+- AUTO：仅仅展示自动收集历史作业信息。需要注意的是默认只保存过去20000个执行完毕的自动收集任务的状态。
 - table_name：表名，指定后可查看该表对应的统计任务信息。可以是  `db_name.table_name`  形式。不指定时返回所有统计任务信息。
 - job_id：统计信息任务 ID，执行 `ANALYZE` 非同步收集统计信息时所返回的值。不指定时返回所有统计任务信息。
 
@@ -110,7 +121,15 @@ SHOW ANALYZE < table_name | job_id >
 | `schedule_type`        | 调度方式     |
 
 
-可通过`SHOW ANALYZE TASK STATUS [job_id]`，查看具体每个列统计信息的收集完成情况。
+#### 查看每列统计信息收集情况
+
+语法：
+
+```sql
+SHOW ANALYZE TASK STATUS [job_id]
+```
+
+下面是一个例子：
 
 ```
 mysql> show analyze task status  20038 ;
@@ -148,12 +167,12 @@ KILL ANALYZE job_id;
 mysql> KILL ANALYZE 52357;
 ```
 
-#### 查看统计信息
+### 查看统计信息
 
-#### 表统计信息
+#### 表收集概况
 
 
-通过 `SHOW TABLE STATS` 表的统计信息收集概况。
+通过 `SHOW TABLE STATS` 查看表的统计信息收集概况。
 
 语法如下：
 
@@ -163,7 +182,7 @@ SHOW TABLE STATS table_name;
 
 其中：
 
-- table_name: 导入数据的目标表。可以是  `db_name.table_name`  形式。
+- table_name: 目标表表名。可以是  `db_name.table_name`  形式。
 
 输出：
 
@@ -193,7 +212,7 @@ SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ];
 - table_name: 收集统计信息的目标表。可以是  `db_name.table_name`  形式。
 - column_name: 指定的目标列，必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 
-#### 修改统计信息
+### 注入统计信息
 
 ⽤户可以通过 `ALTER` 语句调整统计信息。
 
@@ -202,7 +221,6 @@ ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_
 ```
 
 其中：
-
 - table_name: 删除统计信息的目标表。可以是 `db_name.table_name` 形式。
 - column_name: 指定的目标列，必须是 `table_name` 中存在的列，每次只能修改一列的统计信息。
 - stat_name 和 stat_value: 相应的统计信息名称和统计信息信息的值，多个统计信息逗号分隔。可以修改的统计信息包括 `row_count`, `ndv`, `num_nulls`, `min_value`, `max_value`, `data_size`。
@@ -225,17 +243,6 @@ DROP [ EXPIRED ] STATS [ table_name [ (column_name [, ...]) ] ];
 ```sql
 DROP ANALYZE JOB [JOB_ID]
 ```
-
-### 查看自动收集任务执行情况
-
-此命令用于打开自动收集功能后，查看自动收集任务的完成状态。
-
-```sql
-SHOW AUTO ANALYZE [table_name]
-    [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
-```
-
-自动收集任务不支持查看每个列的具完成情况及失败原因。默认只保存过去20000个执行完毕的自动收集任务的状态。
 
 ## 配置项
 
@@ -265,18 +272,6 @@ SHOW AUTO ANALYZE [table_name]
 |会话变量|说明|默认值|
 |---|---|---|
 |analyze_timeout|控制同步ANALYZE超时时间，单位为秒|43200|
-
-## 使用建议
-
-根据我们的测试，在数据量（这里指实际存储占用的空间）为128GiB以下的表上，除自动收集功能执行时间段之外无须改动默认配置。
-
-依据集群配置情况，自动收集任务通常会占用20%左右的CPU资源，因此用户需要根据自己的业务情况，适当调整自动收集功能执行时间段以避开业务高峰期资源抢占。
-
-由于ANALYZE是资源密集型操作，因此最好尽可能不要在业务高峰期执行此类操作，从而避免对业务造成干扰，集群负载较高的情况下，ANALYZE操作也更容易失败。此外，基于相同的原因，我们建议用户避免全量的ANALYZE整库整表。通常来讲，只需要对经常作为谓词条件，JOIN条件，聚合字段以及ID字段的列进行ANALYZE就足够了。如果用户提交的SQL涉及到大量此类操作，并且表上也没有统计信息或者统计信息非常陈旧，那么我们建议：
-
-* 在提交复杂查询之前先对涉及到的表列进行ANALYZE，因为规划不当的复杂查询将占用非常多的系统资源，非荣容易资源耗尽或超时而失败
-* 如果用户为Doris配置了周期性数据导入例程，那么建议在导入完毕后，执行ANALYZE从而保证后续查询规划能够利用到最新的统计数据。可以利用Doris已有的作业调度框架自动化完成此类设置
-* 当表的数据发生显著变化后，比如新建表并完成数据导入后，ANALYZE对应的表。
 
 ## 常见问题
 
