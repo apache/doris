@@ -1705,31 +1705,13 @@ Status VTabletWriter::close(Status exec_status) {
     return _close_status;
 }
 
-Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-    Status status = Status::OK();
-
-    if (_state->query_options().dry_run_query) {
-        return status;
-    }
-
+Status VTabletWriter::_generate_rows_distribution(vectorized::Block& input_block,
+                                                  std::shared_ptr<vectorized::Block>& block,
+                                                  int64_t& filtered_rows, bool& has_filtered_rows,
+                                                  ChannelDistributionPayload& channel_to_payload) {
     auto rows = input_block.rows();
-    auto bytes = input_block.bytes();
-    if (UNLIKELY(rows == 0)) {
-        return status;
-    }
-    SCOPED_TIMER(_profile->total_time_counter());
-    _number_input_rows += rows;
-    // update incrementally so that FE can get the progress.
-    // the real 'num_rows_load_total' will be set when sink being closed.
-    _state->update_num_rows_load_total(rows);
-    _state->update_num_bytes_load_total(bytes);
-    DorisMetrics::instance()->load_rows->increment(rows);
-    DorisMetrics::instance()->load_bytes->increment(bytes);
 
-    std::shared_ptr<vectorized::Block> block;
-    bool has_filtered_rows = false;
-    int64_t filtered_rows =
+    int64_t prev_filtered_rows =
             _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows();
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             _state, &input_block, block, _vec_output_expr_ctxs, rows, has_filtered_rows));
@@ -1737,7 +1719,6 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
     bool stop_processing = false;
-    ChannelDistributionPayload channel_to_payload;
     channel_to_payload.resize(_channels.size());
     _tablet_finder->clear_for_new_batch();
     _row_distribution_watch.start();
@@ -1805,12 +1786,6 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
                 _save_missing_values(range_left_col, return_type, missing_map);
                 // then call FE to create it. then FragmentExecutor will redo the load.
                 RETURN_IF_ERROR(_automatic_create_partition());
-                // now we need to rollback the metrics
-                _number_input_rows -= rows;
-                _state->update_num_rows_load_total(-rows);
-                _state->update_num_bytes_load_total(-bytes);
-                DorisMetrics::instance()->load_rows->increment(-rows);
-                DorisMetrics::instance()->load_bytes->increment(-bytes);
                 // In the next round, we will _generate_row_distribution_payload again to get right payload of new tablet
                 LOG(INFO) << "Auto created partition. Send block again.";
                 return Status::NeedSendAgain("");
@@ -1833,6 +1808,39 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         }
     }
     _row_distribution_watch.stop();
+    filtered_rows = _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() - prev_filtered_rows;
+    return Status::OK();
+}
+
+Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    Status status = Status::OK();
+
+    if (_state->query_options().dry_run_query) {
+        return status;
+    }
+
+    auto rows = input_block.rows();
+    auto bytes = input_block.bytes();
+    if (UNLIKELY(rows == 0)) {
+        return status;
+    }
+    SCOPED_TIMER(_profile->total_time_counter());
+
+    ChannelDistributionPayload channel_to_payload;
+    std::shared_ptr<vectorized::Block> block;
+    bool has_filtered_rows = false;
+    int64_t filtered_rows = 0;
+    RETURN_IF_ERROR(_generate_rows_distribution(input_block, block, filtered_rows, has_filtered_rows, channel_to_payload));
+
+    _number_input_rows += rows;
+    // update incrementally so that FE can get the progress.
+    // the real 'num_rows_load_total' will be set when sink being closed.
+    _state->update_num_rows_load_total(rows);
+    _state->update_num_bytes_load_total(bytes);
+    DorisMetrics::instance()->load_rows->increment(rows);
+    DorisMetrics::instance()->load_bytes->increment(bytes);
+
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
     bool load_block_to_single_tablet =
@@ -1855,7 +1863,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     }
 
     if (_group_commit) {
-        _group_commit_block(&input_block, num_rows,
+        _group_commit_block(&input_block, block->rows(),
                             _block_convertor->num_filtered_rows() +
                                     _tablet_finder->num_filtered_rows() - filtered_rows,
                             _state, block.get(), _block_convertor.get(), _tablet_finder.get());

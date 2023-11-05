@@ -560,6 +560,11 @@ private:
                                             const std::vector<uint32_t>& tablet_indexes,
                                             const std::vector<bool>& skip, size_t row_cnt);
 
+    Status _generate_rows_distribution(vectorized::Block& input_block,
+                                       std::shared_ptr<vectorized::Block>& block,
+                                       int64_t& filterd_rows, bool& has_filtered_rows,
+                                       ChannelDistributionPayload& channel_to_payload);
+
     Status _single_partition_generate(RuntimeState* state, vectorized::Block* block,
                                       ChannelDistributionPayload& channel_to_payload,
                                       size_t num_rows, bool has_filtered_rows);
