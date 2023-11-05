@@ -581,7 +581,7 @@ DEFINE_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 // soft limit which can trigger the memtable flush for the load channel who
 // consumes lagest memory size before we reach the hard limit. The soft limit
 // might avoid all load jobs hang at the same time.
-DEFINE_Int32(load_process_soft_mem_limit_percent, "80");
+DEFINE_Int32(load_process_soft_mem_limit_percent, "50");
 
 // result buffer cancelled time (unit: second)
 DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
@@ -645,7 +645,7 @@ DEFINE_mInt32(storage_flood_stage_usage_percent, "90"); // 90%
 // The min bytes that should be left of a data dir
 DEFINE_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 // number of thread for flushing memtable per store
-DEFINE_Int32(flush_thread_num_per_store, "6");
+DEFINE_Int32(flush_thread_num_per_store, "48");
 // number of thread for flushing memtable per store, for high priority load task
 DEFINE_Int32(high_priority_flush_thread_num_per_store, "6");
 
