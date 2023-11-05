@@ -30,6 +30,7 @@ import java.io.IOException;
 
 public class FlightSqlConnectContext extends ConnectContext {
     private static final Logger LOG = LogManager.getLogger(FlightSqlConnectContext.class);
+    protected volatile FlightSqlChannel flightSqlChannel;
 
     public FlightSqlConnectContext(String peerIdentity) {
         this.connectType = ConnectType.ARROW_FLIGHT_SQL;

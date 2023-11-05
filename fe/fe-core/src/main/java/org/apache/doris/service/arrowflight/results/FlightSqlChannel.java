@@ -46,6 +46,7 @@ public class FlightSqlChannel {
     private final BufferAllocator allocator;
 
     public FlightSqlChannel() {
+        // The Stmt result is not picked up by the Client within 10 minutes and will be deleted.
         resultCache =
                 CacheBuilder.newBuilder()
                         .maximumSize(100)

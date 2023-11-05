@@ -101,7 +101,6 @@ public class ConnectContext {
     // Timestamp when the connection is make
     protected volatile long loginTime;
     // for arrow flight
-    protected volatile FlightSqlChannel flightSqlChannel;
     protected volatile String peerIdentity;
     private String runningQuery;
     private TNetworkAddress resultFlightServerAddr;

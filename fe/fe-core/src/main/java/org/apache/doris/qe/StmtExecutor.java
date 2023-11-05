@@ -1412,7 +1412,7 @@ public class StmtExecutor {
         // Sql and PartitionCache
         CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, parsedStmt, planner);
         // TODO support arrow flight sql
-        if (context.getConnectType().equals(ConnectType.MYSQL) && cacheAnalyzer.enableCache() && !isOutfileQuery
+        if (channel != null && cacheAnalyzer.enableCache() && !isOutfileQuery
                 && context.getSessionVariable().getSqlSelectLimit() < 0
                 && context.getSessionVariable().getDefaultOrderByLimit() < 0) {
             if (queryStmt instanceof QueryStmt || queryStmt instanceof LogicalPlanAdapter) {
@@ -1422,9 +1422,9 @@ public class StmtExecutor {
             }
         }
 
-        // TODO support arrow flight sql
         // handle select .. from xx  limit 0
-        if (parsedStmt instanceof SelectStmt) {
+        // TODO support arrow flight sql
+        if (channel != null && parsedStmt instanceof SelectStmt) {
             SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
             if (parsedSelectStmt.getLimit() == 0) {
                 LOG.info("ignore handle limit 0 ,sql:{}", parsedSelectStmt.toSql());
