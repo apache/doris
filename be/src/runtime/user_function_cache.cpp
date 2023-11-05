@@ -200,14 +200,6 @@ Status UserFunctionCache::_load_cached_lib() {
     return Status::OK();
 }
 
-std::string get_real_symbol(const std::string& symbol) {
-    static std::regex rx1("8palo_udf");
-    std::string str1 = std::regex_replace(symbol, rx1, "9doris_udf");
-    static std::regex rx2("4palo");
-    std::string str2 = std::regex_replace(str1, rx2, "5doris");
-    return str2;
-}
-
 Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
                                            const std::string& checksum,
                                            std::shared_ptr<UserFunctionCacheEntry>& output_entry,

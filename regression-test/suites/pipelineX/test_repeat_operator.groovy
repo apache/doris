@@ -54,6 +54,14 @@ suite("test_repeat_operator") {
     (17, 14, 17),
     (20, 16, 20);
     """
+    sql"""set enable_pipeline_engine = false; """
+
+    qt_non_pipeline """
+        SELECT k1, k2
+        FROM REPEATNODE
+        GROUP BY GROUPING SETS ((k1, k2), (k2), (k1), ())
+        ORDER BY k1, k2;
+    """
 
     sql"""set enable_pipeline_engine = true; """
 

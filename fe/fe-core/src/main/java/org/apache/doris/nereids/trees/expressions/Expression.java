@@ -37,6 +37,7 @@ import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
@@ -44,7 +45,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Abstract class for all Expression in Nereids.
@@ -247,8 +247,19 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return collect(Slot.class::isInstance);
     }
 
+    /**
+     * Get all the input slot ids of the expression.
+     * <p>
+     * Note that the input slots of subquery's inner plan is not included.
+     */
     public final Set<ExprId> getInputSlotExprIds() {
-        return getInputSlots().stream().map(NamedExpression::getExprId).collect(Collectors.toSet());
+        ImmutableSet.Builder<ExprId> result = ImmutableSet.builder();
+        foreach(node -> {
+            if (node instanceof Slot) {
+                result.add(((Slot) node).getExprId());
+            }
+        });
+        return result.build();
     }
 
     public boolean isLiteral() {

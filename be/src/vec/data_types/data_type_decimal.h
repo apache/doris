@@ -241,8 +241,8 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeDecimalSerDe<T>>(scale, precision);
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeDecimalSerDe<T>>(scale, precision, nesting_level);
     };
 
     /// Decimal specific
@@ -595,6 +595,13 @@ ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType&
             if (value > static_cast<UInt64>(std::numeric_limits<Int64>::max())) {
                 return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType>(value, 0, scale);
             }
+        }
+        if constexpr (std::is_same_v<FromFieldType, Int128>) {
+            return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType>(value, 0, scale);
+        }
+
+        if constexpr (std::is_same_v<FromFieldType, Int256>) {
+            return convert_decimals<DataTypeDecimal<Decimal256>, ToDataType>(value, 0, scale);
         }
         return convert_decimals<DataTypeDecimal<Decimal64>, ToDataType>(value, 0, scale);
     }

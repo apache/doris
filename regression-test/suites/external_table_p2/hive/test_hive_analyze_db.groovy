@@ -34,9 +34,7 @@ suite("test_hive_analyze_db", "p2,external,hive,external_remote,external_remote_
         logger.info("switched to catalog " + catalog_name)
         sql """use statistics;"""
         sql """set query_timeout=300"""
-        // sql """analyze database statistics with sync"""
-        sql """analyze table statistics with sync"""
-        sql """analyze table stats with sync"""
+        sql """analyze database statistics with sync"""
         def result = sql """show column stats statistics"""
         assertEquals(result.size(), 17)
 

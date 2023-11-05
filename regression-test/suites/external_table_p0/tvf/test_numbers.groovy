@@ -123,4 +123,19 @@
     // test subquery
     order_qt_subquery_1 """ with a as (select number from numbers("number"="3")) select * from a; """
     order_qt_subquery_2 """ select * from (select number from numbers("number"="3")) a join (select * from (select number from numbers("number"="1")) a join (select 1) b) b; """
+
+    // test exception
+    test {
+        sql """ select * from numbers('number' = 'abc'); """
+
+        // check exception
+        exception "can not parse `number` param to natural number"
+    }
+
+    test {
+        sql """ select * from numbers(); """
+
+        // check exception
+        exception """can not find `number` param, please specify `number`, like: numbers("number" = "10")"""
+    }
  }

@@ -39,23 +39,25 @@ namespace vectorized {
 class IColumn;
 
 Status DataTypeHLLSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                  BufferWritable& bw, FormatOptions& options,
-                                                  int nesting_level) const {
+                                                  BufferWritable& bw,
+                                                  FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 Status DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                    BufferWritable& bw, FormatOptions& options,
-                                                    int nesting_level) const {
+                                                    BufferWritable& bw,
+                                                    FormatOptions& options) const {
     if (!options._output_object_data) {
         /**
          * For null values in ordinary types, we use \N to represent them;
          * for null values in nested types, we use null to represent them, just like the json format.
          */
-        if (nesting_level >= 2) {
-            bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_NESTED_TYPE.c_str(), 4);
+        if (_nesting_level >= 2) {
+            bw.write(DataTypeNullableSerDe::NULL_IN_COMPLEX_TYPE.c_str(),
+                     strlen(NULL_IN_COMPLEX_TYPE.c_str()));
         } else {
-            bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(), 2);
+            bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
+                     strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
         }
         return Status::OK();
     }
@@ -72,15 +74,13 @@ Status DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int r
 Status DataTypeHLLSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                              std::vector<Slice>& slices,
                                                              int* num_deserialized,
-                                                             const FormatOptions& options,
-                                                             int nesting_level) const {
+                                                             const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
 Status DataTypeHLLSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                        const FormatOptions& options,
-                                                        int nesting_level) const {
+                                                        const FormatOptions& options) const {
     auto& data_column = assert_cast<ColumnHLL&>(column);
 
     HyperLogLog hyper_log_log(slice);
@@ -186,7 +186,8 @@ Status DataTypeHLLSerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-Status DataTypeHLLSerDe::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+Status DataTypeHLLSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                             const NullMap* null_map,
                                              orc::ColumnVectorBatch* orc_col_batch, int start,
                                              int end, std::vector<StringRef>& buffer_list) const {
     auto& col_data = assert_cast<const ColumnHLL&>(column);

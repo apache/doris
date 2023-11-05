@@ -126,7 +126,9 @@ public:
         return _agg_function->create_serialize_column();
     }
 
-    DataTypeSerDeSPtr get_serde() const override { return _agg_serialized_type->get_serde(); };
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return _agg_serialized_type->get_serde(nesting_level);
+    };
 
     DataTypePtr get_serialized_type() const { return _agg_serialized_type; }
 

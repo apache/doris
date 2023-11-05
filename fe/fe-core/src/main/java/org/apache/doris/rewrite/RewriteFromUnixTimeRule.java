@@ -41,7 +41,7 @@ import java.util.function.Function;
 /*
  * rewrite sql: select * from table where from_unixtime(query_time) > '2021-03-02 12:12:23'
  * into: select * from table where query_time > 1614658343
- * query_time is integer type
+ * query_time is big integer type to keep consistent with mysql
  * 1614658343 is the timestamp of 2021-03-02 12:12:23
  * this rewrite can improve the query performance, because from_unixtime is cpu-exhausted
  * */
@@ -115,7 +115,7 @@ public class RewriteFromUnixTimeRule implements ExprRewriteRule {
             return expr;
         }
         SlotRef sr = (SlotRef) paramSlot;
-        if (!sr.getColumn().getType().isIntegerType()) {
+        if (!sr.getColumn().getType().isBigIntType()) {
             return new BoolLiteral(false);
         }
         Expr right = bp.getChild(1);
