@@ -83,14 +83,16 @@ void LoadStreamStub::LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
     _close_cv.notify_all();
 }
 
-LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id)
-        : _load_id(load_id),
+LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use)
+        : _use_cnt(num_use),
+          _load_id(load_id),
           _src_id(src_id),
           _tablet_schema_for_index(std::make_shared<IndexToTabletSchema>()),
           _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()) {};
 
 LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
-        : _load_id(stub._load_id),
+        : _use_cnt(stub._use_cnt.load()),
+          _load_id(stub._load_id),
           _src_id(stub._src_id),
           _tablet_schema_for_index(stub._tablet_schema_for_index),
           _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {};
