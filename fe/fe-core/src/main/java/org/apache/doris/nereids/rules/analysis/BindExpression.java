@@ -73,7 +73,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
-import org.apache.doris.nereids.trees.plans.visitor.PlanVisitors.InferPlanOutputAlias;
+import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
