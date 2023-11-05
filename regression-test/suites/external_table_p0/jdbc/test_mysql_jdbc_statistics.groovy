@@ -44,8 +44,8 @@ suite("test_mysql_jdbc_statistics", "p0,external,mysql,external_docker,external_
         assertTrue(result[0][3] == "0.0")
         assertTrue(result[0][4] == "15.0")
         assertTrue(result[0][5] == "3.0")
-        assertTrue(result[0][6] == "'abc'")
-        assertTrue(result[0][7] == "'abg'")
+        assertEquals(result[0][6], "'abc'")
+        assertEquals(result[0][7], "'abg'")
 
         result = sql """show column stats ex_tb0 (id)"""
         assertTrue(result.size() == 1)

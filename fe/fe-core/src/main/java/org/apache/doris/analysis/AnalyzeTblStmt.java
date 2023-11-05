@@ -26,7 +26,6 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -106,19 +105,23 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     public AnalyzeTblStmt(AnalyzeProperties analyzeProperties, TableName tableName, List<String> columnNames, long dbId,
-            TableIf table) {
+            TableIf table) throws AnalysisException {
         super(analyzeProperties);
         this.tableName = tableName;
         this.columnNames = columnNames;
         this.dbId = dbId;
         this.table = table;
         this.isAllColumns = columnNames == null;
+        String catalogName = tableName.getCtl();
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(catalogName);
+        this.catalogId = catalog.getId();
     }
 
     @Override
     @SuppressWarnings({"rawtypes"})
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!Config.enable_stats) {
+        if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                     + "in your FE conf file");
         }

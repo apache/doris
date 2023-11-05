@@ -21,6 +21,7 @@ dependency-reduced-pom.xml
 yarn.lock
 ut_dir
 package-lock.json
+__pycache__
 
 # ignore all sub `/bin` and `/build` directory
 **/build/
@@ -92,6 +93,7 @@ be/tags
 be/test/olap/test_data/tablet_meta_test.hdr
 be/.devcontainer/
 be/src/apache-orc/
+zoneinfo/
 
 ## tools
 tools/ssb-tools/ssb-data/

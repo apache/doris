@@ -17,10 +17,12 @@
 
 suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
     String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
     // It's okay to use random `hdfsUser`, but can not be empty.
     def hdfsUserName = "doris"
     def format = "csv"
-    def defaultFS = "hdfs://127.0.0.1:${hdfs_port}"
+    def defaultFS = "hdfs://${externalEnvIp}:${hdfs_port}"
     def uri = ""
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")

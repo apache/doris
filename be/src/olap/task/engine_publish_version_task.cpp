@@ -273,8 +273,12 @@ Status EnginePublishVersionTask::finish() {
 void EnginePublishVersionTask::_calculate_tbl_num_delta_rows(
         const std::unordered_map<int64_t, int64_t>& tablet_id_to_num_delta_rows) {
     for (const auto& kv : tablet_id_to_num_delta_rows) {
-        auto table_id =
-                StorageEngine::instance()->tablet_manager()->get_tablet(kv.first)->get_table_id();
+        auto tablet = StorageEngine::instance()->tablet_manager()->get_tablet(kv.first);
+        if (!tablet) {
+            LOG(WARNING) << "cant find tablet by tablet_id=" << kv.first;
+            continue;
+        }
+        auto table_id = tablet->get_table_id();
         (*_table_id_to_num_delta_rows)[table_id] += kv.second;
     }
 }

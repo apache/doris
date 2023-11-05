@@ -36,6 +36,7 @@ import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -108,6 +109,11 @@ public class RuntimeFilterTranslator {
      * @param ctx plan translator context
      */
     public void createLegacyRuntimeFilter(RuntimeFilter filter, JoinNodeBase node, PlanTranslatorContext ctx) {
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable()
+                .getIgnoredRuntimeFilterIds().contains(filter.getId().asInt())) {
+            return;
+        }
         Expr src = ExpressionTranslator.translate(filter.getSrcExpr(), ctx);
         List<Expr> targetExprList = new ArrayList<>();
         List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();

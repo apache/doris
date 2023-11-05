@@ -490,6 +490,7 @@ primitiveColType:
     | type=VARCHAR
     | type=CHAR
     | type=DECIMAL
+    | type=DECIMALV2
     | type=DECIMALV3
     | type=ALL
     ;
@@ -610,6 +611,7 @@ nonReserved
     | DAYS_ADD
     | DAYS_SUB
     | DECIMAL
+    | DECIMALV2
     | DECIMALV3
     | DEFERRED
     | DEMAND

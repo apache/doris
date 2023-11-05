@@ -69,7 +69,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     for (auto& col : pschema.partial_update_input_columns()) {
         _partial_update_input_columns.insert(col);
     }
-    std::unordered_map<std::pair<std::string, std::string>, SlotDescriptor*> slots_map;
+    std::unordered_map<std::pair<std::string, FieldType>, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(pschema.tuple_desc()));
     // When FE version is less than 2.0.3, But BE upgrade to 2.0.3,
     // the filed col_type in slot_desc is INVALID_TYPE default.
@@ -81,7 +81,8 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         _tuple_desc->add_slot(slot_desc);
         string data_type;
         EnumToString(TPrimitiveType, to_thrift(slot_desc->col_type()), data_type);
-        slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()), std::move(data_type)),
+        slots_map.emplace(std::make_pair(to_lower(slot_desc->col_name()),
+                                         TabletColumn::get_field_type_by_string(data_type)),
                           slot_desc);
     }
 
@@ -92,8 +93,10 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         for (auto& pcolumn_desc : p_index.columns_desc()) {
             if (!_is_partial_update ||
                 _partial_update_input_columns.count(pcolumn_desc.name()) > 0) {
-                std::string col_type = has_invalid_type ? "INVALID_TYPE" : pcolumn_desc.type();
-                auto it = slots_map.find(std::make_pair(to_lower(pcolumn_desc.name()), col_type));
+                auto it = slots_map.find(std::make_pair(
+                        to_lower(pcolumn_desc.name()),
+                        TabletColumn::get_field_type_by_string(
+                                has_invalid_type ? "INVALID_TYPE" : pcolumn_desc.type())));
                 if (it == std::end(slots_map)) {
                     return Status::InternalError("unknown index column, column={}, type={}",
                                                  pcolumn_desc.name(), pcolumn_desc.type());

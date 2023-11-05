@@ -129,7 +129,8 @@ Status Channel::send_local_block(bool eos) {
         COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
         _local_recvr->add_block(&block, _parent->_sender_id, true);
         if (eos) {
-            _local_recvr->remove_sender(_parent->_sender_id, _be_number);
+            _local_recvr->remove_sender(_parent->_sender_id, _be_number,
+                                        _parent->query_statisticsPtr());
         }
         return Status::OK();
     } else {
@@ -184,7 +185,7 @@ Status Channel::send_block(PBlock* block, bool eos) {
 
     {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
-        if (enable_http_send_block(_brpc_request, _parent->_transfer_large_data_by_brpc)) {
+        if (enable_http_send_block(_brpc_request)) {
             RETURN_IF_ERROR(transmit_block_http(_state, _closure, _brpc_request, _brpc_dest_addr));
         } else {
             transmit_block(*_brpc_stub, _closure, _brpc_request);
@@ -271,7 +272,8 @@ Status Channel::close_internal() {
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
         if (is_local()) {
             if (_recvr_is_valid()) {
-                _local_recvr->remove_sender(_parent->_sender_id, _be_number);
+                _local_recvr->remove_sender(_parent->_sender_id, _be_number,
+                                            _parent->query_statisticsPtr());
             }
         } else {
             status = send_block((PBlock*)nullptr, true);

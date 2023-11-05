@@ -53,6 +53,7 @@
 #include "util/container_util.hpp"
 #include "util/defer_op.h"
 #include "util/pretty_printer.h"
+#include "util/stack_util.h"
 #include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -149,19 +150,19 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     }
 
     // set up desc tbl
-    DescriptorTbl* desc_tbl = nullptr;
-    if (query_ctx != nullptr) {
-        desc_tbl = query_ctx->desc_tbl;
+    if (request.is_simplified_param) {
+        _desc_tbl = query_ctx->desc_tbl;
     } else {
         DCHECK(request.__isset.desc_tbl);
-        RETURN_IF_ERROR(DescriptorTbl::create(obj_pool(), request.desc_tbl, &desc_tbl));
+        RETURN_IF_ERROR(
+                DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl, &_desc_tbl));
     }
-    _runtime_state->set_desc_tbl(desc_tbl);
+    _runtime_state->set_desc_tbl(_desc_tbl);
 
     // set up plan
     DCHECK(request.__isset.fragment);
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(ExecNode::create_tree(
-            _runtime_state.get(), obj_pool(), request.fragment.plan, *desc_tbl, &_plan));
+            _runtime_state.get(), obj_pool(), request.fragment.plan, *_desc_tbl, &_plan));
 
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;
@@ -194,12 +195,12 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
             vectorized::VScanNode* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
             auto scan_ranges =
                     find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
-            scan_node->set_scan_ranges(scan_ranges);
+            scan_node->set_scan_ranges(runtime_state(), scan_ranges);
         } else {
             ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
             auto scan_ranges =
                     find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
-            scan_node->set_scan_ranges(scan_ranges);
+            scan_node->set_scan_ranges(runtime_state(), scan_ranges);
             VLOG_CRITICAL << "scan_node_Id=" << scan_node->id()
                           << " size=" << scan_ranges.get().size();
         }
@@ -212,7 +213,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
                 obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
-                row_desc(), runtime_state(), &_sink, *desc_tbl));
+                row_desc(), runtime_state(), &_sink, *_desc_tbl));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
