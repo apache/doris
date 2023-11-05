@@ -777,19 +777,14 @@ public abstract class Type {
         }
 
         if (t1.isArrayType() && t2.isArrayType()) {
-            ArrayType arrayType1 = (ArrayType) t1;
-            ArrayType arrayType2 = (ArrayType) t2;
-            Type itemCompatibleType = Type.getAssignmentCompatibleType(arrayType1.getItemType(),
-                    arrayType2.getItemType(), strict);
-
-            if (itemCompatibleType.isInvalid()) {
-                return itemCompatibleType;
-            }
-
-            return new ArrayType(itemCompatibleType, arrayType1.getContainsNull() || arrayType2.getContainsNull());
-        } else if (t1.isArrayType() && t2.isNull()) {
+            return ArrayType.getAssignmentCompatibleType((ArrayType) t1, (ArrayType) t2, strict);
+        } else if (t1.isMapType() && t2.isMapType()) {
+            return MapType.getAssignmentCompatibleType((MapType) t1, (MapType) t2, strict);
+        } else if (t1.isStructType() && t2.isStructType()) {
+            return StructType.getAssignmentCompatibleType((StructType) t1, (StructType) t2, strict);
+        } else if (t1.isComplexType() && t2.isNull()) {
             return t1;
-        } else if (t1.isNull() && t2.isArrayType()) {
+        } else if (t1.isNull() && t2.isComplexType()) {
             return t2;
         }
 
@@ -1871,6 +1866,38 @@ public abstract class Type {
         compatibilityMatrix[TIMEV2.ordinal()][IPV6.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TIMEV2.ordinal()][AGG_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
+        // IPV4
+        compatibilityMatrix[IPV4.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][VARIANT.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][DECIMAL256.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][IPV6.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV4.ordinal()][AGG_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
+
+        // IPV6
+        compatibilityMatrix[IPV6.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][VARIANT.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][DECIMAL256.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][IPV4.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[IPV6.ordinal()][AGG_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
+
         // Check all of the necessary entries that should be filled.
         // ignore binary and all
         for (int i = 0; i < PrimitiveType.values().length - 2; ++i) {
@@ -2165,17 +2192,15 @@ public abstract class Type {
             } else if (type2.isArrayType()) {
                 // For types array, we also need to check contains null for case like
                 // cast(array<not_null(int)> as array<int>)
-                if (!((ArrayType) type2).getContainsNull() == ((ArrayType) type1).getContainsNull()) {
+                if (((ArrayType) type2).getContainsNull() != ((ArrayType) type1).getContainsNull()) {
                     return false;
                 }
                 return matchExactType(((ArrayType) type2).getItemType(), ((ArrayType) type1).getItemType());
             } else if (type2.isMapType()) {
-                // For types array, we also need to check contains null for case like
-                // cast(array<not_null(int)> as array<int>)
-                if (!((MapType) type2).getIsKeyContainsNull() == ((MapType) type1).getIsKeyContainsNull()) {
+                if (((MapType) type2).getIsKeyContainsNull() != ((MapType) type1).getIsKeyContainsNull()) {
                     return false;
                 }
-                if (!((MapType) type2).getIsValueContainsNull() == ((MapType) type1).getIsValueContainsNull()) {
+                if (((MapType) type2).getIsValueContainsNull() != ((MapType) type1).getIsValueContainsNull()) {
                     return false;
                 }
                 return matchExactType(((MapType) type2).getKeyType(), ((MapType) type1).getKeyType())
