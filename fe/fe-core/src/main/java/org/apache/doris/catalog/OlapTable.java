@@ -1143,7 +1143,7 @@ public class OlapTable extends Table {
         }
         long updateRows = tblStats.updatedRows.get();
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
-        return tblHealth < Config.table_stats_health_threshold;
+        return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
     }
 
     @Override

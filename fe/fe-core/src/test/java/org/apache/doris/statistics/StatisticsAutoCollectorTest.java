@@ -255,7 +255,7 @@ public class StatisticsAutoCollectorTest {
 
             @Mock
             public long getDataSize(boolean singleReplica) {
-                return Config.huge_table_lower_bound_size_in_bytes * 5 + 1000000000;
+                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() * 5 + 1000000000;
             }
         };
 
@@ -271,7 +271,8 @@ public class StatisticsAutoCollectorTest {
         StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
         Assertions.assertTrue(autoCollector.skip(olapTable));
         // The update of this huge table is long time ago, so we shouldn't skip it this time
-        stats.updatedTime = System.currentTimeMillis() - Config.huge_table_auto_analyze_interval_in_millis - 10000;
+        stats.updatedTime = System.currentTimeMillis()
+                - StatisticsUtil.getHugeTableAutoAnalyzeIntervalInMillis() - 10000;
         Assertions.assertFalse(autoCollector.skip(olapTable));
         new MockUp<AnalysisManager>() {
 

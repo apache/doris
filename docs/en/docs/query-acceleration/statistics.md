@@ -1,7 +1,7 @@
 ---
 {
-"title": "Statistics",
-"language": "en"
+"title": "统计信息",
+"language": "zh-CN"
 }
 ---
 
@@ -26,94 +26,106 @@ under the License.
 
 # Statistics
 
-## Introduction to statistics information
+Collecting statistics helps the optimizer understand data distribution characteristics. When performing Cost-Based Optimization (CBO), the optimizer uses these statistics to calculate the selectivity of predicates and estimate the cost of each execution plan. This allows for the selection of more optimal plans, significantly improving query efficiency.
 
-Collecting statistics helps the optimizer understand data distribution characteristics. When performing Cost-Based Optimization (CBO), the optimizer utilizes these statistics to calculate the selectivity of predicates and estimate the cost of each execution plan. This enables the selection of more efficient plans, significantly improving query performance.
+Currently, the following information is collected for each column:
 
-Currently, the collected column-level information includes:
-
-| Information      | Description              |
-| :--------------- | :------------------------ |
-| `row_count`      | Total number of rows     |
-| `data_size`      | Total data size          |
-| `avg_size_byte`  | Average length of values |
-| `ndv`            | Number of distinct values |
-| `min`            | Minimum value            |
-| `max`            | Maximum value            |
-| `null_count`     | Number of null values    |
+| Information        | Description                    |
+| :----------------- | :------------------------------ |
+| `row_count`        | Total number of rows           |
+| `data_size`        | Total data size                |
+| `avg_size_byte`    | Average length of values       |
+| `ndv`              | Number of distinct values      |
+| `min`              | Minimum value                  |
+| `max`              | Maximum value                  |
+| `null_count`       | Number of null values          |
 
 ## Collecting Statistics
 
-### Using the ANALYZE Statement
+### Manual Collection Using ANALYZE Statement
 
-Doris supports users in triggering the collection and updating of statistics by submitting the ANALYZE statement.
-
-Syntax:
+Doris supports manual triggering of statistics collection and updates by executing the ANALYZE statement. The syntax is as follows:
 
 ```SQL
-ANALYZE < TABLE | DATABASE table_name | db_name >
+ANALYZE <TABLE | DATABASE table_name | db_name>
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH SQL ] ]
-    [ PROPERTIES ("key" = "value", ...) ];
+    [ [WITH SYNC] [WITH SAMPLE PERCENT | ROWS] [WITH SQL] ]
+    [PROPERTIES ("key" = "value", ...)];
 ```
 
 Where:
 
-- `table_name`: Specifies the target table. It can be in the `db_name.table_name` format.
-- `column_name`: Specifies the target column. It must be an existing column in `table_name`, and multiple column names are separated by commas.
-- `sync`: Collect statistics synchronously. Returns upon completion. If not specified, it executes asynchronously and returns a task ID.
-- `sample percent | rows`: Collect statistics using sampling. You can specify either the sampling percentage or the number of sampled rows.
-- `sql`: Collect statistics for external partition column with sql. By default, it uses meta data for partition columns, which is faster but may inaccurate for row count and size. Using sql could collect the accurate stats.
+- `table_name`: Specifies the target table, which can be in the format `db_name.table_name`.
+- `column_name`: Specifies the target column, which must be an existing column in `table_name`. You can specify multiple column names separated by commas.
+- `sync`: Synchronously collects statistics information and returns after completion. If not specified, it executes asynchronously and returns a JOB ID.
+- `sample percent | rows`: Collects statistics information with sampling. You can specify either a sampling percentage or the number of sampled rows.
+- `sql`: Collects statistics information for external table partition columns using SQL. By default, partition column information is collected from metadata, which is efficient but may not be very accurate regarding row count and data size. You can specify using SQL to collect accurate partition column information.
 
-### Automatic Statistics Collection
+Here are some examples:
 
-Automatically collecting statistics on eligible databases and tables within specified time frames. Users can specify the automatic collection period by setting the parameters `full_auto_analyze_start_time` (default is 00:00:00) and `full_auto_analyze_end_time` (default is 23:59:59).
+Collect statistics data for a table with a 10% sampling rate:
 
-This feature is applicable only to databases and tables that either lack statistics or have outdated statistics. When more than 20% of a table's data has been updated (this threshold can be configured using the `table_stats_health_threshold` parameter, default is 80), Doris considers the statistics for that table as outdated.
+```sql
+ANALYZE TABLE lineitem WITH SAMPLE PERCENT 10;
+```
 
-For tables with relatively large data sizes (default is 5 GiB), Doris automatically collects statistics through sampling to minimize the system's workload and complete the collection job as quickly as possible. Users can adjust this behavior by setting the FE parameter `huge_table_lower_bound_size_in_bytes`. Additionally, for tables with data sizes greater than `huge_table_lower_bound_size_in_bytes` * 5, Doris ensures that the collection interval is no less than 12 hours (this interval can be controlled using the FE parameter `huge_table_auto_analyze_interval_in_millis`).
+Collect statistics data for a table by sampling 100,000 rows:
 
-The default number of rows sampled in automatic sampling is 4,194,304 (2^22), but due to implementation reasons, the actual number of samples may be greater than this value. If you wish to sample more rows for more accurate data distribution information, you can configure this using the FE parameter `huge_table_default_sample_rows`.
+```sql
+ANALYZE TABLE lineitem WITH SAMPLE ROWS 100000;
+```
 
-Users have the option to disable this feature by setting the FE global session variable to `SET GLOBAL enable_full_auto_analyze = false`.
+### Automatic Collection
+
+This feature is officially supported starting from 2.0.3 and is enabled by default. The basic operational logic is as follows: after each transaction import, Doris records the number of rows updated in the table as a means to estimate the health of the statistics data for existing tables (for tables without collected statistics, the health is considered as 0). When the health of a table falls below 80% (adjustable using the `table_stats_health_threshold` parameter), Doris considers the statistics data for that table outdated and triggers statistics collection jobs for that table.
+
+For large tables (default is 5GiB, adjustable using the `huge_table_lower_bound_size_in_bytes` FE parameter), Doris uses sampling to collect statistics. The default sampling is 4,194,304 (2^22) rows to minimize the system's overhead and complete the collection job as quickly as possible. If you need to sample more rows for more accurate data distribution information, you can configure this by increasing the `huge_table_default_sample_rows` FE parameter. Additionally, for tables with data sizes greater than `huge_table_lower_bound_size_in_bytes * 5`, Doris guarantees a collection interval of no less than 12 hours (controllable through the `huge_table_auto_analyze_interval_in_millis` FE parameter).
+
+If you are concerned about automatic collection jobs interfering with your business operations, you can specify the time period for automatic collection by setting the `full_auto_analyze_start_time` and `full_auto_analyze_end_time` parameters to execute the jobs during low business loads. You can also completely disable this feature by setting the `enable_full_auto_analyze` parameter to `false`.
 
 ### Task Management
 
-#### Viewing Analyze Tasks
+#### Viewing Statistics Tasks
 
-You can use `SHOW ANALYZE` to view information about statistics collection tasks.
-
-Syntax:
+You can use `SHOW ANALYZE` to view information about statistics collection tasks. The syntax is as follows:
 
 ```SQL
-SHOW ANALYZE < table_name | job_id >
-    [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
+SHOW [AUTO] ANALYZE <table_name | job_id>
+    [WHERE [STATE = ["PENDING" | "RUNNING" | "FINISHED" | "FAILED"]]];
 ```
 
-- `table_name`: Specifies the table for which you want to view statistics collection tasks. It can be in the form of `db_name.table_name`. If not specified, it returns information for all statistics collection tasks.
-- `job_id`: The job ID of the statistics information task returned when executing `ANALYZE`. If not specified, it returns information for all statistics collection tasks.
+- AUTO: Shows only historical information for automatic collection jobs. It's important to note that, by default, only the status of the last 20,000 completed automatic collection tasks is retained.
+- table_name: Specifies the table for which you want to view statistics task information. It can be in the format `db_name.table_name`. If not specified, it returns information on all statistics tasks.
+- job_id: The ID of the statistics task. This is the value returned when executing an `ANALYZE` asynchronous collection task. If not specified, it returns information on all statistics tasks.
 
 Output:
 
-| Column Name           | Description    |
-| :-------------------- | :------------- |
-| `job_id`              | Job ID         |
-| `catalog_name`        | Catalog Name   |
-| `db_name`             | Database Name  |
-| `tbl_name`            | Table Name     |
-| `col_name`            | Column Name    |
-| `job_type`            | Job Type       |
-| `analysis_type`       | Analysis Type  |
-| `message`             | Task Message   |
-| `last_exec_time_in_ms`| Last Execution Time |
-| `state`               | Task State     |
-| `schedule_type`       | Schedule Type  |
+| Column Name             | Description    |
+| :---------------------- | :------------- |
+| `job_id`                | Statistics Task ID |
+| `catalog_name`          | Catalog Name   |
+| `db_name`               | Database Name  |
+| `tbl_name`              | Table Name     |
+| `col_name`              | Column Name    |
+| `job_type`              | Task Type      |
+| `analysis_type`         | Statistics Type |
+| `message`               | Task Information |
+| `last_exec_time_in_ms`  | Last Execution Time |
+| `state`                 | Task Status    |
+| `schedule_type`         | Scheduling Method |
 
+#### Viewing Column Statistics Collection
 
-You can use `SHOW ANALYZE TASK STATUS [job_id]` to check the completion status of collecting statistics for each column.
+Syntax:
 
+```sql
+SHOW ANALYZE TASK STATUS [job_id]
 ```
-mysql> show analyze task status 20038;
+
+Here is an example:
+
+```sql
+mysql> show analyze task status  20038;
 +---------+----------+---------+----------------------+----------+
 | task_id | col_name | message | last_exec_time_in_ms | state    |
 +---------+----------+---------+----------------------+----------+
@@ -124,79 +136,87 @@ mysql> show analyze task status 20038;
 +---------+----------+---------+----------------------+----------+
 ```
 
-#### Terminating Analyze Tasks
+#### Terminating Statistics Tasks
 
-You can terminate running statistics collection tasks using `KILL ANALYZE`.
-
-Syntax:
+You can use `KILL ANALYZE` to terminate running statistics tasks. The syntax is as follows:
 
 ```SQL
 KILL ANALYZE job_id;
 ```
 
-- `job_id`: The job ID of the statistics information task. It is returned when executing `ANALYZE`, or you can obtain it using the `SHOW ANALYZE` statement.
+- job_id: The ID of the statistics task, which is the value returned when executing an `ANALYZE` asynchronous collection task. You can also obtain this ID by using the `SHOW ANALYZE` statement.
 
 Example:
 
-- Terminating statistics collection task with job ID 52357.
+Terminate the statistics task with ID 52357:
 
 ```SQL
 mysql> KILL ANALYZE 52357;
 ```
 
-#### Viewing Statistics Information
 
-#### Table Statistics Information
+```markdown
+### Viewing Statistics
 
-You can use `SHOW TABLE STATS` to view an overview of statistics collection for a table.
+#### Table Statistics Overview
 
-Syntax:
+Use `SHOW TABLE STATS` to view an overview of table statistics collection.
+
+The syntax is as follows:
 
 ```SQL
 SHOW TABLE STATS table_name;
 ```
 
-- `table_name`: The name of the table for which you want to view statistics collection information. It can be in the form of `db_name.table_name`.
+Where:
+
+- `table_name`: The name of the target table. It can be in the format `db_name.table_name`.
 
 Output:
 
-| Column Name        | Description                                 |
-| :------------------ | :------------------------------------------ |
-| `updated_rows`     | The number of rows updated in this table since the last ANALYZE. |
-| `query_times`      | A reserved column for recording the number of queries on this table in future versions. |
-| `row_count`        | The number of rows (not reflecting the exact number of rows at the time of command execution). |
-| `updated_time`     | The timestamp of the last update. |
-| `columns`          | The columns for which statistics have been collected. |
+| Column Name      | Description                                |
+| :--------------- | :----------------------------------------- |
+| `updated_rows`   | Number of rows updated since the last ANALYZE |
+| `query_times`    | Reserved column for recording the number of queries in future versions |
+| `row_count`      | Number of rows (may not reflect the exact number of rows at the time of execution) |
+| `updated_time`   | Last update time |
+| `columns`        | Columns for which statistics have been collected |
 
-#### Viewing Column Statistics Information
+#### Viewing Column Statistics
 
-You can use `SHOW COLUMN [cached] STATS` to view information about the number of distinct values and NULLs in columns.
+Use `SHOW COLUMN STATS` to view the number of distinct values and the number of NULL values for columns.
 
-Syntax:
+The syntax is as follows:
 
 ```SQL
 SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ];
 ```
 
-- `cached`: Displays statistics information from the current FE memory cache.
-- `table_name`: The name of the table for which you want to view column statistics information. It can be in the form of `db_name.table_name`.
-- `column_name`: The specific column(s) you want to view statistics for. It must be a column that exists in `table_name`, and multiple column names can be separated by commas.
+Where:
 
-#### Modifying Statistics Information
+- `cached`: Displays statistics information currently in FE memory cache.
+- `table_name`: The target table for which you want to collect statistics. It can be in the format `db_name.table_name`.
+- `column_name`: Specifies the target columns, which must be existing columns in `table_name`. You can specify multiple column names separated by commas.
 
-Users can adjust statistics information using the `ALTER` statement.
+### Injecting Statistics
+
+Users can adjust statistics using the `ALTER` statement.
+
+The syntax is as follows:
 
 ```SQL
 ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_value', ...) [ PARTITION (partition_name) ];
 ```
 
-- `table_name`: The name of the table for which you want to modify statistics information. It can be in the form of `db_name.table_name`.
-- `column_name`: The specific column for which you want to modify statistics information. It must be a column that exists in `table_name`, and you can modify statistics information for one column at a time.
-- `stat_name` and `stat_value`: The corresponding statistics information name and its value. Multiple statistics can be modified, separated by commas. You can modify statistics such as `row_count`, `ndv`, `num_nulls`, `min_value`, `max_value`, and `data_size`.
+Where:
 
-#### Delete Statistics
+- `table_name`: The target table for which you want to adjust statistics. It can be in the format `db_name.table_name`.
+- `column_name`: Specifies the target column, which must be an existing column in `table_name`. You can modify statistics for one column at a time.
+- `stat_name` and `stat_value`: Corresponding statistic names and values, separated by commas. You can modify statistics such as `row_count`, `ndv`, `num_nulls`, `min_value`, `max_value`, and `data_size`.
 
-Users can delete statistics using the `DROP` statement, which allows them to specify the table, partition, or column for which they want to delete statistics based on the provided parameters. When deleted, both column statistics and column histogram information are removed.
+#### Deleting Statistics
+
+Users can use the `DROP` statement to delete statistics. Depending on the provided parameters, you can delete statistics for specific tables, partitions, or columns. When deleting, column statistics and column histogram information are also removed.
 
 Syntax:
 
@@ -204,65 +224,37 @@ Syntax:
 DROP [ EXPIRED ] STATS [ table_name [ (column_name [, ...]) ] ];
 ```
 
-#### Delete Analyze Job
+#### Deleting Analyze Jobs
 
-Used to delete automatic/periodic Analyze jobs based on the job ID.
+Used to delete automatic/periodic Analyze jobs based on job ID.
 
-```sql
+```SQL
 DROP ANALYZE JOB [JOB_ID]
 ```
 
-### View Automatic Collection Task Execution Status
+## Configuration Settings
 
-This command is used to check the completion status of automatic collection tasks after enabling automatic collection functionality.
+| Session Variable | Description | Default Value |
+| --- | --- | --- |
+| full_auto_analyze_start_time | Start time for automatic statistics collection | 00:00:00 |
+| full_auto_analyze_end_time | End time for automatic statistics collection | 23:59:59 |
+| enable_full_auto_analyze | Enable automatic collection feature | true |
+| huge_table_default_sample_rows | Defines the number of rows to sample for large tables when automatic sampling is enabled | 4194304 |
+| huge_table_lower_bound_size_in_bytes | Tables larger than this size will automatically collect statistics through sampling during automatic collection | 5368709120 |
+| huge_table_auto_analyze_interval_in_millis | Controls the minimum time interval for automatic ANALYZE on large tables; for tables larger than `huge_table_lower_bound_size_in_bytes * 5`, ANALYZE will only be executed once within this interval | 43200000 |
+| table_stats_health_threshold | Value between 0 and 100; when the data update exceeds `(100 - table_stats_health_threshold)%` since the last statistics collection operation, the statistics for the table are considered outdated | 80 |
+| analyze_timeout | Controls the synchronous ANALYZE timeout in seconds | 43200 |
 
-```sql
-SHOW AUTO ANALYZE [table_name]
-    [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
-```
+The following FE configuration settings are generally not a concern:
 
-Automatic collection tasks do not support viewing the completion status and failure reasons for each column individually. By default, it only retains the status of the last 20,000 completed automatic collection tasks.
+| FE Configuration Setting | Description | Default Value |
+| --- | --- | --- |
+| analyze_record_limit | Controls the number of persistent records for statistics job execution | 20000 |
+| stats_cache_size | The actual memory usage for statistics cache highly depends on data characteristics; with 100,000 items in the cache, each with an average length of 32 for maximum/minimum values and an average column name length of 16, the statistics cache occupies approximately 61.28 MiB of memory | 500000 |
+| statistics_simultaneously_running_task_num | The number of asynchronous tasks that can be executed simultaneously | 3 |
+| analyze_task_timeout_in_hours | Asynchronous task execution timeout | 12 |
+| statistics_sql_mem_limit_in_bytes | Controls the maximum BE memory that each statistics SQL can occupy | 2 GiB |
 
-## Configuration Options
-
-| fe conf option                                                    | comment                                                                                                                                                                                                                                                                                             | default value                  |
-|---------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------|
-| statistics_sql_parallel_exec_instance_num               | Controls the number of concurrent instances/pipeline tasks for each statistics collection SQL on the BE side.                                                                                                                                                                                                                                                           | 1                              |
-| statistics_sql_mem_limit_in_bytes                       | Controls the amount of BE memory that each statistics collection SQL can use.                                                                                                                                                                                                                                                                                 | 2L * 1024 * 1024 * 1024 (2GiB) |
-| statistics_simultaneously_running_task_num              | After submitting asynchronous jobs using `ANALYZE TABLE[DATABASE]`, this parameter limits the number of columns that can be analyzed simultaneously. All asynchronous tasks are collectively constrained by this parameter.                                                                                                                                                                                                                                  | 5                              |
-| analyze_task_timeout_in_minutes                         | Timeout for AnalyzeTask execution.                                                                                                                                                                                                                                                                                   | 12 hours                       |
-| stats_cache_size| The actual memory usage of statistics cache depends heavily on the characteristics of the data because the average size of maximum/minimum values and the number of buckets in histograms can vary greatly in different datasets and scenarios. Additionally, factors like JVM versions can also affect it. Below is the memory size occupied by statistics cache with 100,000 items. The average length of maximum/minimum values per item is 32, the average length of column names is 16, and the statistics cache occupies a total of 61.2777404785MiB of memory. It is strongly discouraged to analyze columns with very large string values as this may lead to FE memory overflow. | 100000                        |
-|enable_auto_sample|Enable automatic sampling for large tables. When enabled, statistics will be automatically collected through sampling for tables larger than the `huge_table_lower_bound_size_in_bytes` threshold.| false|
-|auto_analyze_job_record_count|Controls the persistence of records for automatically triggered statistics collection jobs.|20000|
-|huge_table_default_sample_rows|Defines the number of sample rows for large tables when automatic sampling is enabled.|4194304|
-|huge_table_lower_bound_size_in_bytes|Defines the lower size threshold for large tables. When `enable_auto_sample` is enabled, statistics will be automatically collected through sampling for tables larger than this value.|5368 709120|
-|huge_table_auto_analyze_interval_in_millis|Controls the minimum time interval for automatic ANALYZE on large tables. Within this interval, tables larger than `huge_table_lower_bound_size_in_bytes` * 5 will only be analyzed once.|43200000|
-|table_stats_health_threshold|Takes a value between 0-100. When the data update volume reaches (100 - table_stats_health_threshold)% since the last statistics collection operation, the statistics for the table are considered outdated.|80|
-
-|Session Variable|Description|Default Value|
-|---|---|---|
-|full_auto_analyze_start_time|Start time for automatic statistics collection|00:00:00|
-|full_auto_analyze_end_time|End time for automatic statistics collection|23:59:59|
-|enable_full_auto_analyze|Enable automatic collection functionality|true|
-| `stats_insert_merge_item_count` | Controls the batch size for INSERT merging. |
-
-ATTENTION: The session variables listed above must be set globally using SET GLOBAL.
-
-| Session Variable   | Description                              | Default Value |
-| ---                | ---                                      | ---           |
-| `analyze_timeout`  | Controls the timeout for synchronous ANALYZE in seconds. | 43200         |
-
-## Usage Recommendations
-
-Based on our testing, on tables with data size (i.e., actual storage space) below 128GiB, there is usually no need to modify the default configuration settings unless it is necessary to avoid resource contention during peak business hours by adjusting the execution time of the automatic collection feature.
-
-Depending on the cluster configuration, automatic collection tasks typically consume around 20% of CPU resources. Therefore, users should adjust the execution time of the automatic collection feature to avoid resource contention during peak business hours, depending on their specific business needs.
-
-Since ANALYZE is a resource-intensive operation, it is best to avoid executing such operations during peak business hours to prevent disruption to the business. Additionally, in cases of high cluster load, ANALYZE operations are more likely to fail. Furthermore, it is advisable to avoid performing full ANALYZE on the entire database or table. Typically, it is sufficient to perform ANALYZE on columns that are frequently used as predicate conditions, in JOIN conditions, as aggregation fields, or as ID fields. If a user's SQL queries involve a large number of such operations and the table has no statistics or very outdated statistics, we recommend:
-
-* Performing ANALYZE on the columns involved in complex queries before submitting the complex query, as poorly planned complex queries can consume a significant amount of system resources and may lead to resource exhaustion or timeouts.
-* If you have configured periodic data import routines for Doris, it is recommended to execute ANALYZE after the data import is complete to ensure that subsequent query planning can use the most up-to-date statistics. You can automate this setting using Doris's existing job scheduling framework.
-* When significant changes occur in the table's data, such as creating a new table and completing data import, it is recommended to run ANALYZE on the corresponding table.
 
 ## Common Issues
 
@@ -279,4 +271,3 @@ Users can use `SHOW BACKENDS\G` to verify the BE (Backend) status. If the BE sta
 ### Failure of ANALYZE on Large Tables
 
 Due to resource limitations, ANALYZE on some large tables may timeout or exceed BE memory limits. In such cases, it is recommended to use `ANALYZE ... WITH SAMPLE...`. 
-

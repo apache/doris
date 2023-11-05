@@ -21,10 +21,10 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -75,7 +75,7 @@ public class OlapAnalysisTaskTest {
         olapAnalysisTask.tbl = tbl;
         TableSample tableSample = olapAnalysisTask.getTableSample();
         Assertions.assertNotNull(tableSample);
-        Assertions.assertEquals(Config.huge_table_default_sample_rows, tableSample.getSampleValue());
+        Assertions.assertEquals(StatisticsUtil.getHugeTableSampleRows(), tableSample.getSampleValue());
 
     }
 

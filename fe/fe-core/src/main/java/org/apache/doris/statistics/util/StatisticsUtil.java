@@ -872,4 +872,45 @@ public class StatisticsUtil {
         }
         return StatisticConstants.INSERT_MERGE_ITEM_COUNT;
     }
+
+    public static long getHugeTableSampleRows() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_TABLE_DEFAULT_SAMPLE_ROWS)
+                    .hugeTableDefaultSampleRows;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of huge_table_default_sample_rows, return default", e);
+        }
+        return StatisticConstants.HUGE_TABLE_DEFAULT_SAMPLE_ROWS;
+    }
+
+    public static long getHugeTableLowerBoundSizeInBytes() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES)
+                    .hugeTableLowerBoundSizeInBytes;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of huge_table_lower_bound_size_in_bytes, return default", e);
+        }
+        return StatisticConstants.HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES;
+    }
+
+    public static long getHugeTableAutoAnalyzeIntervalInMillis() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS)
+                    .hugeTableAutoAnalyzeIntervalInMillis;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of huge_table_auto_analyze_interval_in_millis, return default", e);
+        }
+        return StatisticConstants.HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS;
+    }
+
+    public static long getTableStatsHealthThreshold() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.TABLE_STATS_HEALTH_THRESHOLD)
+                    .tableStatsHealthThreshold;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of table_stats_health_threshold, return default", e);
+        }
+        return StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD;
+    }
+
 }

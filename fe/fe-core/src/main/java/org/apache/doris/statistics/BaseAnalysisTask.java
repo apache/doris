@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -236,9 +235,9 @@ public abstract class BaseAnalysisTask {
         } else if (info.sampleRows > 0) {
             return new TableSample(false, info.sampleRows);
         } else if (info.jobType.equals(JobType.SYSTEM) && info.analysisMethod == AnalysisMethod.FULL
-                && tbl.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes) {
+                && tbl.getDataSize(true) > StatisticsUtil.getHugeTableLowerBoundSizeInBytes()) {
             // If user doesn't specify sample percent/rows, use auto sample and update sample rows in analysis info.
-            return new TableSample(false, (long) Config.huge_table_default_sample_rows);
+            return new TableSample(false, StatisticsUtil.getHugeTableSampleRows());
         } else {
             return null;
         }

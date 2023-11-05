@@ -62,6 +62,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * System variable.
@@ -431,6 +432,15 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
     public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
+
+    public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
+    public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
+
+    public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
+            = "huge_table_auto_analyze_interval_in_millis";
+
+    public static final String TABLE_STATS_HEALTH_THRESHOLD
+            = "table_stats_health_threshold";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -1284,6 +1294,41 @@ public class SessionVariable implements Serializable, Writable {
     }
     )
     public int statsInsertMergeItemCount = 200;
+
+    @VariableMgr.VarAttr(name = HUGE_TABLE_DEFAULT_SAMPLE_ROWS, flag = VariableMgr.GLOBAL, description = {
+            "定义开启开启大表自动sample后，对大表的采样比例",
+            "This defines the number of sample percent for large tables when automatic sampling for"
+                    + "large tables is enabled"
+
+    })
+    public long hugeTableDefaultSampleRows = 4194304;
+
+
+    @VariableMgr.VarAttr(name = HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES, flag = VariableMgr.GLOBAL,
+            description = {"定义大表的大小下界，在开启enable_auto_sample的情况下，"
+                    + "大小超过该值的表将会自动通过采样收集统计信息",
+                    "This defines the lower size bound for large tables. "
+                            + "When enable_auto_sample is enabled, tables"
+                            + "larger than this value will automatically collect "
+                            + "statistics through sampling"})
+    public long hugeTableLowerBoundSizeInBytes = 5L * 1024 * 1024 * 1024;
+
+    @VariableMgr.VarAttr(name = HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
+            description = {"控制对大表的自动ANALYZE的最小时间间隔，"
+                    + "在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes的表仅ANALYZE一次",
+                    "This controls the minimum time interval for automatic ANALYZE on large tables."
+                            + "Within this interval,"
+                            + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once."})
+    public long hugeTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(12);
+
+    @VariableMgr.VarAttr(name = TABLE_STATS_HEALTH_THRESHOLD, flag = VariableMgr.GLOBAL,
+            description = {"取值在0-100之间，当自上次统计信息收集操作之后"
+                    + "数据更新量达到 (100 - table_stats_health_threshold)% ，认为该表的统计信息已过时",
+                    "The value should be between 0 and 100. When the data update quantity "
+                            + "exceeds (100 - table_stats_health_threshold)% since the last "
+                            + "statistics collection operation, the statistics for this table are"
+                            + "considered outdated."})
+    public int tableStatsHealthThreshold = 80;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 

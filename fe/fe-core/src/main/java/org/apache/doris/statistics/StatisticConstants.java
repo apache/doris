@@ -83,6 +83,14 @@ public class StatisticConstants {
 
     public static final int INSERT_MERGE_ITEM_COUNT = 200;
 
+    public static final long HUGE_TABLE_DEFAULT_SAMPLE_ROWS = 4194304;
+    public static final long HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = 5L * 1024 * 1024 * 1024;
+
+    public static final long HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(12);
+
+    public static final long TABLE_STATS_HEALTH_THRESHOLD = 80;
+
+
     static {
         SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER
                 + ClusterNamespace.CLUSTER_DELIMITER + FeConstants.INTERNAL_DB_NAME);
