@@ -88,7 +88,7 @@ public class StatisticConstants {
 
     public static final long HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(12);
 
-    public static final long TABLE_STATS_HEALTH_THRESHOLD = 80;
+    public static final int TABLE_STATS_HEALTH_THRESHOLD = 60;
 
 
     static {

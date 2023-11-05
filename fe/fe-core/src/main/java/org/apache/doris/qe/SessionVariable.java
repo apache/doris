@@ -1305,8 +1305,8 @@ public class SessionVariable implements Serializable, Writable {
 
 
     @VariableMgr.VarAttr(name = HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES, flag = VariableMgr.GLOBAL,
-            description = {"定义大表的大小下界，在开启enable_auto_sample的情况下，"
-                    + "大小超过该值的表将会自动通过采样收集统计信息",
+            description = {
+                    "大小超过该值的表将会自动通过采样收集统计信息",
                     "This defines the lower size bound for large tables. "
                             + "When enable_auto_sample is enabled, tables"
                             + "larger than this value will automatically collect "
@@ -1328,7 +1328,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "exceeds (100 - table_stats_health_threshold)% since the last "
                             + "statistics collection operation, the statistics for this table are"
                             + "considered outdated."})
-    public int tableStatsHealthThreshold = 80;
+    public int tableStatsHealthThreshold = 60;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 

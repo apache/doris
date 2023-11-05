@@ -81,7 +81,7 @@ ANALYZE TABLE lineitem WITH SAMPLE ROWS 100000;
 
 ### 自动收集
 
-此功能从2.0.3开始正式支持，默认为全天开启状态。下面对其基本运行逻辑进行阐述，在每次导入事务提交后，Doris将记录本次导入事务更新的表行数用以估算当前已有表的统计数据的健康度（对于没有收集过统计数据的表，其健康度为0）。当表的健康度低于80%（可通过参数`table_stats_health_threshold`调节）时，Doris会认为该表的统计信息已经过时，从而在之后触发对该表的统计信息收集作业。而对于统计信息健康度高于80的表，则不会重复进行收集。
+此功能从2.0.3开始正式支持，默认为全天开启状态。下面对其基本运行逻辑进行阐述，在每次导入事务提交后，Doris将记录本次导入事务更新的表行数用以估算当前已有表的统计数据的健康度（对于没有收集过统计数据的表，其健康度为0）。当表的健康度低于80%（可通过参数`table_stats_health_threshold`调节）时，Doris会认为该表的统计信息已经过时，从而在之后触发对该表的统计信息收集作业。而对于统计信息健康度高于60的表，则不会重复进行收集。
 
 统计信息的收集作业本身需要占用一定的系统资源，为了尽可能降低开销，对于数据量较大（默认为5GiB，可通过设置FE参数`huge_table_lower_bound_size_in_bytes`来调节此行为）的表，Doris会自动采取采样的方式去收集，自动采样默认采样4194304(2^22)行，以尽可能降低对系统造成的负担并尽快完成收集作业。如果希望采样更多的行以获得更准确的数据分布信息，可通过FE参数`huge_table_default_sample_rows`配置增大采样行数。另外对于数据量大于`huge_table_lower_bound_size_in_bytes` * 5 的表，Doris保证其收集时间间隔不小于12小时（该时间可通过FE参数`huge_table_auto_analyze_interval_in_millis`控制）。
 
@@ -242,7 +242,7 @@ DROP [ EXPIRED ] STATS [ table_name [ (column_name [, ...]) ] ];
 |huge_table_default_sample_rows|定义开启开启大表自动sample后，对大表的采样行数|4194304|
 |huge_table_lower_bound_size_in_bytes|大小超过该值的的表，在自动收集时将会自动通过采样收集统计信息|5368709120|
 |huge_table_auto_analyze_interval_in_millis|控制对大表的自动ANALYZE的最小时间间隔，在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes * 5的表仅ANALYZE一次|43200000|
-|table_stats_health_threshold|取值在0-100之间，当自上次统计信息收集操作之后，数据更新量达到 (100 - table_stats_health_threshold)% ，认为该表的统计信息已过时|80|
+|table_stats_health_threshold|取值在0-100之间，当自上次统计信息收集操作之后，数据更新量达到 (100 - table_stats_health_threshold)% ，认为该表的统计信息已过时|60|
 |analyze_timeout|控制同步ANALYZE超时时间，单位为秒|43200|
 
 下面的FE配置项通常情况下，无需关注

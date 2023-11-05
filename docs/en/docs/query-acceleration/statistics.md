@@ -1,7 +1,7 @@
 ---
 {
-"title": "统计信息",
-"language": "zh-CN"
+"title": "Statistics",
+"language": "en"
 }
 ---
 
@@ -77,7 +77,7 @@ ANALYZE TABLE lineitem WITH SAMPLE ROWS 100000;
 
 ### Automatic Collection
 
-This feature is officially supported starting from 2.0.3 and is enabled by default. The basic operational logic is as follows: after each transaction import, Doris records the number of rows updated in the table as a means to estimate the health of the statistics data for existing tables (for tables without collected statistics, the health is considered as 0). When the health of a table falls below 80% (adjustable using the `table_stats_health_threshold` parameter), Doris considers the statistics data for that table outdated and triggers statistics collection jobs for that table.
+This feature is officially supported starting from 2.0.3 and is enabled by default. The basic operational logic is as follows: after each transaction import, Doris records the number of rows updated in the table as a means to estimate the health of the statistics data for existing tables (for tables without collected statistics, the health is considered as 0). When the health of a table falls below 60 (adjustable using the `table_stats_health_threshold` parameter), Doris considers the statistics data for that table outdated and triggers statistics collection jobs for that table.
 
 For large tables (default is 5GiB, adjustable using the `huge_table_lower_bound_size_in_bytes` FE parameter), Doris uses sampling to collect statistics. The default sampling is 4,194,304 (2^22) rows to minimize the system's overhead and complete the collection job as quickly as possible. If you need to sample more rows for more accurate data distribution information, you can configure this by increasing the `huge_table_default_sample_rows` FE parameter. Additionally, for tables with data sizes greater than `huge_table_lower_bound_size_in_bytes * 5`, Doris guarantees a collection interval of no less than 12 hours (controllable through the `huge_table_auto_analyze_interval_in_millis` FE parameter).
 
@@ -158,6 +158,22 @@ mysql> KILL ANALYZE 52357;
 ```markdown
 ### Viewing Statistics
 
+#### Viewing Column Statistics
+
+Use `SHOW COLUMN STATS` to view the number of distinct values and the number of NULL values for columns.
+
+The syntax is as follows:
+
+```SQL
+SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ];
+```
+
+Where:
+
+- `cached`: Displays statistics information currently in FE memory cache.
+- `table_name`: The target table for which you want to collect statistics. It can be in the format `db_name.table_name`.
+- `column_name`: Specifies the target columns, which must be existing columns in `table_name`. You can specify multiple column names separated by commas.
+
 #### Table Statistics Overview
 
 Use `SHOW TABLE STATS` to view an overview of table statistics collection.
@@ -181,22 +197,6 @@ Output:
 | `row_count`      | Number of rows (may not reflect the exact number of rows at the time of execution) |
 | `updated_time`   | Last update time |
 | `columns`        | Columns for which statistics have been collected |
-
-#### Viewing Column Statistics
-
-Use `SHOW COLUMN STATS` to view the number of distinct values and the number of NULL values for columns.
-
-The syntax is as follows:
-
-```SQL
-SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ];
-```
-
-Where:
-
-- `cached`: Displays statistics information currently in FE memory cache.
-- `table_name`: The target table for which you want to collect statistics. It can be in the format `db_name.table_name`.
-- `column_name`: Specifies the target columns, which must be existing columns in `table_name`. You can specify multiple column names separated by commas.
 
 ### Injecting Statistics
 
@@ -242,7 +242,7 @@ DROP ANALYZE JOB [JOB_ID]
 | huge_table_default_sample_rows | Defines the number of rows to sample for large tables when automatic sampling is enabled | 4194304 |
 | huge_table_lower_bound_size_in_bytes | Tables larger than this size will automatically collect statistics through sampling during automatic collection | 5368709120 |
 | huge_table_auto_analyze_interval_in_millis | Controls the minimum time interval for automatic ANALYZE on large tables; for tables larger than `huge_table_lower_bound_size_in_bytes * 5`, ANALYZE will only be executed once within this interval | 43200000 |
-| table_stats_health_threshold | Value between 0 and 100; when the data update exceeds `(100 - table_stats_health_threshold)%` since the last statistics collection operation, the statistics for the table are considered outdated | 80 |
+| table_stats_health_threshold | Value between 0 and 100; when the data update exceeds `(100 - table_stats_health_threshold)%` since the last statistics collection operation, the statistics for the table are considered outdated | 60 |
 | analyze_timeout | Controls the synchronous ANALYZE timeout in seconds | 43200 |
 
 The following FE configuration settings are generally not a concern:
