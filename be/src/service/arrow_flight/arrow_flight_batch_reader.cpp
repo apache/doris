@@ -40,17 +40,11 @@ arrow::Result<std::shared_ptr<ArrowFlightBatchReader>> ArrowFlightBatchReader::C
         const std::shared_ptr<QueryStatement>& statement_) {
     // Make sure that FE send the fragment to BE and creates the BufferControlBlock before returning ticket
     // to the ADBC client, so that the row_descriptor and control block can be found.
-    RowDescriptor row_desc =
-            ExecEnv::GetInstance()->result_mgr()->find_row_descriptor(statement_->query_id);
-    if (row_desc.equals(RowDescriptor())) {
+    auto schema = ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(statement_->query_id);
+    if (schema == nullptr) {
         ARROW_RETURN_NOT_OK(arrow::Status::Invalid(fmt::format(
-                "Schema RowDescriptor Not Found, queryid: {}", print_id(statement_->query_id))));
-    }
-    std::shared_ptr<arrow::Schema> schema;
-    auto st = convert_to_arrow_schema(row_desc, &schema);
-    if (UNLIKELY(!st.ok())) {
-        LOG(WARNING) << st.to_string();
-        ARROW_RETURN_NOT_OK(to_arrow_status(st));
+                "not found arrow flight schema, maybe query has been canceled, queryid: {}",
+                print_id(statement_->query_id))));
     }
     std::shared_ptr<ArrowFlightBatchReader> result(new ArrowFlightBatchReader(statement_, schema));
     return result;

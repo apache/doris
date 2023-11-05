@@ -33,6 +33,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
+#include "util/arrow/row_batch.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 #include "vec/exprs/vexpr.h"
@@ -98,12 +99,15 @@ Status VResultSink::prepare(RuntimeState* state) {
         _writer.reset(new (std::nothrow)
                               VMysqlResultWriter(_sender.get(), _output_vexpr_ctxs, _profile));
         break;
-    case TResultSinkType::ARROW_FLIGHT_PROTOCAL:
-        state->exec_env()->result_mgr()->register_row_descriptor(state->fragment_instance_id(),
-                                                                 _row_desc);
+    case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
+        std::shared_ptr<arrow::Schema> arrow_schema;
+        RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema));
+        state->exec_env()->result_mgr()->register_arrow_schema(state->fragment_instance_id(),
+                                                               arrow_schema);
         _writer.reset(new (std::nothrow) VArrowFlightResultWriter(_sender.get(), _output_vexpr_ctxs,
-                                                                  _profile, _row_desc));
+                                                                  _profile, arrow_schema));
         break;
+    }
     default:
         return Status::InternalError("Unknown result sink type");
     }
