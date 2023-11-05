@@ -74,6 +74,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/runtime/vfile_format_transformer.h"
+#include "vec/sink/vrow_distribution.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
 #include "vec/sink/writer/async_result_writer.h"
@@ -485,6 +486,7 @@ public:
 private:
     friend class VNodeChannel;
     friend class VTabletWriter;
+    friend class VRowDistribution;
 
     VTabletWriter* _parent;
     int64_t _index_id;
@@ -546,11 +548,15 @@ public:
 
     bool is_close_done();
 
+    Status on_partitions_created(TCreatePartitionResult* result);
+
 private:
     friend class VNodeChannel;
     friend class IndexChannel;
 
     using ChannelDistributionPayload = std::vector<std::unordered_map<VNodeChannel*, Payload>>;
+
+    void _init_row_distribution();
 
     Status _init(RuntimeState* state, RuntimeProfile* profile);
 
@@ -573,9 +579,9 @@ private:
                                                          const std::shared_ptr<IndexChannel> ich,
                                                          const std::shared_ptr<VNodeChannel> nch);
 
-    void _cancel_all_channel(Status status);
-
     std::pair<vectorized::VExprContextSPtr, vectorized::VExprSPtr> _get_partition_function();
+
+    void _cancel_all_channel(Status status);
 
     void _save_missing_values(vectorized::ColumnPtr col, vectorized::DataTypePtr value_type,
                               std::vector<int64_t> filter);
@@ -694,6 +700,9 @@ private:
     RuntimeProfile* _profile = nullptr; // not owned, set when open
     bool _group_commit = false;
     std::shared_ptr<WalWriter> _wal_writer = nullptr;
+
+    VRowDistribution _row_distribution;
+
     int64_t _tb_id;
     int64_t _db_id;
     int64_t _wal_id;
