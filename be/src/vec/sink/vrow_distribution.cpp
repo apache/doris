@@ -85,8 +85,8 @@ void VRowDistribution::_generate_rows_distribution_payload(
         ChannelDistributionPayload& channel_to_payload,
         const std::vector<VOlapTablePartition*>& partitions,
         const std::vector<uint32_t>& tablet_indexes, const std::vector<bool>& skip,
-        size_t rows_cnt) {
-    for (int row_idx = 0; row_idx < rows_cnt; row_idx++) {
+        size_t row_cnt) {
+    for (int row_idx = 0; row_idx < row_cnt; row_idx++) {
         if (skip[row_idx]) {
             continue;
         }
@@ -117,8 +117,8 @@ void VRowDistribution::_generate_rows_distribution_payload(
                             Payload {std::make_unique<vectorized::IColumn::Selector>(),
                                      std::vector<int64_t>()});
                     payload_it = tmp_it;
-                    payload_it->second.first->reserve(rows_cnt);
-                    payload_it->second.second.reserve(rows_cnt);
+                    payload_it->second.first->reserve(row_cnt);
+                    payload_it->second.second.reserve(row_cnt);
                 }
                 payload_it->second.first->push_back(row_idx);
                 payload_it->second.second.push_back(tablet_id);
@@ -130,7 +130,8 @@ void VRowDistribution::_generate_rows_distribution_payload(
 
 Status VRowDistribution::_single_partition_generate(vectorized::Block* block,
                                                     ChannelDistributionPayload& channel_to_payload,
-                                                    size_t num_rows, bool has_filtered_rows) {
+                                                    bool has_filtered_rows) {
+    auto num_rows = block->rows();
     // only need to calculate one value for single partition.
     std::vector<VOlapTablePartition*> partitions {1, nullptr};
     std::vector<bool> skip;
@@ -176,30 +177,66 @@ Status VRowDistribution::_single_partition_generate(vectorized::Block* block,
     return Status::OK();
 }
 
-Status VRowDistribution::generate_rows_distribution(vectorized::Block& input_block,
-                                                  std::shared_ptr<vectorized::Block>& block,
-                                                  int64_t& filtered_rows, bool& has_filtered_rows,
-                                                  ChannelDistributionPayload& channel_to_payload) {
-    auto rows = input_block.rows();
-
-    int64_t prev_filtered_rows =
-            _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows();
-    RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
-            _state, &input_block, block, *_vec_output_expr_ctxs, rows, has_filtered_rows));
-
-    // This is just for passing compilation.
-    bool stop_processing = false;
-    channel_to_payload.resize(_channels->size());
-    _tablet_finder->clear_for_new_batch();
-    _row_distribution_watch.start();
+Status VRowDistribution::_generate_rows_distribution_for_non_auto_parititon(
+        std::shared_ptr<vectorized::Block>& block, bool has_filtered_rows,
+        ChannelDistributionPayload& channel_to_payload) {
     auto num_rows = block->rows();
-    _tablet_finder->filter_bitmap().Reset(num_rows);
-    size_t partition_num = _vpartition->get_partitions().size();
-    if (!_vpartition->is_auto_partition() && partition_num == 1 &&
-        _tablet_finder->is_find_tablet_every_sink()) {
-        RETURN_IF_ERROR(_single_partition_generate(block.get(), channel_to_payload,
-                                                   num_rows, has_filtered_rows));
-    } else {
+     std::vector<VOlapTablePartition*> partitions {num_rows, nullptr};
+     std::vector<bool> skip;
+     skip.resize(num_rows);
+     std::vector<uint32_t> tablet_indexes;
+     tablet_indexes.resize(num_rows);
+
+    bool stop_processing = false;
+     RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block.get(), num_rows, partitions,
+                                                  tablet_indexes, stop_processing, skip));
+
+     if (has_filtered_rows) {
+         for (int i = 0; i < num_rows; i++) {
+             skip[i] = skip[i] || _block_convertor->filter_map()[i];
+         }
+     }
+     _generate_rows_distribution_payload(channel_to_payload, partitions, tablet_indexes, skip,
+                                        num_rows);
+     return Status::OK();
+}
+
+Status VRowDistribution::_generate_rows_distribution_for_auto_parititon(
+        std::shared_ptr<vectorized::Block>& block, bool has_filtered_rows,
+        ChannelDistributionPayload& channel_to_payload) {
+    auto num_rows = block->rows();
+    std::vector<uint16_t> partition_keys = _vpartition->get_partition_keys();
+    //TODO: use loop to create missing_vals for multi column.
+    CHECK(partition_keys.size() == 1)
+            << "now support only 1 partition column for auto partitions.";
+    auto partition_col = block->get_by_position(partition_keys[0]);
+
+    std::vector<int64_t> missing_map; // indice of missing values in partition_col
+    missing_map.reserve(partition_col.column->size());
+
+    // try to find tablet and save missing value
+    std::vector<VOlapTablePartition*> partitions {num_rows, nullptr};
+    std::vector<bool> skip;
+    skip.resize(num_rows);
+    std::vector<uint32_t> tablet_indexes;
+    tablet_indexes.resize(num_rows);
+
+    bool stop_processing = false;
+    //TODO: we could use the buffer to save tablets we found so that no need to find them again when we created partitions and try to append block next time.
+    RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block.get(), num_rows, partitions,
+                                                 tablet_indexes, stop_processing, skip,
+                                                 &missing_map));
+
+    if (missing_map.empty()) {
+        // we don't calculate it distribution when have missing values
+        if (has_filtered_rows) {
+            for (int i = 0; i < num_rows; i++) {
+                skip[i] = skip[i] || _block_convertor->filter_map()[i];
+            }
+        }
+        _generate_rows_distribution_payload(channel_to_payload, partitions, tablet_indexes,
+                                           skip, num_rows);
+    } else { // for missing partition keys, calc the missing partition and save in _partitions_need_create
         // if there's projection of partition calc, we need to calc it first.
         auto [part_ctx, part_func] = _get_partition_function();
         int result_idx = -1;
@@ -211,74 +248,57 @@ Status VRowDistribution::generate_rows_distribution(vectorized::Block& input_blo
             _vpartition->set_transformed_slots({(uint16_t)result_idx});
         }
 
+        auto return_type = part_func->data_type();
+
+        // expose the data column
+        vectorized::ColumnPtr range_left_col = block->get_by_position(result_idx).column;
+        if (const auto* nullable =
+                    check_and_get_column<vectorized::ColumnNullable>(*range_left_col)) {
+            range_left_col = nullable->get_nested_column_ptr();
+            return_type =
+                    assert_cast<const vectorized::DataTypeNullable*>(return_type.get())
+                            ->get_nested_type();
+        }
+        // calc the end value and save them.
+        _save_missing_values(range_left_col, return_type, missing_map);
+        // then call FE to create it. then FragmentExecutor will redo the load.
+        RETURN_IF_ERROR(_automatic_create_partition());
+        // In the next round, we will _generate_rows_distribution_payload again to get right payload of new tablet
+        LOG(INFO) << "Auto created partition. Send block again.";
+        return Status::NeedSendAgain("");
+    }    // creating done
+
+    return Status::OK();
+}
+
+Status VRowDistribution::generate_rows_distribution(vectorized::Block& input_block,
+                                                  std::shared_ptr<vectorized::Block>& block,
+                                                  int64_t& filtered_rows, bool& has_filtered_rows,
+                                                  ChannelDistributionPayload& channel_to_payload) {
+    auto rows = input_block.rows();
+
+    int64_t prev_filtered_rows =
+            _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows();
+    RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
+            _state, &input_block, block, *_vec_output_expr_ctxs, rows, has_filtered_rows));
+
+    channel_to_payload.resize(_channels->size());
+    _tablet_finder->clear_for_new_batch();
+    _row_distribution_watch.start();
+    auto num_rows = block->rows();
+    _tablet_finder->filter_bitmap().Reset(num_rows);
+    size_t partition_num = _vpartition->get_partitions().size();
+    if (!_vpartition->is_auto_partition() && partition_num == 1 &&
+        _tablet_finder->is_find_tablet_every_sink()) {
+        RETURN_IF_ERROR(_single_partition_generate(block.get(), channel_to_payload,
+                                                   has_filtered_rows));
+    } else {
         if (_vpartition->is_auto_partition()) {
-            std::vector<uint16_t> partition_keys = _vpartition->get_partition_keys();
-            //TODO: use loop to create missing_vals for multi column.
-            CHECK(partition_keys.size() == 1)
-                    << "now support only 1 partition column for auto partitions.";
-            auto partition_col = block->get_by_position(partition_keys[0]);
-
-            std::vector<int64_t> missing_map; // indice of missing values in partition_col
-            missing_map.reserve(partition_col.column->size());
-
-            // try to find tablet and save missing value
-            std::vector<VOlapTablePartition*> partitions {num_rows, nullptr};
-            std::vector<bool> skip;
-            skip.resize(num_rows);
-            std::vector<uint32_t> tablet_indexes;
-            tablet_indexes.resize(num_rows);
-
-            //TODO: we could use the buffer to save tablets we found so that no need to find them again when we created partitions and try to append block next time.
-            RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block.get(), num_rows, partitions,
-                                                         tablet_indexes, stop_processing, skip,
-                                                         &missing_map));
-
-            if (missing_map.empty()) {
-                // we don't calculate it distribution when have missing values
-                if (has_filtered_rows) {
-                    for (int i = 0; i < num_rows; i++) {
-                        skip[i] = skip[i] || _block_convertor->filter_map()[i];
-                    }
-                }
-                _generate_rows_distribution_payload(channel_to_payload, partitions, tablet_indexes,
-                                                   skip, num_rows);
-            } else { // for missing partition keys, calc the missing partition and save in _partitions_need_create
-                auto return_type = part_func->data_type();
-
-                // expose the data column
-                vectorized::ColumnPtr range_left_col = block->get_by_position(result_idx).column;
-                if (const auto* nullable =
-                            check_and_get_column<vectorized::ColumnNullable>(*range_left_col)) {
-                    range_left_col = nullable->get_nested_column_ptr();
-                    return_type =
-                            assert_cast<const vectorized::DataTypeNullable*>(return_type.get())
-                                    ->get_nested_type();
-                }
-                // calc the end value and save them.
-                _save_missing_values(range_left_col, return_type, missing_map);
-                // then call FE to create it. then FragmentExecutor will redo the load.
-                RETURN_IF_ERROR(_automatic_create_partition());
-                // In the next round, we will _generate_rows_distribution_payload again to get right payload of new tablet
-                LOG(INFO) << "Auto created partition. Send block again.";
-                return Status::NeedSendAgain("");
-            }    // creating done
+            RETURN_IF_ERROR(_generate_rows_distribution_for_auto_parititon(block, has_filtered_rows,
+                                                                           channel_to_payload));
         } else { // not auto partition
-            std::vector<VOlapTablePartition*> partitions {num_rows, nullptr};
-            std::vector<bool> skip;
-            skip.resize(num_rows);
-            std::vector<uint32_t> tablet_indexes;
-            tablet_indexes.resize(num_rows);
-
-            RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block.get(), num_rows, partitions,
-                                                         tablet_indexes, stop_processing, skip));
-
-            if (has_filtered_rows) {
-                for (int i = 0; i < num_rows; i++) {
-                    skip[i] = skip[i] || _block_convertor->filter_map()[i];
-                }
-            }
-            _generate_rows_distribution_payload(channel_to_payload, partitions, tablet_indexes, skip,
-                                               num_rows);
+            RETURN_IF_ERROR(_generate_rows_distribution_for_non_auto_parititon(block, has_filtered_rows,
+                                                                               channel_to_payload));
         }
     }
     _row_distribution_watch.stop();

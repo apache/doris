@@ -99,7 +99,15 @@ private:
 
     Status _single_partition_generate(vectorized::Block* block,
                                       ChannelDistributionPayload& channel_to_payload,
-                                      size_t num_rows, bool has_filtered_rows);
+                                      bool has_filtered_rows);
+
+    Status _generate_rows_distribution_for_auto_parititon(
+        std::shared_ptr<vectorized::Block>& block, bool has_filtered_rows,
+        ChannelDistributionPayload& channel_to_payload);
+
+    Status _generate_rows_distribution_for_non_auto_parititon(
+        std::shared_ptr<vectorized::Block>& block, bool has_filtered_rows,
+        ChannelDistributionPayload& channel_to_payload);
 
     void _generate_rows_distribution_payload(
         ChannelDistributionPayload& channel_to_payload,
