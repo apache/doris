@@ -300,6 +300,7 @@ public class StreamLoadPlanner {
         params.setParams(execParams);
         params.setLoadStreamPerNode(taskInfo.getStreamPerNode());
         params.setTotalLoadStreams(taskInfo.getStreamPerNode());
+        params.setNumLocalSink(1);
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQueryType(TQueryType.LOAD);
         queryOptions.setQueryTimeout(timeout);
@@ -503,6 +504,7 @@ public class StreamLoadPlanner {
         pipParams.setNumSenders(1);
         pipParams.setLoadStreamPerNode(taskInfo.getStreamPerNode());
         pipParams.setTotalLoadStreams(taskInfo.getStreamPerNode());
+        pipParams.setNumLocalSink(1);
 
         TPipelineInstanceParams localParams = new TPipelineInstanceParams();
         localParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + fragmentInstanceIdIndex));

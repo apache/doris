@@ -134,7 +134,7 @@ private:
 
 public:
     // construct new stub
-    LoadStreamStub(PUniqueId load_id, int64_t src_id);
+    LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use);
 
     // copy constructor, shared_ptr members are shared
     LoadStreamStub(LoadStreamStub& stub);
