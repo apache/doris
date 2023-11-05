@@ -81,6 +81,27 @@ void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes,
     }
 }
 
+void JsonbSerializeUtil::jsonb_to_block(
+        const DataTypeSerDeSPtrs& serdes_full_read, const DataTypeSerDeSPtrs& serdes_point_read,
+        const ColumnString& jsonb_column,
+        const std::unordered_map<uint32_t, uint32_t>& col_uid_to_idx_full_read,
+        const std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>&
+                col_uid_to_idx_cid_point_read,
+        const std::vector<ReadRowsInfo>& rows_info, Block& block_full_read,
+        Block& block_point_read) {
+    DCHECK(jsonb_column.size() == rows_info.size());
+    for (int i = 0; i < jsonb_column.size(); ++i) {
+        StringRef jsonb_data = jsonb_column.get_data_at(i);
+        std::unordered_map<uint32_t, bool> point_read_cids;
+        for (uint32_t cid : rows_info[i].cids) {
+            point_read_cids.emplace(cid, false);
+        }
+        jsonb_to_block(serdes_full_read, serdes_point_read, jsonb_data.data, jsonb_data.size,
+                       col_uid_to_idx_full_read, col_uid_to_idx_cid_point_read, point_read_cids,
+                       block_full_read, block_point_read);
+    }
+}
+
 // single row
 void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const char* data,
                                         size_t size,
@@ -119,6 +140,43 @@ void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const 
             DCHECK(col->size() == num_rows + 1);
         }
     }
+}
+
+void JsonbSerializeUtil::jsonb_to_block(
+        const DataTypeSerDeSPtrs& serdes_full_read, const DataTypeSerDeSPtrs& serdes_point_read,
+        const char* data, size_t size,
+        const std::unordered_map<uint32_t, uint32_t>& col_uid_to_idx_full_read,
+        const std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>&
+                col_uid_to_idx_cid_point_read,
+        std::unordered_map<uint32_t, bool>& point_read_cids, Block& block_full_read,
+        Block& block_point_read) {
+    JsonbDocument& doc = *JsonbDocument::createDocument(data, size);
+    size_t full_read_filled_columns = 0;
+    for (auto it = doc->begin(); it != doc->end(); ++it) {
+        auto col_it = col_uid_to_idx_full_read.find(it->getKeyId());
+        if (col_it != col_uid_to_idx_full_read.end()) {
+            MutableColumnPtr dst_column =
+                    block_full_read.get_by_position(col_it->second).column->assume_mutable();
+            serdes_full_read[col_it->second]->read_one_cell_from_jsonb(*dst_column, it->value());
+            ++full_read_filled_columns;
+        } else {
+            auto it2 = col_uid_to_idx_cid_point_read.find(it->getKeyId());
+            if (it2 != col_uid_to_idx_cid_point_read.end()) {
+                uint32_t cid = it2->second.second;
+                uint32_t idx = it2->second.first;
+                auto it3 = point_read_cids.find(cid);
+                if (it3 != point_read_cids.end()) {
+                    MutableColumnPtr dst_column =
+                            block_point_read.get_by_position(idx).column->assume_mutable();
+                    serdes_point_read[idx]->read_one_cell_from_jsonb(*dst_column, it->value());
+                }
+            }
+        }
+    }
+    // __DORIS_ROW_STORE_COL__ column
+    CHECK(full_read_filled_columns + 1 == block_full_read.columns())
+            << "full_read_filled_columns=" << full_read_filled_columns
+            << ", block_full_read.columns():" << block_full_read.columns();
 }
 
 } // namespace doris::vectorized

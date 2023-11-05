@@ -40,13 +40,30 @@ class JsonbSerializeUtil {
 public:
     static void block_to_jsonb(const TabletSchema& schema, const Block& block, ColumnString& dst,
                                int num_cols, const DataTypeSerDeSPtrs& serdes);
-    // batch rows
+    // for batch rows
     static void jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const ColumnString& jsonb_column,
                                const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
                                Block& dst, const std::vector<std::string>& default_values);
-    // single row
+    static void jsonb_to_block(
+            const DataTypeSerDeSPtrs& serdes_full_read, const DataTypeSerDeSPtrs& serdes_point_read,
+            const ColumnString& jsonb_column,
+            const std::unordered_map<uint32_t, uint32_t>& col_uid_to_idx_full_read,
+            const std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>&
+                    col_uid_to_idx_cid_point_read,
+            const std::vector<ReadRowsInfo>& rows_info, Block& block_full_read,
+            Block& block_point_read);
+
+    // for a single row
     static void jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const char* data, size_t size,
                                const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
                                Block& dst, const std::vector<std::string>& default_values);
+    static void jsonb_to_block(
+            const DataTypeSerDeSPtrs& serdes_full_read, const DataTypeSerDeSPtrs& serdes_point_read,
+            const char* data, size_t size,
+            const std::unordered_map<uint32_t, uint32_t>& col_uid_to_idx_full_read,
+            const std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>>&
+                    col_uid_to_idx_cid_point_read,
+            std::unordered_map<uint32_t, bool>& point_read_cids, Block& block_full_read,
+            Block& block_point_read);
 };
 } // namespace doris::vectorized

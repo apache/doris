@@ -208,6 +208,42 @@ void TxnManager::set_txn_related_delete_bitmap(
     }
 }
 
+void TxnManager::set_txn_related_delete_bitmap_and_indicator_maps(
+        TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
+        TabletUid tablet_uid, bool unique_key_merge_on_write, DeleteBitmapPtr delete_bitmap,
+        const RowsetIdUnorderedSet& rowset_ids,
+        std::shared_ptr<PartialUpdateInfo> partial_update_info,
+        std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps) {
+    pair<int64_t, int64_t> key(partition_id, transaction_id);
+    TabletInfo tablet_info(tablet_id, tablet_uid);
+
+    std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));
+    {
+        // get tx
+        std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
+        txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
+        auto it = txn_tablet_map.find(key);
+        if (it == txn_tablet_map.end()) {
+            LOG(WARNING) << "transaction_id: " << transaction_id
+                         << " partition_id: " << partition_id << " may be cleared";
+            return;
+        }
+        auto load_itr = it->second.find(tablet_info);
+        if (load_itr == it->second.end()) {
+            LOG(WARNING) << "transaction_id: " << transaction_id
+                         << " partition_id: " << partition_id << " tablet_id: " << tablet_id
+                         << " may be cleared";
+            return;
+        }
+        TabletTxnInfo& load_info = load_itr->second;
+        load_info.unique_key_merge_on_write = unique_key_merge_on_write;
+        load_info.delete_bitmap = delete_bitmap;
+        load_info.rowset_ids = rowset_ids;
+        load_info.partial_update_info = partial_update_info;
+        load_info.indicator_maps = indicator_maps;
+    }
+}
+
 Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                               TTransactionId transaction_id, TTabletId tablet_id,
                               TabletUid tablet_uid, const PUniqueId& load_id,
@@ -367,9 +403,9 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                 rowset, &rowset_writer, tablet_txn_info.partial_update_info));
 
         int64_t t2 = MonotonicMicros();
-        RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset, tablet_txn_info.rowset_ids,
-                                                     tablet_txn_info.delete_bitmap, transaction_id,
-                                                     rowset_writer.get()));
+        RETURN_IF_ERROR(tablet->update_delete_bitmap(
+                rowset, tablet_txn_info.rowset_ids, tablet_txn_info.delete_bitmap,
+                tablet_txn_info.indicator_maps, transaction_id, rowset_writer.get()));
         int64_t t3 = MonotonicMicros();
         stats->calc_delete_bitmap_time_us = t3 - t2;
         if (tablet_txn_info.partial_update_info &&

@@ -166,7 +166,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 ctx.getExecTimeout(),
                 ctx.getSessionVariable().getSendBatchParallelism(),
                 false,
-                isStrictMode);
+                isStrictMode,
+                false);
 
         sink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
         TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(

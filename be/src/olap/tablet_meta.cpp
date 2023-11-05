@@ -68,7 +68,10 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
             std::move(binlog_config), request.compaction_policy,
             request.time_series_compaction_goal_size_mbytes,
             request.time_series_compaction_file_count_threshold,
-            request.time_series_compaction_time_threshold_seconds);
+            request.time_series_compaction_time_threshold_seconds,
+            request.__isset.enable_unique_key_replace_if_not_null
+                    ? request.enable_unique_key_replace_if_not_null
+                    : false);
     return Status::OK();
 }
 
@@ -87,7 +90,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        std::optional<TBinlogConfig> binlog_config, std::string compaction_policy,
                        int64_t time_series_compaction_goal_size_mbytes,
                        int64_t time_series_compaction_file_count_threshold,
-                       int64_t time_series_compaction_time_threshold_seconds)
+                       int64_t time_series_compaction_time_threshold_seconds,
+                       bool enable_unique_key_replace_if_not_null)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)) {
@@ -107,6 +111,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                                            ? TabletTypePB::TABLET_TYPE_DISK
                                            : TabletTypePB::TABLET_TYPE_MEMORY);
     tablet_meta_pb.set_enable_unique_key_merge_on_write(enable_unique_key_merge_on_write);
+    tablet_meta_pb.set_enable_unique_key_replace_if_not_null(enable_unique_key_replace_if_not_null);
     tablet_meta_pb.set_storage_policy_id(storage_policy_id);
     tablet_meta_pb.set_compaction_policy(compaction_policy);
     tablet_meta_pb.set_time_series_compaction_goal_size_mbytes(
@@ -535,6 +540,11 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
     }
 
+    if (tablet_meta_pb.has_enable_unique_key_replace_if_not_null()) {
+        _enable_unique_key_replace_if_not_null =
+                tablet_meta_pb.enable_unique_key_replace_if_not_null();
+    }
+
     // init _rs_metas
     for (auto& it : tablet_meta_pb.rs_metas()) {
         RowsetMetaSharedPtr rs_meta(new RowsetMeta());
@@ -646,6 +656,8 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     }
 
     tablet_meta_pb->set_enable_unique_key_merge_on_write(_enable_unique_key_merge_on_write);
+    tablet_meta_pb->set_enable_unique_key_replace_if_not_null(
+            _enable_unique_key_replace_if_not_null);
 
     if (_enable_unique_key_merge_on_write) {
         std::set<RowsetId> stale_rs_ids;

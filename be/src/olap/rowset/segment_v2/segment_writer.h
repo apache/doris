@@ -78,6 +78,8 @@ struct SegmentWriterOptions {
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
+using IndicatorMapsVertical = std::map<uint32_t, const vectorized::UInt8*>; // TODO(baohan)
+
 class SegmentWriter {
 public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
@@ -126,9 +128,15 @@ public:
     void clear();
 
     void set_mow_context(std::shared_ptr<MowContext> mow_context);
-    Status fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
+    Status fill_missing_columns(vectorized::Block* full_block,
+                                const PartialUpdateReadPlan& read_plan,
+                                const std::vector<uint32_t>& cids_full_read,
+                                const std::vector<uint32_t>& cids_point_read,
                                 const std::vector<bool>& use_default_or_null_flag,
-                                bool has_default_or_nullable, const size_t& segment_start_pos);
+                                bool has_default_or_nullable, const size_t& segment_start_pos,
+                                bool is_unique_key_replace_if_not_null);
+
+    std::shared_ptr<IndicatorMaps> get_indicator_maps() const { return _indicator_maps; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -159,6 +167,9 @@ private:
     void set_max_key(const Slice& key);
     bool _should_create_writers_with_dynamic_block(size_t num_columns_in_block);
     void _serialize_block_to_row_column(vectorized::Block& block);
+
+    void _calc_indicator_maps(uint32_t row_pos, uint32_t num_rows,
+                              const IndicatorMapsVertical& indicator_maps_vertical);
 
 private:
     uint32_t _segment_id;
@@ -204,8 +215,19 @@ private:
 
     std::shared_ptr<MowContext> _mow_context;
     // group every rowset-segment row id to speed up reader
-    PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
+
+    // For partial update, during publish version we may generate a new block to handle
+    // the data loss problem due to concurrent update. We need to re-calculate the values
+    // read from the old rows because there may be new rows with same keys written successfully
+    // during the period of flush phase and publish phase of the current write. Columns to read from
+    // the segements in old versions for this purpose include `missing_cols` and part of the
+    // `including_cols` if the property `enable_unique_key_replace_if_not_null` is turned on for all conflict rows.
+    // However, in publish version, the input block(s) has been trasnformed to segment(s) and we can't
+    // get the information about the locations of indicator values DIRECTLY. So we keep the information of
+    // the locations of indicator values of `including_cols` in `_indicator_maps` and pass it to publish phase
+    // through TabletTxnInfo
+    std::shared_ptr<IndicatorMaps> _indicator_maps = nullptr;
 
     // record row locations here and used when memtable flush
 };

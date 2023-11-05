@@ -98,6 +98,8 @@ public:
 
     int64_t num_rows_filtered() const { return _num_rows_filtered; }
 
+    std::shared_ptr<IndicatorMaps> get_indicator_maps() const { return _indicator_maps; }
+
     Status close();
 
 public:
@@ -142,6 +144,8 @@ private:
     // written rows by add_block/add_row
     std::atomic<int64_t> _num_rows_written = 0;
     std::atomic<int64_t> _num_rows_filtered = 0;
+
+    std::shared_ptr<IndicatorMaps> _indicator_maps = nullptr;
 };
 
 class SegmentCreator {
@@ -165,6 +169,10 @@ public:
     int64_t num_rows_written() const { return _segment_flusher.num_rows_written(); }
 
     int64_t num_rows_filtered() const { return _segment_flusher.num_rows_filtered(); }
+
+    std::shared_ptr<IndicatorMaps> get_indicator_maps() const {
+        return _segment_flusher.get_indicator_maps();
+    }
 
     // Flush a block into a single segment, with pre-allocated segment_id.
     // Return the file size flushed to disk in "flush_size"

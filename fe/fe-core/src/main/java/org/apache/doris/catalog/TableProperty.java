@@ -466,6 +466,15 @@ public class TableProperty implements Writable {
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
     }
 
+    public void setEnableUniqueKeyReplaceIfNotNull(boolean enable) {
+        properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_REPLACE_IF_NOT_NULL, Boolean.toString(enable));
+    }
+
+    public boolean getEnableUniqueKeyReplaceIfNotNull() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.ENABLE_UNIQUE_KEY_REPLACE_IF_NOT_NULL, "false"));
+    }
+
     public void setSequenceMapCol(String colName) {
         properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
                 + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL, colName);

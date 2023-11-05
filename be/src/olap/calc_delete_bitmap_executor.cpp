@@ -30,11 +30,13 @@
 namespace doris {
 using namespace ErrorCode;
 
-Status CalcDeleteBitmapToken::submit(TabletSharedPtr tablet, RowsetSharedPtr cur_rowset,
-                                     const segment_v2::SegmentSharedPtr& cur_segment,
-                                     const std::vector<RowsetSharedPtr>& target_rowsets,
-                                     int64_t end_version, DeleteBitmapPtr delete_bitmap,
-                                     RowsetWriter* rowset_writer) {
+Status CalcDeleteBitmapToken::submit(
+        TabletSharedPtr tablet, RowsetSharedPtr cur_rowset,
+        const segment_v2::SegmentSharedPtr& cur_segment,
+        const std::vector<RowsetSharedPtr>& target_rowsets, int64_t end_version,
+        DeleteBitmapPtr delete_bitmap,
+        std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps,
+        RowsetWriter* rowset_writer) {
     {
         std::shared_lock rlock(_lock);
         RETURN_IF_ERROR(_status);
@@ -42,7 +44,8 @@ Status CalcDeleteBitmapToken::submit(TabletSharedPtr tablet, RowsetSharedPtr cur
 
     return _thread_token->submit_func([=, this]() {
         auto st = tablet->calc_segment_delete_bitmap(cur_rowset, cur_segment, target_rowsets,
-                                                     delete_bitmap, end_version, rowset_writer);
+                                                     delete_bitmap, end_version, indicator_maps,
+                                                     rowset_writer);
         if (!st.ok()) {
             LOG(WARNING) << "failed to calc segment delete bitmap, tablet_id: "
                          << tablet->tablet_id() << " rowset: " << cur_rowset->rowset_id()

@@ -357,6 +357,11 @@ public:
 
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
 
+    void set_is_unique_key_replace_if_not_null(bool is_unique_key_replace_if_not_null) {
+        _is_unique_key_replace_if_not_null = is_unique_key_replace_if_not_null;
+    }
+    bool is_unique_key_replace_if_not_null() const { return _is_unique_key_replace_if_not_null; }
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -393,6 +398,7 @@ private:
     int64_t _mem_size = 0;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
+    bool _is_unique_key_replace_if_not_null = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);
