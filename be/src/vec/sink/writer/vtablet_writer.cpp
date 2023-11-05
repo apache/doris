@@ -489,52 +489,6 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
         _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
     }
 
-    std::unique_ptr<Payload> temp_payload = nullptr;
-    if (_index_channel != nullptr && _index_channel->get_where_clause() != nullptr) {
-        SCOPED_RAW_TIMER(&_stat.where_clause_ns);
-        temp_payload.reset(new Payload(
-                std::unique_ptr<vectorized::IColumn::Selector>(new vectorized::IColumn::Selector()),
-                std::vector<int64_t>()));
-        int result_index = -1;
-        size_t column_number = block->columns();
-        RETURN_IF_ERROR(_index_channel->get_where_clause()->execute(block, &result_index));
-
-        auto& row_ids = *payload->first;
-        auto& tablets_ids = payload->second;
-
-        auto filter_column = block->get_by_position(result_index).column;
-
-        if (auto* nullable_column =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(*filter_column)) {
-            for (size_t i = 0; i < payload->second.size(); i++) {
-                if (nullable_column->get_bool_inline(row_ids[i])) {
-                    temp_payload->first->emplace_back(row_ids[i]);
-                    temp_payload->second.emplace_back(tablets_ids[i]);
-                }
-            }
-            payload = temp_payload.get();
-        } else if (auto* const_column = vectorized::check_and_get_column<vectorized::ColumnConst>(
-                           *filter_column)) {
-            bool ret = const_column->get_bool(0);
-            if (!ret) {
-                return Status::OK();
-            }
-        } else {
-            auto& filter = assert_cast<const vectorized::ColumnUInt8&>(*filter_column).get_data();
-            for (size_t i = 0; i < payload->second.size(); i++) {
-                if (filter[row_ids[i]] != 0) {
-                    temp_payload->first->emplace_back(row_ids[i]);
-                    temp_payload->second.emplace_back(tablets_ids[i]);
-                }
-            }
-            payload = temp_payload.get();
-        }
-
-        for (size_t i = block->columns() - 1; i >= column_number; i--) {
-            block->erase(i);
-        }
-    }
-
     SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
     if (is_append) {
         // Do not split the data of the block by tablets but append it to a single delta writer.
@@ -1110,7 +1064,7 @@ Status VTabletWriter::on_partitions_created(TCreatePartitionResult* result) {
     return Status::OK();
 }
 
-Status on_partitions_created(void* writer, TCreatePartitionResult* result) {
+static Status on_partitions_created(void* writer, TCreatePartitionResult* result) {
     return static_cast<VTabletWriter*>(writer)->on_partitions_created(result);
 }
 
@@ -1118,7 +1072,6 @@ void VTabletWriter::_init_row_distribution() {
     VRowDistributionContext ctx;
 
     ctx.state = _state;
-    ctx.channels = &_channels;
     ctx.block_convertor = _block_convertor.get();
     ctx.tablet_finder = _tablet_finder.get();
     ctx.vpartition = _vpartition;
@@ -1128,7 +1081,8 @@ void VTabletWriter::_init_row_distribution() {
     ctx.location = _location;
     ctx.vec_output_expr_ctxs = &_vec_output_expr_ctxs;
     ctx.on_partitions_created = &vectorized::on_partitions_created;
-    ctx.caller = (void *)this;
+    ctx.caller = (void*)this;
+    ctx.schema = _schema;
 
     _row_distribution.init(&ctx);
 }
@@ -1588,6 +1542,46 @@ Status VTabletWriter::close(Status exec_status) {
     return _close_status;
 }
 
+void VTabletWriter::_generate_one_index_channel_payload(
+        RowPartTabletIds& row_part_tablet_id, int32_t index_idx,
+        ChannelDistributionPayload& channel_payload) {
+    auto& row_ids = row_part_tablet_id.row_ids;
+    auto& tablet_ids = row_part_tablet_id.tablet_ids;
+
+    size_t row_cnt = row_ids.size();
+
+    for (int i = 0; i < row_ids.size(); i++) {
+        // (tablet_id, VNodeChannel) where this tablet locate
+        auto it = _channels[index_idx]->_channels_by_tablet.find(tablet_ids[i]);
+        DCHECK(it != _channels[index_idx]->_channels_by_tablet.end())
+                << "unknown tablet, tablet_id=" << tablet_ids[i];
+
+        std::vector<std::shared_ptr<VNodeChannel>>& tablet_locations = it->second;
+        for (const auto& locate_node : tablet_locations) {
+            auto payload_it = channel_payload.find(locate_node.get()); // <VNodeChannel*, Payload>
+            if (payload_it == channel_payload.end()) {
+                auto [tmp_it, _] = channel_payload.emplace(
+                        locate_node.get(),
+                        Payload {std::make_unique<vectorized::IColumn::Selector>(),
+                                 std::vector<int64_t>()});
+                payload_it = tmp_it;
+                payload_it->second.first->reserve(row_cnt);
+                payload_it->second.second.reserve(row_cnt);
+            }
+            payload_it->second.first->push_back(row_ids[i]);
+            payload_it->second.second.push_back(tablet_ids[i]);
+        }
+    }
+}
+
+void VTabletWriter::_generate_index_channels_payloads(
+        std::vector<RowPartTabletIds>& row_part_tablet_ids,
+        ChannelDistributionPayloadVec& payload) {
+    for (int i = 0; i < _schema->indexes().size(); i++) {
+        _generate_one_index_channel_payload(row_part_tablet_ids[i], i, payload[i]);
+    }
+}
+
 Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
@@ -1603,12 +1597,17 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     }
     SCOPED_TIMER(_profile->total_time_counter());
 
-    ChannelDistributionPayload channel_to_payload;
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
-    RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(input_block, block, filtered_rows,
-                                                                 has_filtered_rows, channel_to_payload));
+
+    RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
+            input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids));
+
+    ChannelDistributionPayloadVec channel_to_payload;
+
+    channel_to_payload.resize(_channels.size());
+    _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
 
     _number_input_rows += rows;
     // update incrementally so that FE can get the progress.
@@ -1640,10 +1639,8 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     }
 
     if (_group_commit) {
-        _group_commit_block(&input_block, block->rows(),
-                            _block_convertor->num_filtered_rows() +
-                                    _tablet_finder->num_filtered_rows() - filtered_rows,
-                            _state, block.get(), _block_convertor.get(), _tablet_finder.get());
+        _group_commit_block(&input_block, block->rows(), filtered_rows, _state, block.get(),
+                            _block_convertor.get(), _tablet_finder.get());
     }
     // TODO: Before load, we need to projection unuseful column
     // auto slots = _schema->tuple_desc()->slots();

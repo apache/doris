@@ -18,6 +18,10 @@
 #pragma once
 
 // IWYU pragma: no_include <bits/chrono.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -38,14 +42,19 @@ namespace doris::vectorized {
 class IndexChannel;
 class VNodeChannel;
 
-using Payload = std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>;
+// <row_idx, partition_id, tablet_id>
+class RowPartTabletIds {
+public:
+    std::vector<int64_t> row_ids;
+    std::vector<int64_t> partition_ids;
+    std::vector<int64_t> tablet_ids;
+};
 
 typedef Status (*OnPartitionsCreated)(void*, TCreatePartitionResult*);
 
 class VRowDistributionContext {
 public:
-    RuntimeState* state = nullptr;     // not owned, set when open
-    std::vector<std::shared_ptr<IndexChannel>>* channels;
+    RuntimeState* state = nullptr;
     OlapTableBlockConvertor* block_convertor = nullptr;
     OlapTabletFinder* tablet_finder = nullptr;
     VOlapTablePartitionParam* vpartition = nullptr;
@@ -56,16 +65,16 @@ public:
     const VExprContextSPtrs* vec_output_expr_ctxs;
     OnPartitionsCreated on_partitions_created;
     void* caller;
+    std::shared_ptr<OlapTableSchemaParam> schema;
 };
 
 class VRowDistribution {
 public:
-    VRowDistribution() {
-    }
+    VRowDistribution() {}
+    virtual ~VRowDistribution() {}
 
-    void init(VRowDistributionContext *ctx) {
+    void init(VRowDistributionContext* ctx) {
         _state = ctx->state;
-        _channels = ctx->channels;
         _block_convertor = ctx->block_convertor;
         _tablet_finder = ctx->tablet_finder;
         _vpartition = ctx->vpartition;
@@ -76,9 +85,8 @@ public:
         _vec_output_expr_ctxs = ctx->vec_output_expr_ctxs;
         _on_partitions_created = ctx->on_partitions_created;
         _caller = ctx->caller;
+        _schema = ctx->schema;
     }
-
-    using ChannelDistributionPayload = std::vector<std::unordered_map<VNodeChannel*, Payload>>;
 
     // auto partition
     // mv where clause
@@ -87,40 +95,44 @@ public:
     Status generate_rows_distribution(vectorized::Block& input_block,
                                       std::shared_ptr<vectorized::Block>& block,
                                       int64_t& filtered_rows, bool& has_filtered_rows,
-                                      ChannelDistributionPayload& channel_to_payload);
- 
+                                      std::vector<RowPartTabletIds>& row_part_tablet_ids);
+
 private:
     std::pair<vectorized::VExprContextSPtr, vectorized::VExprSPtr> _get_partition_function();
-    void _save_missing_values(vectorized::ColumnPtr col, vectorized::DataTypePtr value_type,
-                              std::vector<int64_t> filter);
+
+    void _save_missing_values(vectorized::ColumnPtr col, vectorized::DataTypePtr value_type);
 
     // create partitions when need for auto-partition table using #_partitions_need_create.
     Status _automatic_create_partition();
 
-    Status _single_partition_generate(vectorized::Block* block,
-                                      ChannelDistributionPayload& channel_to_payload,
-                                      bool has_filtered_rows);
+    void _get_tablet_ids(vectorized::Block* block, int32_t index_idx,
+                         std::vector<int64_t>& tablet_ids);
+
+    void _filter_block_by_skip(vectorized::Block* block, RowPartTabletIds& row_part_tablet_id);
+
+    Status _filter_block_by_skip_and_where_clause(vectorized::Block* block,
+                                                  const vectorized::VExprContextSPtr& where_clause,
+                                                  RowPartTabletIds& row_part_tablet_id);
+
+    Status _filter_block(vectorized::Block* block,
+                         std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
     Status _generate_rows_distribution_for_auto_parititon(
-        std::shared_ptr<vectorized::Block>& block, bool has_filtered_rows,
-        ChannelDistributionPayload& channel_to_payload);
+            vectorized::Block* block, int partition_col_idx, bool has_filtered_rows,
+            std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
     Status _generate_rows_distribution_for_non_auto_parititon(
-        std::shared_ptr<vectorized::Block>& block, bool has_filtered_rows,
-        ChannelDistributionPayload& channel_to_payload);
+            vectorized::Block* block, bool has_filtered_rows,
+            std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
-    void _generate_rows_distribution_payload(
-        ChannelDistributionPayload& channel_to_payload,
-        const std::vector<VOlapTablePartition*>& partitions,
-        const std::vector<uint32_t>& tablet_indexes, const std::vector<bool>& skip,
-        size_t row_cnt);
+    void _reset_row_part_tablet_ids(std::vector<RowPartTabletIds>& row_part_tablet_ids,
+                                    int64_t rows);
 
 private:
-    RuntimeState* _state = nullptr;     // not owned, set when open
+    RuntimeState* _state = nullptr;
 
     // support only one partition column now
     std::vector<std::vector<TStringLiteral>> _partitions_need_create;
-    std::vector<std::shared_ptr<IndexChannel>>* _channels;
 
     MonotonicStopWatch _row_distribution_watch;
     OlapTableBlockConvertor* _block_convertor = nullptr;
@@ -131,10 +143,18 @@ private:
     ObjectPool* _pool;
     OlapTableLocationParam* _location = nullptr;
     // std::function _on_partition_created;
-    int64_t _number_output_rows = 0;
+    // int64_t _number_output_rows = 0;
     const VExprContextSPtrs* _vec_output_expr_ctxs;
     OnPartitionsCreated _on_partitions_created = nullptr;
-    void *_caller;
+    void* _caller;
+    std::shared_ptr<OlapTableSchemaParam> _schema;
+
+    // reuse for find_tablet.
+    std::vector<VOlapTablePartition*> _partitions;
+    std::vector<bool> _skip;
+    std::vector<uint32_t> _tablet_indexes;
+    std::vector<int64_t> _tablet_ids;
+    std::vector<int64_t> _missing_map; // indice of missing values in partition_col
 };
 
 } // namespace doris::vectorized
