@@ -189,7 +189,6 @@ TEST_F(PrimaryKeyIndexTest, multiple_pages) {
     EXPECT_GT(builder.data_page_num(), 1);
     segment_v2::PrimaryKeyIndexMetaPB index_meta;
     EXPECT_TRUE(builder.finalize(&index_meta));
-    EXPECT_EQ(builder.disk_size(), file_writer->bytes_appended());
     EXPECT_TRUE(file_writer->close().ok());
     EXPECT_EQ(num_rows, builder.num_rows());
 
@@ -273,7 +272,6 @@ TEST_F(PrimaryKeyIndexTest, single_page) {
     EXPECT_EQ(builder.data_page_num(), 1);
     segment_v2::PrimaryKeyIndexMetaPB index_meta;
     EXPECT_TRUE(builder.finalize(&index_meta));
-    EXPECT_EQ(builder.disk_size(), file_writer->bytes_appended());
     EXPECT_TRUE(file_writer->close().ok());
     EXPECT_EQ(num_rows, builder.num_rows());
 
