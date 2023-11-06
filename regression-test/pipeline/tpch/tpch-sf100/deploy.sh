@@ -95,6 +95,10 @@ fi
 if ! add_doris_be_to_fe; then
     need_backup_doris_logs=true
     exit_flag=1
+else
+    # wait 10s for doris totally started, otherwize may encounter the error below,
+    # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
+    sleep 10s
 fi
 
 echo "#### 5. set session variables"
