@@ -613,12 +613,11 @@ public:
     }
 
     void TearDown() override {
-        ExecEnv::GetInstance()->set_storage_engine(nullptr);
-        k_engine.reset();
         _server->Stop(1000);
-        _load_stream_mgr.reset();
         CHECK_EQ(0, _server->Join());
         SAFE_DELETE(_server);
+        k_engine.reset();
+        doris::ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
     std::string read_data(int64_t txn_id, int64_t partition_id, int64_t tablet_id, uint32_t segid) {
