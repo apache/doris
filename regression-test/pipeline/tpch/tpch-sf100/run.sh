@@ -19,11 +19,20 @@ EOF
 source ../../common/doris-utils.sh
 # create_an_issue_comment
 source ../../common/github-utils.sh
-set -e
-shopt -s inherit_errexit
+
+echo "#### Check env"
+if [[ -z "${teamcity_build_checkoutDir}" ||
+    -z "${pull_request_id}" ||
+    -z "${commit_id}" ]]; then
+    echo "ERROR: env teamcity_build_checkoutDir or pull_request_id or commit_id not set"
+    exit 1
+fi
 
 echo "#### Run tpch-sf100 test on Doris ####"
-echo "## 1. check if need to load data"
+exit_flag=0
+need_backup_doris_logs=false
+
+echo "#### 1. check if need to load data"
 SF="100" # SCALE FACTOR
 if ${DEBUG:-false}; then
     SF="1"
@@ -41,7 +50,7 @@ if ! check_tpch_table_rows "${db_name}" "${SF}"; then
     if [[ ! -d ${TPCH_DATA_DIR} ]]; then
         mkdir -p "${TPCH_DATA_DIR}"
         (
-            cd "${TPCH_DATA_DIR}"
+            cd "${TPCH_DATA_DIR}" || exit 1
             declare -A table_file_count
             table_file_count=(['region']=1 ['nation']=1 ['supplier']=1 ['customer']=1 ['part']=1 ['partsupp']=10 ['orders']=10 ['lineitem']=10)
             for table_name in ${!table_file_count[*]}; do
@@ -65,18 +74,17 @@ if ! check_tpch_table_rows "${db_name}" "${SF}"; then
     bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/load-tpch-data.sh -c 10
 fi
 
-echo "## 2. run tpch-sf${SF} query"
+echo "#### 2. run tpch-sf${SF} query"
 sed -i "s|^SCALE_FACTOR=[0-9]\+$|SCALE_FACTOR=${SF}|g" "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh
 bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
 line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpch-queries.log)
 line_begin=$((line_end - 23))
-
 comment_body="Tpch sf${SF} test resutl on commit ${commit_id:-}
 
 run tpch-sf${SF} query with default conf and session variables
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-queries.log)"
 
-echo "## 3. run tpch-sf${SF} query with runtime_filter_mode=off"
+echo "#### 3. run tpch-sf${SF} query with runtime_filter_mode=off"
 set_session_variable runtime_filter_mode off
 bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
 line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpch-queries.log)
@@ -86,8 +94,18 @@ comment_body="${comment_body}
 run tpch-sf${SF} query with default conf and set session variable runtime_filter_mode=off
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-queries.log)"
 
-echo "## 4. comment result on tpch"
+echo "#### 4. comment result on tpch"
 comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\n/\\n/g') # 将所有的换行符替换为\n
 create_an_issue_comment "${pull_request_id:-}" "${comment_body}"
 
 stop_doris
+
+echo "#### 5. check if need backup doris logs"
+if ${need_backup_doris_logs}; then
+    print_doris_fe_log
+    print_doris_be_log
+    archive_doris_logs "${pull_request_id}_${commit_id}_doris_logs.tar.gz"
+    upload_doris_log_to_oss "${pull_request_id}_${commit_id}_doris_logs.tar.gz"
+fi
+
+exit "${exit_flag}"

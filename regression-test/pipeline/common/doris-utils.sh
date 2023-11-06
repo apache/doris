@@ -205,3 +205,39 @@ set_session_variable() {
         return 1
     fi
 }
+
+archive_doris_logs() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    archive_name="$1"
+    if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
+    if tar -I pigz \
+        --directory "${DORIS_HOME}" \
+        --absolute-names \
+        -cf "${DORIS_HOME}/${archive_name}" \
+        "${DORIS_HOME}"/fe/conf \
+        "${DORIS_HOME}"/fe/log \
+        "${DORIS_HOME}"/be/conf \
+        "${DORIS_HOME}"/be/log; then
+        echo "${DORIS_HOME}/${archive_name}"
+    else
+        return 1
+    fi
+}
+
+print_doris_fe_log() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.out--------------------"
+    tail -n 100 "${DORIS_HOME}"/fe/log/fe.out
+    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.log--------------------"
+    tail -n 100 "${DORIS_HOME}"/fe/log/fe.log
+    echo "WARNING: ----------------------------------------"
+}
+
+print_doris_be_log() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.out--------------------"
+    tail -n 100 "${DORIS_HOME}"/be/log/be.out
+    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.INFO--------------------"
+    tail -n 100 "${DORIS_HOME}"/be/log/be.INFO
+    echo "WARNING: ----------------------------------------"
+}

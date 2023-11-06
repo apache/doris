@@ -17,25 +17,34 @@ EOF
 
 # download_oss_file
 source ../../common/oss-utils.sh
-# start_doris_fe, get_doris_conf_value, start_doris_be, stop_doris
+# start_doris_fe, get_doris_conf_value, start_doris_be, stop_doris,
+# print_doris_fe_log, print_doris_be_log, archive_doris_logs
 source ../../common/doris-utils.sh
-set -e
-shopt -s inherit_errexit
 
-echo "#### Deploy Doris ####"
-DORIS_HOME="${teamcity_build_checkoutDir}/output"
-export DORIS_HOME
-echo "#### 1. try to kill old doris process and remove old doris binary"
-stop_doris && rm -rf output
-
-echo "#### 2. download doris binary tar ball"
-if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
-cd "${teamcity_build_checkoutDir}"
+echo "#### Check env"
+if [[ -z "${teamcity_build_checkoutDir}" ||
+    -z "${pull_request_id}" ||
+    -z "${commit_id}" ]]; then
+    echo "ERROR: env teamcity_build_checkoutDir or pull_request_id or commit_id not set"
+    exit 1
+fi
 if ${DEBUG:-false}; then
     pull_request_id="26344"
     commit_id="edc044e95a530c71851ee5019a6fe00898517cd8"
     commit_id="97ee15f75e88f5af6de308d948361eaa7c261602"
 fi
+
+echo "#### Deploy Doris ####"
+DORIS_HOME="${teamcity_build_checkoutDir}/output"
+export DORIS_HOME
+exit_flag=0
+need_backup_doris_logs=false
+
+echo "#### 1. try to kill old doris process and remove old doris binary"
+stop_doris && rm -rf output
+
+echo "#### 2. download doris binary tar ball"
+cd "${teamcity_build_checkoutDir}" || exit 1
 if download_oss_file "${pull_request_id:-}_${commit_id:-}.tar.gz"; then
     tar -I pigz -xf "${pull_request_id:-}_${commit_id:-}.tar.gz"
     if [[ -d output && -d output/fe && -d output/be ]]; then
@@ -48,8 +57,14 @@ fi
 
 echo "#### 3. copy conf from regression-test/pipeline/tpch/tpch-sf100/conf/"
 rm -f "${DORIS_HOME}"/fe/conf/fe_custom.conf "${DORIS_HOME}"/be/conf/be_custom.conf
-cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/fe.conf "${DORIS_HOME}"/fe/conf/
-cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/be.conf "${DORIS_HOME}"/be/conf/
+if [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/fe.conf &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/be.conf ]]; then
+    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/fe.conf "${DORIS_HOME}"/fe/conf/
+    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/be.conf "${DORIS_HOME}"/be/conf/
+else
+    echo "ERROR: doris conf file missing in ${teamcity_build_checkoutDir}/regression-test/pipeline/tpch/tpch-sf100/conf/"
+    exit 1
+fi
 
 echo "#### 4. start Doris"
 meta_dir=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf meta_dir)
@@ -57,27 +72,40 @@ storage_root_path=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be.conf storage
 mkdir -p "${meta_dir}"
 mkdir -p "${storage_root_path}"
 if ! start_doris_fe; then
-    echo "WARNING: --------------------${DORIS_HOME}/fe/log/fe.out--------------------"
-    cat "${DORIS_HOME}"/fe/log/fe.out
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.log--------------------"
-    tail -n 100 "${DORIS_HOME}"/fe/log/fe.log
-    echo "WARNING: ----------------------------------------"
+    echo "WARNING: Start doris fe failed at first time"
+    print_doris_fe_log
     echo "WARNING: delete meta_dir and storage_root_path, then retry"
     rm -rf "${meta_dir:?}/"*
     rm -rf "${storage_root_path:?}/"*
-    start_doris_fe
+    if ! start_doris_fe; then
+        need_backup_doris_logs=true
+        exit_flag=1
+    fi
 fi
 if ! start_doris_be; then
-    echo "WARNING: --------------------${DORIS_HOME}/be/log/be.out--------------------"
-    cat "${DORIS_HOME}"/be/log/be.out
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.INFO--------------------"
-    tail -n 100 "${DORIS_HOME}"/be/log/be.INFO
-    echo "WARNING: ----------------------------------------"
+    echo "WARNING: Start doris be failed at first time"
+    print_doris_be_log
     echo "WARNING: delete storage_root_path, then retry"
     rm -rf "${storage_root_path:?}/"*
-    start_doris_be
+    if ! start_doris_be; then
+        need_backup_doris_logs=true
+        exit_flag=1
+    fi
 fi
-add_doris_be_to_fe
+if ! add_doris_be_to_fe; then
+    need_backup_doris_logs=true
+    exit_flag=1
+fi
 
 echo "#### 5. set session variables"
 echo "TODO"
+
+echo "#### 6. check if need backup doris logs"
+if ${need_backup_doris_logs}; then
+    print_doris_fe_log
+    print_doris_be_log
+    archive_doris_logs "${pull_request_id}_${commit_id}_doris_logs.tar.gz"
+    upload_doris_log_to_oss "${pull_request_id}_${commit_id}_doris_logs.tar.gz"
+fi
+
+exit "${exit_flag}"
