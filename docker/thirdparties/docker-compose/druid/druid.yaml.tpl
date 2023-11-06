@@ -55,7 +55,7 @@ services:
     volumes:
       - ./data/druid_zk_data:/data
     ports:
-      - "10181:2181"
+      - "12181:2181"
     environment:
       - ZOO_MY_ID=1
         # networks:
@@ -201,8 +201,3 @@ services:
       - historical-druid
       - router-druid
       - coordinator-druid
-    # networks:
-    #   - doris--druid
-
-    #networks:
-    #    doris--druid:

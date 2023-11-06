@@ -26,5 +26,5 @@ curl "http://${DRUID_COODRINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-T
 
 curl "http://${DRUID_COODRINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST -d "@/mnt/scripts/data/wikipiea.json"
 
-curl "http://${DRUID_COODRINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST -d "@/mnt/scripts/data/test_json.json"
+curl "http://${DRUID_COODRINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST -d "@/mnt/scripts/data/test_nested.json"
 
