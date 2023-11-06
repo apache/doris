@@ -204,7 +204,7 @@ class RegressionTest {
         def directoryFilter = config.getDirectoryFilter()
         if (!config.withOutLoadData) {
             log.info('Start to run load scripts')
-            runScripts(config, recorder, directoryFilter,
+            runScripts(config, recorder, false, directoryFilter,
                     { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) == "load" })
         }
         log.info('Start to run scripts')
@@ -249,7 +249,7 @@ class RegressionTest {
         return true
     }
 
-    static boolean canRun(Config config, String suiteName, String group, bool isSingleThreadScript) {
+    static boolean canRun(Config config, String suiteName, String group, boolean isSingleThreadScript) {
         Set<String> suiteGroups = group.split(',').collect { g -> g.trim() }.toSet();
         if (isSingleThreadScript) {
             if (!suiteGroups.contains(nonConcurrentTestGroup)) {
