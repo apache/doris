@@ -329,6 +329,10 @@ public:
         return _query_options.__isset.enable_pipeline_engine &&
                _query_options.enable_pipeline_engine;
     }
+    bool enable_pipeline_x_exec() const {
+        return _query_options.__isset.enable_pipeline_x_engine &&
+               _query_options.enable_pipeline_x_engine;
+    }
     bool enable_local_shuffle() const {
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
     }
@@ -452,7 +456,9 @@ public:
         return 0;
     }
 
-    void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
+    void set_be_exec_version(int32_t version) noexcept {
+        _query_options.be_exec_version = version;
+    }
 
     int64_t external_agg_bytes_threshold() const {
         return _query_options.__isset.external_agg_bytes_threshold
