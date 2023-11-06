@@ -17,14 +17,26 @@
 # under the License.
 
 # Apache druid ingestion data
+echo "${DRUID_COORDINATOR_HOST}"
 
-curl "http://${DRUID_COODRINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST -d '@/mnt/scripts/data/kttm.json'
+while true
+do
+    if  nc -z ${DRUID_COORDINATOR_HOST} 8081 &>/dev/null ; then
+        break;
+    else
+        echo "${DRUID_COORDINATOR_HOST} 8081 not ready!"
+        sleep 5s;
+    fi
+done
 
-curl "http://${DRUID_COODRINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST -d "@/mnt/scripts/data/nyc.json"
+curl "http://${DRUID_COORDINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST -d  '@/mnt/scripts/data/kttm.json'
 
-curl "http://${DRUID_COODRINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST -d "@/mnt/scripts/data/xtrip.json"
+curl "http://${DRUID_COORDINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST  -d  '@/mnt/scripts/data/nyc.json'
 
-curl "http://${DRUID_COODRINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST -d "@/mnt/scripts/data/wikipiea.json"
+curl "http://${DRUID_COORDINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST  -d '@/mnt/scripts/data/xtrip.json'
 
-curl "http://${DRUID_COODRINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST -d "@/mnt/scripts/data/test_nested.json"
+curl "http://${DRUID_COORDINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST  -d '@/mnt/scripts/data/wikipiea.json'
 
+curl "http://${DRUID_COORDINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST  -d  '@/mnt/scripts/data/test_nested.json'
+
+curl "http://${DRUID_COORDINATOR_HOST}:8081/druid/indexer/v1/task" -H "Content-Type:application/json" -X POST  -d '@/mnt/scripts/data/rollup_index.json'
