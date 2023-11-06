@@ -55,7 +55,7 @@ class Syncer {
 
     Syncer(Suite suite, Config config) {
         this.suite = suite
-        context = new SyncerContext(suite.context.dbName, config)
+        context = new SyncerContext(suite, suite.context.dbName, config)
     }
 
     enum ccrCluster {
