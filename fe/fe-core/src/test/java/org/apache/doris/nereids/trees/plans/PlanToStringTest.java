@@ -80,8 +80,10 @@ public class PlanToStringTest {
     @Test
     public void testLogicalOlapScan() {
         LogicalOlapScan plan = PlanConstructor.newLogicalOlapScan(0, "table", 0);
-        Assertions.assertTrue(plan.toString().matches("LogicalOlapScan \\( qualified=db\\.table, " + "indexName=table, "
-                + "selectedIndexId=-1, preAgg=ON \\)"), plan.toString());
+        Assertions.assertTrue(
+                plan.toString().matches("LogicalOlapScan \\( qualified=db\\.table, "
+                        + "indexName=<index_not_selected>, "
+                        + "selectedIndexId=-1, preAgg=ON \\)"));
     }
 
     @Test

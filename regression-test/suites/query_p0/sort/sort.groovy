@@ -155,4 +155,58 @@ suite("sort") {
     qt_order_by_float """ select /*SET_VAR(parallel_pipeline_task_num=1,parallel_fragment_exec_instance_num=1)*/ * from ${tblName} order by dc; """
     qt_order_by_int """ select /*SET_VAR(parallel_pipeline_task_num=1,parallel_fragment_exec_instance_num=1)*/ * from ${tblName} order by ic; """
     qt_order_by_uint """ select /*SET_VAR(parallel_pipeline_task_num=1,parallel_fragment_exec_instance_num=1)*/ * from ${tblName} order by time_period; """
+
+
+    // string order by test
+    // test purpose:
+    // 1. make sure order by string-like column will follow its ASCI value
+    // 2. make sure order by with null value works as expected
+    sql """ DROP TABLE IF EXISTS sort_string_orderby """
+    sql """ CREATE TABLE sort_string_orderby (
+      `row_id`              INT NOT NULL,
+      `col_str`             STRING NOT NULL,
+      `col_str_null`        STRING NULL,
+      `col_varchar`         VARCHAR(10) NOT NULL,
+      `col_varchar_null`    VARCHAR(10) NULL,
+      `col_char`            CHAR(10) NOT NULL,
+      `col_char_null`       CHAR(10) NULL,
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`row_id`)
+    DISTRIBUTED BY HASH(`row_id`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "disable_auto_compaction" = "true"
+    );
+    """
+    sql """
+      INSERT INTO sort_string_orderby VALUES (1, 'A', 'A', 'A', 'A','A', 'A'),
+                                            (2, 'A', NULL, 'A', NULL, 'A', NULL),
+                                            (3, 'a', 'a', 'a', 'a','a', 'a'),
+                                            (4, 'a', NULL, 'a', NULL,'a', NULL),
+                                            (5, 'B', 'B', 'B', 'B','B', 'B'),
+                                            (6, 'B', NULL, 'B', NULL, 'B', NULL),
+                                            (7, 'b', 'b', 'b', 'b', 'b', 'b'),
+                                            (8, 'b', NULL, 'b', NULL,'b', NULL);
+    """
+    qt_order_by_col_str """
+      select row_id, col_str from sort_string_orderby order by col_str,row_id
+    """
+    qt_order_by_col_str_null """
+      select row_id, col_str_null from sort_string_orderby order by col_str_null,row_id;
+    """
+    qt_order_by_col_varchar """
+      select row_id, col_varchar from sort_string_orderby order by col_varchar,row_id
+    """
+    qt_order_by_col_varchar_null """
+      select row_id, col_varchar_null from sort_string_orderby order by col_varchar_null,row_id
+    """
+    qt_order_by_col_char """
+      select row_id, col_char from sort_string_orderby order by col_char,row_id
+    """
+    qt_order_by_col_char_null """
+      select row_id, col_char_null from sort_string_orderby order by col_char_null,row_id
+    """
+    sql """
+      drop table if exists sort_string_orderby;
+    """
 }
