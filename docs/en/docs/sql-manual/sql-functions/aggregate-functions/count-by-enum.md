@@ -26,12 +26,6 @@ under the License.
 
 ## COUNT_BY_ENUM 
 
-<version since="1.2.0">
-
-COUNT_BY_ENUM
-
-</version>
-
 ### Description
 #### Syntax
 
