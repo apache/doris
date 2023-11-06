@@ -111,6 +111,7 @@ visible_functions = {
         [['array'], 'ARRAY', ['DOUBLE', '...'], 'ALWAYS_NOT_NULLABLE'],
         [['array'], 'ARRAY', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
         [['array'], 'ARRAY', ['STRING', '...'], 'ALWAYS_NOT_NULLABLE'],
+        [['array'], 'ARRAY', ['T', '...'], 'ALWAYS_NOT_NULLABLE', ['T']],
 
         [['element_at', '%element_extract%'], 'T', ['ARRAY<T>', 'BIGINT'], 'ALWAYS_NULLABLE', ['T']],
 

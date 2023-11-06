@@ -16,12 +16,13 @@
 // under the License.
 
 suite("test_struct_insert") {
+    sql "set enable_nereids_planner=false;" // disable nereids planner
     // define a sql table
     def testTable = "tbl_test_struct_insert"
 
     def create_test_table = {testTablex ->
         def result1 = sql """
-            CREATE TABLE IF NOT EXISTS ${testTable} (
+            CREATE TABLE IF NOT EXISTS ${testTablex} (
               `k1` INT(11) NULL,
               `k2` STRUCT<f1:BOOLEAN,f2:TINYINT,f3:SMALLINT,f4:INT,f5:INT,f6:BIGINT,f7:LARGEINT> NULL,
               `k3` STRUCT<f1:FLOAT,f2:DOUBLE,f3:DECIMAL(10,3)> NULL,
@@ -64,6 +65,15 @@ suite("test_struct_insert") {
         exception "Insert has filtered data"
     }
     // normal cases include nullable and nullable nested fields
+    qt_sql_new "INSERT INTO ${testTable} VALUES(1, (1,11,111,1111,11111,11111,111111),null,null,('','',''))"
+    qt_sql_new "INSERT INTO ${testTable} VALUES(2, (null,null,null,null,null,null,null),(2.1,2.22,2.333),null,(null,null,null))"
+    qt_sql_new "INSERT INTO ${testTable} VALUES(3, null,(null,null,null),('2023-02-23','2023-02-23 00:10:19','2023-02-23','2023-02-23 00:10:19'),('','',''))"
+    qt_sql_new "INSERT INTO ${testTable} VALUES(4, null,null,(null,null,null,null),('abc','def','hij'))"
+
+    qt_select_new "select * from ${testTable} order by k1"
+    sql "truncate table ${testTable}"
+    sql "sync"
+
     sql "INSERT INTO ${testTable} VALUES(1, {1,11,111,1111,11111,11111,111111},null,null,{'','',''})"
     sql "INSERT INTO ${testTable} VALUES(2, {null,null,null,null,null,null,null},{2.1,2.22,2.333},null,{null,null,null})"
     sql "INSERT INTO ${testTable} VALUES(3, null,{null,null,null},{'2023-02-23','2023-02-23 00:10:19','2023-02-23','2023-02-23 00:10:19'},{'','',''})"
@@ -71,4 +81,50 @@ suite("test_struct_insert") {
 
     // select the table and check whether the data is correct
     qt_select "select * from ${testTable} order by k1"
+
+
+    // nereids planner
+    sql "set enable_nereids_planner=true;"
+    sql "set enable_fallback_to_original_planner=false;"
+
+    def testTableNereids = "tbl_test_struct_insert_nereids"
+    sql "DROP TABLE IF EXISTS ${testTableNereids}"
+    create_test_table.call(testTableNereids)
+
+    sql "set enable_insert_strict = true"
+
+    // invalid cases
+    test {
+        // k5 is not nullable, can not insert null
+        sql "insert into ${testTableNereids} values (111,null,null,null,null)"
+        exception "Insert has filtered data"
+    }
+    test {
+        // size of char type in struct is 10, can not insert string with length more than 10
+        sql "insert into ${testTableNereids} values (112,null,null,null,{'1234567890123',null,null})"
+        exception "Insert has filtered data"
+    }
+    test {
+        // size of varchar type in struct is 10, can not insert string with length more than 10
+        sql "insert into ${testTableNereids} values (113,null,null,null,{null,'12345678901234',null})"
+        exception "Insert has filtered data"
+    }
+    // normal cases include nullable and nullable nested fields
+    qt_sql_nereids_new "INSERT INTO ${testTableNereids} VALUES(1, (1,11,111,1111,11111,11111,111111),null,null,('','',''))"
+    qt_sql_nereids_new "INSERT INTO ${testTableNereids} VALUES(2, (null,null,null,null,null,null,null),(2.1,2.22,2.333),null,(null,null,null))"
+    qt_sql_nereids_new "INSERT INTO ${testTableNereids} VALUES(3, null,(null,null,null),('2023-02-23','2023-02-23 00:10:19','2023-02-23','2023-02-23 00:10:19'),('','',''))"
+    qt_sql_nereids_new "INSERT INTO ${testTableNereids} VALUES(4, null,null,(null,null,null,null),('abc','def','hij'))"
+
+    qt_select_new "select * from ${testTableNereids} order by k1"
+    sql "truncate table ${testTableNereids}"
+    sql "sync"
+
+    sql "INSERT INTO ${testTableNereids} VALUES(1, {1,11,111,1111,11111,11111,111111},null,null,{'','',''})"
+    sql "INSERT INTO ${testTableNereids} VALUES(2, {null,null,null,null,null,null,null},{2.1,2.22,2.333},null,{null,null,null})"
+    sql "INSERT INTO ${testTableNereids} VALUES(3, null,{null,null,null},{'2023-02-23','2023-02-23 00:10:19','2023-02-23','2023-02-23 00:10:19'},{'','',''})"
+    sql "INSERT INTO ${testTableNereids} VALUES(4, null,null,{null,null,null,null},{'abc','def','hij'})"
+
+    // select the table and check whether the data is correct
+    qt_select_nereids "select * from ${testTableNereids} order by k1"
+
 }

@@ -6570,6 +6570,10 @@ struct_literal ::=
   {:
     RESULT = new StructLiteral(list.toArray(new LiteralExpr[0]));
   :}
+  |LPAREN expr_list:list RPAREN
+  {:
+    RESULT = new StructLiteral(list.toArray(new LiteralExpr[0]));
+  :}
   ;
 
 exists_predicate ::=

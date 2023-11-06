@@ -24,12 +24,16 @@ suite("test_nestedtypes_insert_into_select", "p0") {
     sql "set enable_nereids_planner=false"
     sql """ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"""
 
-    // create array struct
+    // check array<struct>
     sql "DROP TABLE IF EXISTS ast;"
     sql """ CREATE TABLE IF NOT EXISTS ast (col1 varchar(64) NULL, col2 array<struct<a:int,b:string>>) DUPLICATE KEY(`col1`)  DISTRIBUTED BY HASH(`col1`) PROPERTIES ("replication_num" = "1"); """
 
     // test insert into with literal
     sql "INSERT INTO ast values ('text',[{3,'home'},{4,'work'}]);"
+    sql "INSERT INTO ast values ('text1',[(31,'home1'),(41,'work1')]);"
+    sql "insert into ast values ('text2' , array(named_struct('amory',1,'b','7777'),named_struct('commiter',2,'b','work')));"
+    sql "insert into ast values ('text3' , array(struct(11, 'home'), struct(22, 'work')));"
+    sql "insert into ast values ('text4' , array(named_struct('a',1,'b','home'), struct(2, 'work')));"
 
     order_qt_sql_as """ select * from ast; """
 
@@ -37,22 +41,33 @@ suite("test_nestedtypes_insert_into_select", "p0") {
         sql "insert into ast values ('text' , [named_struct('a',1,'b','home'),named_struct('a',2,'b','work')]);"
         exception "errCode = 2, detailMessage = Sql parser can't convert the result to array, please check your sql."
     }
-
+    test {
+        sql "insert into ast values ('text' , [struct(1,'home'),struct(2,'work')]);"
+        exception "errCode = 2, detailMessage = Sql parser can't convert the result to array, please check your sql."
+    }
 
     sql "set enable_nereids_planner=true"
     sql " set enable_fallback_to_original_planner=false"
 
-    // create array struct
-    sql "DROP TABLE IF EXISTS ast;"
-    sql """ CREATE TABLE IF NOT EXISTS ast (col1 varchar(64) NULL, col2 array<struct<a:int,b:string>>) DUPLICATE KEY(`col1`)  DISTRIBUTED BY HASH(`col1`) PROPERTIES ("replication_num" = "1"); """
+    sql "DROP TABLE IF EXISTS ast_nereids;"
+    sql """ CREATE TABLE IF NOT EXISTS ast_nereids (col1 varchar(64) NULL, col2 array<struct<a:int,b:string>>) DUPLICATE KEY(`col1`)  DISTRIBUTED BY HASH(`col1`) PROPERTIES ("replication_num" = "1"); """
 
     // test insert into with literal
-    sql "INSERT INTO ast values ('text',[{3,'home'},{4,'work'}]);"
+    sql "INSERT INTO ast_nereids values ('text',[{3,'home'},{4,'work'}]);"
+    sql "INSERT INTO ast_nereids values ('text1',[(31,'home1'),(41,'work1')]);"
+    sql "insert into ast_nereids values ('text2' , array(named_struct('amory',1,'b','7777'),named_struct('commiter',2,'b','work')));"
+    sql "insert into ast_nereids values ('text3' , array(struct(11, 'home'), struct(22, 'work')));"
+    sql "insert into ast_nereids values ('text4' , array(named_struct('a',1,'b','home'), struct(2, 'work')));"
 
-    order_qt_sql_as """ select * from ast; """
+    order_qt_sql_as_nereids """ select * from ast_nereids; """
 
     test {
-        sql "insert into ast values ('text' , [named_struct('a',1,'b','home'),named_struct('a',2,'b','work')]);"
+        sql "insert into ast_nereids values ('text' , [named_struct('a',1,'b','home'),named_struct('a',2,'b','work')]);"
+        exception "errCode = 2, detailMessage = Sql parser can't convert the result to array, please check your sql."
+    }
+
+    test {
+        sql "insert into ast_nereids values ('text' , [struct(1,'home'),struct(2,'work')]);"
         exception "errCode = 2, detailMessage = Sql parser can't convert the result to array, please check your sql."
     }
 }
