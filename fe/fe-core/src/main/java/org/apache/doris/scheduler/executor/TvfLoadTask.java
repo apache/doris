@@ -17,40 +17,38 @@
 
 package org.apache.doris.scheduler.executor;
 
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.loadv2.JobState;
+import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.nereids.jobs.load.InsertLoadTask;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TRow;
 
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.DataOutput;
-import java.io.IOException;
+import java.util.List;
 
 /**
  * we use this executor to execute sql job
  *
  */
 @Slf4j
-public class LoadTaskExecutor implements TransientTaskExecutor, Writable {
+public class TvfLoadTask extends AbstractTask {
 
-    protected String labelName;
-    protected JobState state;
+    protected InsertLoadTask task;
+    protected ConnectContext ctx;
+    protected StmtExecutor executor;
 
-    public LoadTaskExecutor(ConnectContext ctx, InsertLoadTask task) {
-        task.prepare();
+    public TvfLoadTask(ConnectContext ctx, StmtExecutor executor, InsertLoadTask task) {
+        this.ctx = ctx;
+        this.executor = executor;
+        this.task = task;
     }
 
     @Override
-    public Long getId() {
-        return null;
-    }
-
-    @Override
-    public void execute() throws JobException {
-        task.
-
+    public void run() throws JobException {
+        task.run(executor, ctx);
+        task.onFinished();
     }
 
     @Override
@@ -59,7 +57,12 @@ public class LoadTaskExecutor implements TransientTaskExecutor, Writable {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
+    public List<String> getShowInfo() {
+        return null;
+    }
 
+    @Override
+    public TRow getTvfInfo() {
+        return null;
     }
 }

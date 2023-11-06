@@ -23,7 +23,6 @@ import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 
 import lombok.Setter;
 
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class TransientTaskManager {

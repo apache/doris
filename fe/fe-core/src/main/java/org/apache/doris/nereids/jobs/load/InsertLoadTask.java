@@ -18,77 +18,60 @@
 package org.apache.doris.nereids.jobs.load;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.LoadException;
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
-import org.apache.doris.nereids.txn.Transaction;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-
-import java.io.DataOutput;
-import java.io.IOException;
 
 /**
  * load task
  */
-public class InsertLoadTask implements Writable {
+public class InsertLoadTask extends StatefulLoadTask {
 
     protected long taskId;
     protected String labelName;
-    protected Transaction txn;
     protected InsertIntoTableCommand insertInto;
-    protected LoadTaskState loadState;
-    protected StmtExecutor executor;
-    protected ConnectContext ctx;
+    protected LoadStatistic statistic;
+    protected FailMsg failMsg;
+    protected InsertIntoState insertState;
 
     /**
      * insert into task
-     * @param ctx ctx
-     * @param executor stmt executor for insert into command
-     * @param labelName label name
-     * @param loadState load state
-     * @param logicalPlan sql plan
+     *
+     * @param labelName            label name
+     * @param logicalPlan          sql plan
+     * @param loadStatistic        load statistic
      */
-    public InsertLoadTask(ConnectContext ctx, StmtExecutor executor, String labelName,
-                          LoadTaskState loadState, InsertIntoTableCommand logicalPlan) {
-        this.ctx = ctx;
-        this.executor = executor;
-        this.loadState = loadState;
+    public InsertLoadTask(String labelName, InsertIntoTableCommand logicalPlan,
+                          LoadStatistic loadStatistic) {
+        super(TaskType.PENDING);
         this.labelName = labelName;
         this.taskId = Env.getCurrentEnv().getNextId();
         this.insertInto = logicalPlan;
+        this.statistic = loadStatistic;
     }
 
     public long getId() {
         return taskId;
     }
 
-    public void prepare() {
-        // loadState is PENDING
-        loadState.onTaskPending();
+    public void run(StmtExecutor executor, ConnectContext ctx) throws JobException {
+        try {
+            insertInto.statefulRun(ctx, executor);
+        } catch (Exception e) {
+            throw new JobException(e);
+        }
     }
 
-    public void execute(StmtExecutor executor, ConnectContext ctx) throws Exception {
-        // loadState is LOADING
-        loadState.onTaskRunning();
-        insertInto.statefulRun(ctx, executor);
+    public void onFinished() {
+        // check insertState
+        // callback.update();
     }
 
-    public void finished(FailMsg failMsg, boolean abortTxn, boolean needLog) {
-        loadState.onTaskFinished();
-    }
-
-    public void failed(FailMsg failMsg, boolean abortTxn, boolean needLog) {
-        // loadState is FAILED
-    }
-
-    public void abort(FailMsg failMsg, boolean abortTxn, boolean needLog) {
-        // loadState is CANCELLED
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-
+    public void onFailed() {
+        // check insertState
+        // callback.update();
     }
 }

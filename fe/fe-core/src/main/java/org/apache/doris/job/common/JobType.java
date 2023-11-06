@@ -19,5 +19,6 @@ package org.apache.doris.job.common;
 
 public enum JobType {
     INSERT,
-    MV
+    MV,
+    LOAD
 }

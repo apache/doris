@@ -65,7 +65,6 @@ import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportJobStateTransfer;
 import org.apache.doris.load.ExportMgr;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
@@ -74,12 +73,13 @@ import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
+import org.apache.doris.nereids.jobs.load.replay.ReplayLoadLog;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
-import org.apache.doris.scheduler.executor.LoadJobExecutor;
+import org.apache.doris.scheduler.executor.TVFLoadJob;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.TableStatsMeta;
@@ -712,6 +712,16 @@ public class EditLog {
                     env.getLoadManager().replayUpdateLoadJobStateInfo(info);
                     break;
                 }
+                case OperationType.OP_CREATE_NEW_LOAD_JOB: {
+                    ReplayLoadLog.ReplayCreateLoadLog loadJob = (ReplayLoadLog.ReplayCreateLoadLog) journal.getData();
+                    env.getLoadMgr().replayLoadJob(loadJob);
+                    break;
+                }
+                case OperationType.OP_END_NEW_LOAD_JOB: {
+                    ReplayLoadLog.ReplayEndLoadLog loadJob = (ReplayLoadLog.ReplayEndLoadLog) journal.getData();
+                    env.getLoadMgr().replayLoadJob(loadJob);
+                    break;
+                }
                 case OperationType.OP_CREATE_SYNC_JOB: {
                     SyncJob syncJob = (SyncJob) journal.getData();
                     env.getSyncJobManager().replayAddSyncJob(syncJob);
@@ -1326,30 +1336,6 @@ public class EditLog {
         logEdit(OperationType.OP_RECOVER_TABLE, info);
     }
 
-    public void logLoadStart(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_START, job);
-    }
-
-    public void logLoadEtl(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_ETL, job);
-    }
-
-    public void logLoadLoading(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_LOADING, job);
-    }
-
-    public void logLoadQuorum(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_QUORUM, job);
-    }
-
-    public void logLoadCancel(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_CANCEL, job);
-    }
-
-    public void logLoadDone(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_DONE, job);
-    }
-
     public void logDropRollup(DropInfo info) {
         logEdit(OperationType.OP_DROP_ROLLUP, info);
     }
@@ -1951,6 +1937,15 @@ public class EditLog {
 
     }
 
-    public void logLoadCreate(LoadJobExecutor loadJob) {
+    public void logLoadCreate(TVFLoadJob loadJob) {
+
+    }
+
+    public void logLoadCreate(ReplayLoadLog log) {
+        logEdit(OperationType.OP_CREATE_NEW_LOAD_JOB, log);
+    }
+
+    public void logLoadEnd(ReplayLoadLog log) {
+        logEdit(OperationType.OP_END_NEW_LOAD_JOB, log);
     }
 }

@@ -209,6 +209,11 @@ public class OperationType {
     // update sync job state
     public static final short OP_UPDATE_SYNC_JOB_STATE = 235;
 
+    // used by nerieds load create
+    public static final short OP_CREATE_NEW_LOAD_JOB = 241;
+    // used by nerieds load end
+    public static final short OP_END_NEW_LOAD_JOB = 242;
+
     // small files 251~260
     public static final short OP_CREATE_SMALL_FILE = 251;
     public static final short OP_DROP_SMALL_FILE = 252;

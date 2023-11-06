@@ -20,36 +20,10 @@ package org.apache.doris.nereids.jobs.load;
 /**
  * load task state
  */
-public interface LoadTaskState {
+public class InsertIntoState {
+    private String trackingUrl;
 
-    /**
-     * merge type
-     */
-    enum MergeType {
-        MERGE,
-        APPEND,
-        DELETE
+    public String getTrackingUrl() {
+        return trackingUrl;
     }
-
-    /**
-     * task type
-     */
-    enum TaskType {
-        PENDING,
-        LOADING,
-        FINISHED,
-        FAILED,
-        CANCELLED
-    }
-
-    void onTaskPending();
-
-    void onTaskRunning();
-
-    void onTaskFinished();
-
-    void onTaskFailed();
-
-    void onTaskCancelled();
-
 }

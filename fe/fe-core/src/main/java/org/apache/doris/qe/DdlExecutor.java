@@ -119,6 +119,7 @@ import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.job.common.JobStatus;
@@ -173,7 +174,12 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CancelExportStmt) {
             env.getExportMgr().cancelExportJob((CancelExportStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelLoadStmt) {
-            env.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
+            if (Config.enable_nereids_load) {
+                CancelLoadStmt cs = (CancelLoadStmt) ddlStmt;
+                env.getLoadMgr().cancelLoadJob(cs.getDbName(), cs.getLabel(), cs.getState(), cs.getOperator());
+            } else {
+                env.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
+            }
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             env.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof PauseRoutineLoadStmt) {

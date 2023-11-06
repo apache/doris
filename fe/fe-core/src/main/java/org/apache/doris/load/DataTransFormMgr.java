@@ -17,44 +17,7 @@
 
 package org.apache.doris.load;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.analysis.CancelExportStmt;
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.CaseSensibility;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.LabelAlreadyUsedException;
-import org.apache.doris.common.PatternMatcher;
-import org.apache.doris.common.PatternMatcherWrapper;
-import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.OrderByPair;
-import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.scheduler.exception.JobException;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 public abstract class DataTransFormMgr {
     // lock for export job

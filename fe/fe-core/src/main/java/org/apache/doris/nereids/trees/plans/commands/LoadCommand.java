@@ -22,9 +22,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NereidsException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
@@ -54,7 +54,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.scheduler.executor.LoadJobExecutor;
+import org.apache.doris.scheduler.executor.TVFLoadJob;
 import org.apache.doris.tablefunction.HdfsTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 
@@ -83,6 +83,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
 
     private final String labelName;
     private final BulkStorageDesc bulkStorageDesc;
+    private final Set<String> sinkTableNames = new HashSet<>();
     private final List<BulkLoadDataDesc> sourceInfos;
     private final Map<String, String> properties;
     private final String comment;
@@ -119,6 +120,9 @@ public class LoadCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (!Config.enable_nereids_load) {
+            throw new AnalysisException("Fallback to legacy planner temporary.");
+        }
         this.profile = new Profile("Query", ctx.getSessionVariable().enableProfile);
         profile.getSummaryProfile().setQueryBeginTime();
         if (sourceInfos.size() == 1) {
@@ -128,7 +132,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("Multi insert into statements are unsupported.");
         }
         profile.getSummaryProfile().setQueryPlanFinishTime();
-        executeInsertStmtPlan(ctx, executor, plans);
+        submitInsertStmtPlan(ctx, executor, plans);
     }
 
     private LogicalPlan completeQueryPlan(ConnectContext ctx, BulkLoadDataDesc dataDesc)
@@ -152,6 +156,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
         boolean scanAllTvfCol = (tvfProjects.get(0) instanceof UnboundStar);
 
         OlapTable olapTable = getOlapTable(ctx, dataDesc);
+        sinkTableNames.add(olapTable.getName());
         List<Column> olapSchema = olapTable.getBaseSchema();
         // map column index to mapping expr
         Map<String, Expression> mappingExpressions = dataDesc.getColumnMappings();
@@ -472,17 +477,12 @@ public class LoadCommand extends Command implements ForwardWithSync {
         return tvfProperties;
     }
 
-    private void executeInsertStmtPlan(ConnectContext ctx, StmtExecutor executor, List<InsertIntoTableCommand> plans) {
+    private void submitInsertStmtPlan(ConnectContext ctx, StmtExecutor executor, List<InsertIntoTableCommand> plans) {
         try {
-            LoadJobExecutor jobExecutor = new LoadJobExecutor(ctx, executor, labelName, plans);
+            TVFLoadJob jobExecutor = new TVFLoadJob(ctx, executor, labelName, plans,
+                    sinkTableNames, properties, comment);
             Env.getCurrentEnv().getLoadMgr().addLoadJob(jobExecutor);
-            throw new AnalysisException("Fallback to legacy planner temporary.");
-        } catch (UserException e) {
-            // Return message to info client what happened.
-            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            throw new NereidsException("Command process failed", new AnalysisException(e.getMessage(), e));
         } catch (Exception e) {
-            // Maybe our bug
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
             throw new NereidsException("Command process failed.", new AnalysisException(e.getMessage(), e));
         }

@@ -17,37 +17,52 @@
 
 package org.apache.doris.nereids.jobs.load;
 
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+
 /**
- * load state
+ * for general load task state
  */
-public class BulkLoadTaskState extends AbstractLoadTaskState {
+public abstract class StatefulLoadTask {
 
-    public BulkLoadTaskState(LoadTaskState.TaskType initialTaskType) {
-        super(initialTaskType);
+    private TaskType taskType;
+    private MergeType mergeType = MergeType.APPEND;
+
+    public StatefulLoadTask(TaskType initialTaskType) {
+        this.taskType = initialTaskType;
     }
 
-    @Override
-    public void onTaskPending() {
-
+    public TaskType getTaskType() {
+        return taskType;
     }
 
-    @Override
-    public void onTaskRunning() {
-
+    public MergeType getMergeType() {
+        return mergeType;
     }
 
-    @Override
-    public void onTaskFinished() {
-
+    /**
+     * merge type
+     */
+    enum MergeType {
+        MERGE,
+        APPEND,
+        DELETE
     }
 
-    @Override
-    public void onTaskFailed() {
-
+    /**
+     * task type
+     */
+    enum TaskType {
+        PENDING,
+        LOADING,
+        FINISHED,
+        FAILED,
+        CANCELLED
     }
 
-    @Override
-    public void onTaskCancelled() {
+    public abstract void run(StmtExecutor executor, ConnectContext ctx) throws Exception;
 
-    }
+    public abstract void onFinished();
+
+    public abstract void onFailed();
 }

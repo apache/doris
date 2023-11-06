@@ -1889,6 +1889,14 @@ public class Config extends ConfigBase {
     public static boolean enable_hms_events_incremental_sync = false;
 
     /**
+     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
+     * otherwise it will throw an AnalysisException.
+     */
+    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_nereids_load = false;
+
+
+    /**
      * Maximum number of events to poll in each RPC.
      */
     @ConfField(mutable = true, masterOnly = true)
