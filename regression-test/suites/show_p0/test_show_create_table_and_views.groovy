@@ -74,7 +74,7 @@ suite("test_show_create_table_and_views", "show") {
         (23, 900, 1)"""
 
     qt_show "SHOW CREATE TABLE ${dbName}.${tableName}"
-    qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY user_id"
+    qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY 1,2,3"
 
     // create view and show
     sql """
@@ -83,7 +83,7 @@ suite("test_show_create_table_and_views", "show") {
         SELECT user_id, cost FROM ${dbName}.${tableName}
         WHERE good_id = 2
     """
-    qt_select "SELECT * FROM ${dbName}.${viewName} ORDER BY user_id"
+    qt_select "SELECT * FROM ${dbName}.${viewName} ORDER BY 1,2"
     qt_show "SHOW CREATE VIEW ${dbName}.${viewName}"
 
     // create rollup
@@ -104,7 +104,7 @@ suite("test_show_create_table_and_views", "show") {
         Thread.sleep(100)
     }
 
-    qt_select "SELECT user_id, SUM(cost) FROM ${dbName}.${tableName} GROUP BY user_id ORDER BY user_id"
+    qt_select "SELECT user_id, SUM(cost) FROM ${dbName}.${tableName} GROUP BY user_id ORDER BY 1,2"
     qt_show "SHOW CREATE TABLE ${dbName}.${tableName}"
 
     // create like
