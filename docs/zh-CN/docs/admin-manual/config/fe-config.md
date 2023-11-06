@@ -173,7 +173,7 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 元数据会同步写入到多个 Follower FE，这个参数用于控制 Master FE 等待 Follower FE 发送 ack 的超时时间。当写入的数据较大时，可能 ack 时间较长，如果超时，会导致写元数据失败，FE 进程退出。此时可以适当调大这个参数。
 
-#### `grpc_threadmgr_threads_nums`
+### `grpc_threadmgr_threads_nums`
 
 默认值: 4096
 
@@ -2759,12 +2759,6 @@ show data （其他用法：HELP SHOW DATA）
 
 #### `mysqldb_replace_name`
 
-默认值：mysql
+Default: mysql
 
 Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，请修改这个字段，为 doris 内置的 mysql database 更换一个名字
-
-#### `max_auto_partition_num`
-
-默认值：2000
-
-对于自动分区表，防止用户意外创建大量分区，每个OLAP表允许的分区数量为`max_auto_partition_num`。默认2000。

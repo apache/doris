@@ -196,7 +196,6 @@ private:
     RuntimeProfile::Counter* _slave_replica_timer = nullptr;
     RuntimeProfile::Counter* _add_batch_timer = nullptr;
     RuntimeProfile::Counter* _write_block_timer = nullptr;
-    RuntimeProfile::Counter* _incremental_open_timer = nullptr;
 };
 
 template <typename Request>

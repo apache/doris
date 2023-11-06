@@ -322,29 +322,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return Math.max(leftReplicaQuota, 0L);
     }
 
-    public long getReplicaCountWithoutLock() {
-        readLock();
-        try {
-            long usedReplicaCount = 0;
-            for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
-                    continue;
-                }
-
-                OlapTable olapTable = (OlapTable) table;
-                usedReplicaCount = usedReplicaCount + olapTable.getReplicaCount();
-            }
-            return usedReplicaCount;
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public long getReplicaQuotaLeftWithoutLock() {
-        long leftReplicaQuota = replicaQuotaSize - getReplicaCountWithoutLock();
-        return Math.max(leftReplicaQuota, 0L);
-    }
-
     public void checkDataSizeQuota() throws DdlException {
         Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuotaBytes);
         String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
