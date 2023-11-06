@@ -69,7 +69,7 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor implements Cust
             }
         }
 
-        return (LogicalPlan) selectHintPlan.child();
+        return (LogicalPlan) selectHintPlan.child().accept(this, context);
     }
 
     private void setVar(SelectHintSetVar selectHint, StatementContext context) {

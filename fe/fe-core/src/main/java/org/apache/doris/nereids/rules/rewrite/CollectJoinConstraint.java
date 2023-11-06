@@ -199,11 +199,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                 // we can not get info from column not from table
                 continue;
             }
-            String tableName = leading.getExprIdToTableNameMap().get(slot.getExprId());
-            if (tableName == null) {
-                tableName = slot.getQualifier().get(slot.getQualifier().size() - 1);
-                leading.getExprIdToTableNameMap().put(slot.getExprId(), tableName);
-            }
+            String tableName = slot.getQualifier().get(slot.getQualifier().size() - 1);
             RelationId id = leading.findRelationIdAndTableName(tableName);
             if (id == null) {
                 leading.setStatus(Hint.HintStatus.SYNTAX_ERROR);

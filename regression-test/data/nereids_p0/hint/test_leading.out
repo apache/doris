@@ -8,6 +8,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t1]
 
+Hint log:
 Used: leading(t2 t1)
 UnUsed:
 SyntaxError:
@@ -21,6 +22,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
 
+Hint log:
 Used: leading(t1 t2)
 UnUsed:
 SyntaxError:
@@ -37,6 +39,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t3]
 
+Hint log:
 Used: leading(t1 t2 t3)
 UnUsed:
 SyntaxError:
@@ -53,6 +56,7 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[t3]
 
+Hint log:
 Used: leading(t1 { t2 t3 })
 UnUsed:
 SyntaxError:
@@ -72,6 +76,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t4]
 
+Hint log:
 Used: leading(t1 { t2 t3 } t4)
 UnUsed:
 SyntaxError:
@@ -91,6 +96,7 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[t4]
 
+Hint log:
 Used: leading({ t1 t2 } { t3 t4 })
 UnUsed:
 SyntaxError:
@@ -110,6 +116,7 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[t4]
 
+Hint log:
 Used: leading({ t1 t2 } { t3 t4 })
 UnUsed:
 SyntaxError:
@@ -138,6 +145,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
 
+Hint log:
 Used: leading(t1 t3 t2)
 UnUsed:
 SyntaxError:
@@ -166,6 +174,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
 
+Hint log:
 Used: leading(t1 t3 t2)
 UnUsed:
 SyntaxError:
@@ -182,6 +191,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t1]
 
+Hint log:
 Used:
 UnUsed: leading(t1 { t2 t3 })
 SyntaxError:
@@ -190,16 +200,17 @@ SyntaxError:
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
---------PhysicalOlapScan[t1]
---------PhysicalDistribute
-----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3))otherCondition=()
+------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3))otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2))otherCondition=()
+----------PhysicalOlapScan[t1]
+----------PhysicalDistribute
 ------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalOlapScan[t3]
+--------PhysicalDistribute
+----------PhysicalOlapScan[t3]
 
-Used: leading(t1 { t2 t3 })
-UnUsed:
+Hint log:
+Used:
+UnUsed: leading(t1 { t2 t3 })
 SyntaxError:
 
 -- !select14 --
@@ -226,6 +237,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t1]
 
+Hint log:
 Used:
 UnUsed: leading(t1 t2 t3)
 SyntaxError:
@@ -250,6 +262,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t1]
 
+Hint log:
 Used: leading(t2 t1)
 UnUsed:
 SyntaxError:
@@ -277,6 +290,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t1]
 
+Hint log:
 Used: leading(t2 t1)
 UnUsed:
 SyntaxError:
@@ -309,6 +323,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t3]
 
+Hint log:
 Used: leading(t2 t1 t3)
 UnUsed:
 SyntaxError:
@@ -322,6 +337,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
 
+Hint log:
 Used:
 UnUsed:
 SyntaxError: leading(t66 t1) Msg:can not find table: t66
@@ -335,6 +351,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
 
+Hint log:
 Used:
 UnUsed:
 SyntaxError: leading(t3 t1) Msg:can not find table: t3
@@ -353,6 +370,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
 
+Hint log:
 Used:
 UnUsed:
 SyntaxError: leading(t2 cte t1) Msg:tables should be same as join tables
@@ -369,6 +387,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t3]
 
+Hint log:
 Used:
 UnUsed:
 SyntaxError: leading(t1 t2) Msg:tables should be same as join tables
@@ -385,6 +404,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t3]
 
+Hint log:
 Used:
 UnUsed:
 SyntaxError: leading(t1 t1 t2 t3) Msg:duplicated table
@@ -398,6 +418,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
 
+Hint log:
 Used: leading(t1 t_2)
 UnUsed:
 SyntaxError:
@@ -411,6 +432,7 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
 
+Hint log:
 Used:
 UnUsed:
 SyntaxError: leading(t1 t2) Msg:can not find table: t2
@@ -423,6 +445,7 @@ PhysicalResultSink
 --------PhysicalOlapScan[t1]
 --------PhysicalOlapScan[t1]
 
+Hint log:
 Used:
 UnUsed:
 SyntaxError: leading(t1 t_1) Msg:tables should be same as join tables
