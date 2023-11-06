@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino,kafka,mariadb
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,trino,kafka,mariadb,druid
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse,mariadb"
+    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse,mariadb,druid"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka,mariadb"
+            COMPONENTS="mysql,es,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,trino,kafka,mariadb,druid"
         fi
     fi
 fi
@@ -133,6 +133,7 @@ RUN_TRINO=0
 RUN_KAFKA=0
 RUN_SPARK=0
 RUN_MARIADB=0
+RUN_DRUID=0
 
 for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
@@ -161,6 +162,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_SPARK=1
     elif [[ "${element}"x == "mariadb"x ]];then
         RUN_MARIADB=1
+    elif [[ "${element}"x == "druid"x ]];then
+            RUN_DRUID=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -451,5 +454,32 @@ if [[ "${RUN_MARIADB}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/mariadb/data/
         sudo rm "${ROOT}"/docker-compose/mariadb/data/* -rf
         sudo docker compose -f "${ROOT}"/docker-compose/mariadb/mariadb-10.yaml --env-file "${ROOT}"/docker-compose/mariadb/mariadb-10.env up -d
+    fi
+fi
+
+if [[ "${RUN_DRUID}" -eq 1 ]]; then
+    # druid
+    cp "${ROOT}"/docker-compose/druid/druid.yaml.tpl "${ROOT}"/docker-compose/druid/druid.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/druid/druid.yaml
+    sudo docker compose -f "${ROOT}"/docker-compose/druid/druid.yaml --env-file "${ROOT}"/docker-compose/druid/druid.env down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo mkdir -p "${ROOT}"/docker-compose/druid/data/druid_pg_data/
+        sudo rm -rf "${ROOT}"/docker-compose/druid/data/druid_pg_data/*
+        sudo mkdir -p "${ROOT}"/docker-compose/druid/data/druid_zk_data/
+        sudo rm -rf "${ROOT}"/docker-compose/druid/data/druid_zk_data/*
+        sudo mkdir -p "${ROOT}"/docker-compose/druid/data/druid_shared/
+        sudo rm -rf "${ROOT}"/docker-compose/druid/data/druid_shared/*
+        sudo mkdir -p "${ROOT}"/docker-compose/druid/data/druid_coordinator_var/
+        sudo rm -rf "${ROOT}"/docker-compose/druid/data/druid_coordinator_var/*
+        sudo mkdir -p "${ROOT}"/docker-compose/druid/data/druid_broker_var/
+        sudo rm -rf "${ROOT}"/docker-compose/druid/data/druid_broker_var/*
+        sudo mkdir -p "${ROOT}"/docker-compose/druid/data/druid_historical_var/
+        sudo rm -rf "${ROOT}"/docker-compose/druid/data/druid_historical_var/*
+        sudo mkdir -p "${ROOT}"/docker-compose/druid/data/druid_middle_var/
+        sudo rm -rf "${ROOT}"/docker-compose/druid/data/druid_middle_var/*
+        sudo mkdir -p "${ROOT}"/docker-compose/druid/data/druid_router_var/
+        sudo rm -rf "${ROOT}"/docker-compose/druid/data/ddruid_router_var/*
+        sudo chmod -R 777 "${ROOT}"/docker-compose/druid/data
+        sudo docker compose -f "${ROOT}"/docker-compose/druid/druid.yaml --env-file "${ROOT}"/docker-compose/druid/druid.env up -d --remove-orphans
     fi
 fi

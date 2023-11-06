@@ -1,0 +1,188 @@
+{
+  "type": "index_parallel",
+  "spec": {
+    "ioConfig": {
+      "type": "index_parallel",
+      "inputSource": {
+        "type": "inline",
+        "data": "{\"trip_id\":17390127,\"vendor_id\":2,\"dropoff_datetime\":\"2015-01-01 00:00:00\",\"store_and_fwd_flag\":\"N\",\"rate_code_id\":1,\"pickup_longitude\":-73.96141815185547,\"pickup_latitude\":40.80629348754883,\"dropoff_longitude\":-73.94874572753906,\"dropoff_latitude\":40.82362747192383,\"passenger_count\":1,\"trip_distance\":1.39,\"fare_amount\":6.5,\"extra\":0.5,\"mta_tax\":0.5,\"tip_amount\":1.4,\"tolls_amount\":0,\"ehail_fee\":\"\",\"improvement_surcharge\":\"0.3\",\"total_amount\":9.2,\"payment_type\":1,\"trip_type\":\"1\",\"pickup\":\"0101000020E6100000000000E0877D52C0000000A034674440\",\"dropoff\":\"0101000020E610000000000040B87C52C0000000A06C694440\",\"cab_type\":\"green\",\"precipitation\":0,\"snow_depth\":0,\"snowfall\":0,\"max_temperature\":39,\"min_temperature\":27,\"average_wind_speed\":7.16,\"pickup_nyct2010_gid\":37,\"pickup_ctlabel\":201,\"pickup_borocode\":1,\"pickup_boroname\":\"Manhattan\",\"pickup_ct2010\":20101,\"pickup_boroct2010\":1020101,\"pickup_cdeligibil\":\"I\",\"pickup_ntacode\":\"MN09\",\"pickup_ntaname\":\"Morningside Heights\",\"pickup_puma\":3802,\"dropoff_nyct2010_gid\":1395,\"dropoff_ctlabel\":227,\"dropoff_borocode\":1,\"dropoff_boroname\":\"Manhattan\",\"dropoff_ct2010\":22700,\"dropoff_boroct2010\":1022700,\"dropoff_cdeligibil\":\"E\",\"dropoff_ntacode\":\"MN04\",\"dropoff_ntaname\":\"Hamilton Heights\",\"dropoff_puma\":3802}\n{\"trip_id\":17638860,\"vendor_id\":1,\"dropoff_datetime\":\"2015-01-01 00:16:25\",\"store_and_fwd_flag\":\"N\",\"rate_code_id\":1,\"pickup_longitude\":-73.95145416259766,\"pickup_latitude\":40.82490539550781,\"dropoff_longitude\":-73.89556121826172,\"dropoff_latitude\":40.86994552612305,\"passenger_count\":1,\"trip_distance\":5.7,\"fare_amount\":19,\"extra\":0.5,\"mta_tax\":0.5,\"tip_amount\":0,\"tolls_amount\":0,\"ehail_fee\":\"\",\"improvement_surcharge\":\"0.3\",\"total_amount\":20.3,\"payment_type\":2,\"trip_type\":\"1\",\"pickup\":\"0101000020E6100000000000A0E47C52C00000008096694440\",\"dropoff\":\"0101000020E6100000000000E0507952C0000000605A6F4440\",\"cab_type\":\"green\",\"precipitation\":0,\"snow_depth\":0,\"snowfall\":0,\"max_temperature\":39,\"min_temperature\":27,\"average_wind_speed\":7.16,\"pickup_nyct2010_gid\":42,\"pickup_ctlabel\":229,\"pickup_borocode\":1,\"pickup_boroname\":\"Manhattan\",\"pickup_ct2010\":22900,\"pickup_boroct2010\":1022900,\"pickup_cdeligibil\":\"E\",\"pickup_ntacode\":\"MN04\",\"pickup_ntaname\":\"Hamilton Heights\",\"pickup_puma\":3802,\"dropoff_nyct2010_gid\":826,\"dropoff_ctlabel\":409,\"dropoff_borocode\":2,\"dropoff_boroname\":\"Bronx\",\"dropoff_ct2010\":40900,\"dropoff_boroct2010\":2040900,\"dropoff_cdeligibil\":\"E\",\"dropoff_ntacode\":\"BX28\",\"dropoff_ntaname\":\"Van Cortlandt Village\",\"dropoff_puma\":3701}\n{\"trip_id\":17401417,\"vendor_id\":2,\"dropoff_datetime\":\"2015-01-01 00:12:06\",\"store_and_fwd_flag\":\"N\",\"rate_code_id\":1,\"pickup_longitude\":-73.930908203125,\"pickup_latitude\":40.69462966918945,\"dropoff_longitude\":-73.9569320678711,\"dropoff_latitude\":40.71260070800781,\"passenger_count\":1,\"trip_distance\":2.08,\"fare_amount\":10,\"extra\":0.5,\"mta_tax\":0.5,\"tip_amount\":2.62,\"tolls_amount\":0,\"ehail_fee\":\"\",\"improvement_surcharge\":\"0.3\",\"total_amount\":13.92,\"payment_type\":1,\"trip_type\":\"1\",\"pickup\":\"0101000020E610000000000000947B52C0000000A0E9584440\",\"dropoff\":\"0101000020E6100000000000603E7D52C000000080365B4440\",\"cab_type\":\"green\",\"precipitation\":0,\"snow_depth\":0,\"snowfall\":0,\"max_temperature\":39,\"min_temperature\":27,\"average_wind_speed\":7.16,\"pickup_nyct2010_gid\":2092,\"pickup_ctlabel\":393,\"pickup_borocode\":3,\"pickup_boroname\":\"Brooklyn\",\"pickup_ct2010\":39300,\"pickup_boroct2010\":3039300,\"pickup_cdeligibil\":\"E\",\"pickup_ntacode\":\"BK78\",\"pickup_ntaname\":\"Bushwick South\",\"pickup_puma\":4002,\"dropoff_nyct2010_gid\":1727,\"dropoff_ctlabel\":523,\"dropoff_borocode\":3,\"dropoff_boroname\":\"Brooklyn\",\"dropoff_ct2010\":52300,\"dropoff_boroct2010\":3052300,\"dropoff_cdeligibil\":\"E\",\"dropoff_ntacode\":\"BK73\",\"dropoff_ntaname\":\"North Side-South Side\",\"dropoff_puma\":4001}\n{\"trip_id\":18303709,\"vendor_id\":2,\"dropoff_datetime\":\"2015-01-01 00:17:00\",\"store_and_fwd_flag\":\"N\",\"rate_code_id\":1,\"pickup_longitude\":-73.95980834960938,\"pickup_latitude\":40.813663482666016,\"dropoff_longitude\":-73.88237762451172,\"dropoff_latitude\":40.84001541137695,\"passenger_count\":1,\"trip_distance\":6.82,\"fare_amount\":21,\"extra\":0.5,\"mta_tax\":0.5,\"tip_amount\":0,\"tolls_amount\":0,\"ehail_fee\":\"\",\"improvement_surcharge\":\"0\",\"total_amount\":22,\"payment_type\":2,\"trip_type\":\"1\",\"pickup\":\"0101000020E6100000000000806D7D52C00000002026684440\",\"dropoff\":\"0101000020E6100000000000E0787852C0000000A0856B4440\",\"cab_type\":\"green\",\"precipitation\":0,\"snow_depth\":0,\"snowfall\":0,\"max_temperature\":39,\"min_temperature\":27,\"average_wind_speed\":7.16,\"pickup_nyct2010_gid\":1325,\"pickup_ctlabel\":211,\"pickup_borocode\":1,\"pickup_boroname\":\"Manhattan\",\"pickup_ct2010\":21100,\"pickup_boroct2010\":1021100,\"pickup_cdeligibil\":\"E\",\"pickup_ntacode\":\"MN09\",\"pickup_ntaname\":\"Morningside Heights\",\"pickup_puma\":3802,\"dropoff_nyct2010_gid\":2026,\"dropoff_ctlabel\":359,\"dropoff_borocode\":2,\"dropoff_boroname\":\"Bronx\",\"dropoff_ct2010\":35900,\"dropoff_boroct2010\":2035900,\"dropoff_cdeligibil\":\"E\",\"dropoff_ntacode\":\"BX17\",\"dropoff_ntaname\":\"East Tremont\",\"dropoff_puma\":3705}\n{\"trip_id\":17464840,\"vendor_id\":2,\"dropoff_datetime\":\"2015-01-01 00:06:44\",\"store_and_fwd_flag\":\"N\",\"rate_code_id\":1,\"pickup_longitude\":-73.96141815185547,\"pickup_latitude\":40.71434020996094,\"dropoff_longitude\":-73.96135711669922,\"dropoff_latitude\":40.71921157836914,\"passenger_count\":1,\"trip_distance\":0.74,\"fare_amount\":6,\"extra\":0.5,\"mta_tax\":0.5,\"tip_amount\":1.95,\"tolls_amount\":0,\"ehail_fee\":\"\",\"improvement_surcharge\":\"0\",\"total_amount\":8.95,\"payment_type\":1,\"trip_type\":\"1\",\"pickup\":\"0101000020E6100000000000E0877D52C0000000806F5B4440\",\"dropoff\":\"0101000020E6100000000000E0867D52C0000000200F5C4440\",\"cab_type\":\"green\",\"precipitation\":0,\"snow_depth\":0,\"snowfall\":0,\"max_temperature\":39,\"min_temperature\":27,\"average_wind_speed\":7.16,\"pickup_nyct2010_gid\":885,\"pickup_ctlabel\":551,\"pickup_borocode\":3,\"pickup_boroname\":\"Brooklyn\",\"pickup_ct2010\":55100,\"pickup_boroct2010\":3055100,\"pickup_cdeligibil\":\"E\",\"pickup_ntacode\":\"BK73\",\"pickup_ntaname\":\"North Side-South Side\",\"pickup_puma\":4001,\"dropoff_nyct2010_gid\":1215,\"dropoff_ctlabel\":555,\"dropoff_borocode\":3,\"dropoff_boroname\":\"Brooklyn\",\"dropoff_ct2010\":55500,\"dropoff_boroct2010\":3055500,\"dropoff_cdeligibil\":\"I\",\"dropoff_ntacode\":\"BK73\",\"dropoff_ntaname\":\"North Side-South Side\",\"dropoff_puma\":4001}\n{\"trip_id\":17577510,\"vendor_id\":2,\"dropoff_datetime\":\"2015-01-01 00:12:19\",\"store_and_fwd_flag\":\"N\",\"rate_code_id\":1,\"pickup_longitude\":-73.92857360839844,\"pickup_latitude\":40.70485305786133,\"dropoff_longitude\":-73.9875717163086,\"dropoff_latitude\":40.70383071899414,\"passenger_count\":1,\"trip_distance\":3.68,\"fare_amount\":13,\"extra\":0.5,\"mta_tax\":0.5,\"tip_amount\":3.38,\"tolls_amount\":0,\"ehail_fee\":\"\",\"improvement_surcharge\":\"0.3\",\"total_amount\":17.68,\"payment_type\":1,\"trip_type\":\"1\",\"pickup\":\"0101000020E6100000000000C06D7B52C0000000A0385A4440\",\"dropoff\":\"0101000020E610000000000060347F52C000000020175A4440\",\"cab_type\":\"green\",\"precipitation\":0,\"snow_depth\":0,\"snowfall\":0,\"max_temperature\":39,\"min_temperature\":27,\"average_wind_speed\":7.16,\"pickup_nyct2010_gid\":1833,\"pickup_ctlabel\":453,\"pickup_borocode\":3,\"pickup_boroname\":\"Brooklyn\",\"pickup_ct2010\":45300,\"pickup_boroct2010\":3045300,\"pickup_cdeligibil\":\"E\",\"pickup_ntacode\":\"BK77\",\"pickup_ntaname\":\"Bushwick North\",\"pickup_puma\":4002,\"dropoff_nyct2010_gid\":2040,\"dropoff_ctlabel\":21,\"dropoff_borocode\":3,\"dropoff_boroname\":\"Brooklyn\",\"dropoff_ct2010\":2100,\"dropoff_boroct2010\":3002100,\"dropoff_cdeligibil\":\"I\",\"dropoff_ntacode\":\"BK38\",\"dropoff_ntaname\":\"DUMBO-Vinegar Hill-Downtown Brooklyn-Boerum Hill\",\"dropoff_puma\":4004}\n{\"trip_id\":17788248,\"vendor_id\":2,\"dropoff_datetime\":\"2015-01-01 00:14:10\",\"store_and_fwd_flag\":\"N\",\"rate_code_id\":1,\"pickup_longitude\":-73.9913101196289,\"pickup_latitude\":40.68844223022461,\"dropoff_longitude\":-74.00996398925781,\"dropoff_latitude\":40.72145080566406,\"passenger_count\":1,\"trip_distance\":3.17,\"fare_amount\":12.5,\"extra\":0.5,\"mta_tax\":0.5,\"tip_amount\":3.9,\"tolls_amount\":0,\"ehail_fee\":\"\",\"improvement_surcharge\":\"0\",\"total_amount\":17.4,\"payment_type\":1,\"trip_type\":\"1\",\"pickup\":\"0101000020E6100000000000A0717F52C0000000E01E584440\",\"dropoff\":\"0101000020E610000000000040A38052C000000080585C4440\",\"cab_type\":\"green\",\"precipitation\":0,\"snow_depth\":0,\"snowfall\":0,\"max_temperature\":39,\"min_temperature\":27,\"average_wind_speed\":7.16,\"pickup_nyct2010_gid\":1626,\"pickup_ctlabel\":43,\"pickup_borocode\":3,\"pickup_boroname\":\"Brooklyn\",\"pickup_ct2010\":4300,\"pickup_boroct2010\":3004300,\"pickup_cdeligibil\":\"I\",\"pickup_ntacode\":\"BK38\",\"pickup_ntaname\":\"DUMBO-Vinegar Hill-Downtown Brooklyn-Boerum Hill\",\"pickup_puma\":4004,\"dropoff_nyct2010_gid\":1806,\"dropoff_ctlabel\":39,\"dropoff_borocode\":1,\"dropoff_boroname\":\"Manhattan\",\"dropoff_ct2010\":3900,\"dropoff_boroct2010\":1003900,\"dropoff_cdeligibil\":\"I\",\"dropoff_ntacode\":\"MN24\",\"dropoff_ntaname\":\"SoHo-TriBeCa-Civic Center-Little Italy\",\"dropoff_puma\":3810}\n{\"trip_id\":18401049,\"vendor_id\":2,\"dropoff_datetime\":\"2015-01-01 00:18:33\",\"store_and_fwd_flag\":\"N\",\"rate_code_id\":1,\"pickup_longitude\":-73.97647094726562,\"pickup_latitude\":40.68284225463867,\"dropoff_longitude\":-73.97494506835938,\"dropoff_latitude\":40.66800308227539,\"passenger_count\":1,\"trip_distance\":2.5,\"fare_amount\":13.5,\"extra\":0.5,\"mta_tax\":0.5,\"tip_amount\":3.5,\"tolls_amount\":0,\"ehail_fee\":\"\",\"improvement_surcharge\":\"0.3\",\"total_amount\":18.3,\"payment_type\":1,\"trip_type\":\"1\",\"pickup\":\"0101000020E6100000000000807E7E52C00000006067574440\",\"dropoff\":\"0101000020E610000000000080657E52C00000002081554440\",\"cab_type\":\"green\",\"precipitation\":0,\"snow_depth\":0,\"snowfall\":0,\"max_temperature\":39,\"min_temperature\":27,\"average_wind_speed\":7.16,\"pickup_nyct2010_gid\":1831,\"pickup_ctlabel\":129,\"pickup_borocode\":3,\"pickup_boroname\":\"Brooklyn\",\"pickup_ct2010\":12901,\"pickup_boroct2010\":3012901,\"pickup_cdeligibil\":\"I\",\"pickup_ntacode\":\"BK37\",\"pickup_ntaname\":\"Park Slope-Gowanus\",\"pickup_puma\":4005,\"dropoff_nyct2010_gid\":95,\"dropoff_ctlabel\":165,\"dropoff_borocode\":3,\"dropoff_boroname\":\"Brooklyn\",\"dropoff_ct2010\":16500,\"dropoff_boroct2010\":3016500,\"dropoff_cdeligibil\":\"I\",\"dropoff_ntacode\":\"BK37\",\"dropoff_ntaname\":\"Park Slope-Gowanus\",\"dropoff_puma\":4005}\n{\"trip_id\":18469666,\"vendor_id\":2,\"dropoff_datetime\":\"2015-01-01 00:20:16\",\"store_and_fwd_flag\":\"N\",\"rate_code_id\":1,\"pickup_longitude\":-73.94051361083984,\"pickup_latitude\":40.81446075439453,\"dropoff_longitude\":-73.85848999023438,\"dropoff_latitude\":40.878963470458984,\"passenger_count\":1,\"trip_distance\":9.91,\"fare_amount\":29,\"extra\":0.5,\"mta_tax\":0.5,\"tip_amount\":5,\"tolls_amount\":0,\"ehail_fee\":\"\",\"improvement_surcharge\":\"0\",\"total_amount\":35,\"payment_type\":1,\"trip_type\":\"1\",\"pickup\":\"0101000020E610000000000060317C52C00000004040684440\",\"dropoff\":\"0101000020E610000000000080F17652C0000000E081704440\",\"cab_type\":\"green\",\"precipitation\":0,\"snow_depth\":0,\"snowfall\":0,\"max_temperature\":39,\"min_temperature\":27,\"average_wind_speed\":7.16,\"pickup_nyct2010_gid\":1596,\"pickup_ctlabel\":212,\"pickup_borocode\":1,\"pickup_boroname\":\"Manhattan\",\"pickup_ct2010\":21200,\"pickup_boroct2010\":1021200,\"pickup_cdeligibil\":\"I\",\"pickup_ntacode\":\"MN03\",\"pickup_ntaname\":\"Central Harlem North-Polo Grounds\",\"pickup_puma\":3803,\"dropoff_nyct2010_gid\":1208,\"dropoff_ctlabel\":382,\"dropoff_borocode\":2,\"dropoff_boroname\":\"Bronx\",\"dropoff_ct2010\":38200,\"dropoff_boroct2010\":2038200,\"dropoff_cdeligibil\":\"E\",\"dropoff_ntacode\":\"BX44\",\"dropoff_ntaname\":\"Williamsbridge-Olinville\",\"dropoff_puma\":3702}\n{\"trip_id\":17822090,\"vendor_id\":2,\"dropoff_datetime\":\"2015-01-01 00:15:07\",\"store_and_fwd_flag\":\"N\",\"rate_code_id\":1,\"pickup_longitude\":-73.9814682006836,\"pickup_latitude\":40.689674377441406,\"dropoff_longitude\":-73.9136962890625,\"dropoff_latitude\":40.675559997558594,\"passenger_count\":1,\"trip_distance\":4.07,\"fare_amount\":15.5,\"extra\":0.5,\"mta_tax\":0.5,\"tip_amount\":0,\"tolls_amount\":0,\"ehail_fee\":\"\",\"improvement_surcharge\":\"0.3\",\"total_amount\":16.8,\"payment_type\":2,\"trip_type\":\"1\",\"pickup\":\"0101000020E610000000000060D07E52C00000004047584440\",\"dropoff\":\"0101000020E6100000000000007A7A52C0000000C078564440\",\"cab_type\":\"green\",\"precipitation\":0,\"snow_depth\":0,\"snowfall\":0,\"max_temperature\":39,\"min_temperature\":27,\"average_wind_speed\":7.16,\"pickup_nyct2010_gid\":1461,\"pickup_ctlabel\":33,\"pickup_borocode\":3,\"pickup_boroname\":\"Brooklyn\",\"pickup_ct2010\":3300,\"pickup_boroct2010\":3003300,\"pickup_cdeligibil\":\"I\",\"pickup_ntacode\":\"BK68\",\"pickup_ntaname\":\"Fort Greene\",\"pickup_puma\":4004,\"dropoff_nyct2010_gid\":2142,\"dropoff_ctlabel\":365,\"dropoff_borocode\":3,\"dropoff_boroname\":\"Brooklyn\",\"dropoff_ct2010\":36501,\"dropoff_boroct2010\":3036501,\"dropoff_cdeligibil\":\"E\",\"dropoff_ntacode\":\"BK79\",\"dropoff_ntaname\":\"Ocean Hill\",\"dropoff_puma\":4007}"
+      },
+      "inputFormat": {
+        "type": "json"
+      }
+    },
+    "tuningConfig": {
+      "type": "index_parallel",
+      "partitionsSpec": {
+        "type": "dynamic"
+      }
+    },
+    "dataSchema": {
+      "dataSource": "xtrip_druid",
+      "timestampSpec": {
+        "column": "dropoff_datetime",
+        "format": "auto"
+      },
+      "dimensionsSpec": {
+        "dimensions": [
+          {
+            "type": "long",
+            "name": "trip_id"
+          },
+          {
+            "type": "long",
+            "name": "vendor_id"
+          },
+          "store_and_fwd_flag",
+          {
+            "type": "long",
+            "name": "rate_code_id"
+          },
+          {
+            "type": "double",
+            "name": "pickup_longitude"
+          },
+          {
+            "type": "double",
+            "name": "pickup_latitude"
+          },
+          {
+            "type": "double",
+            "name": "dropoff_longitude"
+          },
+          {
+            "type": "double",
+            "name": "dropoff_latitude"
+          },
+          {
+            "type": "long",
+            "name": "passenger_count"
+          },
+          {
+            "type": "float",
+            "name": "trip_distance"
+          },
+          {
+            "type": "float",
+            "name": "fare_amount"
+          },
+          {
+            "type": "double",
+            "name": "extra"
+          },
+          {
+            "type": "double",
+            "name": "mta_tax"
+          },
+          {
+            "type": "float",
+            "name": "tip_amount"
+          },
+          {
+            "type": "long",
+            "name": "tolls_amount"
+          },
+          "ehail_fee",
+          "improvement_surcharge",
+          {
+            "type": "float",
+            "name": "total_amount"
+          },
+          {
+            "type": "long",
+            "name": "payment_type"
+          },
+          "trip_type",
+          "pickup",
+          "dropoff",
+          "cab_type",
+          {
+            "type": "long",
+            "name": "precipitation"
+          },
+          {
+            "type": "long",
+            "name": "snow_depth"
+          },
+          {
+            "type": "long",
+            "name": "snowfall"
+          },
+          {
+            "type": "long",
+            "name": "max_temperature"
+          },
+          {
+            "type": "long",
+            "name": "min_temperature"
+          },
+          {
+            "type": "float",
+            "name": "average_wind_speed"
+          },
+          {
+            "type": "long",
+            "name": "pickup_nyct2010_gid"
+          },
+          {
+            "type": "long",
+            "name": "pickup_ctlabel"
+          },
+          {
+            "type": "long",
+            "name": "pickup_borocode"
+          },
+          "pickup_boroname",
+          {
+            "type": "long",
+            "name": "pickup_ct2010"
+          },
+          {
+            "type": "long",
+            "name": "pickup_boroct2010"
+          },
+          "pickup_cdeligibil",
+          "pickup_ntacode",
+          "pickup_ntaname",
+          {
+            "type": "long",
+            "name": "pickup_puma"
+          },
+          {
+            "type": "long",
+            "name": "dropoff_nyct2010_gid"
+          },
+          {
+            "type": "long",
+            "name": "dropoff_ctlabel"
+          },
+          {
+            "type": "long",
+            "name": "dropoff_borocode"
+          },
+          "dropoff_boroname",
+          {
+            "type": "long",
+            "name": "dropoff_ct2010"
+          },
+          {
+            "type": "long",
+            "name": "dropoff_boroct2010"
+          },
+          "dropoff_cdeligibil",
+          "dropoff_ntacode",
+          "dropoff_ntaname",
+          {
+            "type": "long",
+            "name": "dropoff_puma"
+          }
+        ]
+      },
+      "granularitySpec": {
+        "queryGranularity": "none",
+        "rollup": false,
+        "segmentGranularity": "day"
+      }
+    }
+  }
+}

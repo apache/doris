@@ -1,0 +1,236 @@
+{
+  "type": "index_parallel",
+  "spec": {
+    "ioConfig": {
+      "type": "index_parallel",
+      "inputSource": {
+        "type": "inline",
+        "data": "{\"arrivalime\":\"0\",\"Year\":2005,\"Quarter\":4,\"Month\":11,\"DayofMonth\":1,\"DayOfWeek\":2,\"FlightDate\":\"2005-11-01\",\"Reporting_Airline\":\"AA\",\"DOT_ID_Reporting_Airline\":19805,\"IATA_CODE_Reporting_Airline\":\"AA\",\"Tail_Number\":\"\",\"Flight_Number_Reporting_Airline\":314,\"OriginAirportID\":14843,\"OriginAirportSeqID\":1484302,\"OriginCityMarketID\":34819,\"Origin\":\"SJU\",\"OriginCityName\":\"San Juan, PR\",\"OriginState\":\"PR\",\"OriginStateFips\":72,\"OriginStateName\":\"Puerto Rico\",\"OriginWac\":3,\"DestAirportID\":12264,\"DestAirportSeqID\":1226401,\"DestCityMarketID\":30852,\"Dest\":\"IAD\",\"DestCityName\":\"Washington, DC\",\"DestState\":\"VA\",\"DestStateFips\":51,\"DestStateName\":\"Virginia\",\"DestWac\":38,\"CRSDepTime\":1836,\"DepTime\":0,\"DepDelay\":0,\"DepDelayMinutes\":0,\"DepDel15\":0,\"DepartureDelayGroups\":0,\"DepTimeBlk\":\"1800-1859\",\"TaxiOut\":0,\"WheelsOff\":0,\"WheelsOn\":0,\"TaxiIn\":0,\"CRSArrTime\":2132,\"ArrTime\":0,\"ArrDelay\":0,\"ArrDelayMinutes\":0,\"ArrDel15\":0,\"ArrivalDelayGroups\":0,\"ArrTimeBlk\":\"2100-2159\",\"Cancelled\":1,\"CancellationCode\":\"A\",\"Diverted\":0,\"CRSElapsedTime\":236,\"ActualElapsedTime\":0,\"AirTime\":0,\"Flights\":1,\"Distance\":1571,\"DistanceGroup\":7,\"CarrierDelay\":0,\"WeatherDelay\":0,\"NASDelay\":0,\"SecurityDelay\":0,\"LateAircraftDelay\":0}\n{\"arrivalime\":\"0\",\"Year\":2005,\"Quarter\":4,\"Month\":11,\"DayofMonth\":1,\"DayOfWeek\":2,\"FlightDate\":\"2005-11-01\",\"Reporting_Airline\":\"AA\",\"DOT_ID_Reporting_Airline\":19805,\"IATA_CODE_Reporting_Airline\":\"AA\",\"Tail_Number\":\"\",\"Flight_Number_Reporting_Airline\":401,\"OriginAirportID\":10721,\"OriginAirportSeqID\":1072101,\"OriginCityMarketID\":30721,\"Origin\":\"BOS\",\"OriginCityName\":\"Boston, MA\",\"OriginState\":\"MA\",\"OriginStateFips\":25,\"OriginStateName\":\"Massachusetts\",\"OriginWac\":13,\"DestAirportID\":14843,\"DestAirportSeqID\":1484302,\"DestCityMarketID\":34819,\"Dest\":\"SJU\",\"DestCityName\":\"San Juan, PR\",\"DestState\":\"PR\",\"DestStateFips\":72,\"DestStateName\":\"Puerto Rico\",\"DestWac\":3,\"CRSDepTime\":1220,\"DepTime\":0,\"DepDelay\":0,\"DepDelayMinutes\":0,\"DepDel15\":0,\"DepartureDelayGroups\":0,\"DepTimeBlk\":\"1200-1259\",\"TaxiOut\":0,\"WheelsOff\":0,\"WheelsOn\":0,\"TaxiIn\":0,\"CRSArrTime\":1714,\"ArrTime\":0,\"ArrDelay\":0,\"ArrDelayMinutes\":0,\"ArrDel15\":0,\"ArrivalDelayGroups\":0,\"ArrTimeBlk\":\"1700-1759\",\"Cancelled\":1,\"CancellationCode\":\"A\",\"Diverted\":0,\"CRSElapsedTime\":234,\"ActualElapsedTime\":0,\"AirTime\":0,\"Flights\":1,\"Distance\":1674,\"DistanceGroup\":7,\"CarrierDelay\":0,\"WeatherDelay\":0,\"NASDelay\":0,\"SecurityDelay\":0,\"LateAircraftDelay\":0}\n{\"arrivalime\":\"0\",\"Year\":2005,\"Quarter\":4,\"Month\":11,\"DayofMonth\":1,\"DayOfWeek\":2,\"FlightDate\":\"2005-11-01\",\"Reporting_Airline\":\"AA\",\"DOT_ID_Reporting_Airline\":19805,\"IATA_CODE_Reporting_Airline\":\"AA\",\"Tail_Number\":\"\",\"Flight_Number_Reporting_Airline\":495,\"OriginAirportID\":13303,\"OriginAirportSeqID\":1330302,\"OriginCityMarketID\":32467,\"Origin\":\"MIA\",\"OriginCityName\":\"Miami, FL\",\"OriginState\":\"FL\",\"OriginStateFips\":12,\"OriginStateName\":\"Florida\",\"OriginWac\":33,\"DestAirportID\":14843,\"DestAirportSeqID\":1484302,\"DestCityMarketID\":34819,\"Dest\":\"SJU\",\"DestCityName\":\"San Juan, PR\",\"DestState\":\"PR\",\"DestStateFips\":72,\"DestStateName\":\"Puerto Rico\",\"DestWac\":3,\"CRSDepTime\":635,\"DepTime\":0,\"DepDelay\":0,\"DepDelayMinutes\":0,\"DepDel15\":0,\"DepartureDelayGroups\":0,\"DepTimeBlk\":\"0600-0659\",\"TaxiOut\":0,\"WheelsOff\":0,\"WheelsOn\":0,\"TaxiIn\":0,\"CRSArrTime\":1000,\"ArrTime\":0,\"ArrDelay\":0,\"ArrDelayMinutes\":0,\"ArrDel15\":0,\"ArrivalDelayGroups\":0,\"ArrTimeBlk\":\"1000-1059\",\"Cancelled\":1,\"CancellationCode\":\"A\",\"Diverted\":0,\"CRSElapsedTime\":145,\"ActualElapsedTime\":0,\"AirTime\":0,\"Flights\":1,\"Distance\":1045,\"DistanceGroup\":5,\"CarrierDelay\":0,\"WeatherDelay\":0,\"NASDelay\":0,\"SecurityDelay\":0,\"LateAircraftDelay\":0}\n{\"arrivalime\":\"0\",\"Year\":2005,\"Quarter\":4,\"Month\":11,\"DayofMonth\":1,\"DayOfWeek\":2,\"FlightDate\":\"2005-11-01\",\"Reporting_Airline\":\"AA\",\"DOT_ID_Reporting_Airline\":19805,\"IATA_CODE_Reporting_Airline\":\"AA\",\"Tail_Number\":\"\",\"Flight_Number_Reporting_Airline\":605,\"OriginAirportID\":11697,\"OriginAirportSeqID\":1169702,\"OriginCityMarketID\":32467,\"Origin\":\"FLL\",\"OriginCityName\":\"Fort Lauderdale, FL\",\"OriginState\":\"FL\",\"OriginStateFips\":12,\"OriginStateName\":\"Florida\",\"OriginWac\":33,\"DestAirportID\":14843,\"DestAirportSeqID\":1484302,\"DestCityMarketID\":34819,\"Dest\":\"SJU\",\"DestCityName\":\"San Juan, PR\",\"DestState\":\"PR\",\"DestStateFips\":72,\"DestStateName\":\"Puerto Rico\",\"DestWac\":3,\"CRSDepTime\":1836,\"DepTime\":0,\"DepDelay\":0,\"DepDelayMinutes\":0,\"DepDel15\":0,\"DepartureDelayGroups\":0,\"DepTimeBlk\":\"1800-1859\",\"TaxiOut\":0,\"WheelsOff\":0,\"WheelsOn\":0,\"TaxiIn\":0,\"CRSArrTime\":2203,\"ArrTime\":0,\"ArrDelay\":0,\"ArrDelayMinutes\":0,\"ArrDel15\":0,\"ArrivalDelayGroups\":0,\"ArrTimeBlk\":\"2200-2259\",\"Cancelled\":1,\"CancellationCode\":\"A\",\"Diverted\":0,\"CRSElapsedTime\":147,\"ActualElapsedTime\":0,\"AirTime\":0,\"Flights\":1,\"Distance\":1046,\"DistanceGroup\":5,\"CarrierDelay\":0,\"WeatherDelay\":0,\"NASDelay\":0,\"SecurityDelay\":0,\"LateAircraftDelay\":0}\n{\"arrivalime\":\"0\",\"Year\":2005,\"Quarter\":4,\"Month\":11,\"DayofMonth\":1,\"DayOfWeek\":2,\"FlightDate\":\"2005-11-01\",\"Reporting_Airline\":\"AA\",\"DOT_ID_Reporting_Airline\":19805,\"IATA_CODE_Reporting_Airline\":\"AA\",\"Tail_Number\":\"\",\"Flight_Number_Reporting_Airline\":608,\"OriginAirportID\":11298,\"OriginAirportSeqID\":1129802,\"OriginCityMarketID\":30194,\"Origin\":\"DFW\",\"OriginCityName\":\"Dallas/Fort Worth, TX\",\"OriginState\":\"TX\",\"OriginStateFips\":48,\"OriginStateName\":\"Texas\",\"OriginWac\":74,\"DestAirportID\":15016,\"DestAirportSeqID\":1501602,\"DestCityMarketID\":31123,\"Dest\":\"STL\",\"DestCityName\":\"St. Louis, MO\",\"DestState\":\"MO\",\"DestStateFips\":29,\"DestStateName\":\"Missouri\",\"DestWac\":64,\"CRSDepTime\":1210,\"DepTime\":0,\"DepDelay\":0,\"DepDelayMinutes\":0,\"DepDel15\":0,\"DepartureDelayGroups\":0,\"DepTimeBlk\":\"1200-1259\",\"TaxiOut\":0,\"WheelsOff\":0,\"WheelsOn\":0,\"TaxiIn\":0,\"CRSArrTime\":1347,\"ArrTime\":0,\"ArrDelay\":0,\"ArrDelayMinutes\":0,\"ArrDel15\":0,\"ArrivalDelayGroups\":0,\"ArrTimeBlk\":\"1300-1359\",\"Cancelled\":1,\"CancellationCode\":\"A\",\"Diverted\":0,\"CRSElapsedTime\":97,\"ActualElapsedTime\":0,\"AirTime\":0,\"Flights\":1,\"Distance\":551,\"DistanceGroup\":3,\"CarrierDelay\":0,\"WeatherDelay\":0,\"NASDelay\":0,\"SecurityDelay\":0,\"LateAircraftDelay\":0}\n{\"arrivalime\":\"0\",\"Year\":2005,\"Quarter\":4,\"Month\":11,\"DayofMonth\":1,\"DayOfWeek\":2,\"FlightDate\":\"2005-11-01\",\"Reporting_Airline\":\"AA\",\"DOT_ID_Reporting_Airline\":19805,\"IATA_CODE_Reporting_Airline\":\"AA\",\"Tail_Number\":\"\",\"Flight_Number_Reporting_Airline\":648,\"OriginAirportID\":14843,\"OriginAirportSeqID\":1484302,\"OriginCityMarketID\":34819,\"Origin\":\"SJU\",\"OriginCityName\":\"San Juan, PR\",\"OriginState\":\"PR\",\"OriginStateFips\":72,\"OriginStateName\":\"Puerto Rico\",\"OriginWac\":3,\"DestAirportID\":12478,\"DestAirportSeqID\":1247801,\"DestCityMarketID\":31703,\"Dest\":\"JFK\",\"DestCityName\":\"New York, NY\",\"DestState\":\"NY\",\"DestStateFips\":36,\"DestStateName\":\"New York\",\"DestWac\":22,\"CRSDepTime\":832,\"DepTime\":0,\"DepDelay\":0,\"DepDelayMinutes\":0,\"DepDel15\":0,\"DepartureDelayGroups\":0,\"DepTimeBlk\":\"0800-0859\",\"TaxiOut\":0,\"WheelsOff\":0,\"WheelsOn\":0,\"TaxiIn\":0,\"CRSArrTime\":1124,\"ArrTime\":0,\"ArrDelay\":0,\"ArrDelayMinutes\":0,\"ArrDel15\":0,\"ArrivalDelayGroups\":0,\"ArrTimeBlk\":\"1100-1159\",\"Cancelled\":1,\"CancellationCode\":\"A\",\"Diverted\":0,\"CRSElapsedTime\":232,\"ActualElapsedTime\":0,\"AirTime\":0,\"Flights\":1,\"Distance\":1597,\"DistanceGroup\":7,\"CarrierDelay\":0,\"WeatherDelay\":0,\"NASDelay\":0,\"SecurityDelay\":0,\"LateAircraftDelay\":0}\n{\"arrivalime\":\"0\",\"Year\":2005,\"Quarter\":4,\"Month\":11,\"DayofMonth\":1,\"DayOfWeek\":2,\"FlightDate\":\"2005-11-01\",\"Reporting_Airline\":\"AA\",\"DOT_ID_Reporting_Airline\":19805,\"IATA_CODE_Reporting_Airline\":\"AA\",\"Tail_Number\":\"\",\"Flight_Number_Reporting_Airline\":701,\"OriginAirportID\":12953,\"OriginAirportSeqID\":1295301,\"OriginCityMarketID\":31703,\"Origin\":\"LGA\",\"OriginCityName\":\"New York, NY\",\"OriginState\":\"NY\",\"OriginStateFips\":36,\"OriginStateName\":\"New York\",\"OriginWac\":22,\"DestAirportID\":11298,\"DestAirportSeqID\":1129802,\"DestCityMarketID\":30194,\"Dest\":\"DFW\",\"DestCityName\":\"Dallas/Fort Worth, TX\",\"DestState\":\"TX\",\"DestStateFips\":48,\"DestStateName\":\"Texas\",\"DestWac\":74,\"CRSDepTime\":600,\"DepTime\":0,\"DepDelay\":0,\"DepDelayMinutes\":0,\"DepDel15\":0,\"DepartureDelayGroups\":0,\"DepTimeBlk\":\"0600-0659\",\"TaxiOut\":0,\"WheelsOff\":0,\"WheelsOn\":0,\"TaxiIn\":0,\"CRSArrTime\":854,\"ArrTime\":0,\"ArrDelay\":0,\"ArrDelayMinutes\":0,\"ArrDel15\":0,\"ArrivalDelayGroups\":0,\"ArrTimeBlk\":\"0800-0859\",\"Cancelled\":1,\"CancellationCode\":\"B\",\"Diverted\":0,\"CRSElapsedTime\":234,\"ActualElapsedTime\":0,\"AirTime\":0,\"Flights\":1,\"Distance\":1389,\"DistanceGroup\":6,\"CarrierDelay\":0,\"WeatherDelay\":0,\"NASDelay\":0,\"SecurityDelay\":0,\"LateAircraftDelay\":0}\n{\"arrivalime\":\"0\",\"Year\":2005,\"Quarter\":4,\"Month\":11,\"DayofMonth\":1,\"DayOfWeek\":2,\"FlightDate\":\"2005-11-01\",\"Reporting_Airline\":\"AA\",\"DOT_ID_Reporting_Airline\":19805,\"IATA_CODE_Reporting_Airline\":\"AA\",\"Tail_Number\":\"\",\"Flight_Number_Reporting_Airline\":1280,\"OriginAirportID\":14843,\"OriginAirportSeqID\":1484302,\"OriginCityMarketID\":34819,\"Origin\":\"SJU\",\"OriginCityName\":\"San Juan, PR\",\"OriginState\":\"PR\",\"OriginStateFips\":72,\"OriginStateName\":\"Puerto Rico\",\"OriginWac\":3,\"DestAirportID\":11697,\"DestAirportSeqID\":1169702,\"DestCityMarketID\":32467,\"Dest\":\"FLL\",\"DestCityName\":\"Fort Lauderdale, FL\",\"DestState\":\"FL\",\"DestStateFips\":12,\"DestStateName\":\"Florida\",\"DestWac\":33,\"CRSDepTime\":1548,\"DepTime\":0,\"DepDelay\":0,\"DepDelayMinutes\":0,\"DepDel15\":0,\"DepartureDelayGroups\":0,\"DepTimeBlk\":\"1500-1559\",\"TaxiOut\":0,\"WheelsOff\":0,\"WheelsOn\":0,\"TaxiIn\":0,\"CRSArrTime\":1729,\"ArrTime\":0,\"ArrDelay\":0,\"ArrDelayMinutes\":0,\"ArrDel15\":0,\"ArrivalDelayGroups\":0,\"ArrTimeBlk\":\"1700-1759\",\"Cancelled\":1,\"CancellationCode\":\"A\",\"Diverted\":0,\"CRSElapsedTime\":161,\"ActualElapsedTime\":0,\"AirTime\":0,\"Flights\":1,\"Distance\":1046,\"DistanceGroup\":5,\"CarrierDelay\":0,\"WeatherDelay\":0,\"NASDelay\":0,\"SecurityDelay\":0,\"LateAircraftDelay\":0}\n{\"arrivalime\":\"0\",\"Year\":2005,\"Quarter\":4,\"Month\":11,\"DayofMonth\":1,\"DayOfWeek\":2,\"FlightDate\":\"2005-11-01\",\"Reporting_Airline\":\"AA\",\"DOT_ID_Reporting_Airline\":19805,\"IATA_CODE_Reporting_Airline\":\"AA\",\"Tail_Number\":\"\",\"Flight_Number_Reporting_Airline\":1396,\"OriginAirportID\":11298,\"OriginAirportSeqID\":1129802,\"OriginCityMarketID\":30194,\"Origin\":\"DFW\",\"OriginCityName\":\"Dallas/Fort Worth, TX\",\"OriginState\":\"TX\",\"OriginStateFips\":48,\"OriginStateName\":\"Texas\",\"OriginWac\":74,\"DestAirportID\":11057,\"DestAirportSeqID\":1105702,\"DestCityMarketID\":31057,\"Dest\":\"CLT\",\"DestCityName\":\"Charlotte, NC\",\"DestState\":\"NC\",\"DestStateFips\":37,\"DestStateName\":\"North Carolina\",\"DestWac\":36,\"CRSDepTime\":1115,\"DepTime\":0,\"DepDelay\":0,\"DepDelayMinutes\":0,\"DepDel15\":0,\"DepartureDelayGroups\":0,\"DepTimeBlk\":\"1100-1159\",\"TaxiOut\":0,\"WheelsOff\":0,\"WheelsOn\":0,\"TaxiIn\":0,\"CRSArrTime\":1430,\"ArrTime\":0,\"ArrDelay\":0,\"ArrDelayMinutes\":0,\"ArrDel15\":0,\"ArrivalDelayGroups\":0,\"ArrTimeBlk\":\"1400-1459\",\"Cancelled\":1,\"CancellationCode\":\"B\",\"Diverted\":0,\"CRSElapsedTime\":135,\"ActualElapsedTime\":0,\"AirTime\":0,\"Flights\":1,\"Distance\":936,\"DistanceGroup\":4,\"CarrierDelay\":0,\"WeatherDelay\":0,\"NASDelay\":0,\"SecurityDelay\":0,\"LateAircraftDelay\":0}\n{\"arrivalime\":\"0\",\"Year\":2005,\"Quarter\":4,\"Month\":11,\"DayofMonth\":1,\"DayOfWeek\":2,\"FlightDate\":\"2005-11-01\",\"Reporting_Airline\":\"AA\",\"DOT_ID_Reporting_Airline\":19805,\"IATA_CODE_Reporting_Airline\":\"AA\",\"Tail_Number\":\"\",\"Flight_Number_Reporting_Airline\":1550,\"OriginAirportID\":14843,\"OriginAirportSeqID\":1484302,\"OriginCityMarketID\":34819,\"Origin\":\"SJU\",\"OriginCityName\":\"San Juan, PR\",\"OriginState\":\"PR\",\"OriginStateFips\":72,\"OriginStateName\":\"Puerto Rico\",\"OriginWac\":3,\"DestAirportID\":13303,\"DestAirportSeqID\":1330302,\"DestCityMarketID\":32467,\"Dest\":\"MIA\",\"DestCityName\":\"Miami, FL\",\"DestState\":\"FL\",\"DestStateFips\":12,\"DestStateName\":\"Florida\",\"DestWac\":33,\"CRSDepTime\":1109,\"DepTime\":0,\"DepDelay\":0,\"DepDelayMinutes\":0,\"DepDel15\":0,\"DepartureDelayGroups\":0,\"DepTimeBlk\":\"1100-1159\",\"TaxiOut\":0,\"WheelsOff\":0,\"WheelsOn\":0,\"TaxiIn\":0,\"CRSArrTime\":1248,\"ArrTime\":0,\"ArrDelay\":0,\"ArrDelayMinutes\":0,\"ArrDel15\":0,\"ArrivalDelayGroups\":0,\"ArrTimeBlk\":\"1200-1259\",\"Cancelled\":1,\"CancellationCode\":\"A\",\"Diverted\":0,\"CRSElapsedTime\":159,\"ActualElapsedTime\":0,\"AirTime\":0,\"Flights\":1,\"Distance\":1045,\"DistanceGroup\":5,\"CarrierDelay\":0,\"WeatherDelay\":0,\"NASDelay\":0,\"SecurityDelay\":0,\"LateAircraftDelay\":0}"
+      },
+      "inputFormat": {
+        "type": "json"
+      }
+    },
+    "tuningConfig": {
+      "type": "index_parallel",
+      "partitionsSpec": {
+        "type": "dynamic"
+      }
+    },
+    "dataSchema": {
+      "dataSource": "nyc_druid",
+      "timestampSpec": {
+        "column": "FlightDate",
+        "format": "auto"
+      },
+      "dimensionsSpec": {
+        "dimensions": [
+          "arrivalime",
+          {
+            "type": "long",
+            "name": "Year"
+          },
+          {
+            "type": "long",
+            "name": "Quarter"
+          },
+          {
+            "type": "long",
+            "name": "Month"
+          },
+          {
+            "type": "long",
+            "name": "DayofMonth"
+          },
+          {
+            "type": "long",
+            "name": "DayOfWeek"
+          },
+          "Reporting_Airline",
+          {
+            "type": "long",
+            "name": "DOT_ID_Reporting_Airline"
+          },
+          "IATA_CODE_Reporting_Airline",
+          "Tail_Number",
+          {
+            "type": "long",
+            "name": "Flight_Number_Reporting_Airline"
+          },
+          {
+            "type": "long",
+            "name": "OriginAirportID"
+          },
+          {
+            "type": "long",
+            "name": "OriginAirportSeqID"
+          },
+          {
+            "type": "long",
+            "name": "OriginCityMarketID"
+          },
+          "Origin",
+          "OriginCityName",
+          "OriginState",
+          {
+            "type": "long",
+            "name": "OriginStateFips"
+          },
+          "OriginStateName",
+          {
+            "type": "long",
+            "name": "OriginWac"
+          },
+          {
+            "type": "long",
+            "name": "DestAirportID"
+          },
+          {
+            "type": "long",
+            "name": "DestAirportSeqID"
+          },
+          {
+            "type": "long",
+            "name": "DestCityMarketID"
+          },
+          "Dest",
+          "DestCityName",
+          "DestState",
+          {
+            "type": "long",
+            "name": "DestStateFips"
+          },
+          "DestStateName",
+          {
+            "type": "long",
+            "name": "DestWac"
+          },
+          {
+            "type": "long",
+            "name": "CRSDepTime"
+          },
+          {
+            "type": "long",
+            "name": "DepTime"
+          },
+          {
+            "type": "long",
+            "name": "DepDelay"
+          },
+          {
+            "type": "long",
+            "name": "DepDelayMinutes"
+          },
+          {
+            "type": "long",
+            "name": "DepDel15"
+          },
+          {
+            "type": "long",
+            "name": "DepartureDelayGroups"
+          },
+          "DepTimeBlk",
+          {
+            "type": "long",
+            "name": "TaxiOut"
+          },
+          {
+            "type": "long",
+            "name": "WheelsOff"
+          },
+          {
+            "type": "long",
+            "name": "WheelsOn"
+          },
+          {
+            "type": "long",
+            "name": "TaxiIn"
+          },
+          {
+            "type": "long",
+            "name": "CRSArrTime"
+          },
+          {
+            "type": "long",
+            "name": "ArrTime"
+          },
+          {
+            "type": "long",
+            "name": "ArrDelay"
+          },
+          {
+            "type": "long",
+            "name": "ArrDelayMinutes"
+          },
+          {
+            "type": "long",
+            "name": "ArrDel15"
+          },
+          {
+            "type": "long",
+            "name": "ArrivalDelayGroups"
+          },
+          "ArrTimeBlk",
+          {
+            "type": "long",
+            "name": "Cancelled"
+          },
+          "CancellationCode",
+          {
+            "type": "long",
+            "name": "Diverted"
+          },
+          {
+            "type": "long",
+            "name": "CRSElapsedTime"
+          },
+          {
+            "type": "long",
+            "name": "ActualElapsedTime"
+          },
+          {
+            "type": "long",
+            "name": "AirTime"
+          },
+          {
+            "type": "long",
+            "name": "Flights"
+          },
+          {
+            "type": "long",
+            "name": "Distance"
+          },
+          {
+            "type": "long",
+            "name": "DistanceGroup"
+          },
+          {
+            "type": "long",
+            "name": "CarrierDelay"
+          },
+          {
+            "type": "long",
+            "name": "WeatherDelay"
+          },
+          {
+            "type": "long",
+            "name": "NASDelay"
+          },
+          {
+            "type": "long",
+            "name": "SecurityDelay"
+          },
+          {
+            "type": "long",
+            "name": "LateAircraftDelay"
+          }
+        ]
+      },
+      "granularitySpec": {
+        "queryGranularity": "none",
+        "rollup": false,
+        "segmentGranularity": "day"
+      }
+    }
+  }
+}

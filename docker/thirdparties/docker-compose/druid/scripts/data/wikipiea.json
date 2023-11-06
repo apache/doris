@@ -1,0 +1,64 @@
+{
+  "type": "index_parallel",
+  "spec": {
+    "ioConfig": {
+      "type": "index_parallel",
+      "inputSource": {
+        "type": "inline",
+        "data": "{\"channel\":\"#en.wikipedia\",\"cityName\":\"Auburn\",\"countryIsoCode\":\"AU\",\"countryName\":\"Australia\",\"isAnonymous\":\"true\",\"isMinor\":\"false\",\"isNew\":\"false\",\"isRobot\":\"false\",\"isUnpatrolled\":\"false\",\"metroCode\":\"\",\"namespace\":\"Main\",\"page\":\"Peremptory norm\",\"regionIsoCode\":\"NSW\",\"regionName\":\"New South Wales\",\"user\":\"60.225.66.142\",\"added\":0,\"deleted\":0,\"delta\":0}\n{\"channel\":\"#es.wikipedia\",\"cityName\":\"Mexico City\",\"countryIsoCode\":\"MX\",\"countryName\":\"Mexico\",\"isAnonymous\":\"true\",\"isMinor\":\"false\",\"isNew\":\"false\",\"isRobot\":\"false\",\"isUnpatrolled\":\"false\",\"metroCode\":\"\",\"namespace\":\"Main\",\"page\":\"Mathis Bolly\",\"regionIsoCode\":\"DIF\",\"regionName\":\"Mexico City\",\"user\":\"189.217.75.123\",\"added\":0,\"deleted\":67,\"delta\":-67}\n{\"channel\":\"#ko.wikipedia\",\"cityName\":\"Seoul\",\"countryIsoCode\":\"KR\",\"countryName\":\"Republic of Korea\",\"isAnonymous\":\"true\",\"isMinor\":\"false\",\"isNew\":\"false\",\"isRobot\":\"false\",\"isUnpatrolled\":\"false\",\"metroCode\":\"\",\"namespace\":\"Main\",\"page\":\"유희왕 GX\",\"regionIsoCode\":\"11\",\"regionName\":\"Seoul\",\"user\":\"110.47.57.14\",\"added\":663,\"deleted\":0,\"delta\":663}\n{\"channel\":\"#ja.wikipedia\",\"cityName\":\"Tokyo\",\"countryIsoCode\":\"JP\",\"countryName\":\"Japan\",\"isAnonymous\":\"true\",\"isMinor\":\"false\",\"isNew\":\"false\",\"isRobot\":\"false\",\"isUnpatrolled\":\"false\",\"metroCode\":\"\",\"namespace\":\"Main\",\"page\":\"青野武\",\"regionIsoCode\":\"13\",\"regionName\":\"Tōkyō\",\"user\":\"119.26.148.34\",\"added\":0,\"deleted\":0,\"delta\":0}\n{\"channel\":\"#es.wikipedia\",\"cityName\":\"Santiago\",\"countryIsoCode\":\"CL\",\"countryName\":\"Chile\",\"isAnonymous\":\"true\",\"isMinor\":\"false\",\"isNew\":\"false\",\"isRobot\":\"false\",\"isUnpatrolled\":\"false\",\"metroCode\":\"\",\"namespace\":\"Main\",\"page\":\"Golpe de Estado en Chile de 1973\",\"regionIsoCode\":\"RM\",\"regionName\":\"Santiago Metropolitan\",\"user\":\"190.208.152.43\",\"added\":161,\"deleted\":0,\"delta\":161}\n{\"channel\":\"#en.wikipedia\",\"cityName\":\"Campbell\",\"countryIsoCode\":\"US\",\"countryName\":\"United States\",\"isAnonymous\":\"true\",\"isMinor\":\"false\",\"isNew\":\"false\",\"isRobot\":\"false\",\"isUnpatrolled\":\"false\",\"metroCode\":\"807\",\"namespace\":\"Main\",\"page\":\"President of India\",\"regionIsoCode\":\"CA\",\"regionName\":\"California\",\"user\":\"73.162.114.225\",\"added\":0,\"deleted\":26,\"delta\":-26}\n{\"channel\":\"#de.wikipedia\",\"cityName\":\"Darmstadt\",\"countryIsoCode\":\"DE\",\"countryName\":\"Germany\",\"isAnonymous\":\"true\",\"isMinor\":\"false\",\"isNew\":\"false\",\"isRobot\":\"false\",\"isUnpatrolled\":\"false\",\"metroCode\":\"\",\"namespace\":\"Diskussion\",\"page\":\"Diskussion:Sebastian Schulz\",\"regionIsoCode\":\"HE\",\"regionName\":\"Hesse\",\"user\":\"93.221.150.186\",\"added\":167,\"deleted\":0,\"delta\":167}\n{\"channel\":\"#fr.wikipedia\",\"cityName\":\"Beauchamp\",\"countryIsoCode\":\"FR\",\"countryName\":\"France\",\"isAnonymous\":\"true\",\"isMinor\":\"false\",\"isNew\":\"false\",\"isRobot\":\"false\",\"isUnpatrolled\":\"true\",\"metroCode\":\"\",\"namespace\":\"Main\",\"page\":\"Saison 9 de Secret Story\",\"regionIsoCode\":\"95\",\"regionName\":\"Val d'Oise\",\"user\":\"92.151.101.96\",\"added\":0,\"deleted\":1,\"delta\":-1}\n{\"channel\":\"#en.wikipedia\",\"cityName\":\"Hull\",\"countryIsoCode\":\"GB\",\"countryName\":\"United Kingdom\",\"isAnonymous\":\"true\",\"isMinor\":\"false\",\"isNew\":\"false\",\"isRobot\":\"false\",\"isUnpatrolled\":\"false\",\"metroCode\":\"\",\"namespace\":\"Main\",\"page\":\"Glasgow\",\"regionIsoCode\":\"KHL\",\"regionName\":\"Kingston upon Hull\",\"user\":\"83.100.174.82\",\"added\":0,\"deleted\":44,\"delta\":-44}\n{\"channel\":\"#fr.wikipedia\",\"cityName\":\"Toronto\",\"countryIsoCode\":\"CA\",\"countryName\":\"Canada\",\"isAnonymous\":\"true\",\"isMinor\":\"false\",\"isNew\":\"false\",\"isRobot\":\"false\",\"isUnpatrolled\":\"true\",\"metroCode\":\"\",\"namespace\":\"Main\",\"page\":\"Didier Leclair\",\"regionIsoCode\":\"ON\",\"regionName\":\"Ontario\",\"user\":\"173.206.10.49\",\"added\":79,\"deleted\":0,\"delta\":79}"
+      },
+      "inputFormat": {
+        "type": "json"
+      }
+    },
+    "tuningConfig": {
+      "type": "index_parallel",
+      "partitionsSpec": {
+        "type": "dynamic"
+      }
+    },
+    "dataSchema": {
+      "dataSource": "wikipiead_druid",
+      "timestampSpec": {
+        "column": "!!!_no_such_column_!!!",
+        "missingValue": "2010-01-01T00:00:00Z"
+      },
+      "dimensionsSpec": {
+        "dimensions": [
+          "channel",
+          "cityName",
+          "countryIsoCode",
+          "countryName",
+          "isAnonymous",
+          "isMinor",
+          "isNew",
+          "isRobot",
+          "isUnpatrolled",
+          "metroCode",
+          "namespace",
+          "page",
+          "regionIsoCode",
+          "regionName",
+          "user",
+          {
+            "type": "long",
+            "name": "added"
+          },
+          {
+            "type": "long",
+            "name": "deleted"
+          },
+          {
+            "type": "long",
+            "name": "delta"
+          }
+        ]
+      },
+      "granularitySpec": {
+        "queryGranularity": "none",
+        "rollup": false,
+        "segmentGranularity": "hour"
+      }
+    }
+  }
+}
