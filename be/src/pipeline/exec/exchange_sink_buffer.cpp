@@ -52,6 +52,7 @@ void BroadcastPBlockHolder::unref() noexcept {
     auto old_value = _ref_count._value.fetch_sub(1);
     if (_dep && old_value == 1) {
         _dep->return_available_block();
+        CHECK(available());
     }
 }
 

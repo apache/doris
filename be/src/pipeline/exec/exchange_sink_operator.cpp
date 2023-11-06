@@ -345,10 +345,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     } else {
                         block_holder->get_block()->Clear();
                     }
-                    Status status;
+                    Status error_status = Status::OK();
                     bool sent = false;
                     for (auto channel : local_state.channels) {
                         if (!channel->is_receiver_eof()) {
+                            Status status;
                             if (channel->is_local()) {
                                 status = channel->send_local_block(&cur_block);
                             } else {
@@ -356,12 +357,18 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                                 status = channel->send_broadcast_block(
                                         block_holder, &sent, source_state == SourceState::FINISHED);
                             }
-                            HANDLE_CHANNEL_STATUS(state, channel, status);
+                            if (status.is<ErrorCode::END_OF_FILE>()) {
+                                _handle_eof_channel(state, channel, status);
+                            } else if (!status.ok()) {
+                                error_status = status;
+                                break;
+                            }
                         }
                     }
                     if (sent) {
                         local_state._broadcast_dependency->take_available_block();
                     }
+                    RETURN_IF_ERROR(error_status);
                     cur_block.clear_column_data();
                     local_state._serializer.get_block()->set_muatable_columns(
                             cur_block.mutate_columns());

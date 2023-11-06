@@ -203,7 +203,6 @@ private:
     // Sender instance id, unique within a fragment.
     int _sender_id;
     std::vector<vectorized::BroadcastPBlockHolder> _broadcast_pb_blocks;
-    int _broadcast_pb_block_idx;
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
