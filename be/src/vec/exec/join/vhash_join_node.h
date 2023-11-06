@@ -88,12 +88,12 @@ struct ProcessRuntimeFilterBuild {
 
         if (!parent->_runtime_filter_slots->empty() && !parent->_inserted_blocks.empty()) {
             {
-                SCOPED_TIMER(parent->_push_compute_timer);
+                SCOPED_TIMER(parent->_runtime_filter_compute_timer);
                 parent->_runtime_filter_slots->insert(parent->_inserted_blocks);
             }
         }
         {
-            SCOPED_TIMER(parent->_push_down_timer);
+            SCOPED_TIMER(parent->_publish_runtime_filter_timer);
             RETURN_IF_ERROR(parent->_runtime_filter_slots->publish());
         }
 
@@ -112,8 +112,7 @@ struct ProcessHashTableBuild {
               _build_raw_ptrs(build_raw_ptrs),
               _parent(parent),
               _batch_size(batch_size),
-              _state(state),
-              _build_side_compute_hash_timer(parent->_build_side_compute_hash_timer) {}
+              _state(state) {}
 
     template <int JoinOpType, bool ignore_null, bool short_circuit_for_null>
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
@@ -133,16 +132,18 @@ struct ProcessHashTableBuild {
         }
 
         SCOPED_TIMER(_parent->_build_table_insert_timer);
-        hash_table_ctx.hash_table->template prepare_build<JoinOpType>(_rows, _state->batch_size());
+        hash_table_ctx.hash_table->template prepare_build<JoinOpType>(_rows, _batch_size);
 
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr, true, true,
                                             hash_table_ctx.hash_table->get_bucket_size());
         hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
                                          _rows);
-        hash_table_ctx.bucket_nums.resize(_state->batch_size());
+        hash_table_ctx.bucket_nums.resize(_batch_size);
         hash_table_ctx.bucket_nums.shrink_to_fit();
 
+        COUNTER_UPDATE(_parent->_hash_table_memory_usage,
+                       hash_table_ctx.hash_table->get_byte_size());
         return Status::OK();
     }
 
@@ -153,8 +154,6 @@ private:
     Parent* _parent;
     int _batch_size;
     RuntimeState* _state;
-
-    ProfileCounter* _build_side_compute_hash_timer;
 };
 
 template <typename RowRefListType>
@@ -340,21 +339,14 @@ private:
     RuntimeProfile::Counter* _build_table_timer;
     RuntimeProfile::Counter* _build_expr_call_timer;
     RuntimeProfile::Counter* _build_table_insert_timer;
-    RuntimeProfile::Counter* _build_table_expanse_timer;
-    RuntimeProfile::Counter* _build_table_convert_timer;
     RuntimeProfile::Counter* _probe_expr_call_timer;
     RuntimeProfile::Counter* _probe_next_timer;
-    RuntimeProfile::Counter* _build_buckets_counter;
-    RuntimeProfile::Counter* _build_buckets_fill_counter;
     RuntimeProfile::Counter* _search_hashtable_timer;
     RuntimeProfile::Counter* _build_side_output_timer;
     RuntimeProfile::Counter* _probe_side_output_timer;
     RuntimeProfile::Counter* _probe_process_hashtable_timer;
     RuntimeProfile::Counter* _build_side_compute_hash_timer;
     RuntimeProfile::Counter* _build_side_merge_block_timer;
-    RuntimeProfile::Counter* _build_runtime_filter_timer;
-
-    RuntimeProfile::Counter* _build_collisions_counter;
 
     RuntimeProfile::Counter* _open_timer;
     RuntimeProfile::Counter* _allocate_resource_timer;

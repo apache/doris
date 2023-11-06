@@ -92,17 +92,10 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _build_side_merge_block_timer = ADD_TIMER(profile(), "BuildSideMergeBlockTime");
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
-    _build_table_expanse_timer = ADD_TIMER(record_profile, "BuildTableExpanseTime");
-    _build_table_convert_timer = ADD_TIMER(record_profile, "BuildTableConvertToPartitionedTime");
     _build_side_compute_hash_timer = ADD_TIMER(record_profile, "BuildSideHashComputingTime");
-    _build_runtime_filter_timer = ADD_TIMER(record_profile, "BuildRuntimeFilterTime");
 
     _allocate_resource_timer = ADD_TIMER(profile(), "AllocateResourceTime");
 
-    _build_buckets_counter = ADD_COUNTER(profile(), "BuildBuckets", TUnit::UNIT);
-    _build_buckets_fill_counter = ADD_COUNTER(profile(), "FilledBuckets", TUnit::UNIT);
-
-    _build_collisions_counter = ADD_COUNTER(profile(), "BuildCollisions", TUnit::UNIT);
     // Hash Table Init
     _hash_table_init(state);
 
