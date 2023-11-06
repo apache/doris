@@ -51,25 +51,23 @@ exit_flag=0
     if ! check_tpch_table_rows "${db_name}" "${SF}"; then
         echo "INFO: need to load tpch-sf${SF} data"
         # prepare data
-        if [[ ! -d ${TPCH_DATA_DIR} ]]; then
-            mkdir -p "${TPCH_DATA_DIR}"
-            (
-                cd "${TPCH_DATA_DIR}" || exit 1
-                declare -A table_file_count
-                table_file_count=(['region']=1 ['nation']=1 ['supplier']=1 ['customer']=1 ['part']=1 ['partsupp']=10 ['orders']=10 ['lineitem']=10)
-                for table_name in ${!table_file_count[*]}; do
-                    if [[ ${table_file_count[${table_name}]} -eq 1 ]]; then
-                        url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpch/sf${SF}/${table_name}.tbl"
-                        if ! wget --continue -t3 "${url}"; then echo "ERROR: wget --continue ${url}" && return 1; fi
-                    elif [[ ${table_file_count[${table_name}]} -eq 10 ]]; then
-                        for i in {1..10}; do
-                            url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpch/sf${SF}/${table_name}.tbl.${i}"
-                            if ! wget --continue -t3 "${url}"; then echo "ERROR: wget --continue ${url}" && return 1; fi
-                        done
-                    fi
-                done
-            )
-        fi
+        mkdir -p "${TPCH_DATA_DIR}"
+        (
+            cd "${TPCH_DATA_DIR}" || exit 1
+            declare -A table_file_count
+            table_file_count=(['region']=1 ['nation']=1 ['supplier']=1 ['customer']=1 ['part']=1 ['partsupp']=10 ['orders']=10 ['lineitem']=10)
+            for table_name in ${!table_file_count[*]}; do
+                if [[ ${table_file_count[${table_name}]} -eq 1 ]]; then
+                    url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpch/sf${SF}/${table_name}.tbl"
+                    if ! wget --continue -t3 -q "${url}"; then echo "ERROR: wget --continue ${url}" && return 1; fi
+                elif [[ ${table_file_count[${table_name}]} -eq 10 ]]; then
+                    for i in {1..10}; do
+                        url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpch/sf${SF}/${table_name}.tbl.${i}"
+                        if ! wget --continue -t3 -q "${url}"; then echo "ERROR: wget --continue ${url}" && return 1; fi
+                    done
+                fi
+            done
+        )
         # create table and load data
         sed -i "s|^SCALE_FACTOR=[0-9]\+$|SCALE_FACTOR=${SF}|g" "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh
         bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh
