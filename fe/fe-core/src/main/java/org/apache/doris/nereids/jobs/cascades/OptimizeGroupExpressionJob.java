@@ -59,14 +59,20 @@ public class OptimizeGroupExpressionJob extends Job {
     }
 
     private List<Rule> getExplorationRules() {
+        if (groupExpression.getOwnerGroup() == null) {
+            System.out.println(groupExpression);
+        }
         boolean isDisableJoinReorder = context.getCascadesContext().getConnectContext().getSessionVariable()
-                .isDisableJoinReorder()
-                || context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
-                .getConnectContext().getSessionVariable().memoMaxGroupExpressionSize;
+            .isDisableJoinReorder()
+            || context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
+            .getConnectContext().getSessionVariable().memoMaxGroupExpressionSize;
         boolean isDpHyp = context.getCascadesContext().getStatementContext().isDpHyp();
         boolean isOtherJoinReorder = context.getCascadesContext().getStatementContext().isOtherJoinReorder();
         boolean isEnableBushyTree = context.getCascadesContext().getConnectContext().getSessionVariable()
-                .isEnableBushyTree();
+            .isEnableBushyTree();
+        boolean isLeftZigZagTree = context.getCascadesContext().getConnectContext()
+            .getSessionVariable().isEnableLeftZigZag()
+            || !(groupExpression.getOwnerGroup() != null && groupExpression.getOwnerGroup().isStatsReliable());
         int joinNumBushyTree = context.getCascadesContext().getConnectContext()
                 .getSessionVariable().getMaxJoinNumBushyTree();
         if (isDisableJoinReorder) {
@@ -77,6 +83,8 @@ public class OptimizeGroupExpressionJob extends Job {
             } else {
                 return Collections.emptyList();
             }
+        } else if (isLeftZigZagTree) {
+            return getRuleSet().getLeftZigZagTreeJoinReorder();
         } else if (isEnableBushyTree) {
             return getRuleSet().getBushyTreeJoinReorder();
         } else if (context.getCascadesContext().getStatementContext().getMaxNAryInnerJoin() <= joinNumBushyTree) {
