@@ -1727,6 +1727,16 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         }
 
         if (_vpartition->is_auto_partition()) {
+            if (!auto_partition_buffer.contains(&input_block)) {
+                LOG(WARNING) << "add buffer " << &input_block;
+                LOG(WARNING) << input_block.dump_data(0, 3);
+                auto_partition_buffer[&input_block] =
+                        std::make_unique<std::vector<AutoPartitionBuffer>>(num_rows);
+            } else {
+                LOG(WARNING) << "reuse buffer " << &input_block;
+                LOG(WARNING) << input_block.dump_data(0, 3);
+            }
+
             std::vector<uint16_t> partition_keys = _vpartition->get_partition_keys();
             //TODO: use loop to create missing_vals for multi column.
             CHECK(partition_keys.size() == 1)
@@ -1738,7 +1748,13 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
 
             // try to find tablet and save missing value
             for (int i = 0; i < num_rows; ++i) {
+                auto& this_buffer = (*auto_partition_buffer[&input_block])[i];
                 if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_map()[i]) {
+                    continue;
+                }
+                if (this_buffer.inited) {
+                    _generate_row_distribution_payload(channel_to_payload, this_buffer.partition,
+                                                       this_buffer.tablet_index, i, 1);
                     continue;
                 }
                 const VOlapTablePartition* partition = nullptr;
@@ -1750,21 +1766,26 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
                                                             is_continue, &missing_this));
                 if (missing_this) {
                     missing_map.push_back(i);
-                } else {
+                } else { // found. save to reuse.
                     _generate_row_distribution_payload(channel_to_payload, partition, tablet_index,
                                                        i, 1);
+                    if (!this_buffer.inited) {
+                        this_buffer.partition = partition;
+                        this_buffer.tablet_index = tablet_index;
+                        this_buffer.inited = true;
+                    }
                 }
             }
             missing_map.shrink_to_fit();
 
             // for missing partition keys, calc the missing partition and save in _partitions_need_create
             auto type = partition_col.type;
-            if (missing_map.size() > 0) {
+            if (!missing_map.empty()) {
                 auto return_type = part_func->data_type();
 
                 // expose the data column
                 vectorized::ColumnPtr range_left_col = block->get_by_position(result_idx).column;
-                if (auto* nullable =
+                if (const auto* nullable =
                             check_and_get_column<vectorized::ColumnNullable>(*range_left_col)) {
                     range_left_col = nullable->get_nested_column_ptr();
                     return_type =

@@ -586,6 +586,15 @@ private:
                              OlapTableBlockConvertor* block_convertor,
                              OlapTabletFinder* tablet_finder);
 
+    struct AutoPartitionBuffer {
+        const VOlapTablePartition* partition = nullptr;
+        uint32_t tablet_index = 0;
+        bool inited = false;
+    };
+    // if we have to send again, not to compute some value again.
+    std::unordered_map<Block*, std::unique_ptr<std::vector<AutoPartitionBuffer>>>
+            auto_partition_buffer;
+
     TDataSink _t_sink;
 
     std::shared_ptr<MemTracker> _mem_tracker;
