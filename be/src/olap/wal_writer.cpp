@@ -62,6 +62,7 @@ Status WalWriter::append_blocks(const PBlockArray& blocks) {
         offset += CHECKSUM_SIZE;
     }
     DCHECK(offset == total_size);
+    _disk_bytes += total_size;
     // write rows
     RETURN_IF_ERROR(_file_writer->append({row_binary, offset}));
     _count++;

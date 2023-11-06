@@ -20,9 +20,13 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
+#include <memory>
+#include <utility>
 
 #include "io/fs/local_file_system.h"
+#include "olap/wal_writer.h"
 #include "runtime/client_cache.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/plan_fragment_executor.h"
@@ -35,6 +39,7 @@ namespace doris {
 WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
     doris::vectorized::WalReader::string_split(wal_dir_list, ",", _wal_dirs);
+    _wal_disk_bytes = std::make_shared<std::atomic_size_t>(0);
 }
 
 WalManager::~WalManager() {
@@ -117,8 +122,12 @@ Status WalManager::create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>&
         RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(base_path));
     }
     LOG(INFO) << "create wal " << wal_path;
-    wal_writer = std::make_shared<WalWriter>(wal_path);
+    wal_writer = std::make_shared<WalWriter>(wal_path, _all_wal_disk_bytes);
     RETURN_IF_ERROR(wal_writer->init());
+    {
+        std::lock_guard<std::shared_mutex> wrlock(_wal_lock);
+        _wal_id_to_writer_map.emplace(wal_id, wal_writer);
+    }
     return Status::OK();
 }
 
@@ -241,6 +250,11 @@ size_t WalManager::get_wal_table_size(const std::string& table_id) {
 Status WalManager::delete_wal(int64_t wal_id) {
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_lock);
+        *_all_wal_disk_bytes -= _wal_id_to_writer_map[wal_id]->disk_bytes();
+        _wal_id_to_writer_map.erase(wal_id);
+        if (_wal_id_to_writer_map.empty()) {
+            CHECK(*_all_wal_disk_bytes == 0);
+        }
         std::string wal_path = _wal_path_map[wal_id];
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(wal_path));
         LOG(INFO) << "delete file=" << wal_path;
