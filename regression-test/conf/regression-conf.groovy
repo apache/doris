@@ -112,7 +112,8 @@ sqlserver_2022_port=1433
 clickhouse_22_port=8123
 doris_port=9030
 mariadb_10_port=3326
-
+coordinator_druid_port=21888
+broker_druid_port=11882
 // hive catalog test config
 // To enable hive/paimon test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
