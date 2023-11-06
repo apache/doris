@@ -78,13 +78,13 @@ Status RuntimeFilterBuild<Parent>::operator()(RuntimeState* state) {
     RETURN_IF_ERROR(runtime_filter_slots.init(state));
 
     if (!runtime_filter_slots.empty() && !_parent->build_blocks().empty()) {
-        SCOPED_TIMER(_parent->push_compute_timer());
+        SCOPED_TIMER(_parent->runtime_filter_compute_timer());
         for (auto& build_block : _parent->build_blocks()) {
             RETURN_IF_ERROR(runtime_filter_slots.insert(&build_block));
         }
     }
     {
-        SCOPED_TIMER(_parent->push_down_timer());
+        SCOPED_TIMER(_parent->publish_runtime_filter_timer());
         RETURN_IF_ERROR(runtime_filter_slots.publish());
     }
 

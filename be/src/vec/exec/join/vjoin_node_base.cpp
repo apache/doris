@@ -123,8 +123,8 @@ Status VJoinNodeBase::prepare(RuntimeState* state) {
             ADD_CHILD_TIMER(_probe_phase_profile, "BuildOutputBlock", "ProbeTime");
     _probe_rows_counter = ADD_COUNTER_WITH_LEVEL(_probe_phase_profile, "ProbeRows", TUnit::UNIT, 1);
 
-    _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
-    _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
+    _publish_runtime_filter_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
+    _runtime_filter_compute_timer = ADD_TIMER(runtime_profile(), "RunmtimeFilterComputeTime");
 
     return Status::OK();
 }

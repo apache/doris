@@ -217,6 +217,11 @@ public:
         return phmap::priv::NormalizeCapacity(expect_bucket_size) + 1;
     }
 
+    size_t get_byte_size() const {
+        auto cal_vector_mem = [](const auto& vec) { return vec.capacity() * sizeof(vec[0]); };
+        return cal_vector_mem(visited) + cal_vector_mem(first) + cal_vector_mem(next);
+    }
+
     template <int JoinOpType>
     void prepare_build(size_t num_elem, int batch_size) {
         max_batch_size = batch_size;
