@@ -154,6 +154,7 @@ public:
     brpc::Controller cntl;
     T result;
     int64_t start_rpc_time;
+    void set_finish_dependency(std::shared_ptr<FinishDependency> dep) { _finish_dependency = dep; }
 
 private:
     std::function<void(const InstanceLoId&, const std::string&)> _fail_fn;
@@ -161,6 +162,7 @@ private:
     InstanceLoId _id;
     bool _eos;
     vectorized::BroadcastPBlockHolder* _data;
+    std::shared_ptr<FinishDependency> _finish_dependency;
 };
 
 struct ExchangeRpcContext {
@@ -192,6 +194,8 @@ public:
     void set_query_statistics(QueryStatistics* statistics) { _statistics = statistics; }
 
 private:
+    void _set_ready_to_finish();
+
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
     // store data in non-broadcast shuffle
