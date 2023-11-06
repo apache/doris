@@ -81,7 +81,7 @@ enum class PipelineTaskState : uint8_t {
 
 inline bool avoid_using_blocked_queue(PipelineTaskState state) {
     return state == PipelineTaskState::BLOCKED_FOR_SINK ||
-           state == PipelineTaskState::BLOCKED_FOR_RF || state == PipelineTaskState::PENDING_FINISH;
+           state == PipelineTaskState::BLOCKED_FOR_RF;
 }
 
 inline const char* get_state_name(PipelineTaskState idx) {
