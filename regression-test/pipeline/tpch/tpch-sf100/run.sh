@@ -19,6 +19,8 @@ EOF
 source ../../common/doris-utils.sh
 # create_an_issue_comment
 source ../../common/github-utils.sh
+# upload_doris_log_to_oss
+source ../../common/oss-utils.sh
 
 echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ||
@@ -29,6 +31,7 @@ if [[ -z "${teamcity_build_checkoutDir}" ||
 fi
 
 echo "#### Run tpch-sf100 test on Doris ####"
+DORIS_HOME="${teamcity_build_checkoutDir}/output"
 exit_flag=0
 
 (
@@ -42,8 +45,6 @@ exit_flag=0
     fi
     TPCH_DATA_DIR="/data/tpch/sf_${SF}"                                               # no / at the end
     TPCH_DATA_DIR_LINK="${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/tpch-data # no / at the end
-    DORIS_HOME="${teamcity_build_checkoutDir}/output"
-    export DORIS_HOME
     db_name="tpch_sf${SF}"
     sed -i "s|^export DB=.*$|export DB='${db_name}'|g" \
         "${teamcity_build_checkoutDir}"/tools/tpch-tools/conf/doris-cluster.conf
@@ -103,7 +104,7 @@ $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-q
     echo "#### 4. comment result on tpch"
     comment_body=$(
         # 将所有的换行符替换为\n
-        echo "${comment_body}" | sed -e ':a;N;$!ba;s/\n/\\n/g' >comment_body
+        echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g' >comment_body
         cat comment_body
     )
     create_an_issue_comment "${pull_request_id:-}" "${comment_body}"
