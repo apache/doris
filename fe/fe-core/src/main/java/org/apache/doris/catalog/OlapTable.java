@@ -965,6 +965,10 @@ public class OlapTable extends Table {
         return partition;
     }
 
+    public int getPartitionNum() {
+        return idToPartition.size();
+    }
+
     // get all partitions except temp partitions
     public Collection<Partition> getPartitions() {
         return idToPartition.values();

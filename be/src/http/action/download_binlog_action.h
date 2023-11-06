@@ -17,11 +17,14 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "http/http_handler.h"
+
+struct bufferevent_rate_limit_group;
 
 namespace doris {
 
@@ -30,7 +33,8 @@ class HttpRequest;
 
 class DownloadBinlogAction : public HttpHandler {
 public:
-    DownloadBinlogAction(ExecEnv* exec_env);
+    DownloadBinlogAction(ExecEnv* exec_env,
+                         std::shared_ptr<bufferevent_rate_limit_group> rate_limit_group);
     virtual ~DownloadBinlogAction() = default;
 
     void handle(HttpRequest* req) override;
@@ -40,6 +44,7 @@ private:
 
 private:
     ExecEnv* _exec_env;
+    std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group {nullptr};
 };
 
 } // namespace doris
