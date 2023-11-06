@@ -68,8 +68,9 @@ if ! check_tpch_table_rows "${db_name}" "${SF}"; then
     fi
     # create table and load data
     sed -i "s|^SCALE_FACTOR=[0-9]\+$|SCALE_FACTOR=${SF}|g" "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh
+    sleep 10s
     bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh
-    sleep 3000s
+    sleep 120s
     rm -rf "${TPCH_DATA_DIR_LINK}"
     ln -s "${TPCH_DATA_DIR}" "${TPCH_DATA_DIR_LINK}"
     bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/load-tpch-data.sh -c 10
