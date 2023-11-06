@@ -3,6 +3,9 @@
 1	doris	1000	123	1
 2	doris2	2000	223	1
 
+-- !select_before_delete --
+2
+
 -- !select_join --
 1	doris	1000	123	1
 

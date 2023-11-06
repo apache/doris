@@ -126,10 +126,18 @@ suite("test_primary_key_partial_update_with_delete_stmt", "p0") {
 
     sql "sync"
 
-    sql """
+    qt_select_before_delete """
+        select ${tableName}.id from ${tableName} inner join ${tableNameJoinA} inner join ${tableNameJoinB} on ${tableNameJoinA}.id = ${tableNameJoinB}.id
+        and ${tableName}.id = ${tableNameJoinA}.id
+    """
+
+    def result3 = sql """
         delete from ${tableName} using ${tableNameJoinA} inner join ${tableNameJoinB} on ${tableNameJoinA}.id = ${tableNameJoinB}.id
         where ${tableName}.id = ${tableNameJoinA}.id
     """
+    assertTrue(result3.size() == 1)
+    assertTrue(result3[0].size() == 1)
+    assertTrue(result3[0][0] == 1, "Query OK, 1 row affected")
 
     sql "sync"
 
