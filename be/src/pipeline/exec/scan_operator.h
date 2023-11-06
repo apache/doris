@@ -103,7 +103,7 @@ public:
             _scanner_ctx->reschedule_scanner_ctx();
         }
         if (config::enable_fuzzy_mode && !_ready_for_read &&
-            _read_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            _should_log(_read_dependency_watcher.elapsed_time())) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
                          << id();
         }
