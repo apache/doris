@@ -245,6 +245,7 @@ LoadStream::~LoadStream() {
 Status LoadStream::init(const POpenStreamSinkRequest* request) {
     _txn_id = request->txn_id();
     _total_streams = request->total_streams();
+    DCHECK(_total_streams > 0) << "total streams should be greator than 0";
 
     _schema = std::make_shared<OlapTableSchemaParam>();
     RETURN_IF_ERROR(_schema->init(request->schema()));
@@ -263,6 +264,10 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
     SCOPED_TIMER(_close_wait_timer);
 
     // we do nothing until recv CLOSE_LOAD from all stream to ensure all data are handled before ack
+    _open_streams[src_id]--;
+    if (_open_streams[src_id] == 0) {
+        _open_streams.erase(src_id);
+    }
     _close_load_cnt++;
     LOG(INFO) << "received CLOSE_LOAD from sender " << src_id << ", remaining "
               << _total_streams - _close_load_cnt << " senders";
@@ -407,6 +412,13 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
             PStreamHeader data;
             messages[i]->cutn(&data_buf, data_len);
 
+/*
+            if (hdr.load_id().hi() != _load_id.hi() || hdr.load_id().lo() != _load_id.lo()) {
+                LOG(WARNING) << "ignored one message due to invalid load id " << hdr.load_id()
+                             << ", expected: " << _load_id;
+                continue;
+            }
+*/
             // step 3: dispatch
             _dispatch(id, hdr, &data_buf);
         }
@@ -417,6 +429,21 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
 void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data) {
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
+
+    {
+        std::lock_guard lock_guard(_lock);
+        if (!_open_streams.contains(hdr.src_id())) {
+            std::vector<int64_t> success_tablet_ids;
+            std::vector<int64_t> failed_tablet_ids;
+            if (hdr.has_tablet_id()) {
+                failed_tablet_ids.push_back(hdr.tablet_id());
+            }
+            Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>("no open stream from source {}",
+                                                                   hdr.src_id());
+            _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
+            return;
+        }
+    }
 
     switch (hdr.opcode()) {
     case PStreamHeader::ADD_SEGMENT: // ADD_SEGMENT will be dispatched inside TabletStream

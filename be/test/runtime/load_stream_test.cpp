@@ -374,6 +374,8 @@ public:
             }
 
             LoadStreamSharedPtr load_stream;
+            LOG(INFO) << "total streams: " << request->total_streams();
+            EXPECT_GT(request->total_streams(), 0);
             auto st = _load_stream_mgr->open_load_stream(request, load_stream);
 
             stream_options.handler = load_stream.get();
@@ -415,7 +417,7 @@ public:
             std::function<void()> _cb;
         };
 
-        Status connect_stream(int64_t sender_id = NORMAL_SENDER_ID) {
+        Status connect_stream(int64_t sender_id = NORMAL_SENDER_ID, int total_streams = 1) {
             brpc::Channel channel;
             std::cerr << "connect_stream" << std::endl;
             // Initialize the channel, NULL means using default options.
@@ -448,6 +450,7 @@ public:
             *request.mutable_load_id() = id;
             request.set_txn_id(NORMAL_TXN_ID);
             request.set_src_id(sender_id);
+            request.set_total_streams(total_streams);
             auto ptablet = request.add_tablets();
             ptablet->set_tablet_id(NORMAL_TABLET_ID);
             ptablet->set_index_id(NORMAL_INDEX_ID);
@@ -489,7 +492,7 @@ public:
             : _heavy_work_pool(4, 32, "load_stream_test_heavy"),
               _light_work_pool(4, 32, "load_stream_test_light") {}
 
-    void close_load(MockSinkClient& client, uint32_t sender_id) {
+    void close_load(MockSinkClient& client, uint32_t sender_id = NORMAL_SENDER_ID) {
         butil::IOBuf append_buf;
         PStreamHeader header;
         header.mutable_load_id()->set_hi(1);
@@ -664,13 +667,13 @@ TEST_F(LoadStreamMgrTest, one_client_abnormal_load) {
     // TODO check abnormal load id
 
     reset_response_stat();
-    close_load(client, 1);
+    close_load(client, ABNORMAL_SENDER_ID);
     wait_for_ack(1);
     EXPECT_EQ(g_response_stat.num, 1);
     EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 1);
 
-    close_load(client, 0);
+    close_load(client);
     wait_for_ack(2);
     EXPECT_EQ(g_response_stat.num, 2);
     EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 1);
@@ -1061,7 +1064,7 @@ TEST_F(LoadStreamMgrTest, two_client_one_index_one_tablet_three_segment) {
     MockSinkClient clients[2];
 
     for (int i = 0; i < 2; i++) {
-        auto st = clients[i].connect_stream(NORMAL_SENDER_ID + i);
+        auto st = clients[i].connect_stream(NORMAL_SENDER_ID + i, 2);
         EXPECT_TRUE(st.ok());
     }
     reset_response_stat();

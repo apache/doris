@@ -108,6 +108,11 @@ public:
 
     Status init(const POpenStreamSinkRequest* request);
 
+    void add_source(int64_t src_id) {
+        std::lock_guard lock_guard(_lock);
+        _open_streams[src_id]++;
+    }
+
     Status close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
                  std::vector<int64_t>* success_tablet_ids, std::vector<int64_t>* failed_tablet_ids);
 
@@ -133,6 +138,7 @@ private:
     std::atomic<int32_t> _close_rpc_cnt = 0;
     std::vector<PTabletID> _tablets_to_commit;
     bthread::Mutex _lock;
+    std::unordered_map<int64_t, int32_t> _open_streams;
     int64_t _txn_id = 0;
     std::shared_ptr<OlapTableSchemaParam> _schema;
     bool _enable_profile = false;
