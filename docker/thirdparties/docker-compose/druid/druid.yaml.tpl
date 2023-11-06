@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-version: "3"
+version: "3.9"
 
 volumes:
   metadata_data: {}
