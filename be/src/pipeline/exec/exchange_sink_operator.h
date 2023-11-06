@@ -81,7 +81,7 @@ public:
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {
         if (config::enable_fuzzy_mode && _available_block == 0 &&
-            _write_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            _should_log(_write_dependency_watcher.elapsed_time())) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
                          << id();
         }
