@@ -137,7 +137,7 @@ suite("test_primary_key_partial_update_with_delete_stmt", "p0") {
     """
     assertTrue(result3.size() == 1)
     assertTrue(result3[0].size() == 1)
-    assertTrue(result3[0][0] == 0, "Query OK, 1 row affected")
+    assertTrue(result3[0][0] == 1, "Query OK, 1 row affected")
 
     sql "sync"
 
