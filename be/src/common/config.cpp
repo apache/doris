@@ -1119,10 +1119,10 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 
 // Max size(bytes) of group commit queues, used for mem back pressure, defult 64M.
-DEFINE_Int32(group_commit_max_queue_size, "65536");
+DEFINE_Int32(group_commit_max_queue_size, "67108864");
 
 // Max size(bytes) of wal disk using, used for disk space back pressure, default 64M.
-DEFINE_Int32(wal_max_disk_size, "65535");
+DEFINE_Int32(wal_max_disk_size, "67108864");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
