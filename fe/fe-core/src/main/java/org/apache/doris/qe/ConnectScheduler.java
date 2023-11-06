@@ -24,10 +24,11 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -38,10 +39,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 // The scheduler of query requests
 // Now the strategy is simple, we allocate a thread for it when a request comes.
-// TODO(zhaochun): We should consider if the number of local file connection can >= maximum connections later.
+// TODO(zhaochun): We should consider if the number of local file connection can >= maximum
+// connections later.
 public class ConnectScheduler {
     private static final Logger LOG = LogManager.getLogger(ConnectScheduler.class);
     private final int maxConnections;
+
     private final AtomicInteger numberConnection;
     private final AtomicInteger nextConnectionId;
     private final Map<Integer, ConnectContext> connectionMap = Maps.newConcurrentMap();
@@ -55,8 +58,9 @@ public class ConnectScheduler {
     // 1. If use a scheduler, the task maybe a huge number when query is messy.
     //    Let timeout is 10m, and 5000 qps, then there are up to 3000000 tasks in scheduler.
     // 2. Use a thread to poll maybe lose some accurate, but is enough to us.
-    private final ScheduledExecutorService checkTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
-            "connect-scheduler-check-timer", true);
+    private final ScheduledExecutorService checkTimer =
+            ThreadPoolManager.newDaemonScheduledThreadPool(
+                    1, "connect-scheduler-check-timer", true);
 
     public ConnectScheduler(int maxConnections) {
         this.maxConnections = maxConnections;
@@ -152,8 +156,10 @@ public class ConnectScheduler {
         List<ConnectContext.ThreadInfo> infos = Lists.newArrayList();
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
-            if (!ctx.getQualifiedUser().equals(user) && !Env.getCurrentEnv().getAccessManager()
-                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            if (!ctx.getQualifiedUser().equals(user)
+                    && !Env.getCurrentEnv()
+                            .getAccessManager()
+                            .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 continue;
             }
 
