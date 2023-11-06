@@ -17,6 +17,7 @@
 
 suite("aggregate_decimal256") {
     sql "set enable_nereids_planner = true;"
+    sql "set enable_fallback_to_original_planner = false;"
     sql "set enable_decimal256 = true;"
     sql "drop table if exists test_aggregate_decimal256_sum;"
     sql """ create table test_aggregate_decimal256_sum(k1 int, v1 decimal(38, 6), v2 decimal(38, 6))
