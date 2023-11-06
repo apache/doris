@@ -61,6 +61,7 @@ suite("test_backup_restore", "backup_restore") {
 
     sql "TRUNCATE TABLE ${dbName}.${tableName}"
 
+
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
         FROM `${repoName}`
