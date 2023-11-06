@@ -203,6 +203,7 @@ public:
 
     void set_ready_to_finish() {
         if (_ready_to_finish) {
+            try_to_wake_up_task();
             return;
         }
         _finish_dependency_watcher.stop();
