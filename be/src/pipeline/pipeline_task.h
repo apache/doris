@@ -79,6 +79,11 @@ enum class PipelineTaskState : uint8_t {
     BLOCKED_FOR_RF = 8,
 };
 
+inline bool avoid_using_blocked_queue(PipelineTaskState state) {
+    return state == PipelineTaskState::BLOCKED_FOR_SINK ||
+           state == PipelineTaskState::BLOCKED_FOR_RF;
+}
+
 inline const char* get_state_name(PipelineTaskState idx) {
     switch (idx) {
     case PipelineTaskState::NOT_READY:
@@ -250,6 +255,8 @@ public:
     TUniqueId instance_id() const { return _state->fragment_instance_id(); }
 
     void set_parent_profile(RuntimeProfile* profile) { _parent_profile = profile; }
+
+    virtual bool is_pipelineX() const { return false; }
 
 protected:
     void _finish_p_dependency() {
