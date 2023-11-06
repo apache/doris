@@ -40,6 +40,7 @@ if [[ "${commit_id_from_trigger}" != "${commit_id_from_checkout}" ]]; then
     exit 1
 fi
 
+echo "#### 2. check if depending files exist"
 if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/fe.conf &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/be.conf &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/deploy.sh &&
