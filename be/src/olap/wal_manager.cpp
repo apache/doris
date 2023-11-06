@@ -19,6 +19,7 @@
 
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -251,11 +252,14 @@ size_t WalManager::get_wal_table_size(const std::string& table_id) {
 Status WalManager::delete_wal(int64_t wal_id) {
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_lock);
-        *_all_wal_disk_bytes -= _wal_id_to_writer_map[wal_id]->disk_bytes();
+        _all_wal_disk_bytes->store(
+                _all_wal_disk_bytes->fetch_sub(_wal_id_to_writer_map[wal_id]->disk_bytes(),
+                                               std::memory_order_relaxed),
+                std::memory_order_relaxed);
         _wal_id_to_writer_map[wal_id]->cv.notify_one();
         _wal_id_to_writer_map.erase(wal_id);
         if (_wal_id_to_writer_map.empty()) {
-            CHECK(*_all_wal_disk_bytes == 0);
+            CHECK_EQ(_all_wal_disk_bytes->load(std::memory_order_relaxed), 0);
         }
         std::string wal_path = _wal_path_map[wal_id];
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(wal_path));

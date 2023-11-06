@@ -17,6 +17,8 @@
 
 #include "olap/wal_writer.h"
 
+#include <atomic>
+
 #include "common/config.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -47,9 +49,11 @@ Status WalWriter::finalize() {
 }
 
 Status WalWriter::append_blocks(const PBlockArray& blocks) {
-    std::unique_lock l(_mutex);
-    while (*_all_wal_disk_bytes > config::wal_max_disk_size) {
-        cv.wait_for(l, std::chrono::milliseconds(WalWriter::MAX_WAL_WRITE_WAIT_TIME));
+    {
+        std::unique_lock l(_mutex);
+        while (_all_wal_disk_bytes->load(std::memory_order_relaxed) > config::wal_max_disk_size) {
+            cv.wait_for(l, std::chrono::milliseconds(WalWriter::MAX_WAL_WRITE_WAIT_TIME));
+        }
     }
     size_t total_size = 0;
     for (const auto& block : blocks) {
@@ -70,7 +74,9 @@ Status WalWriter::append_blocks(const PBlockArray& blocks) {
     }
     DCHECK(offset == total_size);
     _disk_bytes += total_size;
-    *_all_wal_disk_bytes += total_size;
+    _all_wal_disk_bytes->store(
+            _all_wal_disk_bytes->fetch_add(total_size, std::memory_order_relaxed),
+            std::memory_order_relaxed);
     // write rows
     RETURN_IF_ERROR(_file_writer->append({row_binary, offset}));
     _count++;
