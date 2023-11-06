@@ -172,7 +172,7 @@ class RegressionTest {
         }
     }
 
-    static void runScripts(Config config, Recorder recorder, boolean isSingleThread,
+    static void runScripts(Config config, Recorder recorder,
                            Predicate<String> directoryFilter, Predicate<String> fileNameFilter) {
         def scriptSources = findScriptSources(config.suitePath, directoryFilter, fileNameFilter)
         if (config.randomOrder) {
@@ -184,7 +184,26 @@ class RegressionTest {
         scriptSources.eachWithIndex { source, i ->
 //            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
             def future = scriptExecutors.submit {
-                runScript(config, source, recorder, isSingleThread)
+                runScript(config, source, recorder, false)
+            }
+            futures.add(future)
+        }
+
+        // wait all scripts
+        for (Future future : futures) {
+            try {
+                future.get()
+            } catch (Throwable t) {
+                // do nothing, because already save to Recorder
+            }
+        }
+
+        log.info('Start to run single scripts')
+        futures.clear()
+        scriptSources.eachWithIndex { source, i ->
+//            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
+            def future = scriptExecutors.submit {
+                runScript(config, source, recorder, true)
             }
             futures.add(future)
         }
@@ -204,15 +223,11 @@ class RegressionTest {
         def directoryFilter = config.getDirectoryFilter()
         if (!config.withOutLoadData) {
             log.info('Start to run load scripts')
-            runScripts(config, recorder, false, directoryFilter,
+            runScripts(config, recorder, directoryFilter,
                     { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) == "load" })
         }
         log.info('Start to run scripts')
-        runScripts(config, recorder, false, directoryFilter, 
-                { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) != "load" })
-
-        log.info('Start to run single thread scritps')
-        runScripts(config, recorder, true, directoryFilter, 
+        runScripts(config, recorder, directoryFilter, 
                 { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) != "load" })
 
         return recorder
