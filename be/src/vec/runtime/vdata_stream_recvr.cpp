@@ -99,8 +99,11 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
     auto [next_block, block_byte_size] = std::move(_block_queue.front());
     _recvr->update_blocks_memory_usage(-block_byte_size);
     _block_queue.pop_front();
-    if (_block_queue.size() == 0 && _dependency) {
+    if (_block_queue.empty() && _dependency) {
         _dependency->block_reading();
+        if (_local_channel_dependency) {
+            _local_channel_dependency->set_ready_for_write();
+        }
     }
 
     if (!_pending_closures.empty()) {
@@ -424,8 +427,9 @@ bool VDataStreamRecvr::sender_queue_empty(int sender_id) {
     return _sender_queues[use_sender_id]->queue_empty();
 }
 
-void VDataStreamRecvr::set_dependency(std::shared_ptr<pipeline::ChannelDependency> dependency) {
-    _dependency = dependency;
+void VDataStreamRecvr::set_dependency(
+        std::shared_ptr<pipeline::LocalExchangeChannelDependency> dependency) {
+    _local_channel_dependency = dependency;
     for (auto& queue : _sender_queues) {
         queue->set_channel_dependency(dependency);
     }
@@ -482,12 +486,12 @@ void VDataStreamRecvr::cancel_stream(Status exec_status) {
 void VDataStreamRecvr::update_blocks_memory_usage(int64_t size) {
     _blocks_memory_usage->add(size);
     _blocks_memory_usage_current_value = _blocks_memory_usage->current_value();
-    if (_dependency && size > 0 &&
+    if (_local_channel_dependency && size > 0 &&
         _blocks_memory_usage_current_value > config::exchg_node_buffer_size_bytes && !_is_closed) {
-        _dependency->block_writing();
-    } else if (_dependency && size < 0 &&
+        _local_channel_dependency->block_writing();
+    } else if (_local_channel_dependency && size < 0 &&
                _blocks_memory_usage_current_value <= config::exchg_node_buffer_size_bytes) {
-        _dependency->set_ready_for_write();
+        _local_channel_dependency->set_ready_for_write();
     }
 }
 
@@ -496,8 +500,8 @@ void VDataStreamRecvr::close() {
         return;
     }
     _is_closed = true;
-    if (_dependency) {
-        _dependency->set_ready_for_write();
+    if (_local_channel_dependency) {
+        _local_channel_dependency->set_ready_for_write();
     }
     for (int i = 0; i < _sender_queues.size(); ++i) {
         _sender_queues[i]->close();

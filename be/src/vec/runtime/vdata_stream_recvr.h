@@ -59,7 +59,7 @@ class RuntimeState;
 
 namespace pipeline {
 struct ExchangeDataDependency;
-class ChannelDependency;
+class LocalExchangeChannelDependency;
 } // namespace pipeline
 
 namespace vectorized {
@@ -125,7 +125,7 @@ public:
 
     bool is_closed() const { return _is_closed; }
 
-    void set_dependency(std::shared_ptr<pipeline::ChannelDependency> dependency);
+    void set_dependency(std::shared_ptr<pipeline::LocalExchangeChannelDependency> dependency);
 
 private:
     void update_blocks_memory_usage(int64_t size);
@@ -183,7 +183,7 @@ private:
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
     bool _enable_pipeline;
-    std::shared_ptr<pipeline::ChannelDependency> _dependency;
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> _local_channel_dependency;
 };
 
 class ThreadClosure : public google::protobuf::Closure {
@@ -225,8 +225,9 @@ public:
         _dependency = dependency;
     }
 
-    void set_channel_dependency(std::shared_ptr<pipeline::ChannelDependency> channel_dependency) {
-        _channel_dependency = channel_dependency;
+    void set_channel_dependency(
+            std::shared_ptr<pipeline::LocalExchangeChannelDependency> channel_dependency) {
+        _local_channel_dependency = channel_dependency;
     }
 
 protected:
@@ -251,7 +252,7 @@ protected:
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
 
     std::shared_ptr<pipeline::ExchangeDataDependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::ChannelDependency> _channel_dependency = nullptr;
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> _local_channel_dependency = nullptr;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {
@@ -270,5 +271,6 @@ public:
 
     void add_block(Block* block, bool use_move) override;
 };
+
 } // namespace vectorized
 } // namespace doris

@@ -65,7 +65,7 @@ enum CompressionTypePB : int;
 namespace pipeline {
 class ExchangeSinkOperator;
 class ExchangeSinkOperatorX;
-class ChannelDependency;
+class LocalExchangeChannelDependency;
 } // namespace pipeline
 
 namespace vectorized {
@@ -557,7 +557,7 @@ public:
         return _closure.get();
     }
 
-    void set_dependency(std::shared_ptr<pipeline::ChannelDependency> dependency) {
+    void set_dependency(std::shared_ptr<pipeline::LocalExchangeChannelDependency> dependency) {
         if (!Channel<Parent>::_local_recvr) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "_local_recvr is null");
         }
