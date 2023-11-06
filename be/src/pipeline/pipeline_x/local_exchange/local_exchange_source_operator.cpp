@@ -28,6 +28,7 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     DCHECK(_shared_state != nullptr);
     _channel_id = info.task_idx;
     _dependency->set_channel_id(_channel_id);
+    _shared_state->set_dep_by_channel_id(_dependency, _channel_id);
     _get_block_failed_counter =
             ADD_COUNTER_WITH_LEVEL(profile(), "GetBlockFailedTime", TUnit::UNIT, 1);
     _copy_data_timer = ADD_TIMER(profile(), "CopyDataTime");

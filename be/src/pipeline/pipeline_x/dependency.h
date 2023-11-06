@@ -570,14 +570,6 @@ public:
     void set_shared_state(std::shared_ptr<MultiCastSharedState> multi_cast_state) {
         _multi_cast_state = multi_cast_state;
     }
-    WriteDependency* read_blocked_by() override {
-        if (_multi_cast_state->multi_cast_data_streamer.can_read(_consumer_id)) {
-            return nullptr;
-        }
-        return this;
-    }
-    int _consumer_id {};
-    void set_consumer_id(int consumer_id) { _consumer_id = consumer_id; }
 
 private:
     std::shared_ptr<MultiCastSharedState> _multi_cast_state;
@@ -885,7 +877,30 @@ struct LocalExchangeSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
     std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> data_queue;
+    std::vector<Dependency*> source_dependencies;
     std::atomic<int> running_sink_operators = 0;
+    void add_running_sink_operators() { running_sink_operators++; }
+    void sub_running_sink_operators() {
+        running_sink_operators--;
+        if (running_sink_operators == 0) {
+            _set_ready_for_read();
+        }
+    }
+    void _set_ready_for_read() {
+        for (auto* dep : source_dependencies) {
+            DCHECK(dep);
+            dep->set_ready_for_read();
+        }
+    }
+    void set_dep_by_channel_id(Dependency* dep, int channel_id) {
+        source_dependencies[channel_id] = dep;
+        dep->block_reading();
+    }
+    void _set_ready_for_read(int channel_id) {
+        auto* dep = source_dependencies[channel_id];
+        DCHECK(dep);
+        dep->set_ready_for_read();
+    }
 };
 
 struct LocalExchangeDependency final : public WriteDependency {
@@ -903,22 +918,7 @@ public:
 
     void set_channel_id(int channel_id) { _channel_id = channel_id; }
 
-    Dependency* read_blocked_by() override {
-        if (config::enable_fuzzy_mode && !_should_run() &&
-            _read_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
-            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
-        }
-        return _should_run() ? nullptr : this;
-    }
-
 private:
-    bool _should_run() const {
-        DCHECK(_local_exchange_shared_state != nullptr);
-        return _local_exchange_shared_state->data_queue[_channel_id].size_approx() > 0 ||
-               _local_exchange_shared_state->running_sink_operators == 0;
-    }
-
     std::shared_ptr<LocalExchangeSharedState> _local_exchange_shared_state;
     int _channel_id;
 };

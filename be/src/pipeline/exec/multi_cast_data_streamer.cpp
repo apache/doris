@@ -17,6 +17,7 @@
 
 #include "multi_cast_data_streamer.h"
 
+#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::pipeline {
@@ -46,6 +47,9 @@ void MultiCastDataStreamer::pull(int sender_idx, doris::vectorized::Block* block
         }
     }
     *eos = _eos and pos_to_pull == _multi_cast_blocks.end();
+    if (pos_to_pull == _multi_cast_blocks.end()) {
+        _block_reading(sender_idx);
+    }
 }
 
 void MultiCastDataStreamer::close_sender(int sender_idx) {
@@ -63,6 +67,7 @@ void MultiCastDataStreamer::close_sender(int sender_idx) {
         }
     }
     _closed_sender_count++;
+    _block_reading(sender_idx);
 }
 
 Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block* block, bool eos) {
@@ -87,10 +92,39 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block
     for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
         if (_sender_pos_to_read[i] == _multi_cast_blocks.end()) {
             _sender_pos_to_read[i] = end;
+            _set_ready_for_read(i);
         }
     }
     _eos = eos;
     return Status::OK();
+}
+
+void MultiCastDataStreamer::_set_ready_for_read(int sender_idx) {
+    if (!_has_dependencys) {
+        return;
+    }
+    auto* dep = _dependencys[sender_idx];
+    DCHECK(dep);
+    dep->set_ready_for_read();
+}
+
+void MultiCastDataStreamer::_set_ready_for_read() {
+    if (!_has_dependencys) {
+        return;
+    }
+    for (auto* dep : _dependencys) {
+        DCHECK(dep);
+        dep->set_ready_for_read();
+    }
+}
+
+void MultiCastDataStreamer::_block_reading(int sender_idx) {
+    if (!_has_dependencys) {
+        return;
+    }
+    auto* dep = _dependencys[sender_idx];
+    DCHECK(dep);
+    dep->block_reading();
 }
 
 } // namespace doris::pipeline
