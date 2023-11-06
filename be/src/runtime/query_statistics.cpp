@@ -88,9 +88,14 @@ void QueryStatistics::merge(QueryStatisticsRecvr* recvr) {
 }
 
 void QueryStatistics::merge(QueryStatisticsRecvr* recvr, int sender_id) {
+    if (!recvr) {
+        return;
+    }
     auto it = recvr->_query_statistics.find(sender_id);
     if (it != recvr->_query_statistics.end()) {
-        merge(*it->second);
+        if (it->second) {
+            merge(*it->second);
+        }
     }
 }
 

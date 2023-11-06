@@ -146,7 +146,9 @@ private:
     void merge(QueryStatistics* statistics) {
         std::lock_guard<SpinLock> l(_lock);
         for (auto& pair : _query_statistics) {
-            statistics->merge(*(pair.second));
+            if (pair.second) {
+                statistics->merge(*(pair.second));
+            }
         }
     }
 

@@ -149,7 +149,9 @@ Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
 }
 Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics, int sender_id) {
     RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
-    statistics->merge(_sub_plan_query_statistics_recvr.get(), sender_id);
+    if (_sub_plan_query_statistics_recvr) {
+        statistics->merge(_sub_plan_query_statistics_recvr.get(), sender_id);
+    }
     return Status::OK();
 }
 Status VExchangeNode::close(RuntimeState* state) {
