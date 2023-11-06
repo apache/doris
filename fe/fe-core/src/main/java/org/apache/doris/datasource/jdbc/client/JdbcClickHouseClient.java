@@ -66,7 +66,7 @@ public class JdbcClickHouseClient extends JdbcClient {
 
         if (ckType.startsWith("DateTime")) {
             // DateTime with second precision
-            if (ckType.startsWith("DateTime(")) {
+            if (ckType.startsWith("DateTime(") || ckType.equals("DateTime")) {
                 return ScalarType.createDatetimeV2Type(0);
             } else {
                 int indexStart = ckType.indexOf('(');
