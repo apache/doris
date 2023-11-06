@@ -45,7 +45,6 @@ public class AuditLogHelper {
         SpanContext spanContext = Span.fromContext(Context.current()).getSpanContext();
 
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
-                .setCatalog(ctx.getCurrentCatalog().getName())
                 .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setState(ctx.getState().toString())
                 .setErrorCode(ctx.getState().getErrorCode() == null ? 0 : ctx.getState().getErrorCode().getCode())
@@ -62,6 +61,11 @@ public class AuditLogHelper {
                 .setTraceId(spanContext.isValid() ? spanContext.getTraceId() : "")
                 .setWorkloadGroup(ctx.getWorkloadGroupName())
                 .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables());
+
+        // when doric fe is booting, current catalog may not be set
+        if (ctx.getCurrentCatalog() != null) {
+            ctx.getAuditEventBuilder().setCatalog(ctx.getCurrentCatalog().getName());
+        }
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
