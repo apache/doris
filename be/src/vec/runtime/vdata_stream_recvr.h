@@ -125,7 +125,8 @@ public:
 
     bool is_closed() const { return _is_closed; }
 
-    void set_dependency(std::shared_ptr<pipeline::LocalExchangeChannelDependency> dependency);
+    void set_dependency(int sender_id,
+                        std::shared_ptr<pipeline::LocalExchangeChannelDependency> dependency);
 
 private:
     void update_blocks_memory_usage(int64_t size);
@@ -183,7 +184,8 @@ private:
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
     bool _enable_pipeline;
-    std::shared_ptr<pipeline::LocalExchangeChannelDependency> _local_channel_dependency;
+    std::map<int, std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
+            _sender_to_local_channel_dependency;
 };
 
 class ThreadClosure : public google::protobuf::Closure {
@@ -226,8 +228,9 @@ public:
     }
 
     void set_channel_dependency(
+            int sender_id,
             std::shared_ptr<pipeline::LocalExchangeChannelDependency> channel_dependency) {
-        _local_channel_dependency = channel_dependency;
+        _sender_to_local_channel_dependency.insert({sender_id, channel_dependency});
     }
 
 protected:
@@ -252,7 +255,8 @@ protected:
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
 
     std::shared_ptr<pipeline::ExchangeDataDependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::LocalExchangeChannelDependency> _local_channel_dependency = nullptr;
+    std::map<int, std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
+            _sender_to_local_channel_dependency;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {

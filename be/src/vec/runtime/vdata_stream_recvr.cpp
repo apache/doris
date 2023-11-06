@@ -101,8 +101,8 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
     _block_queue.pop_front();
     if (_block_queue.empty() && _dependency) {
         _dependency->block_reading();
-        if (_local_channel_dependency) {
-            _local_channel_dependency->set_ready_for_write();
+        for (auto& it : _sender_to_local_channel_dependency) {
+            it.second->set_ready_for_write();
         }
     }
 
@@ -428,10 +428,10 @@ bool VDataStreamRecvr::sender_queue_empty(int sender_id) {
 }
 
 void VDataStreamRecvr::set_dependency(
-        std::shared_ptr<pipeline::LocalExchangeChannelDependency> dependency) {
-    _local_channel_dependency = dependency;
+        int sender_id, std::shared_ptr<pipeline::LocalExchangeChannelDependency> dependency) {
+    _sender_to_local_channel_dependency.insert({sender_id, dependency});
     for (auto& queue : _sender_queues) {
-        queue->set_channel_dependency(dependency);
+        queue->set_channel_dependency(sender_id, dependency);
     }
 }
 
@@ -486,12 +486,18 @@ void VDataStreamRecvr::cancel_stream(Status exec_status) {
 void VDataStreamRecvr::update_blocks_memory_usage(int64_t size) {
     _blocks_memory_usage->add(size);
     _blocks_memory_usage_current_value = _blocks_memory_usage->current_value();
-    if (_local_channel_dependency && size > 0 &&
+    if (_sender_to_local_channel_dependency.size() > 0 && size > 0 &&
         _blocks_memory_usage_current_value > config::exchg_node_buffer_size_bytes && !_is_closed) {
-        _local_channel_dependency->block_writing();
-    } else if (_local_channel_dependency && size < 0 &&
+        for (auto& it : _sender_to_local_channel_dependency) {
+            if (!is_closed() && !sender_queue_empty(it.first)) {
+                it.second->block_writing();
+            }
+        }
+    } else if (_sender_to_local_channel_dependency.size() > 0 && size < 0 &&
                _blocks_memory_usage_current_value <= config::exchg_node_buffer_size_bytes) {
-        _local_channel_dependency->set_ready_for_write();
+        for (auto& it : _sender_to_local_channel_dependency) {
+            it.second->set_ready_for_write();
+        }
     }
 }
 
@@ -500,8 +506,8 @@ void VDataStreamRecvr::close() {
         return;
     }
     _is_closed = true;
-    if (_local_channel_dependency) {
-        _local_channel_dependency->set_ready_for_write();
+    for (auto& it : _sender_to_local_channel_dependency) {
+        it.second->set_ready_for_write();
     }
     for (int i = 0; i < _sender_queues.size(); ++i) {
         _sender_queues[i]->close();
