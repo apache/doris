@@ -49,7 +49,7 @@ public class TableSchema {
     public static class SchemaColumn {
         private String name;
         private int type;
-        private SchemaColumn childColumn;
+        private List<SchemaColumn> childColumns;
 
         public SchemaColumn() {
 
@@ -59,8 +59,8 @@ public class TableSchema {
             return name;
         }
 
-        public SchemaColumn getChildColumn() {
-            return childColumn;
+        public List<SchemaColumn> getChildColumns() {
+            return childColumns;
         }
 
         public int getType() {
@@ -75,8 +75,8 @@ public class TableSchema {
             this.type = type.getValue();
         }
 
-        public void addChildColumn(SchemaColumn childColumn) {
-            this.childColumn = childColumn;
+        public void addChildColumns(List<SchemaColumn> childColumns) {
+            this.childColumns = childColumns;
         }
     }
 

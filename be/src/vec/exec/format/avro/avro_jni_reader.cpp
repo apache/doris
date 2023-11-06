@@ -144,8 +144,7 @@ Status AvroJNIReader::get_parsed_schema(std::vector<std::string>* col_names,
 }
 
 TypeDescriptor AvroJNIReader::convert_to_doris_type(const rapidjson::Value& column_schema) {
-    ::doris::TPrimitiveType::type schema_type =
-            static_cast< ::doris::TPrimitiveType::type>(column_schema["type"].GetInt());
+    auto schema_type = static_cast< ::doris::TPrimitiveType::type>(column_schema["type"].GetInt());
     switch (schema_type) {
     case TPrimitiveType::INT:
     case TPrimitiveType::STRING:
@@ -153,30 +152,35 @@ TypeDescriptor AvroJNIReader::convert_to_doris_type(const rapidjson::Value& colu
     case TPrimitiveType::BOOLEAN:
     case TPrimitiveType::DOUBLE:
     case TPrimitiveType::FLOAT:
-        return TypeDescriptor(thrift_to_type(schema_type));
+    case TPrimitiveType::BINARY:
+        return {thrift_to_type(schema_type)};
     case TPrimitiveType::ARRAY: {
         TypeDescriptor list_type(PrimitiveType::TYPE_ARRAY);
-        list_type.add_sub_type(convert_complex_type(column_schema["childColumn"].GetObject()));
+        const rapidjson::Value& childColumns = column_schema["childColumns"];
+        list_type.add_sub_type(convert_to_doris_type(childColumns[0]));
         return list_type;
     }
     case TPrimitiveType::MAP: {
         TypeDescriptor map_type(PrimitiveType::TYPE_MAP);
-
+        const rapidjson::Value& childColumns = column_schema["childColumns"];
         // The default type of AVRO MAP structure key is STRING
         map_type.add_sub_type(PrimitiveType::TYPE_STRING);
-        map_type.add_sub_type(convert_complex_type(column_schema["childColumn"].GetObject()));
+        map_type.add_sub_type(convert_to_doris_type(childColumns[1]));
         return map_type;
     }
-    default:
-        return TypeDescriptor(PrimitiveType::INVALID_TYPE);
+    case TPrimitiveType::STRUCT: {
+        TypeDescriptor struct_type(PrimitiveType::TYPE_STRUCT);
+        const rapidjson::Value& childColumns = column_schema["childColumns"];
+        for (auto i = 0; i < childColumns.Size(); i++) {
+            const rapidjson::Value& child = childColumns[i];
+            struct_type.add_sub_type(convert_to_doris_type(childColumns[i]),
+                                     std::string(child["name"].GetString()));
+        }
+        return struct_type;
     }
-}
-
-TypeDescriptor AvroJNIReader::convert_complex_type(
-        const rapidjson::Document::ConstObject child_schema) {
-    ::doris::TPrimitiveType::type child_schema_type =
-            static_cast< ::doris::TPrimitiveType::type>(child_schema["type"].GetInt());
-    return TypeDescriptor(thrift_to_type(child_schema_type));
+    default:
+        return {PrimitiveType::INVALID_TYPE};
+    }
 }
 
 } // namespace doris::vectorized
