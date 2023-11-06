@@ -103,7 +103,7 @@ $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-q
 
     echo "#### 4. comment result on tpch"
     comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
-    create_an_issue_comment "${pull_request_id:-}" "${comment_body}"
+    create_an_issue_comment_tpch "${pull_request_id:-}" "${comment_body}"
 
     stop_doris
 )

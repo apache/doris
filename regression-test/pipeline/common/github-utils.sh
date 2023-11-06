@@ -1,13 +1,14 @@
 #!/bin/bash
 
 function create_an_issue_comment() {
-    ISSUE_NUMBER="$1"
-    COMMENT_BODY="$2"
+    local ISSUE_NUMBER="$1"
+    local COMMENT_BODY="$2"
     if [[ -z "${COMMENT_BODY}" ]]; then return 1; fi
     if [[ -z "${GITHUB_TOKEN}" ]]; then return 1; fi
 
     local OWNER='apache'
     local REPO='doris'
+    COMMENT_BODY=$(echo "${COMMENT_BODY}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
     if ret=$(curl -s \
         -X POST \
         -H "Accept: application/vnd.github+json" \
@@ -29,4 +30,19 @@ function create_an_issue_comment() {
     else
         echo -e "\033[31m Create issue(${ISSUE_NUMBER}) comment FAIL... \033[0m" && return 1
     fi
+}
+
+function create_an_issue_comment_tpch() {
+    local ISSUE_NUMBER="$1"
+    local COMMENT_BODY="$2"
+    COMMENT_BODY="
+<details>
+<summary>TPC-H test result</summary>
+
+\`\`\`
+${COMMENT_BODY}
+\`\`\`
+</details>
+"
+    create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
 }
