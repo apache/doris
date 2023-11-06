@@ -1356,7 +1356,6 @@ void VTabletWriter::_generate_row_distribution_payload(
              ++index_num) { // partition->indexes = [index, tablets...]
 
             auto tablet_id = partition->indexes[index_num].tablets[tablet_index];
-            LOG(WARNING) << "got tablet it " << tablet_id << " at row " << row_idx;
             auto it = _channels[index_num]->_channels_by_tablet.find(
                     tablet_id); // (tablet_id, VNodeChannel) where this tablet locate
 

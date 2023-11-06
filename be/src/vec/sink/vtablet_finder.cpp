@@ -49,7 +49,8 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
         _vpartition->find_partition(block, index, partitions[index]);
     }
 
-    std::vector<uint32_t> qualified_rows(rows, 0);
+    std::vector<uint32_t> qualified_rows;
+    qualified_rows.reserve(rows);
 
     for (int row_index = 0; row_index < rows; row_index++) {
         if (partitions[row_index] == nullptr) [[unlikely]] {
@@ -90,9 +91,6 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
         _partition_ids.emplace(partitions[row_index]->id);
 
         qualified_rows.push_back(row_index);
-    }
-    if (!qualified_rows.empty()) {
-        return Status::OK();
     }
 
     if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_ROW) {
