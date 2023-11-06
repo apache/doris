@@ -105,7 +105,7 @@ function add_doris_be_to_fe() {
 
 function stop_doris() {
     if "${DORIS_HOME}"/fe/bin/stop_fe.sh &&
-        "${DORIS_HOME}"/be/bin/start_be.sh; then
+        "${DORIS_HOME}"/be/bin/stop_be.sh; then
         echo "INFO: normally stoped doris"
     else
         pgrep -fi doris | xargs kill -9
