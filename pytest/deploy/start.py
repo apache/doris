@@ -195,7 +195,7 @@ def add_auditload_plugin():
               sql_hash varchar(48) comment 'Hash value for this query', \
               sql_digest varchar(48) comment 'Sql digest for this query', \
               peak_memory_bytes bigint comment 'Peak memory bytes used on all backends of this query', \
-              stmt string comment 'The original statement, trimed if longer than 2G, ' \
+              stmt string comment 'The original statement, trimed if longer than 2G ' \
           ) engine=OLAP \
           duplicate key(query_id, \`time\`, client_ip) \
           partition by range(\`time\`) () \
