@@ -86,7 +86,7 @@ exit_flag=0
     bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
     line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpch-queries.log)
     line_begin=$((line_end - 23))
-    comment_body="Tpch sf${SF} test resutl on commit ${commit_id:-}
+    comment_body="Tpch sf${SF} test result on commit ${commit_id:-}
 
 run tpch-sf${SF} query with default conf and session variables
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-queries.log)"
