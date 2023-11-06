@@ -44,13 +44,7 @@ In addition to Hive, many other systems also use the Hive Metastore to store met
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
-    'hadoop.username' = 'hive',
-    'dfs.nameservices'='your-nameservice',
-    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
-    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083'
 );
 ```
 
