@@ -90,6 +90,13 @@ bool ExchangeSinkBuffer<Parent>::can_write() const {
 }
 
 template <typename Parent>
+void ExchangeSinkBuffer<Parent>::_set_ready_to_finish() {
+    if (_finish_dependency && _busy_channels == 0) {
+        _finish_dependency->set_ready_to_finish();
+    }
+}
+
+template <typename Parent>
 bool ExchangeSinkBuffer<Parent>::is_pending_finish() {
     //note(wb) angly implementation here, because operator couples the scheduling logic
     // graceful implementation maybe as follows:
@@ -225,9 +232,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
     if (_is_finishing) {
         _rpc_channel_is_idle[id] = true;
         _busy_channels--;
-        if (_finish_dependency && _busy_channels == 0) {
-            _finish_dependency->set_ready_to_finish();
-        }
+        _set_ready_to_finish();
         return Status::OK();
     }
 
@@ -351,9 +356,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
     } else {
         _rpc_channel_is_idle[id] = true;
         _busy_channels--;
-        if (_finish_dependency && _busy_channels == 0) {
-            _finish_dependency->set_ready_to_finish();
-        }
+        _set_ready_to_finish();
     }
 
     return Status::OK();
@@ -376,9 +379,7 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
     if (!_rpc_channel_is_idle[id]) {
         _busy_channels--;
         _rpc_channel_is_idle[id] = true;
-        if (_finish_dependency && _busy_channels == 0) {
-            _finish_dependency->set_ready_to_finish();
-        }
+        _set_ready_to_finish();
     }
 }
 
@@ -396,9 +397,7 @@ void ExchangeSinkBuffer<Parent>::_set_receiver_eof(InstanceLoId id) {
     if (!_rpc_channel_is_idle[id]) {
         _busy_channels--;
         _rpc_channel_is_idle[id] = true;
-        if (_finish_dependency && _busy_channels == 0) {
-            _finish_dependency->set_ready_to_finish();
-        }
+        _set_ready_to_finish();
     }
 }
 

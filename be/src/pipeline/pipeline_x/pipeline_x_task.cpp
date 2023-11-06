@@ -356,21 +356,24 @@ std::string PipelineXTask::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
-bool PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
+void PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
     // call by dependency
     auto state = get_state();
     VecDateTimeValue now = VecDateTimeValue::local_time();
     DCHECK(avoid_using_blocked_queue(state));
     Dependency* block_dep = nullptr;
+    PipelineTaskState next_state = PipelineTaskState::RUNNABLE;
     if (state == PipelineTaskState::PENDING_FINISH) {
         block_dep = finish_blocked_dependency();
+        if (block_dep == nullptr) {
+            next_state = PipelineTaskState::PENDING_FINISH;
+        }
     } else if (query_context()->is_cancelled()) {
         _make_run();
-        return true;
+        return;
     } else if (query_context()->is_timeout(now)) {
         query_context()->cancel(true, "", Status::Cancelled(""));
-        _make_run();
-        return true;
+        return;
     } else {
         if (state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
             block_dep = read_blocked_dependency();
@@ -380,14 +383,12 @@ bool PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
             block_dep = write_blocked_dependency();
         }
     }
+    DCHECK(wake_up_dep != block_dep) << "wake up dep : " << wake_up_dep->name();
     if (block_dep == nullptr) {
-        _make_run();
-        return true;
+        _make_run(next_state);
+    } else {
+        push_blocked_task_to_dep();
     }
-    // block_dep != nullptr , block task has trans to other dep
-    DCHECK(wake_up_dep != block_dep);
-    push_blocked_task_to_dep();
-    return false;
 }
 
 void PipelineXTask::_make_run(PipelineTaskState t_state) {

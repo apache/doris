@@ -35,17 +35,15 @@ void Dependency::add_block_task(PipelineXTask* task) {
 }
 
 void Dependency::try_to_wake_up_task() {
-    std::unique_lock<std::mutex> lc(_task_lock);
-    if (_block_task.empty()) {
-        return;
+    std::vector<PipelineXTask*> local_block_task {};
+    {
+        std::unique_lock<std::mutex> lc(_task_lock);
+        local_block_task.swap(_block_task);
     }
-    for (auto* task : _block_task) {
+    for (auto* task : local_block_task) {
         DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
-        if (task->try_wake_up(this)) {
-            _wake_up_task_counter++;
-        }
+        task->try_wake_up(this);
     }
-    std::vector<PipelineXTask*> {}.swap(_block_task);
 }
 
 template Status HashJoinDependency::extract_join_column<true>(
