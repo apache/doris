@@ -535,6 +535,18 @@ public:
         if constexpr (ShowNull::value) {
             this->data(place).insert_result_into(to);
         } else {
+            if (version >= 4) {
+                auto& to_arr = assert_cast<ColumnArray&>(to);
+                auto& to_data_col =
+                        assert_cast<ColumnNullable&>(to_arr.get_data()).get_nested_column();
+                auto& to_offsets = to_arr.get_offsets();
+                this->data(place).insert_result_into(to_data_col);
+                assert_cast<ColumnNullable&>(to_arr.get_data())
+                        .get_null_map_data()
+                        .resize_fill(to_data_col.size(), 0);
+                to_offsets.push_back(to_data_col.size());
+                return;
+            }
             return BaseHelper::serialize_without_key_to_column(place, to);
         }
     }
@@ -547,6 +559,25 @@ public:
                 this->data(place).deserialize_and_merge(column, i);
             }
         } else {
+            if (version >= 4) {
+                const auto& src_column = assert_cast<const ColumnArray&>(column);
+                const auto& src_data_col = assert_cast<const ColumnNullable&>(src_column.get_data())
+                                                   .get_nested_column();
+                const auto& offsets = src_column.get_offsets();
+                const auto rows = offsets.size();
+                for (size_t i = 0; i != rows; ++i) {
+                    auto off_start = offsets[i - 1];
+                    auto off_end = offsets[i];
+                    for (auto off = off_start; off != off_end; ++off) {
+                        if constexpr (ENABLE_ARENA) {
+                            this->data(place).add(src_data_col, off, arena);
+                        } else {
+                            this->data(place).add(src_data_col, off);
+                        }
+                    }
+                }
+                return;
+            }
             return BaseHelper::deserialize_and_merge_from_column(place, column, arena);
         }
     }
@@ -560,6 +591,25 @@ public:
                                                             i);
             }
         } else {
+            if (version >= 4) {
+                const auto& src_column =
+                        assert_cast<const ColumnArray&>(*assert_cast<const IColumn*>(column));
+                const auto& src_data_col = assert_cast<const ColumnNullable&>(src_column.get_data())
+                                                   .get_nested_column();
+                const auto& offsets = src_column.get_offsets();
+                for (size_t i = 0; i != num_rows; ++i) {
+                    auto off_start = offsets[i - 1];
+                    auto off_end = offsets[i];
+                    for (auto off = off_start; off != off_end; ++off) {
+                        if constexpr (ENABLE_ARENA) {
+                            this->data(places[i]).add(src_data_col, off, arena);
+                        } else {
+                            this->data(places[i]).add(src_data_col, off);
+                        }
+                    }
+                }
+                return;
+            }
             return BaseHelper::deserialize_and_merge_vec(places, offset, rhs, column, arena,
                                                          num_rows);
         }
@@ -572,6 +622,24 @@ public:
                 this->data(places).deserialize_and_merge(column, i);
             }
         } else {
+            if (version >= 4) {
+                const auto& src_column = assert_cast<const ColumnArray&>(column);
+                const auto& src_data_col = assert_cast<const ColumnNullable&>(src_column.get_data())
+                                                   .get_nested_column();
+                const auto& offsets = src_column.get_offsets();
+                for (size_t i = 0; i != num_rows; ++i) {
+                    auto off_start = offsets[i - 1];
+                    auto off_end = offsets[i];
+                    for (auto off = off_start; off != off_end; ++off) {
+                        if constexpr (ENABLE_ARENA) {
+                            this->data(places).add(src_data_col, off, arena);
+                        } else {
+                            this->data(places).add(src_data_col, off);
+                        }
+                    }
+                }
+                return;
+            }
             return BaseHelper::deserialize_from_column(places, column, arena, num_rows);
         }
     }
@@ -586,6 +654,24 @@ public:
                 this->data(place).deserialize_and_merge(column, i);
             }
         } else {
+            if (version >= 4) {
+                const auto& src_column = assert_cast<const ColumnArray&>(column);
+                const auto& src_data_col = assert_cast<const ColumnNullable&>(src_column.get_data())
+                                                   .get_nested_column();
+                const auto& offsets = src_column.get_offsets();
+                for (size_t i = begin; i <= end; ++i) {
+                    auto off_start = offsets[i - 1];
+                    auto off_end = offsets[i];
+                    for (auto off = off_start; off != off_end; ++off) {
+                        if constexpr (ENABLE_ARENA) {
+                            this->data(place).add(src_data_col, off, arena);
+                        } else {
+                            this->data(place).add(src_data_col, off);
+                        }
+                    }
+                }
+                return;
+            }
             return BaseHelper::deserialize_and_merge_from_column_range(place, column, begin, end,
                                                                        arena);
         }
@@ -602,6 +688,25 @@ public:
                 }
             }
         } else {
+            if (version >= 4) {
+                const auto& src_column =
+                        assert_cast<const ColumnArray&>(*assert_cast<const IColumn*>(column));
+                const auto& src_data_col = assert_cast<const ColumnNullable&>(src_column.get_data())
+                                                   .get_nested_column();
+                const auto& offsets = src_column.get_offsets();
+                for (size_t i = 0; i != num_rows; ++i) {
+                    auto off_start = offsets[i - 1];
+                    auto off_end = offsets[i];
+                    for (auto off = off_start; off != off_end; ++off) {
+                        if constexpr (ENABLE_ARENA) {
+                            this->data(places[i]).add(src_data_col, off, arena);
+                        } else {
+                            this->data(places[i]).add(src_data_col, off);
+                        }
+                    }
+                }
+                return;
+            }
             return BaseHelper::deserialize_and_merge_vec_selected(places, offset, rhs, column,
                                                                   arena, num_rows);
         }
@@ -615,6 +720,22 @@ public:
                 data_.insert_result_into(*dst);
             }
         } else {
+            if (version >= 4) {
+                auto& to_arr = assert_cast<ColumnArray&>(*dst);
+                auto& to_data_col =
+                        assert_cast<ColumnNullable&>(to_arr.get_data()).get_nested_column();
+                auto& to_offsets = to_arr.get_offsets();
+
+                for (size_t i = 0; i != num_rows; ++i) {
+                    Data& data_ = this->data(places[i] + offset);
+                    data_.insert_result_into(to_data_col);
+                    to_offsets.push_back(to_data_col.size());
+                }
+                assert_cast<ColumnNullable&>(to_arr.get_data())
+                        .get_null_map_data()
+                        .resize_fill(to_data_col.size(), 0);
+                return;
+            }
             return BaseHelper::serialize_to_column(places, offset, dst, num_rows);
         }
     }
@@ -644,8 +765,61 @@ public:
                 }
                 to_arr.get_offsets().push_back(to_nested_col.size());
             }
-
         } else {
+            if (version >= 4) {
+                auto& to_arr = assert_cast<ColumnArray&>(*dst);
+                auto& to_offsets = to_arr.get_offsets();
+                auto& to_data_col =
+                        assert_cast<ColumnNullable&>(to_arr.get_data()).get_nested_column();
+                const auto old_rows = to_data_col.size();
+                const auto& src_column = *columns[0];
+                if (src_column.is_nullable()) {
+                    auto& src_nullable = assert_cast<const ColumnNullable&>(src_column);
+                    auto& src_data_column = src_nullable.get_nested_column();
+
+                    size_t non_null_rows = 0;
+                    for (size_t i = 0; i != num_rows; ++i) {
+                        if (src_nullable.is_null_at(i)) {
+                            continue;
+                        }
+                        ++non_null_rows;
+
+                        Data data;
+
+                        if constexpr (ENABLE_ARENA) {
+                            data.add(src_data_column, i, arena);
+                        } else {
+                            data.add(src_data_column, i);
+                        }
+
+                        data.insert_result_into(to_data_col);
+                        to_offsets.push_back(to_offsets.back() + 1);
+                    }
+
+                    if (LIKELY(non_null_rows > 0)) {
+                        assert_cast<ColumnNullable&>(to_arr.get_data())
+                                .get_null_map_data()
+                                .resize_fill(old_rows + non_null_rows, 0);
+                    }
+                } else {
+                    for (size_t i = 0; i != num_rows; ++i) {
+                        Data data;
+
+                        if constexpr (ENABLE_ARENA) {
+                            data.add(src_column, i, arena);
+                        } else {
+                            data.add(src_column, i);
+                        }
+
+                        data.insert_result_into(to_data_col);
+                        to_offsets.push_back(to_offsets.back() + 1);
+                    }
+                    assert_cast<ColumnNullable&>(to_arr.get_data())
+                            .get_null_map_data()
+                            .resize_fill(old_rows + num_rows, 0);
+                }
+                return;
+            }
             return BaseHelper::streaming_agg_serialize_to_column(columns, dst, num_rows, arena);
         }
     }
@@ -654,6 +828,9 @@ public:
         if constexpr (ShowNull::value) {
             return get_return_type()->create_column();
         } else {
+            if (version >= 4) {
+                return get_return_type()->create_column();
+            }
             return ColumnString::create();
         }
     }
@@ -662,6 +839,9 @@ public:
         if constexpr (ShowNull::value) {
             return std::make_shared<DataTypeArray>(make_nullable(return_type));
         } else {
+            if (version >= 4) {
+                return std::make_shared<DataTypeArray>(make_nullable(return_type));
+            }
             return IAggregateFunction::get_serialized_type();
         }
     }
@@ -669,6 +849,7 @@ public:
 private:
     DataTypePtr return_type;
     using IAggregateFunction::argument_types;
+    using IAggregateFunction::version;
 };
 
 } // namespace doris::vectorized

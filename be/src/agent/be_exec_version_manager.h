@@ -62,8 +62,10 @@ private:
  *    a. aggregation function do not serialize bitmap to string.
  *    b. array contains/position/countequal function return nullable in less situations.
  *    c. cleared old version of Version 2.
+ * 4: start from doris 2.2
+ *    a. aggregation: collect_list does not serialize the aggregation data to string.
 */
-inline const int BeExecVersionManager::max_be_exec_version = 3;
+inline const int BeExecVersionManager::max_be_exec_version = 4;
 inline const int BeExecVersionManager::min_be_exec_version = 0;
 
 } // namespace doris
