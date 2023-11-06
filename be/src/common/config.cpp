@@ -1095,6 +1095,12 @@ DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 // avoid accepting error or too large package causing OOM,default 20000000(20M)
 DEFINE_Int32(be_thrift_max_pkg_bytes, "20000000");
 
+// Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
+DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
+
+// Download binlog rate limit, unit is KB/s, 0 means no limit
+DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
