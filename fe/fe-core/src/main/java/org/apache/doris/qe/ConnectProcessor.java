@@ -61,15 +61,16 @@ import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Strings;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import io.opentelemetry.context.propagation.TextMapGetter;
-import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -83,10 +84,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Process one mysql connection, receive one packet, process, send one packet.
- */
+/** Process one mysql connection, receive one packet, process, send one packet. */
 public class ConnectProcessor {
+
     private static final Logger LOG = LogManager.getLogger(ConnectProcessor.class);
     private static final TextMapGetter<Map<String, String>> getter =
             new TextMapGetter<Map<String, String>>() {
@@ -127,7 +127,10 @@ public class ConnectProcessor {
             catalogName = dbNames[0];
             dbName = dbNames[1];
         } else if (dbNames.length > 2) {
-            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
+            ctx.getState()
+                    .setError(
+                            ErrorCode.ERR_BAD_DB_ERROR,
+                            "Only one dot can be in the name: " + fullDbName);
             return;
         }
         dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
@@ -136,11 +139,17 @@ public class ConnectProcessor {
         if (catalogName != null) {
             CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalogNullable(catalogName);
             if (catalogIf == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + fullDbName);
+                ctx.getState()
+                        .setError(
+                                ErrorCode.ERR_BAD_DB_ERROR,
+                                "No match catalog in doris: " + fullDbName);
                 return;
             }
             if (catalogIf.getDbNullable(dbName) == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + fullDbName);
+                ctx.getState()
+                        .setError(
+                                ErrorCode.ERR_BAD_DB_ERROR,
+                                "No match database in doris: " + fullDbName);
                 return;
             }
         }
@@ -219,8 +228,10 @@ public class ConnectProcessor {
         PrepareStmtContext prepareCtx = ctx.getPreparedStmt(String.valueOf(stmtId));
         if (prepareCtx == null) {
             LOG.debug("No such statement in context, stmtId:{}", stmtId);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
-                    "msg: Not supported such prepared statement");
+            ctx.getState()
+                    .setError(
+                            ErrorCode.ERR_UNKNOWN_COM_ERROR,
+                            "msg: Not supported such prepared statement");
             return;
         }
         ctx.setStartTime();
@@ -263,18 +274,23 @@ public class ConnectProcessor {
             ctx.setExecutor(executor);
             executor.execute();
             stmtStr = executeStmt.toSql();
-        } catch (Throwable e)  {
+        } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe palo bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+            ctx.getState()
+                    .setError(
+                            ErrorCode.ERR_UNKNOWN_ERROR,
+                            e.getClass().getSimpleName() + ", msg: " + e.getMessage());
         }
         auditAfterExec(stmtStr, prepareCtx.stmt.getInnerStmt(), null, false);
     }
 
-    private void auditAfterExec(String origStmt, StatementBase parsedStmt,
-                    Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+    private void auditAfterExec(
+            String origStmt,
+            StatementBase parsedStmt,
+            Data.PQueryStatistics statistics,
+            boolean printFuzzyVariables) {
         AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
     }
 
@@ -303,8 +319,10 @@ public class ConnectProcessor {
 
         List<StatementBase> stmts = null;
 
-        // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
-        if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
+        // Nereids do not support prepare and execute now, so forbid prepare command, only process
+        // query command
+        if (mysqlCommand == MysqlCommand.COM_QUERY
+                && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
                 stmts = new NereidsParser().parseSQL(originStmt);
             } catch (NotSupportedException e) {
@@ -313,8 +331,10 @@ public class ConnectProcessor {
                 return;
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
-                LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
-                        e.getMessage(), originStmt);
+                LOG.debug(
+                        "Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                        e.getMessage(),
+                        originStmt);
             }
         }
 
@@ -335,11 +355,13 @@ public class ConnectProcessor {
             try {
                 origSingleStmtList = SqlUtils.splitMultiStmts(originStmt);
             } catch (Exception ignore) {
-                LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", originStmt);
+                LOG.warn(
+                        "Try to parse multi origSingleStmt failed, originStmt: \"{}\"", originStmt);
             }
         }
 
-        boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
+        boolean usingOrigSingleStmt =
+                origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
         for (int i = 0; i < stmts.size(); ++i) {
             String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : originStmt;
 
@@ -362,27 +384,35 @@ public class ConnectProcessor {
                         finalizeCommand();
                     }
                 }
-                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+                auditAfterExec(
+                        auditStmt,
+                        executor.getParsedStmt(),
+                        executor.getQueryStatisticsForAuditLog(),
+                        true);
                 // execute failed, skip remaining stmts
                 if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                     break;
                 }
             } catch (Throwable throwable) {
-                handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
+                handleQueryException(
+                        throwable,
+                        auditStmt,
+                        executor.getParsedStmt(),
                         executor.getQueryStatisticsForAuditLog());
                 // execute failed, skip remaining stmts
                 break;
             } finally {
                 executor.addProfileToSpan();
             }
-
         }
-
     }
 
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
-    private void handleQueryException(Throwable throwable, String origStmt,
-                                      StatementBase parsedStmt, Data.PQueryStatistics statistics) {
+    private void handleQueryException(
+            Throwable throwable,
+            String origStmt,
+            StatementBase parsedStmt,
+            Data.PQueryStatistics statistics) {
         if (ctx.getMinidump() != null) {
             MinidumpUtils.saveMinidumpString(ctx.getMinidump(), DebugUtil.printId(ctx.queryId()));
         }
@@ -392,7 +422,10 @@ public class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed");
         } else if (throwable instanceof UserException) {
             LOG.warn("Process one query failed because.", throwable);
-            ctx.getState().setError(((UserException) throwable).getMysqlErrorCode(), throwable.getMessage());
+            ctx.getState()
+                    .setError(
+                            ((UserException) throwable).getMysqlErrorCode(),
+                            throwable.getMessage());
             // set it as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } else if (throwable instanceof NotSupportedException) {
@@ -404,8 +437,12 @@ public class ConnectProcessor {
             // Catch all throwable.
             // If reach here, maybe palo bug.
             LOG.warn("Process one query failed because unknown reason: ", throwable);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    throwable.getClass().getSimpleName() + ", msg: " + throwable.getMessage());
+            ctx.getState()
+                    .setError(
+                            ErrorCode.ERR_UNKNOWN_ERROR,
+                            throwable.getClass().getSimpleName()
+                                    + ", msg: "
+                                    + throwable.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
@@ -418,7 +455,8 @@ public class ConnectProcessor {
     private List<StatementBase> parse(String originStmt) throws AnalysisException, DdlException {
         LOG.debug("the originStmts are: {}", originStmt);
         // Parse statement with parser generated by CUP&FLEX
-        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
+        SqlScanner input =
+                new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
         try {
             return SqlParserUtils.getMultiStmts(parser);
@@ -426,18 +464,24 @@ public class ConnectProcessor {
             throw new AnalysisException("Please check your sql, we meet an error when parsing.", e);
         } catch (AnalysisException | DdlException e) {
             String errorMessage = parser.getErrorMsg(originStmt);
-            LOG.debug("origin stmt: {}; Analyze error message: {}", originStmt, parser.getErrorMsg(originStmt), e);
+            LOG.debug(
+                    "origin stmt: {}; Analyze error message: {}",
+                    originStmt,
+                    parser.getErrorMsg(originStmt),
+                    e);
             if (errorMessage == null) {
                 throw e;
             } else {
                 throw new AnalysisException(errorMessage, e);
             }
         } catch (ArrayStoreException e) {
-            throw new AnalysisException("Sql parser can't convert the result to array, please check your sql.", e);
+            throw new AnalysisException(
+                    "Sql parser can't convert the result to array, please check your sql.", e);
         } catch (Exception e) {
             // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
             // should be removed this try-catch clause future.
-            throw new AnalysisException("Internal Error, maybe syntax error or this is a bug: " + e.getMessage(), e);
+            throw new AnalysisException(
+                    "Internal Error, maybe syntax error or this is a bug: " + e.getMessage(), e);
         }
     }
 
@@ -445,19 +489,24 @@ public class ConnectProcessor {
     @SuppressWarnings("rawtypes")
     private void handleFieldList() throws IOException {
         // Already get command code.
-        String tableName = new String(MysqlProto.readNulTerminateString(packetBuf), StandardCharsets.UTF_8);
+        String tableName =
+                new String(MysqlProto.readNulTerminateString(packetBuf), StandardCharsets.UTF_8);
         if (Strings.isNullOrEmpty(tableName)) {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
             return;
         }
         DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(ctx.getDatabase());
         if (db == null) {
-            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
+            ctx.getState()
+                    .setError(
+                            ErrorCode.ERR_BAD_DB_ERROR,
+                            "Unknown database(" + ctx.getDatabase() + ")");
             return;
         }
         TableIf table = db.getTableNullable(tableName);
         if (table == null) {
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Unknown table(" + tableName + ")");
+            ctx.getState()
+                    .setError(ErrorCode.ERR_UNKNOWN_TABLE, "Unknown table(" + tableName + ")");
             return;
         }
 
@@ -488,7 +537,8 @@ public class ConnectProcessor {
         MysqlCommand command = MysqlCommand.fromCode(code);
         if (command == null) {
             ErrorReport.report(ErrorCode.ERR_UNKNOWN_COM_ERROR);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unknown command(" + code + ")");
+            ctx.getState()
+                    .setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unknown command(" + code + ")");
             LOG.warn("Unknown command(" + code + ")");
             return;
         }
@@ -506,7 +556,8 @@ public class ConnectProcessor {
             case COM_QUERY:
             case COM_STMT_PREPARE:
                 ctx.initTracer("trace");
-                Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").setNoParent().startSpan();
+                Span rootSpan =
+                        ctx.getTracer().spanBuilder("handleQuery").setNoParent().startSpan();
                 try (Scope scope = rootSpan.makeCurrent()) {
                     handleQuery(command);
                 } catch (Exception e) {
@@ -532,7 +583,10 @@ public class ConnectProcessor {
                 handleStmtClose();
                 break;
             default:
-                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
+                ctx.getState()
+                        .setError(
+                                ErrorCode.ERR_UNKNOWN_COM_ERROR,
+                                "Unsupported command(" + command + ")");
                 LOG.warn("Unsupported command(" + command + ")");
                 break;
         }
@@ -557,7 +611,8 @@ public class ConnectProcessor {
     // This method is used to send a response packet to the client
     private void finalizeCommand() throws IOException {
         ByteBuffer packet;
-        if (executor != null && executor.isForwardToMaster()
+        if (executor != null
+                && executor.isForwardToMaster()
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             ShowResultSet resultSet = executor.getShowResultSet();
             if (resultSet == null) {
@@ -583,10 +638,14 @@ public class ConnectProcessor {
         // note(wb) we should write profile after return result to mysql client
         // because write profile maybe take too much time
         // explain query stmt do not have profile
-        if (executor != null && executor.getParsedStmt() != null && !executor.getParsedStmt().isExplain()
-                && (executor.getParsedStmt() instanceof QueryStmt // currently only QueryStmt and insert need profile
-                || executor.getParsedStmt() instanceof LogicalPlanAdapter
-                || executor.getParsedStmt() instanceof InsertStmt)) {
+        if (executor != null
+                && executor.getParsedStmt() != null
+                && !executor.getParsedStmt().isExplain()
+                && (executor.getParsedStmt()
+                                instanceof
+                                QueryStmt // currently only QueryStmt and insert need profile
+                        || executor.getParsedStmt() instanceof LogicalPlanAdapter
+                        || executor.getParsedStmt() instanceof InsertStmt)) {
             executor.updateProfile(true);
             StatsErrorEstimator statsErrorEstimator = ConnectContext.get().getStatsErrorEstimator();
             if (statsErrorEstimator != null) {
@@ -610,7 +669,8 @@ public class ConnectProcessor {
             ctx.setForwardedStmtId(request.getStmtId());
         }
         if (request.isSetCurrentUserIdent()) {
-            UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
+            UserIdentity currentUserIdentity =
+                    UserIdentity.fromThrift(request.getCurrentUserIdent());
             ctx.setCurrentUserIdentity(currentUserIdentity);
         }
         if (request.isFoldConstantByBe()) {
@@ -632,11 +692,13 @@ public class ConnectProcessor {
                 ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
             }
             if (request.isSetCurrentUserIdent()) {
-                UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
+                UserIdentity currentUserIdentity =
+                        UserIdentity.fromThrift(request.getCurrentUserIdent());
                 ctx.setCurrentUserIdentity(currentUserIdentity);
             }
             if (request.isSetInsertVisibleTimeoutMs()) {
-                ctx.getSessionVariable().setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
+                ctx.getSessionVariable()
+                        .setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
             }
         }
 
@@ -657,8 +719,11 @@ public class ConnectProcessor {
         if (request.isSetTraceCarrier()) {
             traceCarrier = request.getTraceCarrier();
         }
-        Context extractedContext = Telemetry.getOpenTelemetry().getPropagators().getTextMapPropagator()
-                .extract(Context.current(), traceCarrier, getter);
+        Context extractedContext =
+                Telemetry.getOpenTelemetry()
+                        .getPropagators()
+                        .getTextMapPropagator()
+                        .extract(Context.current(), traceCarrier, getter);
         // What we want is for the Traceid to remain unchanged during propagation.
         // ctx.initTracer() will be called only if the Context is valid,
         // so that the Traceid generated by SDKTracer is the same as the follower. Otherwise,
@@ -677,12 +742,15 @@ public class ConnectProcessor {
             ctx.setExecutor(executor);
             // Set default catalog only if the catalog exists.
             if (request.isSetDefaultCatalog()) {
-                CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalog(request.getDefaultCatalog());
+                CatalogIf catalog =
+                        ctx.getEnv().getCatalogMgr().getCatalog(request.getDefaultCatalog());
                 if (catalog != null) {
                     ctx.getEnv().changeCatalog(ctx, request.getDefaultCatalog());
-                    // Set default db only when the default catalog is set and the dbname exists in default catalog.
+                    // Set default db only when the default catalog is set and the dbname exists in
+                    // default catalog.
                     if (request.isSetDefaultDatabase()) {
-                        DatabaseIf db = ctx.getCurrentCatalog().getDbNullable(request.getDefaultDatabase());
+                        DatabaseIf db =
+                                ctx.getCurrentCatalog().getDbNullable(request.getDefaultDatabase());
                         if (db != null) {
                             ctx.getEnv().changeDb(ctx, request.getDefaultDatabase());
                         }
@@ -694,11 +762,16 @@ public class ConnectProcessor {
                 queryId = request.getQueryId();
             } else {
                 UUID uuid = UUID.randomUUID();
-                queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+                queryId =
+                        new TUniqueId(
+                                uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             }
             Span masterQuerySpan =
-                    ctx.getTracer().spanBuilder("master execute").setParent(extractedContext)
-                            .setSpanKind(SpanKind.SERVER).startSpan();
+                    ctx.getTracer()
+                            .spanBuilder("master execute")
+                            .setParent(extractedContext)
+                            .setSpanKind(SpanKind.SERVER)
+                            .startSpan();
             try (Scope scope = masterQuerySpan.makeCurrent()) {
                 executor.execute(queryId);
             } catch (Exception e) {
@@ -710,21 +783,25 @@ public class ConnectProcessor {
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed: " + e.getMessage());
+            ctx.getState()
+                    .setError(
+                            ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed: " + e.getMessage());
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe Doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            ctx.getState()
+                    .setError(
+                            ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
         }
-        // no matter the master execute success or fail, the master must transfer the result to follower
+        // no matter the master execute success or fail, the master must transfer the result to
+        // follower
         // and tell the follower the current journalID.
         TMasterOpResult result = new TMasterOpResult();
         if (ctx.queryId() != null
                 // If none master FE not set query id or query id was reset in StmtExecutor
                 // when a query exec more than once, return it to none master FE.
-                && (!request.isSetQueryId() || !request.getQueryId().equals(ctx.queryId()))
-        ) {
+                && (!request.isSetQueryId() || !request.getQueryId().equals(ctx.queryId()))) {
             result.setQueryId(ctx.queryId());
         }
         result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
@@ -749,7 +826,9 @@ public class ConnectProcessor {
         try {
             packetBuf = channel.fetchOnePacket();
             if (packetBuf == null) {
-                LOG.warn("Null packet received from network. remote: {}", channel.getRemoteHostPortString());
+                LOG.warn(
+                        "Null packet received from network. remote: {}",
+                        channel.getRemoteHostPortString());
                 throw new IOException("Error happened when receiving packet.");
             }
         } catch (AsynchronousCloseException e) {
@@ -779,5 +858,3 @@ public class ConnectProcessor {
         }
     }
 }
-
-
