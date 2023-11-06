@@ -21,7 +21,7 @@
 	url = https://github.com/hendrikmuhs/ccache-action
 [submodule ".github/actions/action-sh-checker"]
 	path = .github/actions/action-sh-checker
-	url = https://github.com/luizm/action-sh-checker
+	url = https://github.com/sakul1234/action-sh-checker
 [submodule ".github/actions/clang-tidy-review"]
 	path = .github/actions/clang-tidy-review
 	url = https://github.com/ZedThree/clang-tidy-review.git
