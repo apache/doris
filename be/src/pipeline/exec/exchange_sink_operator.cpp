@@ -451,7 +451,10 @@ Status ExchangeSinkLocalState::get_next_available_buffer(
             return Status::OK();
         }
     }
-    return Status::InternalError("No broadcast buffer left!");
+    return Status::InternalError("No broadcast buffer left! Available blocks: " +
+                                 std::to_string(_broadcast_dependency->available_blocks()) +
+                                 " and number of buffer is " +
+                                 std::to_string(_broadcast_pb_blocks.size()));
 }
 
 template <typename Channels, typename HashValueType>

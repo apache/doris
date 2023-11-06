@@ -505,9 +505,8 @@ public:
         if (eos) {
             if (_eos_send) {
                 return Status::OK();
-            } else {
-                _eos_send = true;
             }
+            _eos_send = true;
         }
         if (eos || block->get_block()->column_metas_size()) {
             RETURN_IF_ERROR(_buffer->add_block({this, block, eos}, sent));
