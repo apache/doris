@@ -124,7 +124,10 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 return expr;
             }
         }
-        return expr.getResultValue(false);
+        // it may be wrong to fold constant value in inline view
+        // so pass the info to getResultValue method to let predicate itself
+        // to decide if it can fold constant value safely
+        return expr.getResultValue(analyzer.isInlineViewAnalyzer());
     }
 
     /**
