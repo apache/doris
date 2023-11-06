@@ -2899,7 +2899,12 @@ public class Env {
     }
 
     public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
-        getInternalCatalog().addPartition(db, tableName, addPartitionClause);
+        getInternalCatalog().addPartition(db, tableName, addPartitionClause, false);
+    }
+
+    public void addPartitionSkipLock(Database db, OlapTable table, AddPartitionClause addPartitionClause)
+            throws DdlException {
+        getInternalCatalog().addPartition(db, table.getName(), addPartitionClause, true);
     }
 
     public void addPartitionLike(Database db, String tableName, AddPartitionLikeClause addPartitionLikeClause)
