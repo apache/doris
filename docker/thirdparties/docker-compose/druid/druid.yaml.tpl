@@ -88,7 +88,7 @@ services:
     command:
       - coordinator
     env_file:
-      - ./druid.env
+      - druid.env
 
   broker-druid:
     image: apache/druid:27.0.0
@@ -111,7 +111,7 @@ services:
     command:
       - broker
     env_file:
-      - ./druid.env
+      - druid.env
 
   historical-druid:
     image: apache/druid:27.0.0
@@ -135,7 +135,7 @@ services:
     command:
       - historical
     env_file:
-      - ./druid.env
+      - druid.env
 
   middlemanager-druid:
     image: apache/druid:27.0.0
@@ -160,7 +160,7 @@ services:
     command:
       - middleManager
     env_file:
-      - ./druid.env
+      - druid.env
 
   router-druid:
     image: apache/druid:27.0.0
@@ -183,7 +183,7 @@ services:
     command:
       - router
     env_file:
-      - ./druid.env
+      - druid.env
 
   toolbox-druid:
     image: webdevops/toolbox
