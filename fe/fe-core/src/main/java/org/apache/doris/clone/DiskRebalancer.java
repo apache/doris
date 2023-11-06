@@ -41,13 +41,10 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
-
 /*
 
  * This DiskBalancer is different from other Balancers which takes care of cluster-wide data balancing.
@@ -131,13 +128,11 @@ public class DiskRebalancer extends Rebalancer {
         clusterStat.getBackendStatisticByClass(lowBEs, midBEs, highBEs, medium);
 
         Rebalancer rebalancer = Env.getCurrentEnv().getTabletScheduler().getRebalancer();
-        List<Long> fromBes = new ArrayList<>();
-        List<Long> toBes = new ArrayList<>();
-        if (rebalancer != null && rebalancer.isNeedBalanced(clusterStat, medium, fromBes, toBes)) {
+        if (rebalancer != null && rebalancer.unPickOverLongTime(clusterStat, medium)) {
             midBEs.addAll(lowBEs);
             midBEs.addAll(highBEs);
-            midBEs = midBEs.stream().filter(be -> fromBes.contains(be.getBeId()))
-                    .filter(be -> toBes.contains(be.getBeId())).collect(Collectors.toList());
+            lowBEs.clear();
+            highBEs.clear();
         }
 
         if (!(lowBEs.isEmpty() && highBEs.isEmpty())) {

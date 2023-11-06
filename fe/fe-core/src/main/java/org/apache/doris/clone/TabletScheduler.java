@@ -1494,6 +1494,7 @@ public class TabletScheduler extends MasterDaemon {
         if (state == TabletSchedCtx.State.FINISHED) {
             tryAddAfterFinished(tabletCtx);
         }
+        rebalancer.removeFromLastPickTimeTable(tabletCtx.getTag(), tabletCtx.getStorageMedium());
     }
 
     private void tryAddAfterFinished(TabletSchedCtx tabletCtx) {

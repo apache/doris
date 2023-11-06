@@ -25,8 +25,10 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Table;
 
 import java.util.List;
 import java.util.Map;
@@ -55,6 +57,9 @@ public abstract class Rebalancer {
     // be id -> end time of prio
     protected Map<Long, Long> prioBackends = Maps.newConcurrentMap();
 
+    // tag -> (medium, timestamp)
+    private Table<LoadStatisticForTag, TStorageMedium, Long> lastPickTimeTable = HashBasedTable.create();
+
     public Rebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
             Map<Long, PathSlot> backendsWorkingSlots) {
         this.infoService = infoService;
@@ -66,7 +71,11 @@ public abstract class Rebalancer {
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
         for (Map.Entry<Tag, LoadStatisticForTag> entry : statisticMap.entrySet()) {
             for (TStorageMedium medium : TStorageMedium.values()) {
-                alternativeTablets.addAll(selectAlternativeTabletsForCluster(entry.getValue(), medium));
+                List<TabletSchedCtx> candidates = selectAlternativeTabletsForCluster(entry.getValue(), medium);
+                alternativeTablets.addAll(candidates);
+                if (!candidates.isEmpty()) {
+                    lastPickTimeTable.put(entry.getValue(), medium, System.currentTimeMillis());
+                }
             }
         }
         return alternativeTablets;
@@ -80,6 +89,26 @@ public abstract class Rebalancer {
     protected boolean isNeedBalanced(LoadStatisticForTag clusterStat, TStorageMedium medium,
                                      List<Long> fromBes, List<Long> toBes) {
         return true;
+    }
+
+    protected boolean unPickOverLongTime(LoadStatisticForTag clusterStat, TStorageMedium medium) {
+        if (lastPickTimeTable.containsRow(clusterStat)) {
+            Map<TStorageMedium, Long> mediumLastPickTimeMap = lastPickTimeTable.row(clusterStat);
+            if (mediumLastPickTimeMap.containsKey(medium)) {
+                Long lastPickTimeTable = mediumLastPickTimeMap.get(medium);
+                return lastPickTimeTable > 0 && System.currentTimeMillis() > lastPickTimeTable + 10 * 60 * 1000L;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    protected void removeFromLastPickTimeTable(Tag tag, TStorageMedium medium) {
+        if (statisticMap.containsKey(tag)) {
+            lastPickTimeTable.remove(statisticMap.get(tag), medium);
+        }
     }
 
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)

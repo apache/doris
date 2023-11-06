@@ -66,8 +66,6 @@ public class PartitionRebalancer extends Rebalancer {
     private final AtomicLong counterBalanceMoveCreated = new AtomicLong(0);
     private final AtomicLong counterBalanceMoveSucceeded = new AtomicLong(0);
 
-    private long cacheEmptyTimestamp = -1L;
-
     public PartitionRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
             Map<Long, PathSlot> backendsWorkingSlots) {
         super(infoService, invertedIndex, backendsWorkingSlots);
@@ -234,26 +232,6 @@ public class PartitionRebalancer extends Rebalancer {
         return !bes.contains(move.fromBe) && bes.contains(move.toBe);
     }
 
-    public boolean isNeedBalanced(LoadStatisticForTag clusterStat, TStorageMedium medium,
-                                  List<Long> fromBes, List<Long> toBes) {
-        MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(clusterStat.getTag(), medium);
-        if (movesInProgress == null) {
-            return checkCacheEmptyForLong();
-        }
-
-        fromBes.addAll(movesInProgress.get().asMap().values().stream()
-                .filter(p -> p.second != -1L).map(p -> p.first.fromBe).collect(Collectors.toList()));
-        toBes.addAll(movesInProgress.get().asMap().values().stream()
-                .filter(p -> p.second != -1L).map(p -> p.first.toBe).collect(Collectors.toList()));
-
-        return checkCacheEmptyForLong();
-    }
-
-    // cache empty for 10 min
-    public boolean checkCacheEmptyForLong() {
-        return cacheEmptyTimestamp > 0 && System.currentTimeMillis() > cacheEmptyTimestamp + 10 * 60 * 1000L;
-    }
-
     @Override
     protected void completeSchedCtx(TabletSchedCtx tabletCtx)
             throws SchedException {
@@ -346,11 +324,6 @@ public class PartitionRebalancer extends Rebalancer {
         movesCacheMap.updateMapping(statisticMap, Config.partition_rebalance_move_expire_after_access);
         // Perform cache maintenance
         movesCacheMap.maintain();
-        if (movesCacheMap.size() > 0) {
-            cacheEmptyTimestamp = -1;
-        } else if (cacheEmptyTimestamp < 0) {
-            cacheEmptyTimestamp = System.currentTimeMillis();
-        }
         LOG.debug("Move succeeded/total :{}/{}, current {}",
                 counterBalanceMoveSucceeded.get(), counterBalanceMoveCreated.get(), movesCacheMap);
     }
