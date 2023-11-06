@@ -39,7 +39,7 @@ namespace doris {
 WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
     doris::vectorized::WalReader::string_split(wal_dir_list, ",", _wal_dirs);
-    _wal_disk_bytes = std::make_shared<std::atomic_size_t>(0);
+    _all_wal_disk_bytes = std::make_shared<std::atomic_size_t>(0);
 }
 
 WalManager::~WalManager() {

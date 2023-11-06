@@ -23,7 +23,7 @@
 #include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "vec/core/block.h"
+#include "util/lock.h"
 
 namespace doris {
 
