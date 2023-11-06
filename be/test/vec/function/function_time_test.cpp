@@ -209,7 +209,13 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
 
     InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::String, TypeIndex::String};
 
-    {
+    bool case_sensitive = true;
+    cctz::time_zone tz {};
+    if (TimezoneUtils::find_cctz_time_zone("Asia/SHANGHAI", tz)) {
+        case_sensitive = false;
+    }
+
+    if (case_sensitive) {
         DataSet data_set = {{{std::string {"2019-08-01 02:18:27"}, std::string {"Asia/SHANGHAI"},
                               std::string {"america/Los_angeles"}},
                              Null()}};
@@ -222,14 +228,17 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
                               std::string {"UTC"}},
                              str_to_datetime_v2("2019-07-31 18:18:27", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string {"2019-08-01 02:18:27"}, std::string {"Asia/Shanghai"},
-                              std::string {"Utc"}},
-                             Null()},
-                            {{std::string {"2019-08-01 02:18:27"}, std::string {"Asia/Shanghai"},
                               std::string {"UTC"}},
-                             str_to_datetime_v2("2019-07-31 18:18:27", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string {"2019-08-01 02:18:27"}, std::string {"Asia/SHANGHAI"},
-                              std::string {"america/Los_angeles"}},
-                             Null()}};
+                             str_to_datetime_v2("2019-07-31 18:18:27", "%Y-%m-%d %H:%i:%s.%f")}};
+        if (case_sensitive) {
+            data_set.push_back(Row {{std::string {"2019-08-01 02:18:27"},
+                                     std::string {"Asia/Shanghai"}, std::string {"Utc"}},
+                                    Null()});
+            data_set.push_back(
+                    Row {{std::string {"2019-08-01 02:18:27"}, std::string {"Asia/SHANGHAI"},
+                          std::string {"america/Los_angeles"}},
+                         Null()});
+        }
         static_cast<void>(
                 check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, false));
     }

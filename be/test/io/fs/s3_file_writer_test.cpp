@@ -45,6 +45,9 @@ static std::shared_ptr<io::S3FileSystem> s3_fs {nullptr};
 class S3FileWriterTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
+        if (getenv(RUN_S3_TESTS) == nullptr || std::string {getenv(RUN_S3_TESTS)} != "true") {
+            GTEST_SKIP();
+        }
         S3Conf s3_conf;
         config::enable_debug_points = true;
         DebugPoints::instance()->clear();
@@ -73,13 +76,23 @@ public:
     }
 
     static void TearDownTestSuite() {
+        if (getenv(RUN_S3_TESTS) == nullptr || std::string {getenv(RUN_S3_TESTS)} != "true") {
+            GTEST_SKIP();
+        }
         ExecEnv::GetInstance()->_s3_file_upload_thread_pool->shutdown();
         ExecEnv::GetInstance()->_s3_file_upload_thread_pool = nullptr;
         delete ExecEnv::GetInstance()->_s3_buffer_pool;
         ExecEnv::GetInstance()->_s3_buffer_pool = nullptr;
     }
 
+    void SetUp() override {
+        if (getenv(RUN_S3_TESTS) == nullptr || std::string {getenv(RUN_S3_TESTS)} != "true") {
+            GTEST_SKIP();
+        }
+    }
+
 private:
+    static constexpr char RUN_S3_TESTS[] = "RUN_S3_TESTS";
 };
 
 TEST_F(S3FileWriterTest, multi_part_io_error) {
