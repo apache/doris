@@ -561,7 +561,8 @@ public:
         if (!Channel<Parent>::_local_recvr) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "_local_recvr is null");
         }
-        Channel<Parent>::_local_recvr->set_dependency(dependency);
+        Channel<Parent>::_local_recvr->set_dependency(Channel<Parent>::_parent->sender_id(),
+                                                      dependency);
     }
 
 private:
