@@ -192,6 +192,8 @@ public:
     void set_query_statistics(QueryStatistics* statistics) { _statistics = statistics; }
 
 private:
+    void _set_ready_to_finish();
+
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
     // store data in non-broadcast shuffle

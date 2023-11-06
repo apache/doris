@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -159,7 +160,7 @@ public:
 
     bool is_pipelineX() const override { return true; }
 
-    [[nodiscard]] bool try_wake_up(Dependency* wake_up_dep);
+    void try_wake_up(Dependency* wake_up_dep);
 
     DataSinkOperatorXPtr sink() const { return _sink; }
 
@@ -168,6 +169,7 @@ public:
     OperatorXs operatorXs() { return _operators; }
 
     void push_blocked_task_to_dep() {
+        std::unique_lock<std::mutex> lc(_blocked_dep_lock);
         DCHECK(_blocked_dep);
         _blocked_dep->add_block_task(this);
         _blocked_dep = nullptr;
@@ -199,6 +201,7 @@ private:
     bool _dry_run = false;
 
     Dependency* _blocked_dep;
+    std::mutex _blocked_dep_lock;
 };
 
 } // namespace doris::pipeline

@@ -196,6 +196,7 @@ public:
         }
         _finish_dependency_watcher.stop();
         _ready_to_finish = true;
+        try_to_wake_up_task();
     }
 
     void block_finishing() { _ready_to_finish = false; }
