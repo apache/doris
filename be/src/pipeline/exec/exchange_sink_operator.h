@@ -68,7 +68,7 @@ class ExchangeSinkQueueDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeSinkQueueDependency);
     ExchangeSinkQueueDependency(int id) : WriteDependency(id, "ResultQueueDependency") {}
-    ~ExchangeSinkQueueDependency() = default;
+    ~ExchangeSinkQueueDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 };
@@ -77,7 +77,7 @@ class BroadcastDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastDependency);
     BroadcastDependency(int id) : WriteDependency(id, "BroadcastDependency"), _available_block(0) {}
-    virtual ~BroadcastDependency() = default;
+    ~BroadcastDependency() override = default;
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {
         if (config::enable_fuzzy_mode && _available_block == 0 &&
@@ -115,6 +115,8 @@ public:
     void block_writing() override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
     }
+
+    int available_blocks() const { return _available_block; }
 
 private:
     std::atomic<int> _available_block;
@@ -210,7 +212,6 @@ private:
     // Sender instance id, unique within a fragment.
     int _sender_id;
     std::vector<vectorized::BroadcastPBlockHolder> _broadcast_pb_blocks;
-    int _broadcast_pb_block_idx;
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 

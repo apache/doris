@@ -84,7 +84,6 @@ void TabletsChannel::_init_profile(RuntimeProfile* profile) {
     _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
     _add_batch_timer = ADD_TIMER(_profile, "AddBatchTime");
     _write_block_timer = ADD_TIMER(_profile, "WriteBlockTime");
-    _incremental_open_timer = ADD_TIMER(_profile, "IncrementalOpenTabletTime");
     _memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Total", TUnit::BYTES);
     _write_memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Write", TUnit::BYTES);
     _flush_memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Flush", TUnit::BYTES);
@@ -121,14 +120,13 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
 }
 
 Status TabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) {
-    SCOPED_TIMER(_incremental_open_timer);
     if (_state == kInitialized) { // haven't opened
         return open(params);
     }
     std::lock_guard<std::mutex> l(_lock);
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
-    for (const auto& index : _schema->indexes()) {
+    for (auto& index : _schema->indexes()) {
         if (index->index_id == _index_id) {
             index_slots = &index->slots;
             schema_hash = index->schema_hash;
@@ -139,12 +137,14 @@ Status TabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) 
         return Status::InternalError("unknown index id, key={}", _key.to_string());
     }
     // update tablets
+    std::vector<int64_t> tablet_ids;
+    tablet_ids.reserve(params.tablets_size());
     size_t incremental_tablet_num = 0;
     std::stringstream ss;
     ss << "LocalTabletsChannel txn_id: " << _txn_id << " load_id: " << print_id(params.id())
        << " incremental open delta writer: ";
 
-    for (const auto& tablet : params.tablets()) {
+    for (auto& tablet : params.tablets()) {
         if (_tablet_writers.find(tablet.tablet_id()) != _tablet_writers.end()) {
             continue;
         }
