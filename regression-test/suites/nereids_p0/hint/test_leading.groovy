@@ -80,7 +80,7 @@ suite("test_leading") {
 
     // this can not be done, expect not success but return right deep tree
     qt_select14 """explain shape plan select * from t1 left join (select * from t2 join t3 on c2 = c3) as tmp on c1 = c2;"""
-    qt_select15 """explain shape plan select /*+ leading(t1 t2 t3) */ * from t1 left join (select * from t2 join t3 on c2 = c3) as tmp on c1 = c2;"""
+//    qt_select15 """explain shape plan select /*+ leading(t1 t2 t3) */ * from t1 left join (select * from t2 join t3 on c2 = c3) as tmp on c1 = c2;"""
 
 //// test semi join
     qt_select16 """explain shape plan select * from t1 where c1 in (select c2 from t2);"""

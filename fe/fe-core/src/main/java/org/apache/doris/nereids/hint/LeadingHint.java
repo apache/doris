@@ -312,13 +312,13 @@ public class LeadingHint extends Hint {
     public JoinType computeJoinType(Long left, Long right, List<Expression> conditions) {
         Pair<JoinConstraint, Boolean> joinConstraintBooleanPair
                 = getJoinConstraint(LongBitmap.or(left, right), left, right);
-        if (joinConstraintBooleanPair.first == null) {
+        if (!joinConstraintBooleanPair.second) {
+            this.setStatus(HintStatus.UNUSED);
+        } else if (joinConstraintBooleanPair.first == null) {
             if (conditions.isEmpty()) {
                 return JoinType.CROSS_JOIN;
             }
             return JoinType.INNER_JOIN;
-        } else if (!joinConstraintBooleanPair.second) {
-            this.setStatus(HintStatus.UNUSED);
         } else {
             JoinConstraint joinConstraint = joinConstraintBooleanPair.first;
             if (joinConstraint.isReversed()) {
@@ -402,17 +402,6 @@ public class LeadingHint extends Hint {
 
         LogicalJoin finalJoin = (LogicalJoin) stack.pop().second;
         // we want all filters been remove
-        if (!getFilters().isEmpty()) {
-            List<Expression> conditions = getLastConditions(getFilters());
-            Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
-                    finalJoin.left().getOutput(), finalJoin.right().getOutput(), conditions);
-            finalJoin = new LogicalJoin<>(finalJoin.getJoinType(), pair.first,
-                pair.second,
-                JoinHint.NONE,
-                Optional.empty(),
-                finalJoin.left(),
-                finalJoin.right());
-        }
         if (finalJoin != null) {
             this.setStatus(HintStatus.SUCCESS);
         }
