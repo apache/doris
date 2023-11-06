@@ -45,6 +45,7 @@ WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
 WalManager::~WalManager() {
     LOG(INFO) << "WalManager is destoried";
 }
+
 void WalManager::stop() {
     _stop = true;
     _stop_background_threads_latch.count_down();
@@ -251,6 +252,7 @@ Status WalManager::delete_wal(int64_t wal_id) {
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_lock);
         *_all_wal_disk_bytes -= _wal_id_to_writer_map[wal_id]->disk_bytes();
+        _wal_id_to_writer_map[wal_id]->cv.notify_one();
         _wal_id_to_writer_map.erase(wal_id);
         if (_wal_id_to_writer_map.empty()) {
             CHECK(*_all_wal_disk_bytes == 0);

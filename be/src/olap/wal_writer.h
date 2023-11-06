@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -31,7 +32,7 @@ using PBlockArray = std::vector<PBlock*>;
 class WalWriter {
 public:
     explicit WalWriter(const std::string& file_name,
-                       std::shared_ptr<std::atomic_size_t> all_wal_disk_bytes);
+                       const std::shared_ptr<std::atomic_size_t>& all_wal_disk_bytes);
     ~WalWriter();
 
     Status init();
@@ -43,13 +44,17 @@ public:
     std::string file_name() { return _file_name; };
     static const int64_t LENGTH_SIZE = 8;
     static const int64_t CHECKSUM_SIZE = 4;
+    doris::ConditionVariable cv;
 
 private:
+    static constexpr size_t MAX_WAL_WRITE_WAIT_TIME = 1000;
     std::string _file_name;
     io::FileWriterPtr _file_writer;
     int64_t _count;
     int64_t _batch;
     size_t _disk_bytes;
+    std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes;
+    doris::Mutex _mutex;
 };
 
 } // namespace doris
