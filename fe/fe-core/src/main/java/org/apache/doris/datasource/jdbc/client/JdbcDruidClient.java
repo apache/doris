@@ -36,7 +36,7 @@ public class JdbcDruidClient extends JdbcClient {
 
     @Override
     protected String getDatabaseQuery() {
-        return "select SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA  WHERE \"SCHEMA_NAME\" = 'druid'";
+        return "select SCHEMA_NAME from INFORMATION_SCHEMA.SCHEMATA where \"SCHEMA_NAME\" != 'view' and \"SCHEMA_NAME\" != 'sys'  ";
     }
 
     @Override
@@ -51,9 +51,8 @@ public class JdbcDruidClient extends JdbcClient {
             case "BIGINT":
                 return Type.BIGINT;
             case "DOUBLE":
-                return Type.DOUBLE;
             case "FLOAT":
-                return Type.FLOAT;
+                return Type.DOUBLE;
             case "TIMESTAMP":
                 return ScalarType.createDatetimeV2Type(6);
             case "VARCHAR":
