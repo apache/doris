@@ -55,10 +55,10 @@ testDirectories = ""
 excludeGroups = ""
 // this suites will not be executed
 
-excludeSuites = "test_sql_block_rule,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_jdbc_query_mysql"
+excludeSuites = "test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_jdbc_query_mysql"
 
 // this directories will not be executed
-excludeDirectories = "workload_manager_p1,fault_injection_p0"
+excludeDirectories = "workload_manager_p1"
 
 customConf1 = "test_custom_conf_value"
 
