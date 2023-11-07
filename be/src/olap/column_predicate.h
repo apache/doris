@@ -52,6 +52,7 @@ enum class PredicateType {
     BF = 11,            // BloomFilter
     BITMAP_FILTER = 12, // BitmapFilter
     MATCH = 13,         // fulltext match
+    RANGE = 14,         // BKD index range search
 };
 
 inline std::string type_to_string(PredicateType type) {
@@ -208,6 +209,14 @@ public:
     virtual void set_page_ng_bf(std::unique_ptr<segment_v2::BloomFilter>) {
         DCHECK(false) << "should not reach here";
     }
+
+    virtual Status set_inverted_index_query_value(
+            std::unique_ptr<InvertedIndexQueryBase>& /*unused*/, const Schema& /*unused*/) const {
+        DCHECK(false) << "should not reach here";
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "set_inverted_index_query_value should not reach here.");
+    }
+
     uint32_t column_id() const { return _column_id; }
 
     bool opposite() const { return _opposite; }

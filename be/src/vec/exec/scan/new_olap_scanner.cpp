@@ -585,6 +585,13 @@ void NewOlapScanner::_update_counters_before_close() {
                    stats.inverted_index_searcher_open_timer);
     COUNTER_UPDATE(olap_parent->_inverted_index_searcher_search_timer,
                    stats.inverted_index_searcher_search_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_block_column_predicate_filter_timer,                    
+                   stats.inverted_index_block_column_predicate_filter_timer);                      
+    COUNTER_UPDATE(olap_parent->_inverted_index_column_predicate_filter_timer,                          
+                   stats.inverted_index_column_predicate_filter_timer);                            
+    COUNTER_UPDATE(olap_parent->_inverted_index_bkd_intersect_timer,                                    
+                   stats.inverted_index_bkd_intersect_timer);                                      
+    COUNTER_UPDATE(olap_parent->_inverted_index_try_query_timer, stats.inverted_index_try_query_timer); 
 
     if (config::enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(olap_parent->_segment_profile.get());

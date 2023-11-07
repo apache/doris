@@ -165,11 +165,18 @@ Status NewOlapScanNode::_init_profile() {
     _inverted_index_filter_counter =
             ADD_COUNTER(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT);
     _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTime");
+    _inverted_index_block_column_predicate_filter_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexBlockColumnPredicateFilterTime");
+    _inverted_index_column_predicate_filter_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexColumnPredicateFilterTime");
     _inverted_index_query_cache_hit_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheHit", TUnit::UNIT);
     _inverted_index_query_cache_miss_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT);
     _inverted_index_query_timer = ADD_TIMER(_segment_profile, "InvertedIndexQueryTime");
+    _inverted_index_try_query_timer = ADD_TIMER(_segment_profile, "InvertedIndexTryQueryTime");
+    _inverted_index_bkd_intersect_timer =
+            ADD_TIMER(_segment_profile, "InvertedIndexBKDIntersectTime");
     _inverted_index_query_bitmap_copy_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapCopyTime");
     _inverted_index_query_bitmap_op_timer =

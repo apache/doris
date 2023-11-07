@@ -234,8 +234,10 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             predicate->clone(&cloned);
             _pool->add(cloned);
             _col_predicates.emplace_back(cloned);
+            origin_to_clone_predicates[predicate] = cloned;
         } else {
             _col_predicates.emplace_back(predicate);
+            origin_to_clone_predicates[predicate] = predicate;
         }
     }
     _tablet_id = opts.tablet_id;
@@ -866,6 +868,7 @@ inline bool SegmentIterator::_inverted_index_not_support_pred_type(const Predica
 Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         ColumnPredicate* pred, std::vector<ColumnPredicate*>& remaining_predicates,
         bool* continue_apply) {
+    SCOPED_RAW_TIMER(&_opts.stats->inverted_index_column_predicate_filter_timer);
     if (!_check_apply_by_inverted_index(pred)) {
         remaining_predicates.emplace_back(pred);
     } else {
@@ -916,7 +919,8 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
 Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
         ColumnId column_id, MutilColumnBlockPredicate* pred,
         std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
-        bool* continue_apply) {
+        std::vector<ColumnPredicate*>& remaining_predicates, bool* continue_apply) {
+    SCOPED_RAW_TIMER(&_opts.stats->inverted_index_block_column_predicate_filter_timer);
     bool handle_by_fulltext = _column_has_fulltext_index(column_id);
     std::set<const ColumnPredicate*> predicate_set {};
 
@@ -933,15 +937,29 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 
         std::string column_name = _schema->column(column_id)->name();
 
-        auto res = pred->evaluate(column_name, _inverted_index_iterators[column_id].get(),
-                                  num_rows(), &output_result);
+        auto process_predicate_set = [&](const auto& predicate_set) {
+            for (auto& orig_pred : predicate_set) {
+                if (origin_to_clone_predicates.contains(orig_pred)) {
+                    auto& cloned_pred = origin_to_clone_predicates[orig_pred];
+                    no_need_to_pass_column_predicate_set.emplace(cloned_pred);
+                } else {
+                    LOG(ERROR)
+                            << "column:" << column_name << " pred:" << orig_pred->debug_string()
+                            << " is not in origin_to_clone_predicates when process_predicate_set";
+                }
+            }
+        };
+
+        auto res = pred->evaluate(*_schema, _inverted_index_iterators[column_id].get(), num_rows(),
+                                  &output_result);
 
         if (res.ok()) {
             if (_check_column_pred_all_push_down(column_name) &&
                 !all_predicates_are_marked_by_runtime_filter(predicate_set)) {
                 _need_read_data_indices[column_id] = false;
             }
-            no_need_to_pass_column_predicate_set.insert(predicate_set.begin(), predicate_set.end());
+            process_predicate_set(predicate_set);
+            //no_need_to_pass_column_predicate_set.insert(predicate_set.begin(), predicate_set.end());
             _row_bitmap &= output_result;
             if (_row_bitmap.isEmpty()) {
                 // all rows have been pruned, no need to process further predicates
@@ -949,8 +967,25 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
             }
             return res;
         } else {
-            //TODO:mock until AndBlockColumnPredicate evaluate is ok.
-            if (res.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+            // because column predicate only process LE/LT/GT/GE predicate type, need_remaining_after_evaluate only support in_or_list
+            bool need_remaining_after_evaluate = false;
+            if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
+                // downgrade without index query
+                //process_predicate_set(predicate_set);
+                // need to pass non-index evaluate after
+                for (auto& orig_pred : predicate_set) {
+                    if (origin_to_clone_predicates.contains(orig_pred)) {
+                        auto& cloned_pred = origin_to_clone_predicates[orig_pred];
+                        remaining_predicates.push_back(cloned_pred);
+                        no_need_to_pass_column_predicate_set.emplace(cloned_pred);
+                    } else {
+                        LOG(ERROR)
+                                << "column:" << column_name << " pred:" << orig_pred->debug_string()
+                                << " is not in origin_to_clone_predicates when "
+                                   "_downgrade_without_index";
+                    }
+                }
+                _not_apply_index_pred.insert(column_id);
                 return Status::OK();
             }
             LOG(WARNING) << "failed to evaluate index"
@@ -1008,7 +1043,8 @@ Status SegmentIterator::_apply_inverted_index() {
         auto pred = entry.second;
         bool continue_apply = true;
         RETURN_IF_ERROR(_apply_inverted_index_on_block_column_predicate(
-                column_id, pred.get(), no_need_to_pass_column_predicate_set, &continue_apply));
+                column_id, pred.get(), no_need_to_pass_column_predicate_set, remaining_predicates,
+                &continue_apply));
         if (!continue_apply) {
             break;
         }
