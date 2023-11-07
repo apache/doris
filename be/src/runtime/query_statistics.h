@@ -140,6 +140,8 @@ public:
     // using local_exchange for transmission, only need to hold a shared pointer.
     void insert(QueryStatisticsPtr statistics, int sender_id);
 
+    QueryStatisticsPtr find(int sender_id);
+
 private:
     friend class QueryStatistics;
 
