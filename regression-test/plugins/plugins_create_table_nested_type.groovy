@@ -37,11 +37,11 @@ Suite.metaClass.create_table_with_nested_type = { int maxDepth, def typeArr, Str
                        "char(15)", "varchar(100)", "text"]
     def colNameArr = ["c_bool", "c_tinyint", "c_smallint", "c_int", "c_bigint", "c_largeint", "c_float",
                       "c_double", "c_decimal", "c_decimalv3", "c_date", "c_datetime", "c_datev2", "c_datetimev2",
-                      "c_char", "c_varchar", "c_string", "c_hll", "c_bitmap", "c_qst"]
+                      "c_char", "c_varchar", "c_string"]
     def complexDataTypeArr = ["array", "map", "struct"]
     def baseStructScala = "col1:int(11),col2:tinyint(4),col3:smallint(6),col4:boolean,col5:bigint(20),col6:largeint(40)," +
             "col7:float,col8:double,col9:decimal(20, 3),col10:decimalv3(20, 3),col11:date,col12:datetime,col13:datev2,col14:datetimev2(0)," +
-            "col15:char(15),col16:varchar(100),col17:text,col18:hll,col19:bitmap,col20:QUANTILE_STATE"
+            "col15:char(15),col16:varchar(100),col17:text"
 
     def colCount = 1
 
