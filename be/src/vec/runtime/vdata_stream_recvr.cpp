@@ -100,7 +100,9 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
     _recvr->update_blocks_memory_usage(-block_byte_size);
     _block_queue.pop_front();
     if (_block_queue.empty() && _dependency) {
-        _dependency->block_reading();
+        if (!_is_cancelled && _num_remaining_senders > 0) {
+            _dependency->block_reading();
+        }
         for (auto& it : _local_channel_dependency) {
             it->set_ready_for_write();
         }
