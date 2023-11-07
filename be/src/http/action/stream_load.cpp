@@ -292,6 +292,12 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
 #endif
     }
 
+    if (!http_req->header(HttpHeaders::TRANSFER_ENCODING).empty()) {
+        if (http_req->header(HttpHeaders::TRANSFER_ENCODING).find("chunked") != std::string::npos) {
+            ctx->is_chunked_transfer = true;
+        }
+    }
+
     if (!http_req->header(HTTP_TIMEOUT).empty()) {
         try {
             ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT));
@@ -369,9 +375,17 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     request.__set_header_type(ctx->header_type);
     request.__set_loadId(ctx->id.to_thrift());
     if (ctx->use_streaming) {
-        auto pipe = std::make_shared<io::StreamLoadPipe>(
-                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
-                ctx->body_bytes /* total_length */);
+        std::shared_ptr<io::StreamLoadPipe> pipe;
+        LOG(INFO) << "test 111" << ctx->receive_bytes;
+        if (ctx->is_chunked_transfer) {
+            pipe = std::make_shared<io::StreamLoadPipe>(
+                    io::kMaxPipeBufferedBytes /* max_buffered_bytes */,
+                    64 * 1024 /* min_chunk_size */, -1 /* total_length */);
+        } else {
+            pipe = std::make_shared<io::StreamLoadPipe>(
+                    io::kMaxPipeBufferedBytes /* max_buffered_bytes */,
+                    64 * 1024 /* min_chunk_size */, ctx->body_bytes /* total_length */);
+        }
         request.fileType = TFileType::FILE_STREAM;
         ctx->body_sink = pipe;
         ctx->pipe = pipe;
