@@ -259,10 +259,9 @@ void serialize_and_deserialize_mysql_test() {
                     ASSERT_TRUE(res);
                     ipv4_data.push_back(ipv4_value.value());
                 }
-                vectorized::DataTypePtr ipv4_type(
-                        std::make_shared<vectorized::DataTypeIPv4>());
+                vectorized::DataTypePtr ipv4_type(std::make_shared<vectorized::DataTypeIPv4>());
                 vectorized::ColumnWithTypeAndName test_ipv4(column_vector_ipv4->get_ptr(),
-                                                                ipv4_type, col_name);
+                                                            ipv4_type, col_name);
                 block.insert(test_ipv4);
             }
             break;
@@ -277,8 +276,7 @@ void serialize_and_deserialize_mysql_test() {
                     ASSERT_TRUE(res);
                     ipv6_data.push_back(ipv6_value.value());
                 }
-                vectorized::DataTypePtr ipv6_type(
-                        std::make_shared<vectorized::DataTypeIPv6>());
+                vectorized::DataTypePtr ipv6_type(std::make_shared<vectorized::DataTypeIPv6>());
                 vectorized::ColumnWithTypeAndName test_ipv6(column_vector_ipv6->get_ptr(),
                                                             ipv6_type, col_name);
                 block.insert(test_ipv6);

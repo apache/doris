@@ -62,7 +62,8 @@ Status DataTypeIPv6SerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
-Status DataTypeIPv6SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+Status DataTypeIPv6SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                     BufferWritable& bw,
                                                      FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;

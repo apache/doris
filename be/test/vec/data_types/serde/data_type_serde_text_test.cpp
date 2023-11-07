@@ -252,8 +252,7 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
         typedef std::pair<FieldType, string> FieldType_RandStr;
         std::vector<FieldType_RandStr> ip_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "127.0.0.1"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "2405:9800:9800:66::2")
-        };
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "2405:9800:9800:66::2")};
         for (auto pair : ip_scala_field_types) {
             auto type = pair.first;
             DataTypePtr data_type_ptr = DataTypeFactory::instance().create_data_type(type, 0, 0);
