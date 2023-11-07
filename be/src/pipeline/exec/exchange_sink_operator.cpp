@@ -345,30 +345,25 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     } else {
                         block_holder->get_block()->Clear();
                     }
-                    Status error_status = Status::OK();
-                    bool sent = false;
+                    local_state._broadcast_dependency->take_available_block();
+                    block_holder->ref(local_state.channels.size());
+                    Status status;
                     for (auto channel : local_state.channels) {
                         if (!channel->is_receiver_eof()) {
                             Status status;
                             if (channel->is_local()) {
+                                block_holder->unref();
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                                 status = channel->send_broadcast_block(
-                                        block_holder, &sent, source_state == SourceState::FINISHED);
+                                        block_holder, source_state == SourceState::FINISHED);
                             }
-                            if (status.is<ErrorCode::END_OF_FILE>()) {
-                                _handle_eof_channel(state, channel, status);
-                            } else if (!status.ok()) {
-                                error_status = status;
-                                break;
-                            }
+                            HANDLE_CHANNEL_STATUS(state, channel, status);
+                        } else {
+                            block_holder->unref();
                         }
                     }
-                    if (sent) {
-                        local_state._broadcast_dependency->take_available_block();
-                    }
-                    RETURN_IF_ERROR(error_status);
                     cur_block.clear_column_data();
                     local_state._serializer.get_block()->set_muatable_columns(
                             cur_block.mutate_columns());

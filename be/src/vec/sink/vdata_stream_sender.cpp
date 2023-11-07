@@ -568,7 +568,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                status = channel->send_broadcast_block(block_holder, nullptr, eos);
+                                status = channel->send_broadcast_block(block_holder, eos);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
                         }
