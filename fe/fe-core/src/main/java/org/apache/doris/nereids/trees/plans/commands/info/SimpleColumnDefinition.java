@@ -14,3 +14,29 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+package org.apache.doris.nereids.trees.plans.commands.info;
+
+/**
+ * column def for mv
+ */
+public class SimpleColumnDefinition {
+    private final String name;
+    private final String comment;
+
+    /**
+     * constructor
+     */
+    public SimpleColumnDefinition(String name, String comment) {
+        this.name = name;
+        this.comment = comment;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+}
