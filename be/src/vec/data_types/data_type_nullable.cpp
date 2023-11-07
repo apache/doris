@@ -46,10 +46,6 @@ DataTypeNullable::DataTypeNullable(const DataTypePtr& nested_data_type_)
     if (!nested_data_type) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "DataTypeNullable input nested type is nullptr");
     }
-    if (!nested_data_type->can_be_inside_nullable()) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "Nested type {} cannot be inside Nullable type",
-                        nested_data_type->get_name());
-    }
 }
 
 bool DataTypeNullable::only_null() const {
@@ -168,7 +164,7 @@ bool DataTypeNullable::equals(const IDataType& rhs) const {
 }
 
 DataTypePtr make_nullable(const DataTypePtr& type) {
-    if (type->is_nullable() || !type->can_be_inside_nullable()) {
+    if (type->is_nullable()) {
         return type;
     }
     return std::make_shared<DataTypeNullable>(type);

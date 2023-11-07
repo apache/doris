@@ -70,8 +70,6 @@ public:
     const char* get_family_name() const override { return "DateV2"; }
     std::string do_get_name() const override { return "DateV2"; }
 
-    bool can_be_inside_nullable() const override { return true; }
-
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeDateV2SerDe>(nesting_level);
     }
@@ -128,8 +126,6 @@ public:
     }
     const char* get_family_name() const override { return "DateTimeV2"; }
     std::string do_get_name() const override { return "DateTimeV2"; }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;

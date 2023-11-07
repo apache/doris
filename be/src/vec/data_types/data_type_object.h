@@ -70,7 +70,6 @@ public:
     bool hasNullableSubcolumns() const { return is_nullable; }
     bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; };
-    bool can_be_inside_nullable() const override { return false; }
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;

@@ -677,9 +677,6 @@ public:
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
 
-    /// Can be inside ColumnNullable.
-    virtual bool can_be_inside_nullable() const { return false; }
-
     virtual bool low_cardinality() const { return false; }
 
     virtual void sort_column(const ColumnSorter* sorter, EqualFlags& flags,

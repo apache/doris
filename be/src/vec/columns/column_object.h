@@ -231,8 +231,6 @@ public:
 
     ~ColumnObject() override = default;
 
-    bool can_be_inside_nullable() const override { return false; }
-
     /// Checks that all subcolumns have consistent sizes.
     void check_consistency() const;
 

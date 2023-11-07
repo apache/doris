@@ -250,7 +250,6 @@ public:
 
     bool is_summable() const override { return true; }
     bool can_be_used_in_boolean_context() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;

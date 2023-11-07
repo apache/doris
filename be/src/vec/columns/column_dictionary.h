@@ -146,8 +146,6 @@ public:
         LOG(FATAL) << "compare_at not supported in ColumnDictionary";
     }
 
-    bool can_be_inside_nullable() const override { return true; }
-
     bool is_fixed_and_contiguous() const override { return true; }
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,

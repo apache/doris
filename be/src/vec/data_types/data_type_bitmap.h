@@ -89,8 +89,6 @@ public:
     }
     bool have_maximum_size_of_value() const override { return false; }
 
-    bool can_be_inside_nullable() const override { return true; }
-
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
     bool can_be_inside_low_cardinality() const override { return false; }

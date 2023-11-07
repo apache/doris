@@ -91,7 +91,6 @@ public:
     std::string do_get_name() const override;
     const char* get_family_name() const override { return "Struct"; }
 
-    bool can_be_inside_nullable() const override { return true; }
     bool supports_sparse_serialization() const { return true; }
 
     MutableColumnPtr create_column() const override;

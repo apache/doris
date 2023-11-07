@@ -36,8 +36,6 @@ public:
     const char* get_family_name() const override { return "Nothing"; }
     MutableColumnPtr clone_dummy(size_t s_) const override { return ColumnNothing::create(s_); }
 
-    bool can_be_inside_nullable() const override { return true; }
-
     bool structure_equals(const IColumn& rhs) const override {
         return typeid(rhs) == typeid(ColumnNothing);
     }

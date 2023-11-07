@@ -60,8 +60,6 @@ public:
     const char* get_family_name() const override { return "DateTime"; }
     std::string do_get_name() const override { return "Date"; }
 
-    bool can_be_inside_nullable() const override { return true; }
-
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;

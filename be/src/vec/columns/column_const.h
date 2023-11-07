@@ -128,8 +128,6 @@ public:
 
     void pop_back(size_t n) override { s -= n; }
 
-    bool can_be_inside_nullable() const override { return true; }
-
     void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
                                          size_t limit) const override;
 

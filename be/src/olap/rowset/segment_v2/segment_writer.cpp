@@ -618,8 +618,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 if (tablet_column.has_default_value()) {
                     mutable_full_columns[cids_missing[i]]->insert_from(
                             *mutable_default_value_columns[i].get(), 0);
-                } else if (tablet_column.is_nullable() &&
-                           mutable_full_columns[cids_missing[i]]->can_be_inside_nullable()) {
+                } else if (tablet_column.is_nullable()) {
                     auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
                             mutable_full_columns[cids_missing[i]].get());
                     nullable_column->insert_null_elements(1);

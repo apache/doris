@@ -78,7 +78,6 @@ public:
     }
     const char* get_family_name() const override { return "Map"; }
 
-    bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr create_column() const override;
     Field get_default() const override;
 
