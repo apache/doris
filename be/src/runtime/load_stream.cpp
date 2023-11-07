@@ -30,6 +30,7 @@
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/load_stream_writer.h"
+#include "util/runtime_profile.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 
@@ -313,19 +314,18 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
     return st;
 }
 
-void LoadStream::_report_result(StreamId stream, Status& st,
-                                std::vector<int64_t>* success_tablet_ids,
-                                std::vector<int64_t>* failed_tablet_ids) {
-    LOG(INFO) << "report result, success tablet num " << success_tablet_ids->size()
-              << ", failed tablet num " << failed_tablet_ids->size();
+void LoadStream::_report_result(StreamId stream, const Status& st,
+                                const std::vector<int64_t>& success_tablet_ids,
+                                const std::vector<int64_t>& failed_tablet_ids) {
+    LOG(INFO) << "report result, success tablet num " << success_tablet_ids.size()
+              << ", failed tablet num " << failed_tablet_ids.size();
     butil::IOBuf buf;
     PWriteStreamSinkResponse response;
     st.to_protobuf(response.mutable_status());
-    for (auto& id : *success_tablet_ids) {
+    for (auto& id : success_tablet_ids) {
         response.add_success_tablet_ids(id);
     }
-
-    for (auto& id : *failed_tablet_ids) {
+    for (auto& id : failed_tablet_ids) {
         response.add_failed_tablet_ids(id);
     }
 
@@ -412,7 +412,7 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
             PStreamHeader data;
             messages[i]->cutn(&data_buf, data_len);
 
-/*
+            /*
             if (hdr.load_id().hi() != _load_id.hi() || hdr.load_id().lo() != _load_id.lo()) {
                 LOG(WARNING) << "ignored one message due to invalid load id " << hdr.load_id()
                              << ", expected: " << _load_id;
@@ -433,14 +433,9 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     {
         std::lock_guard lock_guard(_lock);
         if (!_open_streams.contains(hdr.src_id())) {
-            std::vector<int64_t> success_tablet_ids;
-            std::vector<int64_t> failed_tablet_ids;
-            if (hdr.has_tablet_id()) {
-                failed_tablet_ids.push_back(hdr.tablet_id());
-            }
             Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>("no open stream from source {}",
                                                                    hdr.src_id());
-            _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
+            _report_failure(id, st, hdr);
             return;
         }
     }
@@ -450,10 +445,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     case PStreamHeader::APPEND_DATA: {
         auto st = _append_data(hdr, data);
         if (!st.ok()) {
-            std::vector<int64_t> success_tablet_ids;
-            std::vector<int64_t> failed_tablet_ids;
-            failed_tablet_ids.push_back(hdr.tablet_id());
-            _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
+            _report_failure(id, st, hdr);
         }
     } break;
     case PStreamHeader::CLOSE_LOAD: {
@@ -462,7 +454,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         std::vector<PTabletID> tablets_to_commit(hdr.tablets_to_commit().begin(),
                                                  hdr.tablets_to_commit().end());
         auto st = close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablet_ids);
-        _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
+        _report_result(id, st, success_tablet_ids, failed_tablet_ids);
         brpc::StreamClose(id);
     } break;
     default:
