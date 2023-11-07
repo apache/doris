@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVCacheManager;
@@ -120,7 +121,7 @@ public class MTMV extends OlapTable {
             status.setState(MTMVState.NORMAL);
             status.setRefreshState(MTMVRefreshState.SUCCESS);
             cache = MTMVCacheManager.generateMTMVCache(this);
-            Env.getCurrentEnv().getMtmvService().getCacheManager().refreshMTMVCache(this);
+            Env.getCurrentEnv().getMtmvService().getCacheManager().refreshMTMVCache(cache, new BaseTableInfo(this));
         } else {
             status.setRefreshState(MTMVRefreshState.FAIL);
         }
@@ -170,7 +171,6 @@ public class MTMV extends OlapTable {
         jobInfo = materializedView.jobInfo;
         mvProperties = materializedView.mvProperties;
         cache = materializedView.cache;
-        Env.getCurrentEnv().getMtmvService().getCacheManager().refreshMTMVCache(this);
     }
 
 }

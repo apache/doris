@@ -200,17 +200,15 @@ public class MTMVCacheManager implements MTMVHookService {
     public void registerMTMV(MTMV mtmv) {
     }
 
-    public void refreshMTMVCache(MTMV mtmv) {
-        removeMTMV(mtmv);
-        addMTMV(mtmv);
+    public void refreshMTMVCache(MTMVCache cache, BaseTableInfo mtmvInfo) {
+        removeMTMV(mtmvInfo);
+        addMTMV(cache, mtmvInfo);
     }
 
-    private void addMTMV(MTMV mtmv) {
-        MTMVCache cache = mtmv.getCache();
+    private void addMTMV(MTMVCache cache, BaseTableInfo mtmvInfo) {
         if (cache == null) {
             return;
         }
-        BaseTableInfo mtmvInfo = new BaseTableInfo(mtmv);
         addMTMVTables(cache.getBaseTables(), mtmvInfo);
         addMTMVTables(cache.getBaseViews(), mtmvInfo);
     }
@@ -224,8 +222,7 @@ public class MTMVCacheManager implements MTMVHookService {
         }
     }
 
-    private void removeMTMV(MTMV mtmv) {
-        BaseTableInfo mtmvInfo = new BaseTableInfo(mtmv);
+    private void removeMTMV(BaseTableInfo mtmvInfo) {
         for (Set<BaseTableInfo> sets : tableMTMVs.values()) {
             sets.remove(mtmvInfo);
         }
@@ -233,7 +230,7 @@ public class MTMVCacheManager implements MTMVHookService {
 
     @Override
     public void deregisterMTMV(MTMV mtmv) {
-        removeMTMV(mtmv);
+        removeMTMV(new BaseTableInfo(mtmv));
     }
 
     @Override

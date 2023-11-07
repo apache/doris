@@ -30,6 +30,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -631,6 +632,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         for (int i = 0; i < numTables; ++i) {
             Table table = Table.read(in);
             table.setQualifiedDbName(fullQualifiedName);
+            if (table instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().getCacheManager()
+                        .refreshMTMVCache(((MTMV) table).getCache(), new BaseTableInfo(table.getId(), id));
+            }
             String tableName = table.getName();
             nameToTable.put(tableName, table);
             idToTable.put(table.getId(), table);

@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.base.Objects;
 import com.google.gson.annotations.SerializedName;
@@ -33,6 +34,12 @@ public class BaseTableInfo {
     private Long dbId;
     @SerializedName("ci")
     private Long ctlId;
+
+    public BaseTableInfo(Long tableId, Long dbId) {
+        this.tableId = java.util.Objects.requireNonNull(tableId, "tableId is null");
+        this.dbId = java.util.Objects.requireNonNull(dbId, "dbId is null");
+        this.ctlId = InternalCatalog.INTERNAL_CATALOG_ID;
+    }
 
     public BaseTableInfo(TableIf table) {
         DatabaseIf database = table.getDatabase();
