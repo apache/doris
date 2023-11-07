@@ -31,6 +31,7 @@ import org.apache.doris.clone.TabletSchedCtx.BalanceType;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -118,7 +119,7 @@ public class DiskRebalancer extends Rebalancer {
      */
     @Override
     protected List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            LoadStatisticForTag clusterStat, TStorageMedium medium) {
+            Tag tag, LoadStatisticForTag clusterStat, TStorageMedium medium) {
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
 
         // get classification of backends
@@ -128,7 +129,7 @@ public class DiskRebalancer extends Rebalancer {
         clusterStat.getBackendStatisticByClass(lowBEs, midBEs, highBEs, medium);
 
         Rebalancer rebalancer = Env.getCurrentEnv().getTabletScheduler().getRebalancer();
-        if (rebalancer != null && rebalancer.unPickOverLongTime(clusterStat, medium)) {
+        if (rebalancer != null && rebalancer.unPickOverLongTime(tag, medium)) {
             midBEs.addAll(lowBEs);
             midBEs.addAll(highBEs);
             lowBEs.clear();

@@ -29,6 +29,8 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -48,6 +50,7 @@ import java.util.Map;
  * 2. If you want to make sure the move is succeed, you can assume that it's succeed when getToDeleteReplicaId called.
  */
 public abstract class Rebalancer {
+    private static final Logger LOG = LogManager.getLogger(Rebalancer.class);
     // When Rebalancer init, the statisticMap is usually empty. So it's no need to be an arg.
     // Only use updateLoadStatistic() to load stats.
     protected Map<Tag, LoadStatisticForTag> statisticMap = Maps.newHashMap();
@@ -58,7 +61,7 @@ public abstract class Rebalancer {
     protected Map<Long, Long> prioBackends = Maps.newConcurrentMap();
 
     // tag -> (medium, timestamp)
-    private Table<LoadStatisticForTag, TStorageMedium, Long> lastPickTimeTable = HashBasedTable.create();
+    private Table<Tag, TStorageMedium, Long> lastPickTimeTable = HashBasedTable.create();
 
     public Rebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
             Map<Long, PathSlot> backendsWorkingSlots) {
@@ -71,10 +74,11 @@ public abstract class Rebalancer {
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
         for (Map.Entry<Tag, LoadStatisticForTag> entry : statisticMap.entrySet()) {
             for (TStorageMedium medium : TStorageMedium.values()) {
-                List<TabletSchedCtx> candidates = selectAlternativeTabletsForCluster(entry.getValue(), medium);
+                List<TabletSchedCtx> candidates =
+                        selectAlternativeTabletsForCluster(entry.getKey(), entry.getValue(), medium);
                 alternativeTablets.addAll(candidates);
                 if (!candidates.isEmpty()) {
-                    lastPickTimeTable.put(entry.getValue(), medium, System.currentTimeMillis());
+                    lastPickTimeTable.put(entry.getKey(), medium, System.currentTimeMillis());
                 }
             }
         }
@@ -84,31 +88,14 @@ public abstract class Rebalancer {
     // The returned TabletSchedCtx should have the tablet id at least. {srcReplica, destBe} can be complete here or
     // later(when createBalanceTask called).
     protected abstract List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            LoadStatisticForTag clusterStat, TStorageMedium medium);
+            Tag tag, LoadStatisticForTag clusterStat, TStorageMedium medium);
 
-    protected boolean isNeedBalanced(LoadStatisticForTag clusterStat, TStorageMedium medium,
-                                     List<Long> fromBes, List<Long> toBes) {
-        return true;
-    }
-
-    protected boolean unPickOverLongTime(LoadStatisticForTag clusterStat, TStorageMedium medium) {
-        if (lastPickTimeTable.containsRow(clusterStat)) {
-            Map<TStorageMedium, Long> mediumLastPickTimeMap = lastPickTimeTable.row(clusterStat);
-            if (mediumLastPickTimeMap.containsKey(medium)) {
-                Long lastPickTimeTable = mediumLastPickTimeMap.get(medium);
-                return lastPickTimeTable > 0 && System.currentTimeMillis() > lastPickTimeTable + 10 * 60 * 1000L;
-            } else {
-                return false;
-            }
-        } else {
-            return false;
-        }
-    }
-
-    protected void removeFromLastPickTimeTable(Tag tag, TStorageMedium medium) {
-        if (statisticMap.containsKey(tag)) {
-            lastPickTimeTable.remove(statisticMap.get(tag), medium);
-        }
+    // 5mins
+    protected boolean unPickOverLongTime(Tag tag, TStorageMedium medium) {
+        Long lastPickTime = lastPickTimeTable.get(tag, medium);
+        Long now = System.currentTimeMillis();
+        LOG.debug("tag={}, medium={}, lastPickTime={}, now={}", tag, medium, lastPickTime, now);
+        return lastPickTime == null || now - lastPickTime >= 5 * 60 * 1000L;
     }
 
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)
