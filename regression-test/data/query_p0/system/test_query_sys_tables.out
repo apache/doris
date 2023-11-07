@@ -61,6 +61,36 @@ EXTRA	VARCHAR(256)	Yes	false	\N
 
 -- !query_files --
 
+-- !desc_statistics --
+TABLE_CATALOG	VARCHAR(512)	Yes	false	\N	
+TABLE_SCHEMA	VARCHAR(64)	Yes	false	\N	
+TABLE_NAME	VARCHAR(64)	Yes	false	\N	
+NON_UNIQUE	BIGINT	Yes	false	\N	
+INDEX_SCHEMA	VARCHAR(64)	Yes	false	\N	
+INDEX_NAME	VARCHAR(64)	Yes	false	\N	
+SEQ_IN_INDEX	BIGINT	Yes	false	\N	
+COLUMN_NAME	VARCHAR(64)	Yes	false	\N	
+COLLATION	VARCHAR(1)	Yes	false	\N	
+CARDINALITY	BIGINT	Yes	false	\N	
+SUB_PART	BIGINT	Yes	false	\N	
+PACKED	VARCHAR(10)	Yes	false	\N	
+NULLABLE	VARCHAR(3)	Yes	false	\N	
+INDEX_TYPE	VARCHAR(16)	Yes	false	\N	
+COMMENT	VARCHAR(16)	Yes	false	\N	
+INDEX_COMMENT	VARCHAR(1024)	Yes	false	\N	
+
+-- !query_statistics --
+
+-- !desc_statistics --
+CONSTRAINT_CATALOG	VARCHAR(512)	Yes	false	\N	
+CONSTRAINT_SCHEMA	VARCHAR(64)	Yes	false	\N	
+CONSTRAINT_NAME	VARCHAR(64)	Yes	false	\N	
+TABLE_SCHEMA	VARCHAR(64)	Yes	false	\N	
+TABLE_NAME	VARCHAR(64)	Yes	false	\N	
+CONSTRAINT_TYPE	VARCHAR(64)	Yes	false	\N	
+
+-- !query_table_constraints --
+
 -- !desc_schema_privileges --
 GRANTEE	VARCHAR(81)	Yes	false	\N	
 TABLE_CATALOG	VARCHAR(512)	Yes	false	\N	
@@ -68,7 +98,13 @@ TABLE_SCHEMA	VARCHAR(64)	Yes	false	\N
 PRIVILEGE_TYPE	VARCHAR(64)	Yes	false	\N	
 IS_GRANTABLE	VARCHAR(3)	Yes	false	\N	
 
--- !select_schema_privileges --
+-- !schema_privileges1 --
+'root'@'%'	def	mysql	SELECT	NO
+
+-- !schema_privileges2 --
+'cyw'@'%'	def	mysql	SELECT	NO
+
+-- !schema_privileges3 --
 
 -- !desc_table_privileges --
 GRANTEE	VARCHAR(81)	Yes	false	\N	
@@ -78,7 +114,16 @@ TABLE_NAME	VARCHAR(64)	Yes	false	\N
 PRIVILEGE_TYPE	VARCHAR(64)	Yes	false	\N	
 IS_GRANTABLE	VARCHAR(3)	Yes	false	\N	
 
--- !select_schema_privileges --
+-- !table_privileges --
+
+-- !table_privileges2 --
+'cywtable'@'%'	def	table_privileges_demo	test_table_privileges	ALTER	NO
+'cywtable'@'%'	def	table_privileges_demo	test_table_privileges	INSERT	NO
+'cywtable'@'%'	def	table_privileges_demo	test_table_privileges	SELECT	NO
+
+-- !table_privileges3 --
+'cywtable'@'%'	def	table_privileges_demo	test_table_privileges	ALTER	NO
+'cywtable'@'%'	def	table_privileges_demo	test_table_privileges	INSERT	NO
 
 -- !desc_partitions --
 TABLE_CATALOG	VARCHAR(64)	Yes	false	\N	

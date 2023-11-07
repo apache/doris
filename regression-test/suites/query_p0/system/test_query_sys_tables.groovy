@@ -88,24 +88,56 @@ suite("test_query_sys_tables", "query,p0") {
     // test files
     // have no impl
     qt_desc_files """desc `information_schema`.`files` """
-    qt_query_files """ select * from `information_schema`.`files` """
+    order_qt_query_files """ select * from `information_schema`.`files` """
+
+    //test information_schema.statistics
+    // have no impl
+    qt_desc_statistics """desc `information_schema`.`statistics` """
+    order_qt_query_statistics """ select * from `information_schema`.`statistics` """
+
+    //test information_schema.table_constraints 
+    // have no impl
+    qt_desc_statistics """desc `information_schema`.`table_constraints` """
+    order_qt_query_table_constraints """ select * from `information_schema`.`table_constraints` """
+    
 
     // test schema_privileges
-    // have no impl
+    sql """  DROP USER if exists 'cyw'; """   
     qt_desc_schema_privileges """desc `information_schema`.`schema_privileges` """
-    qt_select_schema_privileges """  select * from information_schema.schema_privileges where GRANTEE = "root%"   """  
+    order_qt_schema_privileges1 """  select * from information_schema.schema_privileges where GRANTEE = "'root'@'%'" ; """    
+    sql """  CREATE USER 'cyw'; """
+    order_qt_schema_privileges2 """  select * from information_schema.schema_privileges where GRANTEE = "'cyw'@'%'" ;  """  
+    sql """  DROP USER 'cyw'; """
+    order_qt_schema_privileges3 """  select * from information_schema.schema_privileges where GRANTEE = "'cyw'@'%'" ;  """  
+
     
     // test table_privileges
-    // have no impl(fe:listTablePrivilegeStatus)
+    sql """  DROP USER if exists 'cywtable'; """   
     qt_desc_table_privileges """desc `information_schema`.`table_privileges` """
-    qt_select_schema_privileges """  select * from information_schema.table_privileges   """  
+    order_qt_table_privileges """  select * from information_schema.table_privileges   """  
+    sql """  CREATE USER 'cywtable'; """
+    sql """ CREATE DATABASE IF NOT EXISTS table_privileges_demo  """
+    sql """ create table IF NOT EXISTS table_privileges_demo.test_table_privileges( 
+            a int , 
+            b boolean , 
+            c string ) 
+        DISTRIBUTED BY HASH(`a`) BUCKETS 1 
+        PROPERTIES (
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true",
+            "enable_single_replica_compaction"="true"
+        );"""
+    
+    sql """ GRANT SELECT_PRIV,ALTER_PRIV,LOAD_PRIV ON table_privileges_demo.test_table_privileges  TO 'cywtable'@'%'; """
+    order_qt_table_privileges2  """  select * from information_schema.table_privileges order by PRIVILEGE_TYPE ; """
+    sql """ REVOKE SELECT_PRIV ON table_privileges_demo.test_table_privileges FROM 'cywtable'@'%'; """ 
+    order_qt_table_privileges3  """  select * from information_schema.table_privileges order by PRIVILEGE_TYPE ; """
 
 
     // test partitions
     // have no impl
     qt_desc_partitions """ desc `information_schema`.`partitions` """ 
-    qt_select_partitions """ select * from  `information_schema`.`partitions`; """ 
-
+    order_qt_select_partitions """ select * from  `information_schema`.`partitions`; """ 
 
 
     // test rowsets
@@ -127,12 +159,12 @@ suite("test_query_sys_tables", "query,p0") {
     """
     
     List<List<Object>> rowsets_table_name_tablets   = sql """ show tablets from ${rowsets_table_name} """
-    qt_rowsets1 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
+    order_qt_rowsets1 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
     sql """ insert into  ${rowsets_table_name} values (1,0,"abc");  """ 
-    qt_rowsets2 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
+    order_qt_rowsets2 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
     sql """ insert into  ${rowsets_table_name} values (2,1,"hello world");  """ 
     sql """ insert into  ${rowsets_table_name} values (3,0,"dssadasdsafafdf");  """ 
-    qt_rowsets3 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
+    order_qt_rowsets3 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  order by START_VERSION,END_VERSION; """ 
 
 
     // test schemata
