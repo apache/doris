@@ -106,7 +106,7 @@ public:
     LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile);
     ~LoadStream();
 
-    Status init(const POpenStreamSinkRequest* request);
+    Status init(const POpenLoadStreamRequest* request);
 
     void add_source(int64_t src_id) {
         std::lock_guard lock_guard(_lock);
