@@ -680,7 +680,7 @@ public class AnalysisManager implements Writable {
                 new SynchronousQueue(),
                 new ThreadFactoryBuilder().setDaemon(true).setNameFormat("SYNC ANALYZE" + "-%d")
                         .build(), new BlockedPolicy(poolName,
-                (int) TimeUnit.HOURS.toSeconds(Config.analyze_task_timeout_in_hours)));
+                StatisticsUtil.getAnalyzeTimeout()));
     }
 
     public void dropStats(DropStatsStmt dropStatsStmt) throws DdlException {
@@ -702,6 +702,7 @@ public class AnalysisManager implements Writable {
             for (String col : cols) {
                 Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
             }
+            tableStats.updatedTime = 0;
         }
         logCreateTableStats(tableStats);
         StatisticsRepository.dropStatistics(tblId, cols);

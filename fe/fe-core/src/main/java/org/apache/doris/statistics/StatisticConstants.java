@@ -90,6 +90,7 @@ public class StatisticConstants {
 
     public static final int TABLE_STATS_HEALTH_THRESHOLD = 60;
 
+    public static final int ANALYZE_TIMEOUT_IN_SEC = 43200;
 
     static {
         SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER

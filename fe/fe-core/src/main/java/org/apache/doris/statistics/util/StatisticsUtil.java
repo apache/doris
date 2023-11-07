@@ -181,8 +181,8 @@ public class StatisticsUtil {
         sessionVariable.setEnablePipelineEngine(false);
         sessionVariable.enableProfile = false;
         sessionVariable.enableScanRunSerial = limitScan;
-        sessionVariable.queryTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
-        sessionVariable.insertTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
+        sessionVariable.queryTimeoutS = StatisticsUtil.getAnalyzeTimeout();
+        sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
         sessionVariable.enableFileCache = false;
         sessionVariable.forbidUnknownColStats = false;
         connectContext.setEnv(Env.getCurrentEnv());
@@ -912,6 +912,16 @@ public class StatisticsUtil {
             LOG.warn("Failed to get value of table_stats_health_threshold, return default", e);
         }
         return StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD;
+    }
+
+    public static int getAnalyzeTimeout() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.ANALYZE_TIMEOUT)
+                    .analyzeTimeoutS;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of table_stats_health_threshold, return default", e);
+        }
+        return StatisticConstants.ANALYZE_TIMEOUT_IN_SEC;
     }
 
 }

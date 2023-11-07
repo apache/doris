@@ -498,7 +498,7 @@ public class SessionVariable implements Serializable, Writable {
     public int queryTimeoutS = 900;
 
     // query timeout in second.
-    @VariableMgr.VarAttr(name = ANALYZE_TIMEOUT, needForward = true)
+    @VariableMgr.VarAttr(name = ANALYZE_TIMEOUT, flag = VariableMgr.GLOBAL, needForward = true)
     public int analyzeTimeoutS = 43200;
 
     // The global max_execution_time value provides the default for the session value for new connections.
