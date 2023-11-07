@@ -73,7 +73,7 @@ public class PartitionRebalancer extends Rebalancer {
 
     @Override
     protected List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            Tag tag, LoadStatisticForTag clusterStat, TStorageMedium medium) {
+            LoadStatisticForTag clusterStat, TStorageMedium medium) {
         MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(clusterStat.getTag(), medium);
         Preconditions.checkNotNull(movesInProgress,
                 "clusterStat is got from statisticMap, movesCacheMap should have the same entry");

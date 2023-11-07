@@ -75,7 +75,7 @@ public abstract class Rebalancer {
         for (Map.Entry<Tag, LoadStatisticForTag> entry : statisticMap.entrySet()) {
             for (TStorageMedium medium : TStorageMedium.values()) {
                 List<TabletSchedCtx> candidates =
-                        selectAlternativeTabletsForCluster(entry.getKey(), entry.getValue(), medium);
+                        selectAlternativeTabletsForCluster(entry.getValue(), medium);
                 alternativeTablets.addAll(candidates);
                 if (!candidates.isEmpty()) {
                     lastPickTimeTable.put(entry.getKey(), medium, System.currentTimeMillis());
@@ -88,7 +88,7 @@ public abstract class Rebalancer {
     // The returned TabletSchedCtx should have the tablet id at least. {srcReplica, destBe} can be complete here or
     // later(when createBalanceTask called).
     protected abstract List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            Tag tag, LoadStatisticForTag clusterStat, TStorageMedium medium);
+            LoadStatisticForTag clusterStat, TStorageMedium medium);
 
     // 5mins
     protected boolean unPickOverLongTime(Tag tag, TStorageMedium medium) {

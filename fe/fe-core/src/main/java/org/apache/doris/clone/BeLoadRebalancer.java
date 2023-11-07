@@ -31,7 +31,6 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -78,7 +77,7 @@ public class BeLoadRebalancer extends Rebalancer {
      */
     @Override
     protected List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            Tag tag, LoadStatisticForTag clusterStat, TStorageMedium medium) {
+            LoadStatisticForTag clusterStat, TStorageMedium medium) {
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
 
         // get classification of backends
