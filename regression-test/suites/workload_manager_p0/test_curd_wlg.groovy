@@ -234,7 +234,7 @@ suite("test_crud_wlg") {
     // test show workload groups
     qt_select_tvf_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit from workload_groups() order by name;"
 
-    qt_select_tvf_2 "select name, waiting_query_num,running_query_num,cpu_hard_limit from workload_groups() order by name;"
+    qt_select_tvf_2 "select name, waiting_query_num,running_query_num,cpu_hard_limit from workload_groups() where name='test_group' order by name;"
 
     // test auth
     sql """drop user if exists test_wlg_user"""

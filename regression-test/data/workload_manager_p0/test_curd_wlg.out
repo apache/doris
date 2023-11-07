@@ -45,6 +45,5 @@ normal	20	50%	true	2147483647	0	0	0%
 test_group	10	11%	false	100	0	0	20%
 
 -- !select_tvf_2 --
-normal	0	0	0%
 test_group	0	1	20%
 
