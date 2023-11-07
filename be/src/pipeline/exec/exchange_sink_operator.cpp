@@ -199,7 +199,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             if (channel->is_local()) {
                 _local_channels_dependency[dep_id] =
                         LocalExchangeChannelDependency::create_shared(_parent->operator_id());
-                channel->set_dependency(_local_channels_dependency[dep_id]);
+                _local_channels_dependency[dep_id] = channel->get_local_channel_dependency();
+                DCHECK(_local_channels_dependency[dep_id] != nullptr);
                 deps_for_channels->add_child(_local_channels_dependency[dep_id]);
                 _wait_channel_timer[dep_id] =
                         ADD_CHILD_TIMER(_profile, "WaitForLocalExchangeBuffer", timer_name);

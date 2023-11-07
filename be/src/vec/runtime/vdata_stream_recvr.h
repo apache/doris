@@ -125,8 +125,8 @@ public:
 
     bool is_closed() const { return _is_closed; }
 
-    void set_dependency(int sender_id,
-                        std::shared_ptr<pipeline::LocalExchangeChannelDependency> dependency);
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency(
+            int sender_id);
 
 private:
     void update_blocks_memory_usage(int64_t size);
@@ -199,10 +199,15 @@ private:
 
 class VDataStreamRecvr::SenderQueue {
 public:
-    SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile,
-                bool enable_pipeline_x = false);
+    SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile);
 
     virtual ~SenderQueue();
+
+    void set_local_channel_dependency(
+            std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>&
+                    sender_to_local_channel_dependency) {
+        _sender_to_local_channel_dependency = sender_to_local_channel_dependency;
+    }
 
     virtual bool should_wait();
 
@@ -226,13 +231,6 @@ public:
 
     void set_dependency(std::shared_ptr<pipeline::ExchangeDataDependency> dependency) {
         _dependency = dependency;
-    }
-
-    void set_channel_dependency(
-            int sender_id,
-            std::shared_ptr<pipeline::LocalExchangeChannelDependency> channel_dependency) {
-        DCHECK(_sender_to_local_channel_dependency[sender_id] == nullptr);
-        _sender_to_local_channel_dependency[sender_id] = channel_dependency;
     }
 
 protected:
@@ -263,9 +261,8 @@ protected:
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {
 public:
-    PipSenderQueue(VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile,
-                   bool enable_pipeline_x = false)
-            : SenderQueue(parent_recvr, num_senders, profile, enable_pipeline_x) {}
+    PipSenderQueue(VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile)
+            : SenderQueue(parent_recvr, num_senders, profile) {}
 
     Status get_batch(Block* block, bool* eos) override {
         std::lock_guard<std::mutex> l(_lock); // protect _block_queue

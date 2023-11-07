@@ -42,15 +42,12 @@
 namespace doris::vectorized {
 
 VDataStreamRecvr::SenderQueue::SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders,
-                                           RuntimeProfile* profile, bool enable_pipeline_x)
+                                           RuntimeProfile* profile)
         : _recvr(parent_recvr),
           _is_cancelled(false),
           _num_remaining_senders(num_senders),
           _received_first_batch(false) {
     _cancel_status = Status::OK();
-    if (enable_pipeline_x) {
-        _sender_to_local_channel_dependency.resize(num_senders, nullptr);
-    }
 }
 
 VDataStreamRecvr::SenderQueue::~SenderQueue() {
@@ -357,7 +354,11 @@ VDataStreamRecvr::VDataStreamRecvr(
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     if (state->enable_pipeline_x_exec()) {
-        _sender_to_local_channel_dependency.resize(num_senders, nullptr);
+        _sender_to_local_channel_dependency.resize(num_senders);
+        for (size_t i = 0; i < num_senders; i++) {
+            _sender_to_local_channel_dependency[i] =
+                    pipeline::LocalExchangeChannelDependency::create_shared(_dest_node_id);
+        }
     }
 
     // Create one queue per sender if is_merging is true.
@@ -367,8 +368,10 @@ VDataStreamRecvr::VDataStreamRecvr(
     for (int i = 0; i < num_queues; ++i) {
         SenderQueue* queue = nullptr;
         if (_enable_pipeline) {
-            queue = _sender_queue_pool.add(new PipSenderQueue(this, num_sender_per_queue, profile,
-                                                              state->enable_pipeline_x_exec()));
+            queue = _sender_queue_pool.add(new PipSenderQueue(this, num_sender_per_queue, profile));
+            if (state->enable_pipeline_x_exec()) {
+                queue->set_local_channel_dependency(_sender_to_local_channel_dependency);
+            }
         } else {
             queue = _sender_queue_pool.add(new SenderQueue(this, num_sender_per_queue, profile));
         }
@@ -435,13 +438,11 @@ bool VDataStreamRecvr::sender_queue_empty(int sender_id) {
     return _sender_queues[use_sender_id]->queue_empty();
 }
 
-void VDataStreamRecvr::set_dependency(
-        int sender_id, std::shared_ptr<pipeline::LocalExchangeChannelDependency> dependency) {
-    DCHECK(_sender_to_local_channel_dependency[sender_id] == nullptr);
-    _sender_to_local_channel_dependency[sender_id] = dependency;
-    for (auto& queue : _sender_queues) {
-        queue->set_channel_dependency(sender_id, dependency);
-    }
+std::shared_ptr<pipeline::LocalExchangeChannelDependency>
+VDataStreamRecvr::get_local_channel_dependency(int sender_id) {
+    DCHECK_GT(_sender_to_local_channel_dependency.size(), sender_id);
+    DCHECK(_sender_to_local_channel_dependency[sender_id] != nullptr);
+    return _sender_to_local_channel_dependency[sender_id];
 }
 
 bool VDataStreamRecvr::ready_to_read() {

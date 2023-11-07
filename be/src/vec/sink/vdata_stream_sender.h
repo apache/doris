@@ -557,12 +557,12 @@ public:
         return _closure.get();
     }
 
-    void set_dependency(std::shared_ptr<pipeline::LocalExchangeChannelDependency> dependency) {
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency() {
         if (!Channel<Parent>::_local_recvr) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "_local_recvr is null");
         }
-        Channel<Parent>::_local_recvr->set_dependency(Channel<Parent>::_parent->sender_id(),
-                                                      dependency);
+        return Channel<Parent>::_local_recvr->get_local_channel_dependency(
+                Channel<Parent>::_parent->sender_id());
     }
 
 private:
