@@ -58,8 +58,10 @@ public class JdbcClickHouseClient extends JdbcClient {
             return createDecimalOrStringType(precision, scale);
         }
 
-        if ("String".contains(ckType) || ckType.startsWith("Enum")
-                || ckType.startsWith("IPv") || "UUID".contains(ckType)
+        if ("String".contains(ckType)
+                || ckType.startsWith("Enum")
+                || ckType.startsWith("IPv")
+                || "UUID".contains(ckType)
                 || ckType.startsWith("FixedString")) {
             return ScalarType.createStringType();
         }
