@@ -49,7 +49,7 @@ void Dependency::try_to_wake_up_task() {
 Dependency* Dependency::read_blocked_by() {
     if (is_write_dependency()) {
         auto* dep = static_cast<WriteDependency*>(this);
-        if (dep->_ready_for_write) {
+        if (dep->write_blocked_by() == nullptr) {
             dep->try_to_wake_up_task();
         }
     }
@@ -336,6 +336,10 @@ void SetSharedState::set_probe_finished_children(int child_id) {
         std::unique_lock<std::mutex> lc(child_lock);
         probe_finished_children_index[child_id] = true;
     }
+    wake_up_dep();
+}
+
+void SetSharedState::wake_up_dep() {
     for (SetDependency* dep : probe_finished_children_dependency) {
         if (dep->write_blocked_by() == nullptr) {
             dep->set_ready_for_write();

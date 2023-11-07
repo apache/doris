@@ -789,6 +789,7 @@ struct SetSharedState {
 public:
     void set_probe_finished_children(int child_id);
 
+    void wake_up_dep();
     /// called in setup_local_state
     void hash_table_init() {
         if (child_exprs_lists[0].size() == 1 && (!build_not_ignore_null[0])) {
@@ -860,6 +861,10 @@ public:
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
                          << id() << " block tasks: " << _block_task.size();
         }
+        if (write_blocked_by() == nullptr) {
+            set_ready_for_write();
+        }
+        _set_state->wake_up_dep();
         return _set_state->ready_for_read ? nullptr : this;
     }
 
