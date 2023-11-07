@@ -64,10 +64,11 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -116,22 +117,29 @@ public class StreamLoadPlanner {
     }
 
     // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
-    public TExecPlanFragmentParams plan(TUniqueId loadId, int fragmentInstanceIdIndex) throws UserException {
+    public TExecPlanFragmentParams plan(TUniqueId loadId, int fragmentInstanceIdIndex)
+            throws UserException {
         if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
                 && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
-            throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
+            throw new AnalysisException(
+                    "load by MERGE or DELETE is only supported in unique tables.");
         }
-        if (taskInfo.getMergeType() != LoadTask.MergeType.APPEND
-                && !destTable.hasDeleteSign()) {
-            throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
+        if (taskInfo.getMergeType() != LoadTask.MergeType.APPEND && !destTable.hasDeleteSign()) {
+            throw new AnalysisException(
+                    "load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
 
-        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol() && destTable.getSequenceMapCol() == null) {
-            throw new UserException("Table " + destTable.getName()
-                    + " has sequence column, need to specify the sequence column");
+        if (destTable.hasSequenceCol()
+                && !taskInfo.hasSequenceCol()
+                && destTable.getSequenceMapCol() == null) {
+            throw new UserException(
+                    "Table "
+                            + destTable.getName()
+                            + " has sequence column, need to specify the sequence column");
         }
         if (!destTable.hasSequenceCol() && taskInfo.hasSequenceCol()) {
-            throw new UserException("There is no sequence column in the table " + destTable.getName());
+            throw new UserException(
+                    "There is no sequence column in the table " + destTable.getName());
         }
         resetAnalyzer();
         // construct tuple descriptor, used for dataSink
@@ -154,13 +162,18 @@ public class StreamLoadPlanner {
                     if (importColumnDesc.getColumnName() != null
                             && importColumnDesc.getColumnName().equals(col.getName())) {
                         if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
-                            throw new UserException("Partial update should not include invisible column except"
-                                    + " delete sign column: " + col.getName());
+                            throw new UserException(
+                                    "Partial update should not include invisible column except"
+                                            + " delete sign column: "
+                                            + col.getName());
                         }
                         partialUpdateInputColumns.add(col.getName());
-                        if (destTable.hasSequenceCol() && (taskInfo.hasSequenceCol() || (
-                                destTable.getSequenceMapCol() != null
-                                        && destTable.getSequenceMapCol().equalsIgnoreCase(col.getName())))) {
+                        if (destTable.hasSequenceCol()
+                                && (taskInfo.hasSequenceCol()
+                                        || (destTable.getSequenceMapCol() != null
+                                                && destTable
+                                                        .getSequenceMapCol()
+                                                        .equalsIgnoreCase(col.getName())))) {
                             partialUpdateInputColumns.add(Column.SEQUENCE_COL);
                         }
                         existInExpr = true;
@@ -168,7 +181,9 @@ public class StreamLoadPlanner {
                     }
                 }
                 if (col.isKey() && !existInExpr) {
-                    throw new UserException("Partial update should include all key columns, missing: " + col.getName());
+                    throw new UserException(
+                            "Partial update should include all key columns, missing: "
+                                    + col.getName());
                 }
             }
             if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
@@ -198,13 +213,15 @@ public class StreamLoadPlanner {
             }
             for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                 try {
-                    if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
+                    if (!importColumnDesc.isColumn()
+                            && importColumnDesc.getColumnName() != null
                             && importColumnDesc.getColumnName().equals(col.getName())) {
                         scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
                         break;
                     }
                 } catch (Exception e) {
-                    // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed now.
+                    // An exception may be thrown here because the `importColumnDesc.getExpr()` is
+                    // not analyzed now.
                     // We just skip this case here.
                 }
             }
@@ -236,9 +253,18 @@ public class StreamLoadPlanner {
             fileStatus.setIsDir(false);
             fileStatus.setSize(-1); // must set to -1, means stream.
         }
-        // The load id will pass to csv reader to find the stream load context from new load stream manager
-        fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
-                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
+        // The load id will pass to csv reader to find the stream load context from new load stream
+        // manager
+        fileScanNode.setLoadInfo(
+                loadId,
+                taskInfo.getTxnId(),
+                destTable,
+                BrokerDesc.createForStreamLoad(),
+                fileGroup,
+                fileStatus,
+                taskInfo.isStrictMode(),
+                taskInfo.getFileType(),
+                taskInfo.getHiddenColumns(),
                 taskInfo.isPartialUpdate());
         scanNode = fileScanNode;
 
@@ -257,19 +283,29 @@ public class StreamLoadPlanner {
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink;
         if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).isGroupCommit()) {
-            olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
-                    Config.enable_single_replica_load);
+            olapTableSink =
+                    new GroupCommitBlockSink(
+                            destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
         } else {
-            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
+            olapTableSink =
+                    new OlapTableSink(
+                            destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
         }
-        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
-                taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
+        olapTableSink.init(
+                loadId,
+                taskInfo.getTxnId(),
+                db.getId(),
+                timeout,
+                taskInfo.getSendBatchParallelism(),
+                taskInfo.isLoadToSingleTablet(),
+                taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete(analyzer);
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
         // OlapTableSink can dispatch data to corresponding node.
-        PlanFragment fragment = new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.UNPARTITIONED);
+        PlanFragment fragment =
+                new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.UNPARTITIONED);
         fragment.setSink(olapTableSink);
 
         fragment.finalize(null);
@@ -279,12 +315,14 @@ public class StreamLoadPlanner {
         params.setFragment(fragment.toThrift());
 
         params.setDescTbl(analyzer.getDescTbl().toThrift());
-        params.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
+        params.setCoord(
+                new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
 
         TPlanFragmentExecParams execParams = new TPlanFragmentExecParams();
         // user load id (streamLoadTask.id) as query id
         execParams.setQueryId(loadId);
-        execParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + fragmentInstanceIdIndex));
+        execParams.setFragmentInstanceId(
+                new TUniqueId(loadId.hi, loadId.lo + fragmentInstanceIdIndex));
         execParams.per_exch_num_senders = Maps.newHashMap();
         execParams.destinations = Lists.newArrayList();
         Map<Integer, List<TScanRangeParams>> perNodeScanRange = Maps.newHashMap();
@@ -305,7 +343,7 @@ public class StreamLoadPlanner {
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
-        //load
+        // load
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
@@ -331,22 +369,29 @@ public class StreamLoadPlanner {
         return this.planForPipeline(loadId, 1);
     }
 
-    public TPipelineFragmentParams planForPipeline(TUniqueId loadId, int fragmentInstanceIdIndex) throws UserException {
+    public TPipelineFragmentParams planForPipeline(TUniqueId loadId, int fragmentInstanceIdIndex)
+            throws UserException {
         if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
                 && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
-            throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
+            throw new AnalysisException(
+                    "load by MERGE or DELETE is only supported in unique tables.");
         }
-        if (taskInfo.getMergeType() != LoadTask.MergeType.APPEND
-                && !destTable.hasDeleteSign()) {
-            throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
+        if (taskInfo.getMergeType() != LoadTask.MergeType.APPEND && !destTable.hasDeleteSign()) {
+            throw new AnalysisException(
+                    "load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
 
-        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol() && destTable.getSequenceMapCol() == null) {
-            throw new UserException("Table " + destTable.getName()
-                    + " has sequence column, need to specify the sequence column");
+        if (destTable.hasSequenceCol()
+                && !taskInfo.hasSequenceCol()
+                && destTable.getSequenceMapCol() == null) {
+            throw new UserException(
+                    "Table "
+                            + destTable.getName()
+                            + " has sequence column, need to specify the sequence column");
         }
         if (!destTable.hasSequenceCol() && taskInfo.hasSequenceCol()) {
-            throw new UserException("There is no sequence column in the table " + destTable.getName());
+            throw new UserException(
+                    "There is no sequence column in the table " + destTable.getName());
         }
         resetAnalyzer();
         // construct tuple descriptor, used for dataSink
@@ -369,13 +414,18 @@ public class StreamLoadPlanner {
                     if (importColumnDesc.getColumnName() != null
                             && importColumnDesc.getColumnName().equals(col.getName())) {
                         if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
-                            throw new UserException("Partial update should not include invisible column except"
-                                    + " delete sign column: " + col.getName());
+                            throw new UserException(
+                                    "Partial update should not include invisible column except"
+                                            + " delete sign column: "
+                                            + col.getName());
                         }
                         partialUpdateInputColumns.add(col.getName());
-                        if (destTable.hasSequenceCol() && (taskInfo.hasSequenceCol() || (
-                                destTable.getSequenceMapCol() != null
-                                        && destTable.getSequenceMapCol().equalsIgnoreCase(col.getName())))) {
+                        if (destTable.hasSequenceCol()
+                                && (taskInfo.hasSequenceCol()
+                                        || (destTable.getSequenceMapCol() != null
+                                                && destTable
+                                                        .getSequenceMapCol()
+                                                        .equalsIgnoreCase(col.getName())))) {
                             partialUpdateInputColumns.add(Column.SEQUENCE_COL);
                         }
                         existInExpr = true;
@@ -383,7 +433,9 @@ public class StreamLoadPlanner {
                     }
                 }
                 if (col.isKey() && !existInExpr) {
-                    throw new UserException("Partial update should include all key columns, missing: " + col.getName());
+                    throw new UserException(
+                            "Partial update should include all key columns, missing: "
+                                    + col.getName());
                 }
             }
             if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
@@ -413,13 +465,15 @@ public class StreamLoadPlanner {
             }
             for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                 try {
-                    if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
+                    if (!importColumnDesc.isColumn()
+                            && importColumnDesc.getColumnName() != null
                             && importColumnDesc.getColumnName().equals(col.getName())) {
                         scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
                         break;
                     }
                 } catch (Exception e) {
-                    // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed now.
+                    // An exception may be thrown here because the `importColumnDesc.getExpr()` is
+                    // not analyzed now.
                     // We just skip this case here.
                 }
             }
@@ -450,9 +504,18 @@ public class StreamLoadPlanner {
             fileStatus.setIsDir(false);
             fileStatus.setSize(-1); // must set to -1, means stream.
         }
-        // The load id will pass to csv reader to find the stream load context from new load stream manager
-        fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
-                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
+        // The load id will pass to csv reader to find the stream load context from new load stream
+        // manager
+        fileScanNode.setLoadInfo(
+                loadId,
+                taskInfo.getTxnId(),
+                destTable,
+                BrokerDesc.createForStreamLoad(),
+                fileGroup,
+                fileStatus,
+                taskInfo.isStrictMode(),
+                taskInfo.getFileType(),
+                taskInfo.getHiddenColumns(),
                 taskInfo.isPartialUpdate());
         scanNode = fileScanNode;
 
@@ -471,19 +534,29 @@ public class StreamLoadPlanner {
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink;
         if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).isGroupCommit()) {
-            olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
-                    Config.enable_single_replica_load);
+            olapTableSink =
+                    new GroupCommitBlockSink(
+                            destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
         } else {
-            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
+            olapTableSink =
+                    new OlapTableSink(
+                            destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
         }
-        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
+        olapTableSink.init(
+                loadId,
+                taskInfo.getTxnId(),
+                db.getId(),
+                timeout,
+                taskInfo.getSendBatchParallelism(),
+                taskInfo.isLoadToSingleTablet(),
+                taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete(analyzer);
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
         // OlapTableSink can dispatch data to corresponding node.
-        PlanFragment fragment = new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.UNPARTITIONED);
+        PlanFragment fragment =
+                new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.UNPARTITIONED);
         fragment.setSink(olapTableSink);
 
         fragment.finalize(null);
@@ -494,14 +567,16 @@ public class StreamLoadPlanner {
         pipParams.setFragmentId(fragmentInstanceIdIndex);
 
         pipParams.setDescTbl(analyzer.getDescTbl().toThrift());
-        pipParams.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
+        pipParams.setCoord(
+                new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
         pipParams.setQueryId(loadId);
         pipParams.per_exch_num_senders = Maps.newHashMap();
         pipParams.destinations = Lists.newArrayList();
         pipParams.setNumSenders(1);
 
         TPipelineInstanceParams localParams = new TPipelineInstanceParams();
-        localParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + fragmentInstanceIdIndex));
+        localParams.setFragmentInstanceId(
+                new TUniqueId(loadId.hi, loadId.lo + fragmentInstanceIdIndex));
 
         Map<Integer, List<TScanRangeParams>> perNodeScanRange = Maps.newHashMap();
         List<TScanRangeParams> scanRangeParams = Lists.newArrayList();
@@ -521,7 +596,7 @@ public class StreamLoadPlanner {
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
-        //load
+        // load
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
@@ -550,14 +625,16 @@ public class StreamLoadPlanner {
             for (String partName : partitionNames.getPartitionNames()) {
                 Partition part = destTable.getPartition(partName, partitionNames.isTemp());
                 if (part == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_PARTITION, partName, destTable.getName());
+                    ErrorReport.reportDdlException(
+                            ErrorCode.ERR_UNKNOWN_PARTITION, partName, destTable.getName());
                 }
                 partitionIds.add(part.getId());
             }
             return partitionIds;
         }
         List<Expr> conjuncts = scanNode.getConjuncts();
-        if (destTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED && !conjuncts.isEmpty()) {
+        if (destTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED
+                && !conjuncts.isEmpty()) {
             PartitionInfo partitionInfo = destTable.getPartitionInfo();
             Map<Long, PartitionItem> itemById = partitionInfo.getIdToItem(false);
             Map<String, ColumnRange> columnNameToRange = Maps.newHashMap();
@@ -566,7 +643,8 @@ public class StreamLoadPlanner {
                 if (null == slotDesc) {
                     continue;
                 }
-                ColumnRange columnRange = ScanNode.createColumnRange(slotDesc, conjuncts, partitionInfo);
+                ColumnRange columnRange =
+                        ScanNode.createColumnRange(slotDesc, conjuncts, partitionInfo);
                 if (columnRange != null) {
                     columnNameToRange.put(column.getName(), columnRange);
                 }
@@ -577,11 +655,13 @@ public class StreamLoadPlanner {
 
             PartitionPruner partitionPruner = null;
             if (destTable.getPartitionInfo().getType() == PartitionType.RANGE) {
-                partitionPruner = new RangePartitionPrunerV2(itemById,
-                        partitionInfo.getPartitionColumns(), columnNameToRange);
+                partitionPruner =
+                        new RangePartitionPrunerV2(
+                                itemById, partitionInfo.getPartitionColumns(), columnNameToRange);
             } else if (destTable.getPartitionInfo().getType() == PartitionType.LIST) {
-                partitionPruner = new ListPartitionPrunerV2(itemById,
-                        partitionInfo.getPartitionColumns(), columnNameToRange);
+                partitionPruner =
+                        new ListPartitionPrunerV2(
+                                itemById, partitionInfo.getPartitionColumns(), columnNameToRange);
             }
             partitionIds.addAll(partitionPruner.prune());
             return partitionIds;
@@ -593,4 +673,3 @@ public class StreamLoadPlanner {
         return descTable;
     }
 }
-

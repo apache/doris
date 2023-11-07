@@ -89,14 +89,10 @@ public interface LoadTaskInfo {
 
     Separator getLineDelimiter();
 
-    /**
-     * only for csv
-     */
+    /** only for csv */
     byte getEnclose();
 
-    /**
-     * only for csv
-     */
+    /** only for csv */
     byte getEscape();
 
     int getSendBatchParallelism();
@@ -150,4 +146,3 @@ public interface LoadTaskInfo {
         }
     }
 }
-

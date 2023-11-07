@@ -36,9 +36,10 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Strings;
 
 import java.io.StringReader;
 import java.util.Arrays;
@@ -74,7 +75,8 @@ public class StreamLoadTask implements LoadTaskInfo {
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     private int timeout = Config.stream_load_default_timeout_second;
     private long execMemLimit = 2 * 1024 * 1024 * 1024L; // default is 2GB
-    private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
+    private LoadTask.MergeType mergeType =
+            LoadTask.MergeType.APPEND; // default is all data is load no delete
     private Expr deleteCondition;
     private String sequenceCol;
     private int sendBatchParallelism = 1;
@@ -96,7 +98,11 @@ public class StreamLoadTask implements LoadTaskInfo {
 
     private boolean groupCommit = false;
 
-    public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
+    public StreamLoadTask(
+            TUniqueId id,
+            long txnId,
+            TFileType fileType,
+            TFileFormatType formatType,
             TFileCompressType compressType) {
         this.id = id;
         this.txnId = txnId;
@@ -309,10 +315,15 @@ public class StreamLoadTask implements LoadTaskInfo {
         this.memtableOnSinkNode = memtableOnSinkNode;
     }
 
-    public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
-        StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
-                request.getFileType(), request.getFormatType(),
-                request.getCompressType());
+    public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request)
+            throws UserException {
+        StreamLoadTask streamLoadTask =
+                new StreamLoadTask(
+                        request.getLoadId(),
+                        request.getTxnId(),
+                        request.getFileType(),
+                        request.getFormatType(),
+                        request.getCompressType());
         streamLoadTask.setOptionalFromTSLPutRequest(request);
         streamLoadTask.setGroupCommit(request.isGroupCommit());
         if (request.isSetFileSize()) {
@@ -361,7 +372,8 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetPartitions()) {
             String[] splitPartNames = request.getPartitions().trim().split(",");
-            List<String> partNames = Arrays.stream(splitPartNames).map(String::trim).collect(Collectors.toList());
+            List<String> partNames =
+                    Arrays.stream(splitPartNames).map(String::trim).collect(Collectors.toList());
             if (request.isSetIsTempPartition()) {
                 partitions = new PartitionNames(request.isIsTempPartition(), partNames);
             } else {
@@ -370,7 +382,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         switch (request.getFileType()) {
             case FILE_STREAM:
-            // fall through to case FILE_LOCAL
+                // fall through to case FILE_LOCAL
             case FILE_LOCAL:
                 path = request.getPath();
                 break;
@@ -430,7 +442,8 @@ public class StreamLoadTask implements LoadTaskInfo {
             loadToSingleTablet = request.isLoadToSingleTablet();
         }
         if (request.isSetHiddenColumns()) {
-            hiddenColumns = Arrays.asList(request.getHiddenColumns().replaceAll("\\s+", "").split(","));
+            hiddenColumns =
+                    Arrays.asList(request.getHiddenColumns().replaceAll("\\s+", "").split(","));
         }
         if (request.isSetTrimDoubleQuotes()) {
             trimDoubleQuotes = request.isTrimDoubleQuotes();
@@ -458,10 +471,14 @@ public class StreamLoadTask implements LoadTaskInfo {
             columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Error e) {
             LOG.warn("error happens when parsing columns, sql={}", columnsSQL, e);
-            throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
+            throw new AnalysisException(
+                    "failed to parsing columns' header, maybe contain unsupported character");
         } catch (AnalysisException e) {
-            LOG.warn("analyze columns' statement failed, sql={}, error={}",
-                     columnsSQL, parser.getErrorMsg(columnsSQL), e);
+            LOG.warn(
+                    "analyze columns' statement failed, sql={}, error={}",
+                    columnsSQL,
+                    parser.getErrorMsg(columnsSQL),
+                    e);
             String errorMessage = parser.getErrorMsg(columnsSQL);
             if (errorMessage == null) {
                 throw e;
@@ -486,10 +503,14 @@ public class StreamLoadTask implements LoadTaskInfo {
             whereStmt = (ImportWhereStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Error e) {
             LOG.warn("error happens when parsing where header, sql={}", whereSQL, e);
-            throw new AnalysisException("failed to parsing where header, maybe contain unsupported character");
+            throw new AnalysisException(
+                    "failed to parsing where header, maybe contain unsupported character");
         } catch (AnalysisException e) {
-            LOG.warn("analyze where statement failed, sql={}, error={}",
-                     whereSQL, parser.getErrorMsg(whereSQL), e);
+            LOG.warn(
+                    "analyze where statement failed, sql={}, error={}",
+                    whereSQL,
+                    parser.getErrorMsg(whereSQL),
+                    e);
             String errorMessage = parser.getErrorMsg(whereSQL);
             if (errorMessage == null) {
                 throw e;
@@ -531,4 +552,3 @@ public class StreamLoadTask implements LoadTaskInfo {
         return groupCommit;
     }
 }
-
