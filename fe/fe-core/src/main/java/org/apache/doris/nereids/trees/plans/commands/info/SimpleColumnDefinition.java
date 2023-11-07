@@ -14,13 +14,29 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Common/HashTable/HashTable.h
-// and modified by Doris
 
-#pragma once
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-template <typename T>
-struct HashTableTraits {
-    static constexpr bool is_phmap = false;
-};
+/**
+ * column def for mv
+ */
+public class SimpleColumnDefinition {
+    private final String name;
+    private final String comment;
+
+    /**
+     * constructor
+     */
+    public SimpleColumnDefinition(String name, String comment) {
+        this.name = name;
+        this.comment = comment;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+}

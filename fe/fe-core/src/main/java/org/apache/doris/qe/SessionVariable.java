@@ -293,6 +293,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
 
+    public static final String SKIP_MISSING_VERSION = "skip_missing_version";
+
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
 
     public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
@@ -976,6 +978,19 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
     public boolean skipDeleteBitmap = false;
+
+    // This variable replace the original FE config `recover_with_skip_missing_version`.
+    // In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover.
+    // This config can control the behavior of query. When it is set to `true`, the query will ignore the
+    // visible version recorded in FE partition, use the replica version. If the replica on BE has missing versions,
+    // the query will directly skip this missing version, and only return the data of the existing versions.
+    // Besides, the query will always try to select the one with the highest lastSuccessVersion among all surviving
+    // BE replicas, so as to recover as much data as possible.
+    // You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries.
+    // This variable conflicts with the use_fix_replica variable, when the use_fix_replica variable is not -1,
+    // this variable will not work.
+    @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION)
+    public boolean skipMissingVersion = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
@@ -2439,6 +2454,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFasterFloatConvert(fasterFloatConvert);
 
         tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
+
+        tResult.setSkipMissingVersion(skipMissingVersion);
 
         return tResult;
     }

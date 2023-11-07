@@ -23,23 +23,15 @@
 #include <memory>
 
 #include "common/status.h"
-#include "io/fs/stream_load_pipe.h"
 #include "util/lock.h"
 #include "util/threadpool.h"
-#include "util/thrift_util.h"
 #include "vec/core/block.h"
 #include "vec/core/future_block.h"
 
 namespace doris {
 class ExecEnv;
-class TPlan;
-class TDescriptorTable;
 class TUniqueId;
-class TExecPlanFragmentParams;
-class ObjectPool;
 class RuntimeState;
-class StreamLoadContext;
-class StreamLoadPipe;
 
 class LoadBlockQueue {
 public:
@@ -131,13 +123,6 @@ public:
 
     void stop();
 
-    // insert into
-    Status group_commit_insert(int64_t table_id, const TPlan& plan,
-                               const TDescriptorTable& desc_tbl,
-                               const TScanRangeParams& scan_range_params,
-                               const PGroupCommitInsertRequest* request,
-                               PGroupCommitInsertResponse* response);
-
     // used when init group_commit_scan_node
     Status get_load_block_queue(int64_t table_id, const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
@@ -146,18 +131,11 @@ public:
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:
-    // used by insert into
-    Status _append_row(std::shared_ptr<io::StreamLoadPipe> pipe,
-                       const PGroupCommitInsertRequest* request);
-
     ExecEnv* _exec_env;
 
     doris::Mutex _lock;
     // TODO remove table when unused
     std::unordered_map<int64_t, std::shared_ptr<GroupCommitTable>> _table_map;
-
-    // thread pool to handle insert into: append data to pipe
-    std::unique_ptr<doris::ThreadPool> _insert_into_thread_pool;
     std::unique_ptr<doris::ThreadPool> _thread_pool;
     // memory consumption of all tables' load block queues, used for back pressure.
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;

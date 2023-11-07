@@ -345,10 +345,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     } else {
                         block_holder->get_block()->Clear();
                     }
-                    Status status;
+                    Status error_status = Status::OK();
                     bool sent = false;
                     for (auto channel : local_state.channels) {
                         if (!channel->is_receiver_eof()) {
+                            Status status;
                             if (channel->is_local()) {
                                 status = channel->send_local_block(&cur_block);
                             } else {
@@ -356,12 +357,18 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                                 status = channel->send_broadcast_block(
                                         block_holder, &sent, source_state == SourceState::FINISHED);
                             }
-                            HANDLE_CHANNEL_STATUS(state, channel, status);
+                            if (status.is<ErrorCode::END_OF_FILE>()) {
+                                _handle_eof_channel(state, channel, status);
+                            } else if (!status.ok()) {
+                                error_status = status;
+                                break;
+                            }
                         }
                     }
                     if (sent) {
                         local_state._broadcast_dependency->take_available_block();
                     }
+                    RETURN_IF_ERROR(error_status);
                     cur_block.clear_column_data();
                     local_state._serializer.get_block()->set_muatable_columns(
                             cur_block.mutate_columns());
@@ -392,9 +399,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         auto rows = block->rows();
-        SCOPED_TIMER(local_state._split_block_hash_compute_timer);
-        RETURN_IF_ERROR(
-                local_state._partitioner->do_partitioning(state, block, _mem_tracker.get()));
+        {
+            SCOPED_TIMER(local_state._split_block_hash_compute_timer);
+            RETURN_IF_ERROR(
+                    local_state._partitioner->do_partitioning(state, block, _mem_tracker.get()));
+        }
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(state, local_state.channels,
                                              local_state._partition_count,
@@ -449,7 +458,10 @@ Status ExchangeSinkLocalState::get_next_available_buffer(
             return Status::OK();
         }
     }
-    return Status::InternalError("No broadcast buffer left!");
+    return Status::InternalError("No broadcast buffer left! Available blocks: " +
+                                 std::to_string(_broadcast_dependency->available_blocks()) +
+                                 " and number of buffer is " +
+                                 std::to_string(_broadcast_pb_blocks.size()));
 }
 
 template <typename Channels, typename HashValueType>

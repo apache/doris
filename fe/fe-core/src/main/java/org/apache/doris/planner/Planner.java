@@ -29,7 +29,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.PlanTreeBuilder;
 import org.apache.doris.common.profile.PlanTreePrinter;
 import org.apache.doris.common.util.LiteralUtils;
-import org.apache.doris.common.util.ProfileStatistics;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.thrift.TQueryOptions;
 
@@ -70,6 +69,17 @@ public abstract class Planner {
             }
             return PlanTreePrinter.printPlanExplanation(builder.getTreeRoot());
         }
+        if (explainOptions.isTree()) {
+            // print the plan tree
+            PlanTreeBuilder builder = new PlanTreeBuilder(fragments);
+            try {
+                builder.build();
+            } catch (UserException e) {
+                LOG.warn("Failed to build explain plan tree", e);
+                return e.getMessage();
+            }
+            return PlanTreePrinter.printPlanTree(builder.getTreeRoot());
+        }
 
         // print text plan
         org.apache.doris.thrift.TExplainLevel
@@ -89,21 +99,6 @@ public abstract class Planner {
             appendTupleInfo(str);
         }
         appendHintInfo(str);
-        return str.toString();
-    }
-
-    public String getExplainStringToProfile(ProfileStatistics statistics) {
-        org.apache.doris.thrift.TExplainLevel explainLevel = org.apache.doris.thrift.TExplainLevel.NORMAL;
-        StringBuilder str = new StringBuilder();
-        for (int i = 0; i < fragments.size(); ++i) {
-            PlanFragment fragment = fragments.get(i);
-            if (i > 0) {
-                // a blank line between plan fragments
-                str.append("\n");
-            }
-            str.append("PLAN FRAGMENT " + i + "\n");
-            str.append(fragment.getExplainStringToProfile(explainLevel, statistics, i));
-        }
         return str.toString();
     }
 

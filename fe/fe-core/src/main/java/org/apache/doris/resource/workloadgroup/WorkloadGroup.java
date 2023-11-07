@@ -30,7 +30,6 @@ import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -39,7 +38,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class WorkloadGroup implements Writable, GsonPostProcessable {
@@ -278,13 +279,26 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     }
 
     public void getProcNodeData(BaseProcResult result) {
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (CPU_HARD_LIMIT.equals(entry.getKey())) {
-                result.addRow(Lists.newArrayList(String.valueOf(id), name, entry.getKey(), entry.getValue() + "%"));
+        List<String> row = new ArrayList<>();
+        row.add(String.valueOf(id));
+        row.add(name);
+        // skip id,name,running query,waiting query
+        for (int i = 2; i < WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.size() - 2; i++) {
+            String key = WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.get(i);
+            if (CPU_HARD_LIMIT.equalsIgnoreCase(key)) {
+                String val = properties.get(key);
+                if (StringUtils.isEmpty(val)) { // cpu_hard_limit is not required
+                    row.add("0%");
+                } else {
+                    row.add(val + "%");
+                }
             } else {
-                result.addRow(Lists.newArrayList(String.valueOf(id), name, entry.getKey(), entry.getValue()));
+                row.add(properties.get(key));
             }
         }
+        row.add(String.valueOf(queryQueue.getCurrentRunningQueryNum()));
+        row.add(String.valueOf(queryQueue.getCurrentWaitingQueryNum()));
+        result.addRow(row);
     }
 
     public int getCpuHardLimit() {
