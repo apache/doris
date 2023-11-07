@@ -104,6 +104,9 @@ public abstract class ExternalCatalog
     private ExternalSchemaCache schemaCache;
     private String comment;
 
+    public ExternalCatalog() {
+    }
+
     public ExternalCatalog(long catalogId, String name, InitCatalogLog.Type logType, String comment) {
         this.id = catalogId;
         this.name = name;
