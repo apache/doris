@@ -54,6 +54,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         String ex_tb18 = "ex_tb18";
         String ex_tb19 = "ex_tb19";
         String ex_tb20 = "ex_tb20";
+        String ex_tb21 = "test_key_word";
         String test_insert = "test_insert";
         String test_insert2 = "test_insert2";
         String auto_default_t = "auto_default_t";
@@ -115,6 +116,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
         order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
+        order_qt_ex_tb21  """ select `key`, `id` from ${ex_tb21} where `key` = 2 order by id;"""
         order_qt_information_schema """ show tables from information_schema; """
         order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
         order_qt_dt """select * from ${dt}; """
@@ -308,7 +310,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         explain {
             sql ("select k6, k8 from test1 where nvl(k6, null) = 1 and k8 = 1;")
 
-            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (k8 = 1)"
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (`k8` = 1)"
         }
         sql """ admin set frontend config ("enable_func_pushdown" = "true"); """
         sql """ drop catalog if exists mysql_fun_push_catalog; """
