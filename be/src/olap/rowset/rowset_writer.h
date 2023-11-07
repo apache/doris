@@ -48,7 +48,7 @@ struct SegmentStatistics {
               index_size(pb.index_size()),
               key_bounds(pb.key_bounds()) {}
 
-    void to_pb(SegmentStatisticsPB* segstat_pb) {
+    void to_pb(SegmentStatisticsPB* segstat_pb) const {
         segstat_pb->set_row_num(row_num);
         segstat_pb->set_data_size(data_size);
         segstat_pb->set_index_size(index_size);
@@ -114,7 +114,7 @@ public:
                 "RowsetWriter not support flush_single_block");
     }
 
-    virtual Status add_segment(uint32_t segment_id, SegmentStatistics& segstat) {
+    virtual Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
         return Status::NotSupported("RowsetWriter does not support add_segment");
     }
 
