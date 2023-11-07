@@ -135,6 +135,18 @@ public class AgentTaskQueue {
         return signatureMap.get(signature);
     }
 
+    public static synchronized void updateTask(long backendId, TTaskType type, long signature, AgentTask newTask) {
+        if (!tasks.contains(backendId, type)) {
+            return;
+        }
+
+        Map<Long, AgentTask> signatureMap = tasks.get(backendId, type);
+        if (!signatureMap.containsKey(signature)) {
+            return;
+        }
+        signatureMap.put(signature, newTask);
+    }
+
     // this is just for unit test
     public static synchronized List<AgentTask> getTask(TTaskType type) {
         List<AgentTask> res = Lists.newArrayList();
