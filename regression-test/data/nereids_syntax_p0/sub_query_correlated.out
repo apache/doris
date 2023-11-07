@@ -465,3 +465,24 @@ true
 \N
 \N
 
+-- !cir_5218_in_ok --
+4
+
+-- !cir_5218_exists_ok_1 --
+13
+
+-- !cir_5218_exists_ok_2 --
+3
+
+-- !cir_5218_exists_ok_3 --
+5
+
+-- !cir_5218_exists_ok_4 --
+13
+
+-- !cir_5218_exists_ok_5 --
+13
+
+-- !cir_5218_exists_ok_6 --
+0
+

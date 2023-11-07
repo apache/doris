@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -269,8 +270,10 @@ public class SubqueryToApply implements AnalysisRuleFactory {
     private boolean nonMarkJoinExistsWithAgg(SubqueryExpr exists,
                  Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot) {
         return exists instanceof Exists
-            && exists.getQueryPlan().anyMatch(Aggregate.class::isInstance)
-            && !subqueryToMarkJoinSlot.get(exists).isPresent();
+                && exists.getQueryPlan()
+                        .anyMatch(planTreeNode -> planTreeNode instanceof LogicalAggregate
+                                && ((LogicalAggregate<?>) planTreeNode).getGroupByExpressions().isEmpty())
+                && !subqueryToMarkJoinSlot.get(exists).isPresent();
     }
 
     private LogicalPlan addApply(SubqueryExpr subquery, LogicalPlan childPlan,
