@@ -72,7 +72,7 @@ operator.yaml中namespace默认为doris，如果更改了namespace，在查询�
 ```
 kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/doc/examples/doriscluster-sample.yaml
 ```
-在doris-operator仓库中，[how_to_use.md](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md)梳理了Operator管理运维Doris集群的主要能力，[DorisCluster](https://github.com/selectdb/doris-operator/blob/master/api/doris/v1/types.go)展示了资源定义和从属结构，[api.md](https://github.com/selectdb/doris-operator/tree/master/doc/api.md)可读性展示了资源定义和从属结构。可根据相关文档规划部署Doris集群。 
+在doris-operator仓库中，[how_to_use.md](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md)梳理了Operator管理运维Doris集群的主要能力，[DorisCluster](https://github.com/selectdb/doris-operator/blob/master/api/doris/v1/types.go)展示了资源定义和从属结构，[api.md](https://github.com/selectdb/doris-operator/tree/master/doc/api.md)可读性展示了资源定义和从属结构。可根据相关文档规划部署Doris集群。  
 
 2. 检测集群状态
 - 检查所有pod的状态  
