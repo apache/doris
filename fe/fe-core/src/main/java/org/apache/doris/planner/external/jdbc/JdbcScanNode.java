@@ -357,7 +357,7 @@ public class JdbcScanNode extends ExternalScanNode {
             ArrayList<Expr> children = expr.getChildren();
             String filter;
             if (children.get(0) instanceof SlotRef) {
-                filter = "`" + children.get(0).toMySql() + "`";
+                filter = JdbcTable.databaseProperName(tableType, children.get(0).toMySql());
             } else {
                 filter = children.get(0).toMySql();
             }
