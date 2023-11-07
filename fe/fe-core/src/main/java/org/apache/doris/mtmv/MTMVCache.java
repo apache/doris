@@ -17,10 +17,14 @@
 
 package org.apache.doris.mtmv;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.util.Set;
 
 public class MTMVCache {
+    @SerializedName("bt")
     private Set<BaseTableInfo> baseTables;
+    @SerializedName("bv")
     private Set<BaseTableInfo> baseViews;
 
     public MTMVCache(Set<BaseTableInfo> baseTables, Set<BaseTableInfo> baseViews) {

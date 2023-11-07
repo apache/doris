@@ -41,7 +41,7 @@ public class MTMVService {
     private MTMVJobManager jobManager = new MTMVJobManager();
 
     public MTMVService() {
-//        registerHook("MTMVCacheManager", cacheManager);
+        //        registerHook("MTMVCacheManager", cacheManager);
         registerHook("MTMVJobManager", jobManager);
     }
 
@@ -113,13 +113,15 @@ public class MTMVService {
 
     private void processBaseTableChange(Table table, String msgPrefix) throws UserException {
         BaseTableInfo baseTableInfo = new BaseTableInfo(table);
-        Set<MTMV> mtmvsByBaseTable = cacheManager.getMtmvsByBaseTable(baseTableInfo);
+        Set<BaseTableInfo> mtmvsByBaseTable = cacheManager.getMtmvsByBaseTable(baseTableInfo);
         if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
             return;
         }
-        for (MTMV materializedView : mtmvsByBaseTable) {
-            TableNameInfo tableNameInfo = new TableNameInfo(materializedView.getQualifiedDbName(),
-                    materializedView.getName());
+        for (BaseTableInfo mtmvInfo : mtmvsByBaseTable) {
+            Table mtmv = Env.getCurrentEnv().getInternalCatalog()
+                    .getDbOrAnalysisException(mtmvInfo.getDbId()).getTableOrAnalysisException(mtmvInfo.getTableId());
+            TableNameInfo tableNameInfo = new TableNameInfo(mtmv.getQualifiedDbName(),
+                    mtmv.getName());
             MTMVStatus status = new MTMVStatus(MTMVState.SCHEMA_CHANGE,
                     msgPrefix + baseTableInfo);
             Env.getCurrentEnv().alterMTMVStatus(tableNameInfo, status);

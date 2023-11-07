@@ -49,16 +49,16 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 public class MTMVCacheManager implements MTMVHookService {
-    private Map<BaseTableInfo, Set<MTMV>> tableMTMVs = Maps.newConcurrentMap();
-    private Map<MTMV, MTMVCache> mtmvCaches = Maps.newConcurrentMap();
+    private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
 
-    public Set<MTMV> getMtmvsByBaseTable(BaseTableInfo table) {
+    public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
         return tableMTMVs.get(table);
     }
 
@@ -67,7 +67,7 @@ public class MTMVCacheManager implements MTMVHookService {
         if (!ctx.getSessionVariable().isEnableMvRewrite()) {
             return false;
         }
-        MTMVCache mtmvCache = mtmvCaches.get(mtmv);
+        MTMVCache mtmvCache = mtmv.getCache();
         if (mtmvCache == null) {
             return false;
         }
@@ -101,8 +101,8 @@ public class MTMVCacheManager implements MTMVHookService {
 
     private long getTableLastVisibleVersionTime(BaseTableInfo baseTableInfo) throws AnalysisException, DdlException {
         Table table = Env.getCurrentEnv().getInternalCatalog()
-                .getDbOrAnalysisException(baseTableInfo.getDbName())
-                .getTableOrDdlException(baseTableInfo.getTableName(), TableType.OLAP);
+                .getDbOrAnalysisException(baseTableInfo.getDbId())
+                .getTableOrDdlException(baseTableInfo.getTableId(), TableType.OLAP);
         return getTableLastVisibleVersionTime((OlapTable) table);
     }
 
@@ -120,19 +120,19 @@ public class MTMVCacheManager implements MTMVHookService {
 
     private boolean containsExternalTable(Set<BaseTableInfo> baseTableInfos) {
         for (BaseTableInfo baseTableInfo : baseTableInfos) {
-            if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(baseTableInfo.getCtlName())) {
+            if (InternalCatalog.INTERNAL_CATALOG_ID != baseTableInfo.getCtlId()) {
                 return true;
             }
         }
         return false;
     }
 
-    private MTMVCache generateMTMVCache(MTMV mtmv) {
+    public static MTMVCache generateMTMVCache(MTMV mtmv) {
         Plan plan = getPlanBySql(mtmv);
         return new MTMVCache(getBaseTables(plan), getBaseViews(plan));
     }
 
-    private Set<BaseTableInfo> getBaseTables(Plan plan) {
+    private static Set<BaseTableInfo> getBaseTables(Plan plan) {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
                         Sets.newHashSet(TableType.MATERIALIZED_VIEW, TableType.OLAP));
@@ -141,7 +141,7 @@ public class MTMVCacheManager implements MTMVHookService {
         return transferTableIfToInfo(collectedTables);
     }
 
-    private Set<BaseTableInfo> getBaseViews(Plan plan) {
+    private static Set<BaseTableInfo> getBaseViews(Plan plan) {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
                         Sets.newHashSet(TableType.VIEW));
@@ -150,7 +150,7 @@ public class MTMVCacheManager implements MTMVHookService {
         return transferTableIfToInfo(collectedTables);
     }
 
-    private Set<BaseTableInfo> transferTableIfToInfo(List<TableIf> tables) {
+    private static Set<BaseTableInfo> transferTableIfToInfo(List<TableIf> tables) {
         Set<BaseTableInfo> result = Sets.newHashSet();
         for (TableIf table : tables) {
             result.add(new BaseTableInfo(table));
@@ -158,7 +158,7 @@ public class MTMVCacheManager implements MTMVHookService {
         return result;
     }
 
-    private Plan getPlanBySql(MTMV mtmv) {
+    private static Plan getPlanBySql(MTMV mtmv) {
         List<StatementBase> statements;
         try {
             statements = new NereidsParser().parseSQL(mtmv.getQuerySql());
@@ -179,7 +179,7 @@ public class MTMVCacheManager implements MTMVHookService {
         return planner.plan(logicalPlan, PhysicalProperties.ANY, ExplainLevel.NONE);
     }
 
-    private Set<MTMV> getOrCreateMTMVs(BaseTableInfo baseTableInfo) {
+    private Set<BaseTableInfo> getOrCreateMTMVs(BaseTableInfo baseTableInfo) {
         if (!tableMTMVs.containsKey(baseTableInfo)) {
             tableMTMVs.put(baseTableInfo, Sets.newConcurrentHashSet());
         }
@@ -192,38 +192,52 @@ public class MTMVCacheManager implements MTMVHookService {
     }
 
     @Override
-    public void dropMTMV(MTMV materializedView) throws DdlException {
+    public void dropMTMV(MTMV mtmv) throws DdlException {
 
     }
 
     @Override
-    public void registerMTMV(MTMV materializedView) {
-        MTMVCache mtmvCache = generateMTMVCache(materializedView);
-        mtmvCaches.put(materializedView, mtmvCache);
-        for (BaseTableInfo baseTableInfo : mtmvCache.getBaseTables()) {
-            getOrCreateMTMVs(baseTableInfo).add(materializedView);
-        }
-        for (BaseTableInfo baseTableInfo : mtmvCache.getBaseViews()) {
-            getOrCreateMTMVs(baseTableInfo).add(materializedView);
-        }
+    public void registerMTMV(MTMV mtmv) {
     }
 
-    @Override
-    public void deregisterMTMV(MTMV materializedView) {
-        if (!mtmvCaches.containsKey(materializedView)) {
+    public void refreshMTMVCache(MTMV mtmv) {
+        removeMTMV(mtmv);
+        addMTMV(mtmv);
+    }
+
+    private void addMTMV(MTMV mtmv) {
+        MTMVCache cache = mtmv.getCache();
+        if (cache == null) {
             return;
         }
-        MTMVCache mtmvCache = mtmvCaches.remove(materializedView);
-        for (BaseTableInfo baseTableInfo : mtmvCache.getBaseTables()) {
-            getOrCreateMTMVs(baseTableInfo).remove(materializedView);
+        BaseTableInfo mtmvInfo = new BaseTableInfo(mtmv);
+        addMTMVTables(cache.getBaseTables(), mtmvInfo);
+        addMTMVTables(cache.getBaseViews(), mtmvInfo);
+    }
+
+    private void addMTMVTables(Set<BaseTableInfo> baseTables, BaseTableInfo mtmvInfo) {
+        if (CollectionUtils.isEmpty(baseTables)) {
+            return;
         }
-        for (BaseTableInfo baseTableInfo : mtmvCache.getBaseViews()) {
-            getOrCreateMTMVs(baseTableInfo).remove(materializedView);
+        for (BaseTableInfo baseTableInfo : baseTables) {
+            getOrCreateMTMVs(baseTableInfo).add(mtmvInfo);
+        }
+    }
+
+    private void removeMTMV(MTMV mtmv) {
+        BaseTableInfo mtmvInfo = new BaseTableInfo(mtmv);
+        for (Set<BaseTableInfo> sets : tableMTMVs.values()) {
+            sets.remove(mtmvInfo);
         }
     }
 
     @Override
-    public void alterMTMV(MTMV materializedView, AlterMTMV alterMTMV) {
+    public void deregisterMTMV(MTMV mtmv) {
+        removeMTMV(mtmv);
+    }
+
+    @Override
+    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) {
 
     }
 

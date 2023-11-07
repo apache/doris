@@ -27,27 +27,21 @@ import lombok.Data;
 
 @Data
 public class BaseTableInfo {
-    @SerializedName("tn")
-    private String tableName;
-    @SerializedName("dn")
-    private String dbName;
-    @SerializedName("cn")
-    private String ctlName;
-
-    public BaseTableInfo(String tableName, String dbName, String ctlName) {
-        this.tableName = java.util.Objects.requireNonNull(tableName, "require tableName object");
-        this.dbName = java.util.Objects.requireNonNull(dbName, "require dbName object");
-        this.ctlName = java.util.Objects.requireNonNull(ctlName, "require ctlName object");
-    }
+    @SerializedName("ti")
+    private Long tableId;
+    @SerializedName("di")
+    private Long dbId;
+    @SerializedName("ci")
+    private Long ctlId;
 
     public BaseTableInfo(TableIf table) {
         DatabaseIf database = table.getDatabase();
         java.util.Objects.requireNonNull(database, "database is null");
         CatalogIf catalog = database.getCatalog();
         java.util.Objects.requireNonNull(database, "catalog is null");
-        this.tableName = table.getName();
-        this.dbName = database.getFullName();
-        this.ctlName = catalog.getName();
+        this.tableId = table.getId();
+        this.dbId = database.getId();
+        this.ctlId = catalog.getId();
     }
 
     @Override
@@ -59,13 +53,13 @@ public class BaseTableInfo {
             return false;
         }
         BaseTableInfo that = (BaseTableInfo) o;
-        return Objects.equal(tableName, that.tableName)
-                && Objects.equal(dbName, that.dbName)
-                && Objects.equal(ctlName, that.ctlName);
+        return Objects.equal(tableId, that.tableId) &&
+                Objects.equal(dbId, that.dbId) &&
+                Objects.equal(ctlId, that.ctlId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(tableName, dbName, ctlName);
+        return Objects.hashCode(tableId, dbId, ctlId);
     }
 }

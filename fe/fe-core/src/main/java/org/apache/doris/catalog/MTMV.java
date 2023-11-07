@@ -21,6 +21,8 @@ import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.EnvInfo;
+import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVCacheManager;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
@@ -55,6 +57,8 @@ public class MTMV extends OlapTable {
     private MTMVJobInfo jobInfo;
     @SerializedName("mp")
     private Map<String, String> mvProperties;
+    @SerializedName("mc")
+    private MTMVCache cache;
 
     // For deserialization
     public MTMV() {
@@ -99,6 +103,10 @@ public class MTMV extends OlapTable {
         return jobInfo;
     }
 
+    public MTMVCache getCache() {
+        return cache;
+    }
+
     public MTMVRefreshInfo alterRefreshInfo(MTMVRefreshInfo newRefreshInfo) {
         return refreshInfo.updateNotNull(newRefreshInfo);
     }
@@ -111,6 +119,8 @@ public class MTMV extends OlapTable {
         if (taskResult.isSuccess()) {
             status.setState(MTMVState.NORMAL);
             status.setRefreshState(MTMVRefreshState.SUCCESS);
+            cache = MTMVCacheManager.generateMTMVCache(this);
+            Env.getCurrentEnv().getMtmvService().getCacheManager().refreshMTMVCache(this);
         } else {
             status.setRefreshState(MTMVRefreshState.FAIL);
         }
@@ -159,13 +169,8 @@ public class MTMV extends OlapTable {
         envInfo = materializedView.envInfo;
         jobInfo = materializedView.jobInfo;
         mvProperties = materializedView.mvProperties;
-        try {
-            Env.getCurrentEnv().getMtmvService().registerMTMV(this);
-        } catch (Exception e) {
-            LOG.warn("read MTMV failed: " + name);
-            e.printStackTrace();
-        }
-
+        cache = materializedView.cache;
+        Env.getCurrentEnv().getMtmvService().getCacheManager().refreshMTMVCache(this);
     }
 
 }
