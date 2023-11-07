@@ -52,9 +52,9 @@ kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/maste
    ```
    方式二：自定义部署  
    [operator.yaml](https://github.com/selectdb/doris-operator/blob/master/config/operator/operator.yaml)中各个配置是部署Operator服务的最低要求。为提高管理效率或者有定制化的需求，下载operator.yaml进行自定义部署。
-  - 下载operator的部署范例[operator.yaml](https://raw.githubusercontent.com/selectdb/doris-operator/master/config/operator/operator.yaml)，可直接通过wget进行下载。
-  - 按期望更新operator.yaml中各种配置信息。
-  - 通过如下命令部署Doris Operator服务。
+   - 下载operator的部署范例[operator.yaml](https://raw.githubusercontent.com/selectdb/doris-operator/master/config/operator/operator.yaml)，可直接通过wget进行下载。
+   - 按期望更新operator.yaml中各种配置信息。
+   - 通过如下命令部署Doris Operator服务。
    ```shell
    kubectl apply -f operator.yaml
    ```
