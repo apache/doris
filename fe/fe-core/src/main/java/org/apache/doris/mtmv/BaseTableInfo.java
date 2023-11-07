@@ -53,9 +53,9 @@ public class BaseTableInfo {
             return false;
         }
         BaseTableInfo that = (BaseTableInfo) o;
-        return Objects.equal(tableId, that.tableId) &&
-                Objects.equal(dbId, that.dbId) &&
-                Objects.equal(ctlId, that.ctlId);
+        return Objects.equal(tableId, that.tableId)
+                && Objects.equal(dbId, that.dbId)
+                && Objects.equal(ctlId, that.ctlId);
     }
 
     @Override
