@@ -31,20 +31,20 @@ class PipScannerContext : public vectorized::ScannerContext {
 public:
     PipScannerContext(RuntimeState* state, vectorized::VScanNode* parent,
                       const TupleDescriptor* output_tuple_desc,
-                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
+                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit_,
                       int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
                       const int num_parallel_instances)
-            : vectorized::ScannerContext(state, parent, output_tuple_desc, scanners, limit,
+            : vectorized::ScannerContext(state, parent, output_tuple_desc, scanners, limit_,
                                          max_bytes_in_blocks_queue, num_parallel_instances),
               _col_distribute_ids(col_distribute_ids),
               _need_colocate_distribute(!_col_distribute_ids.empty()) {}
 
     PipScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
                       const TupleDescriptor* output_tuple_desc,
-                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
+                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit_,
                       int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
                       const int num_parallel_instances)
-            : vectorized::ScannerContext(state, nullptr, output_tuple_desc, scanners, limit,
+            : vectorized::ScannerContext(state, nullptr, output_tuple_desc, scanners, limit_,
                                          max_bytes_in_blocks_queue, num_parallel_instances,
                                          local_state),
               _col_distribute_ids(col_distribute_ids),
@@ -76,15 +76,16 @@ public:
             if (_blocks_queues[id].empty()) {
                 *eos = _is_finished || _should_stop;
                 return Status::OK();
-            } else {
-                *block = std::move(_blocks_queues[id].front());
-                _blocks_queues[id].pop_front();
+            }
+            if (_process_status.is<ErrorCode::CANCELLED>()) {
+                *eos = true;
+                return Status::OK();
+            }
+            *block = std::move(_blocks_queues[id].front());
+            _blocks_queues[id].pop_front();
 
-                RETURN_IF_ERROR(validate_block_schema((*block).get()));
-
-                if (_blocks_queues[id].empty() && _data_dependency) {
-                    _data_dependency->block_reading();
-                }
+            if (_blocks_queues[id].empty() && _data_dependency) {
+                _data_dependency->block_reading();
             }
         }
         _current_used_bytes -= (*block)->allocated_bytes();
@@ -105,6 +106,10 @@ public:
         if (_need_colocate_distribute) {
             std::vector<uint32_t> hash_vals;
             for (const auto& block : blocks) {
+                auto st = validate_block_schema(block.get());
+                if (!st.ok()) {
+                    set_status_on_error(st, false);
+                }
                 // vectorized calculate hash
                 int rows = block->rows();
                 const auto element_size = _num_parallel_instances;
@@ -138,6 +143,10 @@ public:
             }
         } else {
             for (const auto& block : blocks) {
+                auto st = validate_block_schema(block.get());
+                if (!st.ok()) {
+                    set_status_on_error(st, false);
+                }
                 local_bytes += block->allocated_bytes();
             }
 

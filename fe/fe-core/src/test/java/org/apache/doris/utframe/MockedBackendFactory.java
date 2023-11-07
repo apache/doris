@@ -50,6 +50,10 @@ import org.apache.doris.thrift.TIngestBinlogRequest;
 import org.apache.doris.thrift.TIngestBinlogResult;
 import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPublishTopicRequest;
+import org.apache.doris.thrift.TPublishTopicResult;
+import org.apache.doris.thrift.TQueryIngestBinlogRequest;
+import org.apache.doris.thrift.TQueryIngestBinlogResult;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TScanBatchResult;
 import org.apache.doris.thrift.TScanCloseParams;
@@ -300,6 +304,11 @@ public class MockedBackendFactory {
         }
 
         @Override
+        public TPublishTopicResult publishTopicInfo(TPublishTopicRequest request) throws TException {
+            return new TPublishTopicResult(new TStatus(TStatusCode.OK));
+        }
+
+        @Override
         public TStatus submitExportTask(TExportTaskRequest request) throws TException {
             return new TStatus(TStatusCode.OK);
         }
@@ -366,6 +375,12 @@ public class MockedBackendFactory {
 
         @Override
         public TIngestBinlogResult ingestBinlog(TIngestBinlogRequest ingestBinlogRequest) throws TException {
+            return null;
+        }
+
+        @Override
+        public TQueryIngestBinlogResult queryIngestBinlog(TQueryIngestBinlogRequest queryIngestBinlogRequest)
+                throws TException {
             return null;
         }
     }

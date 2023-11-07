@@ -18,9 +18,13 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -29,6 +33,8 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 class PushdownTopNThroughJoinTest extends TestWithFeService implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -86,6 +92,29 @@ class PushdownTopNThroughJoinTest extends TestWithFeService implements MemoPatte
     }
 
     @Test
+    void testProject1() {
+        List<NamedExpression> projectExpres = ImmutableList.of(scan1.getOutput().get(0),
+                new Cast(scan1.getOutput().get(1), VarcharType.SYSTEM_DEFAULT).alias("cast"));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .projectExprs(projectExpres)
+                .topN(10, 0, ImmutableList.of(0))
+                .build();
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(new PushdownTopNThroughJoin())
+                .matches(
+                        logicalTopN(
+                                logicalProject(
+                                        logicalJoin(
+                                                logicalTopN().when(l -> l.getLimit() == 10 && l.getOffset() == 0),
+                                                logicalOlapScan()
+                                        )
+                                )
+                        )
+                );
+    }
+
+    @Test
     void testJoinSql() {
         PlanChecker.from(connectContext)
                 .analyze("select * from t1 left join t2 on t1.k1 = t2.k1 order by t1.k1 limit 10")
@@ -103,7 +132,71 @@ class PushdownTopNThroughJoinTest extends TestWithFeService implements MemoPatte
     }
 
     @Test
-    void badCase() {
+    void testTwoJoinSql() {
+        PlanChecker.from(connectContext)
+                .analyze(
+                        "SELECT\n"
+                                + "  V.*\n"
+                                + "FROM\n"
+                                + "  (\n"
+                                + "    SELECT t1.*\n"
+                                + "    FROM t1 LEFT JOIN t1 t2 ON t1.k1 = t2.k1\n"
+                                + "    WHERE t1.k2 >= 20221001 AND t2.k2 = 1\n"
+                                + "    ORDER BY t1.k2 ASC LIMIT 10\n"
+                                + "  ) V\n"
+                                + "  LEFT JOIN t1 O ON V.k1 = O.k1\n"
+                                + "ORDER BY k2 ASC LIMIT 10;")
+                .rewrite()
+                .matches(
+                        logicalJoin(
+                                logicalTopN(
+                                        logicalProject(logicalJoin())
+                                ),
+                                logicalProject(logicalOlapScan())
+                        )
+                );
+    }
+
+    @Test
+    void testProjectSql() {
+        PlanChecker.from(connectContext)
+                .analyze(
+                        "select t1.k1, cast(t1.k2 as varchar) from t1 left join t2 on t1.k1 = t2.k1 order by t1.k1 limit 10")
+                .rewrite()
+                .matches(
+                        logicalTopN(
+                                logicalProject(
+                                        logicalJoin(
+                                                logicalTopN().when(l -> l.getLimit() == 10 && l.getOffset() == 0),
+                                                logicalProject(logicalOlapScan())
+                                        )
+                                )
+                        )
+                );
+    }
+
+    @Test
+    void rejectTopNUseProjectComplexExpr() {
+        List<NamedExpression> projectExpres = ImmutableList.of(
+                (new Add(scan1.getOutput().get(0), scan1.getOutput().get(1))).alias("add")
+        );
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .projectExprs(projectExpres)
+                .topN(10, 0, ImmutableList.of(0))
+                .build();
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(new PushdownTopNThroughJoin())
+                .matches(
+                        logicalJoin(
+                                logicalOlapScan(),
+                                logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
+    void rejectWrongJoinType() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(0, 0))
                 .topN(10, 0, ImmutableList.of(0))

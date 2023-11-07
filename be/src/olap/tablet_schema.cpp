@@ -70,6 +70,10 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT;
     } else if (0 == upper_type_str.compare("UNSIGNED_BIGINT")) {
         type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
+    } else if (0 == upper_type_str.compare("IPV4")) {
+        type = FieldType::OLAP_FIELD_TYPE_IPV4;
+    } else if (0 == upper_type_str.compare("IPV6")) {
+        type = FieldType::OLAP_FIELD_TYPE_IPV6;
     } else if (0 == upper_type_str.compare("FLOAT")) {
         type = FieldType::OLAP_FIELD_TYPE_FLOAT;
     } else if (0 == upper_type_str.compare("DISCRETE_DOUBLE")) {
@@ -92,6 +96,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL64;
     } else if (0 == upper_type_str.compare("DECIMAL128I")) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
+    } else if (0 == upper_type_str.compare("DECIMAL256")) {
+        type = FieldType::OLAP_FIELD_TYPE_DECIMAL256;
     } else if (0 == upper_type_str.compare(0, 7, "DECIMAL")) {
         type = FieldType::OLAP_FIELD_TYPE_DECIMAL;
     } else if (0 == upper_type_str.compare(0, 7, "VARCHAR")) {
@@ -190,6 +196,12 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
         return "UNSIGNED_BIGINT";
 
+    case FieldType::OLAP_FIELD_TYPE_IPV4:
+        return "IPV4";
+
+    case FieldType::OLAP_FIELD_TYPE_IPV6:
+        return "IPV6";
+
     case FieldType::OLAP_FIELD_TYPE_FLOAT:
         return "FLOAT";
 
@@ -225,6 +237,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
         return "DECIMAL128I";
+
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256:
+        return "DECIMAL256";
 
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
         return "VARCHAR";
@@ -311,6 +326,10 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return 8;
     case TPrimitiveType::LARGEINT:
         return 16;
+    case TPrimitiveType::IPV4:
+        return 4;
+    case TPrimitiveType::IPV6:
+        return 16;
     case TPrimitiveType::DATE:
         return 3;
     case TPrimitiveType::DATEV2:
@@ -351,6 +370,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return 8;
     case TPrimitiveType::DECIMAL128I:
         return 16;
+    case TPrimitiveType::DECIMAL256:
+        return 32;
     case TPrimitiveType::DECIMALV2:
         return 12; // use 12 bytes in olap engine.
     default:
@@ -761,6 +782,7 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
     tablet_schema.to_schema_pb(&tablet_schema_pb);
     init_from_pb(tablet_schema_pb);
+    _table_id = tablet_schema.table_id();
 }
 
 std::string TabletSchema::to_key() const {

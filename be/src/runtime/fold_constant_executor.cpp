@@ -195,6 +195,11 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
         double val = *reinterpret_cast<double*>(src);
         return fmt::format("{}", val);
     }
+    case TYPE_TIMEV2: {
+        constexpr static auto ratio_to_time = (1000 * 1000);
+        double val = *reinterpret_cast<double*>(src);
+        return fmt::format("{}", val / ratio_to_time);
+    }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING:
@@ -230,7 +235,8 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I: {
+    case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256: {
         return column_type->to_string(*column_ptr, 0);
     }
     case TYPE_ARRAY:

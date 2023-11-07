@@ -72,11 +72,6 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
-import org.apache.doris.mtmv.metadata.DropMTMVJob;
-import org.apache.doris.mtmv.metadata.DropMTMVTask;
-import org.apache.doris.mtmv.metadata.MTMVJob;
-import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
@@ -968,37 +963,13 @@ public class EditLog {
                     env.getLoadManager().replayCleanLabel(log);
                     break;
                 }
-                case OperationType.OP_CREATE_MTMV_JOB: {
-                    final MTMVJob job = (MTMVJob) journal.getData();
-                    env.getMTMVJobManager().replayCreateJob(job);
-                    break;
-                }
-                case OperationType.OP_CHANGE_MTMV_JOB: {
-                    final ChangeMTMVJob changeJob = (ChangeMTMVJob) journal.getData();
-                    env.getMTMVJobManager().replayUpdateJob(changeJob);
-                    break;
-                }
-                case OperationType.OP_DROP_MTMV_JOB: {
-                    final DropMTMVJob dropJob = (DropMTMVJob) journal.getData();
-                    env.getMTMVJobManager().replayDropJobs(dropJob.getJobIds());
-                    break;
-                }
-                case OperationType.OP_CREATE_MTMV_TASK: {
-                    final MTMVTask task = (MTMVTask) journal.getData();
-                    env.getMTMVJobManager().replayCreateJobTask(task);
-                    break;
-                }
-                case OperationType.OP_CHANGE_MTMV_TASK: {
-                    break;
-                }
-                case OperationType.OP_DROP_MTMV_TASK: {
-                    final DropMTMVTask dropTask = (DropMTMVTask) journal.getData();
-                    env.getMTMVJobManager().replayDropJobTasks(dropTask.getTaskIds());
-                    break;
-                }
+                case OperationType.OP_CREATE_MTMV_JOB:
+                case OperationType.OP_CHANGE_MTMV_JOB:
+                case OperationType.OP_DROP_MTMV_JOB:
+                case OperationType.OP_CREATE_MTMV_TASK:
+                case OperationType.OP_CHANGE_MTMV_TASK:
+                case OperationType.OP_DROP_MTMV_TASK:
                 case OperationType.OP_ALTER_MTMV_STMT: {
-                    final AlterMultiMaterializedView alterView = (AlterMultiMaterializedView) journal.getData();
-                    env.getAlterInstance().processAlterMaterializedView(alterView, true);
                     break;
                 }
                 case OperationType.OP_ALTER_USER: {
@@ -1852,26 +1823,6 @@ public class EditLog {
         logEdit(id, log);
     }
 
-    public void logCreateMTMVJob(MTMVJob job) {
-        logEdit(OperationType.OP_CREATE_MTMV_JOB, job);
-    }
-
-    public void logDropMTMVJob(List<Long> jobIds) {
-        logEdit(OperationType.OP_DROP_MTMV_JOB, new DropMTMVJob(jobIds));
-    }
-
-    public void logChangeMTMVJob(ChangeMTMVJob changeJob) {
-        logEdit(OperationType.OP_CHANGE_MTMV_JOB, changeJob);
-    }
-
-    public void logCreateMTMVTask(MTMVTask task) {
-        logEdit(OperationType.OP_CREATE_MTMV_TASK, task);
-    }
-
-    public void logDropMTMVTasks(List<String> taskIds) {
-        logEdit(OperationType.OP_DROP_MTMV_TASK, new DropMTMVTask(taskIds));
-    }
-
     public void logInitCatalog(InitCatalogLog log) {
         logEdit(OperationType.OP_INIT_CATALOG, log);
     }
@@ -1939,10 +1890,6 @@ public class EditLog {
 
     public void logAlterUser(AlterUserOperationLog log) {
         logEdit(OperationType.OP_ALTER_USER, log);
-    }
-
-    public void logAlterMTMV(AlterMultiMaterializedView log) {
-        logEdit(OperationType.OP_ALTER_MTMV_STMT, log);
     }
 
     public void logCleanQueryStats(CleanQueryStatsInfo log) {

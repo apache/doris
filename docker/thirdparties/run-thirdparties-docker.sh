@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse,mariadb,druid"
+    COMPONENTS="mysql,es,hive,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,druid"
 else
     while true; do
         case "$1" in
@@ -261,7 +261,7 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
         local ip_host="$2"
         local backup_dir=/home/work/pipline/backup_center
 
-        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "multi_table_csv")
+        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "multi_table_csv" "multi_table_csv1")
 
         for topic in "${topics[@]}"; do
             while IFS= read -r line; do
@@ -272,7 +272,7 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
             done < "${ROOT}/docker-compose/kafka/scripts/${topic}.csv"
         done
 
-        declare -a json_topics=("basic_data_json" "basic_array_data_json" "basic_array_data_json_by_line" "basic_data_json_by_line" "multi_table_json")
+        declare -a json_topics=("basic_data_json" "basic_array_data_json" "basic_array_data_json_by_line" "basic_data_json_by_line" "multi_table_json" "multi_table_json1")
         
         for json_topic in "${json_topics[@]}"; do
             echo ${json_topics}
@@ -312,6 +312,8 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
     sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
     sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
     sed -i "s/\${externalEnvIp}/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
+    sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
+    sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sudo bash "${ROOT}"/docker-compose/hive/gen_env.sh
     sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
     if [[ "${STOP}" -ne 1 ]]; then
@@ -335,13 +337,12 @@ if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/entrypoint.sh
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/spark-defaults.conf
     sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env down
+    sudo rm -rf "${ROOT}"/docker-compose/iceberg/data
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo rm -rf "${ROOT}"/docker-compose/iceberg/notebooks
-        sudo mkdir "${ROOT}"/docker-compose/iceberg/notebooks
-        sudo rm -rf "${ROOT}"/docker-compose/iceberg/spark
-        sudo mkdir "${ROOT}"/docker-compose/iceberg/spark
-        sudo rm -rf "${ROOT}"/docker-compose/iceberg/warehouse
-        sudo mkdir "${ROOT}"/docker-compose/iceberg/warehouse
+        wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data.zip
+        sudo unzip -d "${ROOT}"/docker-compose/iceberg -q ${ROOT}/docker-compose/iceberg/iceberg_data.zip
+        sudo mv "${ROOT}"/docker-compose/iceberg/iceberg_data "${ROOT}"/docker-compose/iceberg/data
+        sudo rm -rf ${ROOT}/docker-compose/iceberg/iceberg_data.zip
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
     fi
 fi

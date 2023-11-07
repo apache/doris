@@ -63,17 +63,21 @@ Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateIn
 
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(PipelineXLocalState<SetDependency>::open(state));
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
-    vector<bool> nullable_flags;
 
-    nullable_flags.resize(child_exprs_lists[0].size(), false);
-    for (int i = 0; i < child_exprs_lists.size(); ++i) {
-        for (int j = 0; j < child_exprs_lists[i].size(); ++j) {
-            nullable_flags[j] = nullable_flags[j] || child_exprs_lists[i][j]->root()->is_nullable();
-        }
+    auto output_data_types = vectorized::VectorizedUtils::get_data_types(
+            _parent->cast<SetSourceOperatorX<is_intersect>>()._row_descriptor);
+    auto column_nums = child_exprs_lists[0].size();
+    DCHECK_EQ(output_data_types.size(), column_nums)
+            << output_data_types.size() << " " << column_nums;
+    // the nullable is not depend on child, it's should use _row_descriptor from FE plan
+    // some case all not nullable column from children, but maybe need output nullable.
+    vector<bool> nullable_flags(column_nums, false);
+    for (int i = 0; i < column_nums; ++i) {
+        nullable_flags[i] = output_data_types[i]->is_nullable();
     }
 
     _left_table_data_types.clear();
@@ -89,8 +93,8 @@ template <bool is_intersect>
 Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectorized::Block* block,
                                                    SourceState& source_state) {
     RETURN_IF_CANCELLED(state);
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     _create_mutable_cols(local_state, block);
     auto st = std::visit(
             [&](auto&& arg) -> Status {

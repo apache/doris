@@ -84,5 +84,7 @@ suite("test_subquery") {
 
     qt_sql_subquery_one_row_relation """select * from test_one_row_relation;"""
 
+    qt_sql_mark_join """with A as (select count(*) n1 from test_one_row_relation where exists (select 1 from test_one_row_relation t where t.user_id = test_one_row_relation.user_id) or 1 = 1) select * from A;"""
+
     sql """drop table if exists test_one_row_relation;"""
 }

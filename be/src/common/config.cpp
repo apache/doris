@@ -744,8 +744,8 @@ DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 DEFINE_Bool(share_delta_writers, "true");
 // number of brpc stream per load
 DEFINE_Int32(num_streams_per_load, "5");
-// timeout for open stream sink rpc in ms
-DEFINE_Int64(open_stream_sink_timeout_ms, "500");
+// timeout for open load stream rpc in ms
+DEFINE_Int64(open_load_stream_timeout_ms, "500");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -1034,6 +1034,8 @@ DEFINE_mInt32(s3_write_buffer_size, "5242880");
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
+// The timeout config for S3 buffer allocation
+DEFINE_mInt32(s3_writer_buffer_allocation_timeout, "300");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
 
 //disable shrink memory by default
@@ -1110,12 +1112,20 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
 DEFINE_String(doris_cgroup_cpu_path, "");
-DEFINE_Bool(enable_cpu_hard_limit, "false");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
 // Dir of default timezone files
 DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
+
+// Max size(bytes) of group commit queues, used for mem back pressure.
+DEFINE_Int32(group_commit_max_queue_size, "65536");
+
+// Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
+DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
+
+// Download binlog rate limit, unit is KB/s, 0 means no limit
+DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
 // clang-format off
 #ifdef BE_TEST

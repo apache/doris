@@ -54,7 +54,7 @@ public:
             : Base(parent, state) {};
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override {
-        SCOPED_TIMER(profile()->total_time_counter());
+        SCOPED_TIMER(exec_time_counter());
         SCOPED_TIMER(_open_timer);
         return Base::open(state);
     }
@@ -68,9 +68,9 @@ private:
 class OlapTableSinkOperatorX final : public DataSinkOperatorX<OlapTableSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<OlapTableSinkLocalState>;
-    OlapTableSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc,
+    OlapTableSinkOperatorX(ObjectPool* pool, int operator_id, const RowDescriptor& row_desc,
                            const std::vector<TExpr>& t_output_expr, bool group_commit)
-            : Base(0),
+            : Base(operator_id, 0),
               _row_desc(row_desc),
               _t_output_expr(t_output_expr),
               _group_commit(group_commit),
@@ -94,20 +94,10 @@ public:
     }
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-        SCOPED_TIMER(local_state.profile()->total_time_counter());
+        auto& local_state = get_local_state(state);
+        SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
         return local_state.sink(state, in_block, source_state);
-    }
-
-    FinishDependency* finish_blocked_by(RuntimeState* state) const override {
-        auto& local_state = state->get_sink_local_state(id())->cast<OlapTableSinkLocalState>();
-        return local_state._finish_dependency->finish_blocked_by();
-    };
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state.write_blocked_by();
     }
 
 private:

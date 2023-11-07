@@ -100,6 +100,8 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
@@ -219,8 +221,8 @@ public abstract class ExpressionVisitor<R, C>
         return visitSlot(slotReference, context);
     }
 
-    public R visitArrayItemSlot(SlotReference arrayItemSlot, C context) {
-        return visit(arrayItemSlot, context);
+    public R visitArrayItemSlot(ArrayItemReference.ArrayItemSlot arrayItemSlot, C context) {
+        return visitSlotReference(arrayItemSlot, context);
     }
 
     public R visitMarkJoinReference(MarkJoinSlotReference markJoinSlotReference, C context) {
@@ -301,6 +303,14 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitDateTimeV2Literal(DateTimeV2Literal dateTimeV2Literal, C context) {
         return visitLiteral(dateTimeV2Literal, context);
+    }
+
+    public R visitIPv4Literal(IPv4Literal ipv4Literal, C context) {
+        return visitLiteral(ipv4Literal, context);
+    }
+
+    public R visitIPv6Literal(IPv6Literal ipv6Literal, C context) {
+        return visitLiteral(ipv6Literal, context);
     }
 
     public R visitArrayLiteral(ArrayLiteral arrayLiteral, C context) {
@@ -424,7 +434,7 @@ public abstract class ExpressionVisitor<R, C>
     }
 
     public R visitVirtualReference(VirtualSlotReference virtualSlotReference, C context) {
-        return visit(virtualSlotReference, context);
+        return visitSlotReference(virtualSlotReference, context);
     }
 
     public R visitArrayItemReference(ArrayItemReference arrayItemReference, C context) {

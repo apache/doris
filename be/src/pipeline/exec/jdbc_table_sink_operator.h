@@ -46,16 +46,14 @@ private:
 
 class JdbcTableSinkOperatorX final : public DataSinkOperatorX<JdbcTableSinkLocalState> {
 public:
-    JdbcTableSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs);
+    JdbcTableSinkOperatorX(const RowDescriptor& row_desc, int operator_id,
+                           const std::vector<TExpr>& select_exprs);
     Status init(const TDataSink& thrift_sink) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override;
-    FinishDependency* finish_blocked_by(RuntimeState* state) const override;
 
 private:
     friend class JdbcTableSinkLocalState;

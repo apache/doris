@@ -43,16 +43,14 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Physical hash join plan.
@@ -115,22 +113,25 @@ public class PhysicalHashJoin<
      * Return pair of left used slots and right used slots.
      */
     public Pair<List<ExprId>, List<ExprId>> getHashConjunctsExprIds() {
-        List<ExprId> exprIds1 = Lists.newArrayListWithCapacity(hashJoinConjuncts.size());
-        List<ExprId> exprIds2 = Lists.newArrayListWithCapacity(hashJoinConjuncts.size());
+        int size = hashJoinConjuncts.size();
+
+        List<ExprId> exprIds1 = new ArrayList<>(size);
+        List<ExprId> exprIds2 = new ArrayList<>(size);
 
         Set<ExprId> leftExprIds = left().getOutputExprIdSet();
         Set<ExprId> rightExprIds = right().getOutputExprIdSet();
 
         for (Expression expr : hashJoinConjuncts) {
-            expr.getInputSlotExprIds().forEach(exprId -> {
+            for (ExprId exprId : expr.getInputSlotExprIds()) {
                 if (leftExprIds.contains(exprId)) {
                     exprIds1.add(exprId);
                 } else if (rightExprIds.contains(exprId)) {
                     exprIds2.add(exprId);
                 } else {
-                    throw new RuntimeException("Could not generate valid equal on clause slot pairs for join");
+                    throw new RuntimeException("Invalid ExprId found: " + exprId
+                            + ". Cannot generate valid equal on clause slot pairs for join.");
                 }
-            });
+            }
         }
         return Pair.of(exprIds1, exprIds2);
     }
@@ -244,11 +245,6 @@ public class PhysicalHashJoin<
         }
 
         return pushedDown;
-    }
-
-    public Set<Slot> getConditionSlot() {
-        return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
-                .flatMap(expr -> expr.getInputSlots().stream()).collect(ImmutableSet.toImmutableSet());
     }
 
     @Override

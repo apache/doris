@@ -96,6 +96,13 @@ private:
     const int _batch_size;
 };
 
+struct ShuffleChannelIds {
+    template <typename HashValueType>
+    HashValueType operator()(HashValueType l, size_t r) {
+        return l % r;
+    }
+};
+
 class VDataStreamSender : public DataSink {
 public:
     friend class pipeline::ExchangeSinkOperator;
@@ -139,6 +146,7 @@ public:
     }
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
     QueryStatistics* query_statistics() { return _query_statistics.get(); }
+    QueryStatisticsPtr query_statisticsPtr() { return _query_statistics; }
     bool transfer_large_data_by_brpc() { return _transfer_large_data_by_brpc; }
     RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
     segment_v2::CompressionTypePB& compression_type() { return _compression_type; }
@@ -497,9 +505,8 @@ public:
         if (eos) {
             if (_eos_send) {
                 return Status::OK();
-            } else {
-                _eos_send = true;
             }
+            _eos_send = true;
         }
         if (eos || block->get_block()->column_metas_size()) {
             RETURN_IF_ERROR(_buffer->add_block({this, block, eos}, sent));

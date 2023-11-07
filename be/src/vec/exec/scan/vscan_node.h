@@ -116,7 +116,8 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {}
+    virtual void set_scan_ranges(RuntimeState* state,
+                                 const std::vector<TScanRangeParams>& scan_ranges) {}
 
     void set_shared_scan(RuntimeState* state, bool shared_scan) {
         _shared_scan_opt = shared_scan;
@@ -306,8 +307,6 @@ protected:
     VExprContextSPtrs _stale_expr_ctxs;
     VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    RuntimeState* _state;
-
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
@@ -319,6 +318,7 @@ protected:
 
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter;
+    RuntimeProfile::Counter* _byte_read_counter;
     // Wall based aggregate read throughput [rows/sec]
     RuntimeProfile::Counter* _total_throughput_counter;
     RuntimeProfile::Counter* _num_scanners;
@@ -364,9 +364,6 @@ private:
     Status _normalize_predicate(const VExprSPtr& conjunct_expr_root, VExprContext* context,
                                 VExprSPtr& output_expr);
     Status _eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt);
-
-    Status _normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
-                                   PushDownType* pdt);
 
     Status _normalize_bitmap_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
                                     PushDownType* pdt);

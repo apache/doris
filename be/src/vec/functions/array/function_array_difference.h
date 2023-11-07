@@ -233,6 +233,9 @@ private:
         } else if (which_type.is_decimal128()) {
             res = _execute_number_expanded<Decimal128, Decimal128>(offsets, *nested_column,
                                                                    nested_null_map);
+        } else if (which_type.is_decimal256()) {
+            res = _execute_number_expanded<Decimal256, Decimal256>(offsets, *nested_column,
+                                                                   nested_null_map);
         } else {
             return nullptr;
         }

@@ -124,7 +124,8 @@ std::string get_content_type(const std::string& file_name) {
     return "";
 }
 
-void do_file_response(const std::string& file_path, HttpRequest* req) {
+void do_file_response(const std::string& file_path, HttpRequest* req,
+                      bufferevent_rate_limit_group* rate_limit_group) {
     if (file_path.find("..") != std::string::npos) {
         LOG(WARNING) << "Not allowed to read relative path: " << file_path;
         HttpChannel::send_error(req, HttpStatus::FORBIDDEN);
@@ -165,7 +166,7 @@ void do_file_response(const std::string& file_path, HttpRequest* req) {
         return;
     }
 
-    HttpChannel::send_file(req, fd, 0, file_size);
+    HttpChannel::send_file(req, fd, 0, file_size, rate_limit_group);
 }
 
 void do_dir_response(const std::string& dir_path, HttpRequest* req) {

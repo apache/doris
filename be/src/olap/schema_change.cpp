@@ -912,12 +912,9 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             _tablet_ids_in_converting.insert(new_tablet->tablet_id());
         }
         res = _convert_historical_rowsets(sc_params);
-        if (new_tablet->keys_type() != UNIQUE_KEYS ||
-            !new_tablet->enable_unique_key_merge_on_write() || !res) {
-            {
-                std::lock_guard<std::shared_mutex> wrlock(_mutex);
-                _tablet_ids_in_converting.erase(new_tablet->tablet_id());
-            }
+        {
+            std::lock_guard<std::shared_mutex> wrlock(_mutex);
+            _tablet_ids_in_converting.erase(new_tablet->tablet_id());
         }
         if (!res) {
             break;
@@ -977,10 +974,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
 
             // step 4
-            {
-                std::lock_guard<std::shared_mutex> wrlock(_mutex);
-                _tablet_ids_in_converting.erase(new_tablet->tablet_id());
-            }
             res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
             if (!res) {
                 break;
@@ -1030,7 +1023,7 @@ Status SchemaChangeHandler::_get_versions_to_be_changed(
     *max_rowset = rowset;
 
     RETURN_IF_ERROR(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
-                                                             versions_to_be_changed));
+                                                             versions_to_be_changed, false, false));
 
     return Status::OK();
 }

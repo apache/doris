@@ -18,6 +18,8 @@ package org.apache.doris.regression.suite
 
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.util.Http
+import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.util.NodeType
 
 import com.google.common.collect.Maps
 import org.slf4j.Logger
@@ -32,9 +34,16 @@ class ClusterOptions {
 
     int feNum = 1
     int beNum = 3
-    int beDiskNum = 1
     List<String> feConfigs = []
     List<String> beConfigs = []
+
+    // each be disks, a disks format is: disk_type=disk_num[,disk_capacity]
+    // here disk_type=HDD or SSD,  disk capacity is in gb unit.
+    // for example: beDisks = ["HDD=1", "SSD=2,10", "SSD=10,3"] means:
+    // each be has 1 HDD disks without capacity limit, 2 SSD disks with 10GB capacity limit,
+    // and 10 SSD disks with 3GB capacity limit
+    // if not specific, docker will let each be contains 1 HDD disk.
+    List<String> beDisks = null
 
     void enableDebugPoints() {
         feConfigs.add('enable_debug_points=true')
@@ -62,13 +71,6 @@ class ListHeader {
 
 }
 
-enum NodeType {
-
-    FE,
-    BE,
-
-}
-
 class ServerNode {
 
     int index
@@ -83,38 +85,23 @@ class ServerNode {
         node.alive = fields.get(header.indexOf('alive')) == 'true'
     }
 
-    String getHttpAddress() {
-        return 'http://' + host + ':' + httpPort
+    def getHttpAddress() {
+        return [host, httpPort]
     }
 
     void enableDebugPoint(String name, Map<String, String> params = null) {
-        def url = getHttpAddress() + '/api/debug_point/add/' + name
-        if (params != null && params.size() > 0) {
-            url += '?' + params.collect((k, v) -> k + '=' + v).join('&')
-        }
-        def result = Http.http_post(url, null, true)
-        checkHttpResult(result)
+        def (host, port) = getHttpAddress()
+        DebugPoint.enableDebugPoint(host, port, getNodeType(), name, params)
     }
 
     void disableDebugPoint(String name) {
-        def url = getHttpAddress() + '/api/debug_point/remove/' + name
-        def result = Http.http_post(url, null, true)
-        checkHttpResult(result)
+        def (host, port) = getHttpAddress()
+        DebugPoint.disableDebugPoint(host, port, getNodeType(), name)
     }
 
     void clearDebugPoints() {
-        def url = getHttpAddress() + '/api/debug_point/clear'
-        def result = Http.http_post(url, null, true)
-        checkHttpResult(result)
-    }
-
-    private void checkHttpResult(Object result) {
-        def type = getNodeType()
-        if (type == NodeType.FE) {
-            assert result.code == 0 : result.toString()
-        } else if (type == NodeType.BE) {
-            assert result.status == 'OK' : result.toString()
-        }
+        def (host, port) = getHttpAddress()
+        DebugPoint.clearDebugPoints(host, port, getNodeType())
     }
 
     NodeType getNodeType() {
@@ -204,7 +191,9 @@ class SuiteCluster {
             sb.append('--be-config ')
             options.beConfigs.forEach(item -> sb.append(' ' + item + ' '))
         }
-        sb.append('--be-disk-num ' + options.beDiskNum + ' ')
+        if (options.beDisks != null) {
+            sb.append('--be-disks ' + options.beDisks.join(" ") + ' ')
+        }
         sb.append('--wait-timeout 180')
 
         runCmd(sb.toString(), -1)
