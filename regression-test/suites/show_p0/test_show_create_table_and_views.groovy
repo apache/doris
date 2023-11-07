@@ -74,7 +74,7 @@ suite("test_show_create_table_and_views", "show") {
         (23, 900, 1)"""
 
     qt_show "SHOW CREATE TABLE ${dbName}.${tableName}"
-    qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY user_id"
+    qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY user_id, good_id"
 
     // create view and show
     sql """

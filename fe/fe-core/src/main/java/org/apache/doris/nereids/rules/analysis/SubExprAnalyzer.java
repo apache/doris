@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -89,8 +91,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
-        checkHasNotAgg(analyzedResult);
-        checkHasGroupBy(analyzedResult);
+        checkNoCorrelatedSlotsUnderAgg(analyzedResult);
         checkRootIsLimit(analyzedResult);
 
         return new InSubquery(
@@ -105,7 +106,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
         checkHasAgg(analyzedResult);
-        checkHasGroupBy(analyzedResult);
+        checkHasNoGroupBy(analyzedResult);
 
         return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
     }
@@ -135,7 +136,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         }
     }
 
-    private void checkHasGroupBy(AnalyzedResult analyzedResult) {
+    private void checkHasNoGroupBy(AnalyzedResult analyzedResult) {
         if (!analyzedResult.isCorrelated()) {
             return;
         }
@@ -145,13 +146,11 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         }
     }
 
-    private void checkHasNotAgg(AnalyzedResult analyzedResult) {
-        if (!analyzedResult.isCorrelated()) {
-            return;
-        }
-        if (analyzedResult.hasAgg()) {
-            throw new AnalysisException("Unsupported correlated subquery with grouping and/or aggregation "
-                + analyzedResult.getLogicalPlan());
+    private void checkNoCorrelatedSlotsUnderAgg(AnalyzedResult analyzedResult) {
+        if (analyzedResult.hasCorrelatedSlotsUnderAgg()) {
+            throw new AnalysisException(
+                    "Unsupported correlated subquery with grouping and/or aggregation "
+                            + analyzedResult.getLogicalPlan());
         }
     }
 
@@ -219,6 +218,29 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
                 return !((LogicalAggregate)
                         ((ImmutableSet) logicalPlan.collect(LogicalAggregate.class::isInstance)).asList().get(0))
                         .getGroupByExpressions().isEmpty();
+            }
+            return false;
+        }
+
+        public boolean hasCorrelatedSlotsUnderAgg() {
+            return correlatedSlots.isEmpty() ? false
+                    : findAggContainsCorrelatedSlots(logicalPlan, ImmutableSet.copyOf(correlatedSlots));
+        }
+
+        private boolean findAggContainsCorrelatedSlots(Plan rootPlan, ImmutableSet<Slot> slots) {
+            ArrayDeque<Plan> planQueue = new ArrayDeque<>();
+            planQueue.add(rootPlan);
+            while (!planQueue.isEmpty()) {
+                Plan plan = planQueue.poll();
+                if (plan instanceof LogicalAggregate) {
+                    if (plan.containsSlots(slots)) {
+                        return true;
+                    }
+                } else {
+                    for (Plan child : plan.children()) {
+                        planQueue.add(child);
+                    }
+                }
             }
             return false;
         }
