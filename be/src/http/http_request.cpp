@@ -53,7 +53,6 @@ int HttpRequest::init_from_evhttp() {
     // conver header
     auto headers = evhttp_request_get_input_headers(_ev_req);
     for (auto header = headers->tqh_first; header != nullptr; header = header->next.tqe_next) {
-        LOG(INFO) << "test 111 key" << header->key << "value" << header->value;
         _headers.emplace(header->key, header->value);
     }
     // parse
