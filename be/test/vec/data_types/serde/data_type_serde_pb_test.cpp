@@ -43,6 +43,8 @@
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_quantilestate.h"
@@ -184,6 +186,7 @@ inline void serialize_and_deserialize_pb_test() {
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // int with 1024 batch size
+    std::cout << "==== int with 1024 batch size === " << std::endl;
     {
         auto vec = vectorized::ColumnVector<Int32>::create();
         auto& data = vec->get_data();
@@ -197,6 +200,28 @@ inline void serialize_and_deserialize_pb_test() {
         ((vectorized::ColumnNullable*)nullable_column.get())
                 ->insert_range_from_not_nullable(*vec, 0, 1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
+    }
+    // ipv4
+    std::cout << "==== ipv4 === " << std::endl;
+    {
+        auto vec = vectorized::ColumnVector<IPv4>::create();
+        auto& data = vec->get_data();
+        for (int i = 0; i < 1024; ++i) {
+            data.push_back(i);
+        }
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
+        check_pb_col(data_type, *vec.get());
+    }
+    // ipv6
+    std::cout << "==== ipv6 === " << std::endl;
+    {
+        auto vec = vectorized::ColumnVector<IPv6>::create();
+        auto& data = vec->get_data();
+        for (int i = 0; i < 1024; ++i) {
+            data.push_back(i);
+        }
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
+        check_pb_col(data_type, *vec.get());
     }
 }
 
