@@ -121,7 +121,7 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
     return Status::OK();
 }
 
-Status LoadStreamWriter::add_segment(uint32_t segid, SegmentStatistics& stat) {
+Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat) {
     return _rowset_writer->add_segment(segid, stat);
 }
 
