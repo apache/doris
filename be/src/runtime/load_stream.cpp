@@ -242,7 +242,7 @@ LoadStream::~LoadStream() {
     LOG(INFO) << "load stream is deconstructed " << *this;
 }
 
-Status LoadStream::init(const POpenStreamSinkRequest* request) {
+Status LoadStream::init(const POpenLoadStreamRequest* request) {
     _txn_id = request->txn_id();
 
     _schema = std::make_shared<OlapTableSchemaParam>();

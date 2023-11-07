@@ -125,7 +125,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
         return Status::Error<true>(ret, "Failed to create stream");
     }
     cntl.set_timeout_ms(config::open_load_stream_timeout_ms);
-    POpenStreamSinkRequest request;
+    POpenLoadStreamRequest request;
     *request.mutable_load_id() = _load_id;
     request.set_src_id(_src_id);
     request.set_txn_id(txn_id);
@@ -134,7 +134,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     for (auto& tablet : tablets_for_schema) {
         *request.add_tablets() = tablet;
     }
-    POpenStreamSinkResponse response;
+    POpenLoadStreamResponse response;
     // use "pooled" connection to avoid conflicts between streaming rpc and regular rpc,
     // see: https://github.com/apache/brpc/issues/392
     const auto& stub = client_cache->get_new_client_no_cache(host_port, "baidu_std", "pooled");
