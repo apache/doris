@@ -420,7 +420,8 @@ Status ExchangeSinkOperatorX::serialize_block(ExchangeSinkLocalState& state, vec
     {
         SCOPED_TIMER(state.serialize_batch_timer());
         dest->Clear();
-        size_t uncompressed_bytes = 0, compressed_bytes = 0;
+        size_t uncompressed_bytes = 0;
+        size_t compressed_bytes = 0;
         RETURN_IF_ERROR(src->serialize(_state->be_exec_version(), dest, &uncompressed_bytes,
                                        &compressed_bytes, _compression_type,
                                        _transfer_large_data_by_brpc));
