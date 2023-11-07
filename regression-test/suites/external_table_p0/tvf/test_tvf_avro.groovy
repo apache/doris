@@ -42,7 +42,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
-            "FORMAT" = "${format}"); 
+            "FORMAT" = "${format}");
         """
 
     qt_2 """
@@ -51,19 +51,19 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
-            "FORMAT" = "${format}"); 
+            "FORMAT" = "${format}");
         """
 
-    qt_3 """
+    order_qt_1 """
            select * from s3(
             "uri" = "${s3Uri}",
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
-            "FORMAT" = "${format}") order by aInt, aLong, aFloat; 
+            "FORMAT" = "${format}");
         """
 
-    qt_4 """
+    order_qt_2 """
            select anArray from s3(
             "uri" = "${s3Uri}",
             "ACCESS_KEY" = "${ak}",
@@ -72,16 +72,16 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "FORMAT" = "${format}");
         """
 
-    qt_5 """
+    order_qt_3 """
            select aMap from s3(
             "uri" = "${s3Uri}",
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
-            "FORMAT" = "${format}"); 
+            "FORMAT" = "${format}");
         """
 
-    qt_6 """
+    order_qt_4 """
            select anEnum from s3(
             "uri" = "${s3Uri}",
             "ACCESS_KEY" = "${ak}",
@@ -90,60 +90,60 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "FORMAT" = "${format}");
         """
 
-    qt_7 """
+    order_qt_5 """
            select aRecord from s3(
             "uri" = "${s3Uri}",
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
-            "FORMAT" = "${format}"); 
+            "FORMAT" = "${format}");
         """
 
-    qt_8 """
+    order_qt_6 """
            select aUnion from s3(
             "uri" = "${s3Uri}",
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
-            "FORMAT" = "${format}"); 
+            "FORMAT" = "${format}");
         """
 
-    qt_9 """
+    order_qt_7 """
            select mapArrayLong from s3(
             "uri" ="${s3Uri}",
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
-            "FORMAT" = "${format}"); 
+            "FORMAT" = "${format}");
         """
 
-    qt_10 """
+    order_qt_7 """
            select arrayMapBoolean from s3(
             "uri" = "${s3Uri}",
             "ACCESS_KEY" = "${ak}",
             "SECRET_KEY" = "${sk}",
             "REGION" = "${region}",
-            "FORMAT" = "${format}"); 
+            "FORMAT" = "${format}");
         """
 
     // TVF hdfs()
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
-            qt_hdfs_1 """ 
+            qt_3 """ 
                 desc function HDFS(
                 "uri" = "${hdfsUri}",
                 "fs.defaultFS" = "${defaultFS}",
                 "hadoop.username" = "${hdfsUserName}",
                 "FORMAT" = "${format}"); """
 
-            qt_hdfs_2 """ select * from HDFS(
+            order_qt_8 """ select * from HDFS(
                         "uri" = "${hdfsUri}",
                         "fs.defaultFS" = "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "${format}") order by aInt, aLong, aFloat; """
+                        "format" = "${format}")"""
 
-            qt_hdfs_3 """ select count(*) from HDFS(
+            qt_4 """ select count(*) from HDFS(
                         "uri" = "${hdfsUri}",
                         "fs.defaultFS" = "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
