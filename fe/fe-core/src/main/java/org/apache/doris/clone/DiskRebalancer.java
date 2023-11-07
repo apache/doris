@@ -30,6 +30,7 @@ import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.BalanceType;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
@@ -128,7 +129,8 @@ public class DiskRebalancer extends Rebalancer {
         List<BackendLoadStatistic> highBEs = Lists.newArrayList();
         clusterStat.getBackendStatisticByClass(lowBEs, midBEs, highBEs, medium);
 
-        Rebalancer rebalancer = Env.getCurrentEnv().getTabletScheduler().getRebalancer();
+        Rebalancer rebalancer = FeConstants.runningUnitTest ? null
+                : Env.getCurrentEnv().getTabletScheduler().getRebalancer();
         if (rebalancer != null && rebalancer.unPickOverLongTime(tag, medium)) {
             midBEs.addAll(lowBEs);
             midBEs.addAll(highBEs);
