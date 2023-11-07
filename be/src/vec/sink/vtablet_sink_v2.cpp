@@ -114,6 +114,12 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
+    _stream_per_node = state->load_stream_per_node();
+    _total_streams = state->total_load_streams();
+    DCHECK(_stream_per_node > 0) << "load stream per node should be greator than 0";
+    DCHECK(_total_streams > 0) << "total load streams should be greator than 0";
+    LOG(INFO) << "num senders: " << _num_senders << ", stream per node: " << _stream_per_node
+              << ", total_streams " << _total_streams;
     _is_high_priority =
             (state->execution_timeout() <= config::load_task_high_priority_threshold_second);
 
@@ -154,6 +160,8 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
     } else {
         _delta_writer_for_tablet = std::make_shared<DeltaWriterV2Map>(_load_id);
     }
+    _build_tablet_node_mapping();
+    RETURN_IF_ERROR(_init_streams(state->backend_id()));
     return Status::OK();
 }
 
@@ -165,35 +173,41 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     signal::set_signal_task_id(_load_id);
 
-    _build_tablet_node_mapping();
-    RETURN_IF_ERROR(_open_streams(state->backend_id()));
-
+    RETURN_IF_ERROR(_open_streams());
     return Status::OK();
 }
 
-Status VOlapTableSinkV2::_open_streams(int64_t src_id) {
+Status VOlapTableSinkV2::_init_streams(int64_t src_id) {
     for (auto& [dst_id, _] : _tablets_for_node) {
+        auto streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
+                _load_id, src_id, dst_id, _stream_per_node);
+        for (auto& stream : *streams) {
+            RETURN_IF_ERROR(stream->prepare());
+        }
+        _streams_for_node[dst_id] = streams;
+    }
+    return Status::OK();
+}
+
+Status VOlapTableSinkV2::_open_streams() {
+    for (auto& [dst_id, streams] : _streams_for_node) {
         auto node_info = _nodes_info->find_node(dst_id);
         if (node_info == nullptr) {
             return Status::InternalError("Unknown node {} in tablet location", dst_id);
         }
-        std::shared_ptr<Streams> streams;
-        streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(_load_id, src_id,
-                                                                                 dst_id);
         // get tablet schema from each backend only in the 1st stream
         for (auto& stream : *streams | std::ranges::views::take(1)) {
             const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
             RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(),
                                          *node_info, _txn_id, *_schema, tablets_for_schema,
-                                         _state->enable_profile()));
+                                         _total_streams, _state->enable_profile()));
         }
         // for the rest streams, open without getting tablet schema
         for (auto& stream : *streams | std::ranges::views::drop(1)) {
             RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(),
-                                         *node_info, _txn_id, *_schema, {},
+                                         *node_info, _txn_id, *_schema, {}, _total_streams,
                                          _state->enable_profile()));
         }
-        _streams_for_node[dst_id] = streams;
     }
     return Status::OK();
 }
@@ -258,7 +272,7 @@ Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, Streams& streams) {
     for (auto& node_id : location->node_ids) {
         streams.emplace_back(_streams_for_node[node_id]->at(_stream_index));
     }
-    _stream_index = (_stream_index + 1) % config::num_streams_per_load;
+    _stream_index = (_stream_index + 1) % _stream_per_node;
     return Status::OK();
 }
 
@@ -370,6 +384,11 @@ Status VOlapTableSinkV2::_cancel(Status status) {
         _delta_writer_for_tablet->cancel(status);
         _delta_writer_for_tablet.reset();
     }
+    for (const auto& [_, streams] : _streams_for_node) {
+        for (const auto& stream : *streams) {
+            RETURN_IF_ERROR(stream->close_wait(1));
+        }
+    }
     return Status::OK();
 }
 
@@ -410,6 +429,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             SCOPED_TIMER(_close_load_timer);
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : *streams) {
+                    // TODO: remaining timeout
                     RETURN_IF_ERROR(stream->close_wait());
                 }
             }
@@ -447,7 +467,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
     }
 
     _close_status = status;
-    static_cast<void>(DataSink::close(state, exec_status));
+    RETURN_IF_ERROR(DataSink::close(state, exec_status));
     return status;
 }
 

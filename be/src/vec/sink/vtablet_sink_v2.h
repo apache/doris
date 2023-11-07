@@ -88,21 +88,6 @@ using NodeIdForStream = std::unordered_map<brpc::StreamId, int64_t>;
 using NodePartitionTabletMapping =
         std::unordered_map<int64_t, std::unordered_map<int64_t, std::unordered_set<int64_t>>>;
 
-class StreamSinkHandler : public brpc::StreamInputHandler {
-public:
-    StreamSinkHandler(VOlapTableSinkV2* sink) : _sink(sink) {}
-
-    int on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
-                             size_t size) override;
-
-    void on_idle_timeout(brpc::StreamId id) override {}
-
-    void on_closed(brpc::StreamId id) override;
-
-private:
-    VOlapTableSinkV2* _sink;
-};
-
 struct Rows {
     int64_t partition_id;
     int64_t index_id;
@@ -133,7 +118,9 @@ public:
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
 private:
-    Status _open_streams(int64_t src_id);
+    Status _init_streams(int64_t src_id);
+
+    Status _open_streams();
 
     void _build_tablet_node_mapping();
 
@@ -169,6 +156,8 @@ private:
     // To support multiple senders, we maintain a channel for each sender.
     int _sender_id = -1;
     int _num_senders = -1;
+    int _stream_per_node = 0;
+    int _total_streams = 0;
     bool _is_high_priority = false;
     bool _write_file_cache = false;
 
@@ -229,8 +218,6 @@ private:
     std::unordered_map<int64_t, std::vector<int64_t>> _tablet_failure_map;
     bthread::Mutex _tablet_success_map_mutex;
     bthread::Mutex _tablet_failure_map_mutex;
-
-    friend class StreamSinkHandler;
 };
 
 } // namespace vectorized

@@ -45,9 +45,9 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
     }
     _bytes_appended += bytes_req;
 
-    VLOG_DEBUG << "writer appendv, load_id: " << UniqueId(_load_id).to_string()
-               << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
-               << ", segment_id: " << _segment_id << ", data_length: " << bytes_req;
+    LOG(INFO) << "writer appendv, load_id: " << UniqueId(_load_id).to_string()
+              << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
+              << ", segment_id: " << _segment_id << ", data_length: " << bytes_req;
 
     std::span<const Slice> slices {data, data_cnt};
     for (auto& stream : _streams) {
@@ -58,9 +58,9 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
 }
 
 Status StreamSinkFileWriter::finalize() {
-    VLOG_DEBUG << "writer finalize, load_id: " << UniqueId(_load_id).to_string()
-               << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
-               << ", segment_id: " << _segment_id;
+    LOG(INFO) << "writer finalize, load_id: " << UniqueId(_load_id).to_string()
+              << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
+              << ", segment_id: " << _segment_id;
     // TODO(zhengyu): update get_inverted_index_file_size into stat
     for (auto& stream : _streams) {
         RETURN_IF_ERROR(

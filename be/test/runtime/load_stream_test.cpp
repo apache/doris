@@ -387,8 +387,6 @@ public:
                 return;
             }
 
-            load_stream->add_rpc_stream();
-
             status->set_status_code(TStatusCode::OK);
             response->set_allocated_status(status.get());
             static_cast<void>(response->release_status());

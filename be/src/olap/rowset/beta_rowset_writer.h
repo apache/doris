@@ -78,7 +78,7 @@ public:
 
     Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) override;
 
-    Status add_segment(uint32_t segment_id, SegmentStatistics& segstat) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
     Status flush() override;
 

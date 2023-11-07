@@ -604,7 +604,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     const vectorized::Int8* delete_sign_column_data = nullptr;
     if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
                 old_value_block.try_get_by_name(DELETE_SIGN);
-        delete_sign_column != nullptr && _tablet_schema->has_sequence_col()) {
+        delete_sign_column != nullptr) {
         auto& delete_sign_col =
                 reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
         delete_sign_column_data = delete_sign_col.get_data().data();
@@ -698,7 +698,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                  seg_pos < segment_start_pos + num_rows; block_pos++, seg_pos++) {
                 // we can directly use delete bitmap to mark the rows with delete sign as deleted
                 // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
-                if (delete_sign_column_data[block_pos]) {
+                if (_mow_context != nullptr && delete_sign_column_data[block_pos]) {
                     _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
                                                       DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
                                                      seg_pos);

@@ -176,6 +176,9 @@ Status RowsetBuilder::init() {
     std::shared_ptr<MowContext> mow_context;
     if (_tablet->enable_unique_key_merge_on_write()) {
         RETURN_IF_ERROR(init_mow_context(mow_context));
+        LOG(INFO) << "init mow context for tablet " << _req.tablet_id;
+    } else {
+        LOG(INFO) << "no mow context for tablet " << _req.tablet_id;
     }
 
     if (!config::disable_auto_compaction) {
