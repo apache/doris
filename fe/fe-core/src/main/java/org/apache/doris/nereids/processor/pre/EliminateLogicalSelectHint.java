@@ -23,6 +23,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
+import org.apache.doris.nereids.hint.OrderedHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
@@ -38,6 +39,7 @@ import org.apache.doris.qe.VariableMgr;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 
@@ -62,8 +64,11 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor implements Cust
                 setVar((SelectHintSetVar) hint.getValue(), context);
             } else if (hintName.equalsIgnoreCase("ORDERED")) {
                 ConnectContext.get().getSessionVariable().setDisableJoinReorder(true);
+                OrderedHint ordered = new OrderedHint("Ordered");
+                ordered.setStatus(Hint.HintStatus.SUCCESS);
+                context.getHintMap().put("Ordered", ordered);
             } else if (hintName.equalsIgnoreCase("LEADING")) {
-                extractLeading((SelectHintLeading) hint.getValue(), context);
+                extractLeading((SelectHintLeading) hint.getValue(), context, selectHintPlan.getHints());
             } else {
                 logger.warn("Can not process select hint '{}' and skip it", hint.getKey());
             }
@@ -101,14 +106,18 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor implements Cust
         }
     }
 
-    private void extractLeading(SelectHintLeading selectHint, StatementContext context) {
+    private void extractLeading(SelectHintLeading selectHint, StatementContext context, Map<String, SelectHint> hints) {
         LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString());
         if (context.getHintMap().get("Leading") != null) {
             hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
             hint.setErrorMessage("can only have one leading clause");
         }
         context.getHintMap().put("Leading", hint);
-        context.setLeadingJoin(true);
+        if (hints.get("ordered") != null) {
+            context.setLeadingJoin(false);
+        } else {
+            context.setLeadingJoin(true);
+        }
         assert (selectHint != null);
         assert (context != null);
     }
