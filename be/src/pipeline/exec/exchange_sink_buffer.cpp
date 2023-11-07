@@ -177,20 +177,17 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
 }
 
 template <typename Parent>
-Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& request,
-                                             [[maybe_unused]] bool* sent) {
+Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& request) {
     if (_is_finishing) {
+        request.block_holder->unref();
         return Status::OK();
     }
     TUniqueId ins_id = request.channel->_fragment_instance_id;
     if (_is_receiver_eof(ins_id.lo)) {
+        request.block_holder->unref();
         return Status::EndOfFile("receiver eof");
     }
     bool send_now = false;
-    if (sent) {
-        *sent = true;
-    }
-    request.block_holder->ref();
     {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[ins_id.lo]);
         // Do not have in process rpc, directly send
