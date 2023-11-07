@@ -562,15 +562,19 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                         block_holder->get_block()->Clear();
                     }
                     Status status;
+                    block_holder->ref(_channels.size());
                     for (auto channel : _channels) {
                         if (!channel->is_receiver_eof()) {
                             if (channel->is_local()) {
+                                block_holder->unref();
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                                 status = channel->send_broadcast_block(block_holder, eos);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
+                        } else {
+                            block_holder->unref();
                         }
                     }
                     cur_block.clear_column_data();
