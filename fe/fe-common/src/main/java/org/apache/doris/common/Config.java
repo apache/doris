@@ -2310,6 +2310,12 @@ public class Config extends ConfigBase {
     })
     public static int restore_download_task_num_per_be = 3;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否在log中打印异常的stacktrace信息",
+            "Whether to print the stacktrace information of the exception in the log"
+    })
+    public static boolean print_error_no_stacktrace = false;
+
     @ConfField(description = {"是否开启通过http接口获取log文件的功能",
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;

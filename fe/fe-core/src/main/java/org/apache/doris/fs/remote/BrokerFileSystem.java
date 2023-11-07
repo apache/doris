@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
@@ -430,7 +431,11 @@ public class BrokerFileSystem extends RemoteFileSystem {
                                 BrokerUtil.printBroker(name, address),
                                 writeOffset, bytesRead, fileLength,
                                 remotePath, e.getMessage());
-                        LOG.warn(lastErrMsg, e);
+                        if (Config.print_error_no_stacktrace) {
+                            LOG.warn(lastErrMsg);
+                        } else {
+                            LOG.warn(lastErrMsg, e);
+                        }
                         status = new Status(Status.ErrCode.COMMON_ERROR, lastErrMsg);
                         break;
                     } catch (TException e) {
@@ -440,7 +445,11 @@ public class BrokerFileSystem extends RemoteFileSystem {
                                 BrokerUtil.printBroker(name, address),
                                 writeOffset, bytesRead, fileLength,
                                 remotePath, e.getMessage());
-                        LOG.warn(lastErrMsg, e);
+                        if (Config.print_error_no_stacktrace) {
+                            LOG.warn(lastErrMsg);
+                        } else {
+                            LOG.warn(lastErrMsg, e);
+                        }
                         status = new Status(Status.ErrCode.COMMON_ERROR, lastErrMsg);
                         break;
                     }

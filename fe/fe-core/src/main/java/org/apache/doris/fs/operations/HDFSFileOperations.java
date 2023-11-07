@@ -18,6 +18,7 @@
 package org.apache.doris.fs.operations;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.URI;
 
@@ -59,10 +60,18 @@ public class HDFSFileOperations implements FileOperations {
             hdfsOpParams.withFsDataInputStream(fsDataInputStream);
             return Status.OK;
         } catch (IOException e) {
-            LOG.error("errors while open path", e);
+            if (Config.print_error_no_stacktrace) {
+                LOG.error("errors while open path" + e.getMessage());
+            } else {
+                LOG.error("errors while open path", e);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "failed to open reader, msg:" + e.getMessage());
         } catch (UserException ex) {
-            LOG.error("errors while get filesystem", ex);
+            if (Config.print_error_no_stacktrace) {
+                LOG.error("errors while get filesystem" + ex.getMessage());
+            } else {
+                LOG.error("errors while get filesystem", ex);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "failed to get filesystem, msg:" + ex.getMessage());
         }
     }
@@ -80,7 +89,11 @@ public class HDFSFileOperations implements FileOperations {
             try {
                 fsDataInputStream.close();
             } catch (IOException e) {
-                LOG.error("errors while close file input stream", e);
+                if (Config.print_error_no_stacktrace) {
+                    LOG.error("errors while close file input stream" + e.getMessage());
+                } else {
+                    LOG.error("errors while close file input stream", e);
+                }
                 return new Status(Status.ErrCode.COMMON_ERROR,
                         "errors while close file input stream, msg: " + e.getMessage());
             }
@@ -103,10 +116,18 @@ public class HDFSFileOperations implements FileOperations {
             hdfsOpParams.withFsDataOutputStream(hdfsClient.create(inputFilePath, true, WRITE_BUFFER_SIZE));
             return Status.OK;
         } catch (IOException e) {
-            LOG.error("errors while open path", e);
+            if (Config.print_error_no_stacktrace) {
+                LOG.error("errors while open path" + e.getMessage());
+            } else {
+                LOG.error("errors while open path", e);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "failed to open writer, msg:" + e.getMessage());
         } catch (UserException ex) {
-            LOG.error("errors while get filesystem", ex);
+            if (Config.print_error_no_stacktrace) {
+                LOG.error("errors while get filesystem" + ex.getMessage());
+            } else {
+                LOG.error("errors while get filesystem", ex);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "failed to get filesystem, msg:" + ex.getMessage());
         }
     }
@@ -126,7 +147,11 @@ public class HDFSFileOperations implements FileOperations {
                 fsDataOutputStream.close();
                 LOG.info("finished to close writer");
             } catch (IOException e) {
-                LOG.error("errors while close file output stream", e);
+                if (Config.print_error_no_stacktrace) {
+                    LOG.error("errors while close file output stream" + e.getMessage());
+                } else {
+                    LOG.error("errors while close file output stream", e);
+                }
                 return new Status(Status.ErrCode.COMMON_ERROR, "failed to close writer, msg:" + e.getMessage());
             }
         }
