@@ -59,11 +59,12 @@ public class DorisStreamLoader {
         this.feIdentity = conf.feIdentity.replaceAll("\\.", "_");
     }
 
-    private HttpURLConnection getConnection(String urlStr, String label) throws IOException {
+    private HttpURLConnection getConnection(String urlStr, String label, String clusterToken) throws IOException {
         URL url = new URL(urlStr);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod("PUT");
+        conn.setRequestProperty("token", clusterToken);
         conn.setRequestProperty("Authorization", "Basic " + authEncoding);
         conn.addRequestProperty("Expect", "100-continue");
         conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
@@ -114,7 +115,7 @@ public class DorisStreamLoader {
         return response.toString();
     }
 
-    public LoadResponse loadBatch(StringBuilder sb, boolean slowLog) {
+    public LoadResponse loadBatch(StringBuilder sb, boolean slowLog, String clusterToken) {
         Calendar calendar = Calendar.getInstance();
         String label = String.format("_log_%s%02d%02d_%02d%02d%02d_%s",
                 calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
@@ -127,10 +128,10 @@ public class DorisStreamLoader {
             // build request and send to fe
             if (slowLog) {
                 label = "slow" + label;
-                feConn = getConnection(slowLogLoadUrlStr, label);
+                feConn = getConnection(slowLogLoadUrlStr, label, clusterToken);
             } else {
                 label = "audit" + label;
-                feConn = getConnection(auditLogLoadUrlStr, label);
+                feConn = getConnection(auditLogLoadUrlStr, label, clusterToken);
             }
             int status = feConn.getResponseCode();
             // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
@@ -143,7 +144,7 @@ public class DorisStreamLoader {
                 throw new Exception("redirect location is null");
             }
             // build request and send to new be location
-            beConn = getConnection(location, label);
+            beConn = getConnection(location, label, clusterToken);
             // send data to be
             BufferedOutputStream bos = new BufferedOutputStream(beConn.getOutputStream());
             bos.write(sb.toString().getBytes());
