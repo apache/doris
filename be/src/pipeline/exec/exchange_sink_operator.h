@@ -113,7 +113,24 @@ private:
     std::atomic<int> _available_block;
 };
 
-// We use this to control the execution for local exchange.
+/**
+ * We use this to control the execution for local exchange.
+ *              +---------------+                                    +---------------+                               +---------------+
+ *              | ExchangeSink1 |                                    | ExchangeSink2 |                               | ExchangeSink3 |
+ *              +---------------+                                    +---------------+                               +---------------+
+ *                     |                                                    |                                               |
+ *                     |                       +----------------------------+----------------------------------+            |
+ *                     +----+------------------|------------------------------------------+                    |            |
+ *                          |                  |                 +------------------------|--------------------|------------+-----+
+ *          Dependency 1-1  |   Dependency 2-1 |  Dependency 3-1 |         Dependency 1-2 |    Dependency 2-2  |  Dependency 3-2  |
+ *                    +----------------------------------------------+               +----------------------------------------------+
+ *                    |  queue1              queue2          queue3  |               |  queue1              queue2          queue3  |
+ *                    |                   LocalRecvr                 |               |                   LocalRecvr                 |
+ *                    +----------------------------------------------+               +----------------------------------------------+
+ *                         +-----------------+                                                        +------------------+
+ *                         | ExchangeSource1 |                                                        | ExchangeSource2 |
+ *                         +-----------------+                                                        +------------------+
+ */
 class LocalExchangeChannelDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeChannelDependency);

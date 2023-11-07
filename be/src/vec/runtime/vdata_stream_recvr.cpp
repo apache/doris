@@ -101,8 +101,8 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
     _block_queue.pop_front();
     if (_block_queue.empty() && _dependency) {
         _dependency->block_reading();
-        for (auto& it : _sender_to_local_channel_dependency) {
-            it->set_ready_for_write();
+        if (_local_channel_dependency) {
+            _local_channel_dependency->set_ready_for_write();
         }
     }
 
@@ -370,7 +370,7 @@ VDataStreamRecvr::VDataStreamRecvr(
         if (_enable_pipeline) {
             queue = _sender_queue_pool.add(new PipSenderQueue(this, num_sender_per_queue, profile));
             if (state->enable_pipeline_x_exec()) {
-                queue->set_local_channel_dependency(_sender_to_local_channel_dependency);
+                queue->set_local_channel_dependency(_sender_to_local_channel_dependency[i]);
             }
         } else {
             queue = _sender_queue_pool.add(new SenderQueue(this, num_sender_per_queue, profile));

@@ -197,8 +197,6 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         auto deps_for_channels = AndDependency::create_shared(_parent->operator_id());
         for (auto channel : channels) {
             if (channel->is_local()) {
-                _local_channels_dependency[dep_id] =
-                        LocalExchangeChannelDependency::create_shared(_parent->operator_id());
                 _local_channels_dependency[dep_id] = channel->get_local_channel_dependency();
                 DCHECK(_local_channels_dependency[dep_id] != nullptr);
                 deps_for_channels->add_child(_local_channels_dependency[dep_id]);
