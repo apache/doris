@@ -97,7 +97,7 @@ public:
     VExpr() = default;
     virtual ~VExpr() = default;
 
-    virtual VExprSPtr clone() const = 0;
+    virtual VExprSPtr clone() const { return nullptr; }
 
     virtual const std::string& expr_name() const = 0;
 

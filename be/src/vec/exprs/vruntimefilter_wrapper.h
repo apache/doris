@@ -54,7 +54,6 @@ public:
                        FunctionContext::FunctionStateScope scope) override;
     std::string debug_string() const override { return _impl->debug_string(); }
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
-    VExprSPtr clone() const override { return VRuntimeFilterWrapper::create_shared(*this); }
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }
 
