@@ -293,12 +293,20 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return failedSchedCounter;
     }
 
+    public void resetFailedSchedCounter() {
+        failedSchedCounter = 0;
+    }
+
     public void increaseFailedRunningCounter() {
         ++failedRunningCounter;
     }
 
     public int getFailedRunningCounter() {
         return failedRunningCounter;
+    }
+
+    public boolean isExceedFailedRunningLimit() {
+        return failedRunningCounter >= RUNNING_FAILED_COUNTER_THRESHOLD;
     }
 
     public void setLastSchedTime(long lastSchedTime) {
