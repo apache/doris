@@ -31,7 +31,6 @@ fi
 if ${DEBUG:-false}; then
     pull_request_id="26344"
     commit_id="97ee15f75e88f5af6de308d948361eaa7c261602"
-    commit_id="14eb608b2d17710c7921642b3112c07472919650"
 fi
 
 echo "#### Deploy Doris ####"
