@@ -117,7 +117,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
             "FORMAT" = "${format}");
         """
 
-    order_qt_7 """
+    order_qt_8 """
            select arrayMapBoolean from s3(
             "uri" = "${s3Uri}",
             "ACCESS_KEY" = "${ak}",
@@ -137,7 +137,7 @@ suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
                 "hadoop.username" = "${hdfsUserName}",
                 "FORMAT" = "${format}"); """
 
-            order_qt_8 """ select * from HDFS(
+            order_qt_9 """ select * from HDFS(
                         "uri" = "${hdfsUri}",
                         "fs.defaultFS" = "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
