@@ -17,8 +17,9 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_week_seq = d2.d_week_seq))otherCondition=()
 ----------------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((catalog_returns.cr_item_sk = catalog_sales.cs_item_sk) and (catalog_returns.cr_order_number = catalog_sales.cs_order_number))otherCondition=()
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_returns]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[catalog_returns]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk))otherCondition=()
