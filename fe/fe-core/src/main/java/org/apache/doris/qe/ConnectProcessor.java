@@ -193,6 +193,11 @@ public class ConnectProcessor {
                 .setTraceId(spanContext.isValid() ? spanContext.getTraceId() : "")
                 .setFuzzyVariables(ctx.getSessionVariable().printFuzzyVariables());
 
+        // when doris fe is booting, current catalog may not be inited
+        if (ctx.getCurrentCatalog() != null) {
+            ctx.getAuditEventBuilder().setCatalog(ctx.getCurrentCatalog().getName());
+        }
+
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
             MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
