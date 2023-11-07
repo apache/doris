@@ -86,18 +86,10 @@ Status AvroJNIReader::init_fetch_table_reader(
             {"file_type", std::to_string(type)},
             {"is_get_table_schema", "false"},
             {"hive.serde", "org.apache.hadoop.hive.serde2.avro.AvroSerDe"}};
-    switch (type) {
-    case TFileType::FILE_HDFS:
-        required_param.insert(std::make_pair("uri", _params.hdfs_params.hdfs_conf.data()->value));
-        break;
-    case TFileType::FILE_S3:
-        required_param.insert(std::make_pair("uri", _range.path));
+    if (type == TFileType::FILE_S3) {
         required_param.insert(_params.properties.begin(), _params.properties.end());
-        break;
-    default:
-        return Status::InternalError("unsupported file reader type: {}", std::to_string(type));
     }
-    required_param.insert(_params.properties.begin(), _params.properties.end());
+    required_param.insert(std::make_pair("uri", _range.path));
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/avro/AvroJNIScanner",
                                                     required_param, column_names);
     RETURN_IF_ERROR(_jni_connector->init(_colname_to_value_range));
