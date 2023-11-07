@@ -310,7 +310,6 @@ public:
 
     bool is_local() const { return _is_local; }
 
-
     virtual void ch_roll_pb_block();
 
     bool can_write() {
