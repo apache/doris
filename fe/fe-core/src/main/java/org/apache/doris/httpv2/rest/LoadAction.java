@@ -86,7 +86,10 @@ public class LoadAction extends RestBaseController {
         try {
             executeCheckPassword(request, response);
         } catch (UnauthorizedException unauthorizedException) {
-            LOG.info("Check password failed, going to check auth token, request: {}", request.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Check password failed, going to check auth token, request: {}", request.toString());
+            }
+
             if (!checkClusterToken(request)) {
                 throw unauthorizedException;
             } else {
@@ -275,7 +278,10 @@ public class LoadAction extends RestBaseController {
     // temporarily addressing the users' needs for audit logs.
     // So this function is not widely tested under general scenario
     private boolean checkClusterToken(HttpServletRequest request) {
-        LOG.debug("Checking cluser token, request {}", request.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Checking cluser token, request {}", request.toString());
+        }
+
         String authToken = request.getHeader("token");
 
         if (Strings.isNullOrEmpty(authToken)) {
