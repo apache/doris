@@ -62,7 +62,7 @@ suite("test_backup_restore_dup_without_default_keys", "backup_restore"){
 
     sql "TRUNCATE TABLE ${dbName}.${tableName}"
 
-    sql"""
+    sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
         FROM `${repoName}`
         ON (`${tableName}`)
