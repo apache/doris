@@ -748,7 +748,8 @@
                                 "sql-manual/sql-functions/table-functions/frontends",
                                 "sql-manual/sql-functions/table-functions/workload-group",
                                 "sql-manual/sql-functions/table-functions/catalogs",
-                                "sql-manual/sql-functions/table-functions/frontends_disks"
+                                "sql-manual/sql-functions/table-functions/frontends_disks",
+                                "sql-manual/sql-functions/table-functions/queries"
                             ]
                         },
                         {
