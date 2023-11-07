@@ -218,7 +218,7 @@ export CLASSPATH="${DORIS_HOME}/conf:${CLASSPATH}:${DORIS_HOME}/lib"
 
 pidfile="${PID_DIR}/fe.pid"
 
-if [[ -f "${pidfile}" ]]; then
+if [[ -f "${pidfile}" ]] && [[ "${OPT_VERSION}" == "" ]]; then
     if kill -0 "$(cat "${pidfile}")" >/dev/null 2>&1; then
         echo "Frontend running as process $(cat "${pidfile}"). Stop it first."
         exit 1
@@ -258,4 +258,7 @@ else
     ${LIMIT:+${LIMIT}} "${JAVA}" ${final_java_opt:+${final_java_opt}} -XX:-OmitStackTraceInFastThrow -XX:OnOutOfMemoryError="kill -9 %p" ${coverage_opt:+${coverage_opt}} org.apache.doris.DorisFE ${HELPER:+${HELPER}} ${OPT_VERSION:+${OPT_VERSION}} "$@" >>"${LOG_DIR}/fe.out" 2>&1 </dev/null
 fi
 
+if [[ "${OPT_VERSION}" != "" ]]; then
+    exit 0
+fi
 echo $! >"${pidfile}"
