@@ -131,6 +131,7 @@ public class BuiltinFunctionBuilder extends FunctionBuilder {
         Preconditions.checkArgument(!Modifier.isAbstract(functionClass.getModifiers()),
                 "Can not resolve bind function which is abstract class: "
                         + functionClass.getSimpleName());
+
         return Arrays.stream(functionClass.getConstructors())
                 .filter(constructor -> Modifier.isPublic(constructor.getModifiers()))
                 .map(constructor -> new BuiltinFunctionBuilder((Constructor<BoundFunction>) constructor))
