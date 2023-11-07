@@ -229,6 +229,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Streams;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -3232,7 +3233,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public TCreatePartitionResult createPartition(TCreatePartitionRequest request) throws TException {
+    public TCreatePartitionResult createPartition(TCreatePartitionRequest request) {
         LOG.info("Receive create partition request: {}", request);
         long dbId = request.getDbId();
         long tableId = request.getTableId();
@@ -3273,8 +3274,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        OlapTable olapTable = (OlapTable) table;
-        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        // extract request's partitions
         ArrayList<TStringLiteral> partitionValues = new ArrayList<TStringLiteral>();
         for (int i = 0; i < request.partitionValues.size(); i++) {
             if (request.partitionValues.get(i).size() != 1) {
@@ -3285,11 +3285,27 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             partitionValues.add(request.partitionValues.get(i).get(0));
         }
-        Map<String, AddPartitionClause> addPartitionClauseMap;
+
+        // get the table and its partitions.
+        OlapTable olapTable = (OlapTable) table;
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+
+        // generate the partitions from value.
+        Map<String, AddPartitionClause> addPartitionClauseMap; // name to partition. each is one partition.
+        ArrayList<Long> existPartitionIds = Lists.newArrayList();
         try {
-            addPartitionClauseMap = PartitionExprUtil.getAddPartitionClauseFromPartitionValues(olapTable,
-                    partitionValues, partitionInfo);
+            // Lock from here
+            olapTable.writeLockOrDdlException();
+            // won't get duplicate values. If exist, the origin partition will save id in
+            // existPartitionIds, no go to return ClauseMap
+            addPartitionClauseMap = PartitionExprUtil.getNonExistPartitionAddClause(olapTable,
+                    partitionValues, partitionInfo, existPartitionIds);
+        } catch (DdlException ddlEx) {
+            errorStatus.setErrorMsgs(Lists.newArrayList(ddlEx.getMessage()));
+            result.setStatus(errorStatus);
+            return result;
         } catch (AnalysisException ex) {
+            olapTable.writeUnlock();
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
             result.setStatus(errorStatus);
             return result;
@@ -3300,7 +3316,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (partitionNum > Config.max_auto_partition_num) {
             olapTable.writeUnlock();
             String errorMessage = String.format(
-                    "create partition failed. partition numbers %d will exceed limit variable max_auto_partition_num%d",
+                    "create partition failed. partition numbers %d will "
+                            + "exceed limit variable max_auto_partition_num %d",
                     partitionNum, Config.max_auto_partition_num);
             LOG.warn(errorMessage);
             errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
@@ -3308,24 +3325,33 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
-            try {
-                // here maybe check and limit created partitions num
-                Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionClause);
-            } catch (DdlException e) {
-                LOG.warn(e);
-                errorStatus.setErrorMsgs(
-                        Lists.newArrayList(String.format("create partition failed. error:%s", e.getMessage())));
-                result.setStatus(errorStatus);
-                return result;
+        // add partitions to table. will write metadata.
+        try {
+            for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
+                Env.getCurrentEnv().addPartitionSkipLock(db, olapTable, addPartitionClause);
             }
+        } catch (DdlException e) {
+            LOG.warn(e);
+            errorStatus.setErrorMsgs(
+                    Lists.newArrayList(String.format("create partition failed. error:%s", e.getMessage())));
+            result.setStatus(errorStatus);
+            return result;
+        } finally {
+            // read/write metadata finished. free lock.
+            olapTable.writeUnlock();
         }
 
         // build partition & tablets
         List<TOlapTablePartition> partitions = Lists.newArrayList();
         List<TTabletLocation> tablets = Lists.newArrayList();
-        for (String partitionName : addPartitionClauseMap.keySet()) {
-            Partition partition = table.getPartition(partitionName);
+
+        // two part: we create + we found others create(before we try to create and
+        // after we found loss in BE)
+        List<Partition> returnPartitions = Streams
+                .concat(existPartitionIds.stream().map(id -> olapTable.getPartition(id)),
+                        addPartitionClauseMap.keySet().stream().map(str -> olapTable.getPartition(str)))
+                .collect(Collectors.toList());
+        for (Partition partition : returnPartitions) {
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
             int partColNum = partitionInfo.getPartitionColumns().size();

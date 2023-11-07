@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TStringLiteral;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -113,9 +114,20 @@ public class PartitionExprUtil {
         return null;
     }
 
-    public static Map<String, AddPartitionClause> getAddPartitionClauseFromPartitionValues(OlapTable olapTable,
-            ArrayList<TStringLiteral> partitionValues, PartitionInfo partitionInfo)
+    // In one calling, because we have partition values filter, the same partition
+    // value won't make duplicate AddPartitionClause.
+    // But if there's same partition values in two calling of this. we may have the
+    // different partition name because we have timestamp suffix here.
+    // Should check existence of partitions in this table. so need at least readlock
+    // first.
+    // @return <newName, newPartitionClause>
+    // @return existPartitionIds will save exist partition's id.
+    public static Map<String, AddPartitionClause> getNonExistPartitionAddClause(OlapTable olapTable,
+            ArrayList<TStringLiteral> partitionValues, PartitionInfo partitionInfo, ArrayList<Long> existPartitionIds)
             throws AnalysisException {
+        Preconditions.checkArgument(!partitionInfo.isMultiColumnPartition(),
+                "now dont support multi key columns in auto-partition.");
+
         Map<String, AddPartitionClause> result = Maps.newHashMap();
         ArrayList<Expr> partitionExprs = partitionInfo.getPartitionExprs();
         PartitionType partitionType = partitionInfo.getType();
@@ -132,6 +144,14 @@ public class PartitionExprUtil {
                 continue;
             }
             filterPartitionValues.add(value);
+
+            // check if this key value has been covered by some partition.
+            Long id = partitionInfo.contains(partitionValue, partitionType);
+            if (id != null) { // found
+                existPartitionIds.add(id);
+                continue;
+            }
+
             if (partitionType == PartitionType.RANGE) {
                 String beginTime = value;
                 DateLiteral beginDateTime = new DateLiteral(beginTime, partitionColumnType);
@@ -147,21 +167,24 @@ public class PartitionExprUtil {
                 listValues.add(Collections.singletonList(lowerValue));
                 partitionKeyDesc = PartitionKeyDesc.createIn(
                         listValues);
+                // the partition's name can't contain some special characters. so some string
+                // values(like a*b and ab) will get same partition name. to distingush them, we
+                // have to add a timestamp.
                 partitionName += getFormatPartitionValue(lowerValue.getStringValue());
                 if (partitionColumnType.isStringType()) {
                     partitionName += "_" + System.currentTimeMillis();
                 }
             } else {
-                throw new AnalysisException("now only support range and list partition");
+                throw new AnalysisException("auto-partition only support range and list partition");
             }
 
             Map<String, String> partitionProperties = Maps.newHashMap();
             DistributionDesc distributionDesc = olapTable.getDefaultDistributionInfo().toDistributionDesc();
 
-            SinglePartitionDesc singleRangePartitionDesc = new SinglePartitionDesc(true, partitionName,
+            SinglePartitionDesc partitionDesc = new SinglePartitionDesc(true, partitionName,
                     partitionKeyDesc, partitionProperties);
 
-            AddPartitionClause addPartitionClause = new AddPartitionClause(singleRangePartitionDesc,
+            AddPartitionClause addPartitionClause = new AddPartitionClause(partitionDesc,
                     distributionDesc, partitionProperties, false);
             result.put(partitionName, addPartitionClause);
         }
