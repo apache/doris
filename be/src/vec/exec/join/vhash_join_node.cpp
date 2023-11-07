@@ -816,7 +816,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                           _build_expr_ctxs, _runtime_filter_descs);
 
                                   RETURN_IF_ERROR(_runtime_filter_slots->init(
-                                          state, arg.hash_table->size(), 0));
+                                          state, arg.hash_table->size(), _build_rf_cardinality));
                                   RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
                                           _shared_hash_table_context));
                                   RETURN_IF_ERROR(_runtime_filter_slots->publish());
