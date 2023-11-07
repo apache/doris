@@ -109,7 +109,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         long currentName = Long.parseLong(currentDbName);
         long newNameVerify = currentName + currentJournalDB.count();
         if (newName == newNameVerify) {
-            LOG.info("roll edit log. new db name is {}", newName);
+            LOG.info("roll edit log. new dbName: {}, old dbName:{}", newName, currentDbName);
             currentJournalDB = bdbEnvironment.openDatabase(Long.toString(newName));
         } else {
             String msg = String.format("roll journal error! journalId and db journal numbers is not match. "
