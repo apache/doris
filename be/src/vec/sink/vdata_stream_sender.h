@@ -310,10 +310,6 @@ public:
 
     bool is_local() const { return _is_local; }
 
-    VDataStreamRecvr* local_recvr() {
-        DCHECK(_is_local && _local_recvr != nullptr);
-        return _local_recvr.get();
-    }
 
     virtual void ch_roll_pb_block();
 
