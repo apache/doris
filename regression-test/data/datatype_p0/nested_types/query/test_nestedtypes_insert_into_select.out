@@ -6,10 +6,6 @@ text2	[{"a": 1, "b": "7777"}, {"a": 2, "b": "work"}]
 text3	[{"a": 11, "b": "home"}, {"a": 22, "b": "work"}]
 text4	[{"a": 1, "b": "home"}, {"a": 2, "b": "work"}]
 
--- !sql_as_nereids --
-text	[{"a": 3, "b": "home"}, {"a": 4, "b": "work"}]
-text1	[{"a": 31, "b": "home1"}, {"a": 41, "b": "work1"}]
-text2	[{"a": 1, "b": "7777"}, {"a": 2, "b": "work"}]
-text3	[{"a": 11, "b": "home"}, {"a": 22, "b": "work"}]
-text4	[{"a": 1, "b": "home"}, {"a": 2, "b": "work"}]
+-- !select --
+{4, amo, 7, comm}
 

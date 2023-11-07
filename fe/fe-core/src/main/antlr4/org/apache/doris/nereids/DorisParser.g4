@@ -730,7 +730,7 @@ constant
     | LEFT_BRACKET (items+=constant)? (COMMA items+=constant)* RIGHT_BRACKET                   #arrayLiteral
     | LEFT_BRACE (items+=constant COLON items+=constant)?
        (COMMA items+=constant COLON items+=constant)* RIGHT_BRACE                              #mapLiteral
-    | LEFT_BRACE items+=constant (COMMA items+=constant)* RIGHT_BRACE                          #structLiteral
+    | LEFT_PAREN items+=constant (COMMA items+=constant)* RIGHT_PAREN                          #structLiteral
     ;
 
 comparisonOperator
