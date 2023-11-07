@@ -179,7 +179,15 @@ Status PipelineXTask::_open() {
     SCOPED_TIMER(_open_timer);
     _dry_run = _sink->should_dry_run(_state);
     for (auto& o : _operators) {
-        RETURN_IF_ERROR(_state->get_local_state(o->operator_id())->open(_state));
+        auto* local_state = _state->get_local_state(o->operator_id());
+        auto st = local_state->open(_state);
+        if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
+            _blocked_dep = local_state->filterdependency();
+            set_state(PipelineTaskState::BLOCKED_FOR_RF);
+        } else if (st.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
+            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
+        }
+        RETURN_IF_ERROR(st);
     }
     RETURN_IF_ERROR(_state->get_sink_local_state(_sink->operator_id())->open(_state));
     _opened = true;
@@ -348,4 +356,45 @@ std::string PipelineXTask::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
+void PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
+    // call by dependency
+    auto state = get_state();
+    VecDateTimeValue now = VecDateTimeValue::local_time();
+    DCHECK(avoid_using_blocked_queue(state));
+    Dependency* block_dep = nullptr;
+    if (state == PipelineTaskState::PENDING_FINISH) {
+        block_dep = finish_blocked_dependency();
+        if (block_dep == nullptr) {
+            _make_run(PipelineTaskState::PENDING_FINISH);
+        } else {
+            push_blocked_task_to_dep();
+        }
+        return;
+    } else if (query_context()->is_cancelled()) {
+        _make_run();
+        return;
+    } else if (query_context()->is_timeout(now)) {
+        query_context()->cancel(true, "", Status::Cancelled(""));
+        return;
+    } else {
+        if (state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
+            block_dep = read_blocked_dependency();
+        } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
+            block_dep = filter_blocked_dependency();
+        } else if (state == PipelineTaskState::BLOCKED_FOR_SINK) {
+            block_dep = write_blocked_dependency();
+        }
+    }
+    DCHECK(wake_up_dep != block_dep) << "wake up dep : " << wake_up_dep->name();
+    if (block_dep == nullptr) {
+        _make_run();
+    } else {
+        push_blocked_task_to_dep();
+    }
+}
+
+void PipelineXTask::_make_run(PipelineTaskState t_state) {
+    set_state(t_state);
+    static_cast<void>(get_task_queue()->push_back(this));
+}
 } // namespace doris::pipeline

@@ -34,6 +34,8 @@
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "pipeline/pipeline_task.h"
+#include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "pipeline/task_queue.h"
 #include "pipeline_fragment_context.h"
 #include "runtime/query_context.h"
@@ -75,7 +77,11 @@ Status BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
         return Status::InternalError("BlockedTaskScheduler shutdown");
     }
     std::unique_lock<std::mutex> lock(_task_mutex);
-    _blocked_tasks.push_back(task);
+    if (task->is_pipelineX() && avoid_using_blocked_queue(task->get_state())) {
+        static_cast<PipelineXTask*>(task)->push_blocked_task_to_dep();
+    } else {
+        _blocked_tasks.push_back(task);
+    }
     _task_cond.notify_one();
     return Status::OK();
 }
@@ -253,7 +259,8 @@ void TaskScheduler::_do_work(size_t index) {
             continue;
         }
 
-        DCHECK(check_state == PipelineTaskState::RUNNABLE);
+        DCHECK(check_state == PipelineTaskState::RUNNABLE)
+                << "check_state:" << get_state_name(check_state);
         // task exec
         bool eos = false;
         auto status = Status::OK();

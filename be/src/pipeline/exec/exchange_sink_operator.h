@@ -85,14 +85,24 @@ public:
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
                          << id();
         }
-        return _available_block > 0 ? nullptr : this;
+        return WriteDependency::write_blocked_by();
     }
 
     void set_available_block(int available_block) { _available_block = available_block; }
 
-    void return_available_block() { _available_block++; }
+    void return_available_block() {
+        _available_block++;
+        DCHECK(_available_block > 0);
+        WriteDependency::set_ready_for_write();
+    }
 
-    void take_available_block() { _available_block--; }
+    void take_available_block() {
+        auto old_vale = _available_block.fetch_sub(1);
+        if (old_vale == 1) {
+            DCHECK(_available_block == 0);
+            WriteDependency::block_writing();
+        }
+    }
 
     void* shared_state() override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
