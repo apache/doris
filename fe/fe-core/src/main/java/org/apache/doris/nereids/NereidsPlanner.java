@@ -280,22 +280,28 @@ public class NereidsPlanner extends Planner {
     }
 
     private void analyze() {
+        LOG.info("Start analyze plan");
         cascadesContext.newAnalyzer().analyze();
         NereidsTracer.logImportantTime("EndAnalyzePlan");
+        LOG.info("End analyze plan");
     }
 
     /**
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
+        LOG.info("Start rewrite plan");
         Rewriter.getWholeTreeRewriter(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndRewritePlan");
+        LOG.info("End rewrite plan");
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class
     private void optimize() {
+        LOG.info("Start optimize plan");
         new Optimizer(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndOptimizePlan");
+        LOG.info("End optimize plan");
     }
 
     private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
