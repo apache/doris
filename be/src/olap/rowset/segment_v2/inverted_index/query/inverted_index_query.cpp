@@ -287,10 +287,7 @@ Status InvertedIndexRangeQuery<Type, PT>::add_value(const T& value, InvertedInde
     template class C<TYPE_DECIMALV2, PredicateType::P>;   \
     template class C<TYPE_DECIMAL32, PredicateType::P>;   \
     template class C<TYPE_DECIMAL64, PredicateType::P>;   \
-    template class C<TYPE_DECIMAL128I, PredicateType::P>; \
-    template class C<TYPE_DECIMAL256, PredicateType::P>;  \
-    template class C<TYPE_IPV4, PredicateType::P>;        \
-    template class C<TYPE_IPV6, PredicateType::P>;
+    template class C<TYPE_DECIMAL128I, PredicateType::P>; 
 
 #define INSTANTIATE_FOR_TYPE(C)                          \
     INSTANTIATE_FOR_TYPE_AND_PREDICATE(EQ, C)            \
