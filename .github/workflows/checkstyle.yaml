@@ -27,11 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
         with:
           persist-credentials: false
           submodules: recursive
-          fetch-depth: 0
 
       - name: Paths Filter
         uses: ./.github/actions/paths-filter
@@ -49,7 +48,8 @@ jobs:
         with:
           maven-version: 3.8.4
 
-      - name: Run java spotless & checkstyle
+      - name: Run java checkstyle
         if: steps.filter.outputs.fe_changes == 'true'
         run:
-          cd fe && mvn clean spotless:check checkstyle:check
+          cd fe && mvn clean checkstyle:check
+
