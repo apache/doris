@@ -48,6 +48,9 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             logicalRelation().thenApply(ctx -> {
+                if (!ctx.cascadesContext.getStatementContext().isLeadingJoin()) {
+                    return ctx.root;
+                }
                 LeadingHint leading = (LeadingHint) ctx.cascadesContext
                         .getStatementContext().getHintMap().get("Leading");
                 if (leading == null) {
@@ -59,11 +62,11 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
             }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
 
             logicalJoin().thenApply(ctx -> {
-                LeadingHint leading = (LeadingHint) ctx.cascadesContext
-                        .getStatementContext().getHintMap().get("Leading");
-                if (leading == null) {
+                if (!ctx.cascadesContext.getStatementContext().isLeadingJoin()) {
                     return ctx.root;
                 }
+                LeadingHint leading = (LeadingHint) ctx.cascadesContext
+                            .getStatementContext().getHintMap().get("Leading");
                 LogicalJoin join = ctx.root;
                 List<Expression> expressions = join.getHashJoinConjuncts();
                 Long totalFilterBitMap = 0L;
@@ -92,11 +95,11 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
             }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
 
             logicalFilter().thenApply(ctx -> {
-                LeadingHint leading = (LeadingHint) ctx.cascadesContext
-                        .getStatementContext().getHintMap().get("Leading");
-                if (leading == null) {
+                if (!ctx.cascadesContext.getStatementContext().isLeadingJoin()) {
                     return ctx.root;
                 }
+                LeadingHint leading = (LeadingHint) ctx.cascadesContext
+                        .getStatementContext().getHintMap().get("Leading");
                 LogicalFilter filter = ctx.root;
                 Set<Expression> expressions = filter.getConjuncts();
                 for (Expression expression : expressions) {
@@ -108,11 +111,11 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
 
             logicalProject(logicalOlapScan()).thenApply(
                 ctx -> {
-                    LeadingHint leading = (LeadingHint) ctx.cascadesContext
-                            .getStatementContext().getHintMap().get("Leading");
-                    if (leading == null) {
+                    if (!ctx.cascadesContext.getStatementContext().isLeadingJoin()) {
                         return ctx.root;
                     }
+                    LeadingHint leading = (LeadingHint) ctx.cascadesContext
+                            .getStatementContext().getHintMap().get("Leading");
                     LogicalProject<LogicalOlapScan> project = ctx.root;
                     LogicalOlapScan scan = project.child();
                     leading.getRelationIdToScanMap().put(scan.getRelationId(), project);
