@@ -346,6 +346,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER = "max_table_count_use_cascades_join_reorder";
     public static final int MIN_JOIN_REORDER_TABLE_COUNT = 2;
 
+    public static final String JOIN_REORDER_TIME_LIMIT = "join_order_time_limit";
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
     public static final String ENABLE_MINIDUMP = "enable_minidump";
@@ -1105,6 +1106,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, needForward = true)
     public int maxTableCountUseCascadesJoinReorder = 10;
+
+    @VariableMgr.VarAttr(name = JOIN_REORDER_TIME_LIMIT, needForward = true)
+    public long joinReorderTimeLimit = 1000;
 
     // If this is true, the result of `show roles` will return all user default role
     @VariableMgr.VarAttr(name = SHOW_USER_DEFAULT_ROLE, needForward = true)
