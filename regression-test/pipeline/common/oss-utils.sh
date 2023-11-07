@@ -1,5 +1,20 @@
 #!/bin/bash
 
+function install_ossutil() {
+    if command -v ossutil >/dev/null; then return; fi
+    if [[ -z ${OSS_accessKeyID} || -z ${OSS_accessKeySecret} ]]; then
+        echo "ERROR: env OSS_accessKeyID or OSS_accessKeySecret not set."
+        return 1
+    fi
+    curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
+    echo "[Credentials]
+language=EN
+endpoint=oss-cn-hongkong-internal.aliyuncs.com
+accessKeyID=${OSS_accessKeyID:-}
+accessKeySecret=${OSS_accessKeySecret:-}
+" >~/.ossutilconfig
+}
+
 function check_oss_file_exist() {
     if [[ -z ${ACCESS_KEY_ID} || -z ${ACCESS_KEY_SECRET} ]]; then
         echo "ERROR: env ACCESS_KEY_ID and ACCESS_KEY_SECRET not set"
@@ -9,6 +24,7 @@ function check_oss_file_exist() {
     # file_name like ${pull_request_id}_${commit_id}.tar.gz
     local file_name="$1"
     OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile-release"}"
+    install_ossutil
     if ossutil stat \
         -i "${ACCESS_KEY_ID}" \
         -k "${ACCESS_KEY_SECRET}" \
@@ -24,6 +40,7 @@ function download_oss_file() {
     local file_name="$1"
     if ! check_oss_file_exist "${file_name}"; then return 1; fi
     OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile-release"}"
+    install_ossutil
     if ossutil cp -f \
         "${OSS_DIR}/${file_name}" \
         "${file_name}"; then
@@ -42,6 +59,7 @@ function upload_file_to_oss() {
     local file_name="$1"
     OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile-release"}"
     OSS_URL_PREFIX="${OSS_URL_PREFIX:-"http://opensource-pipeline.oss-cn-hongkong.aliyuncs.com/compile-release"}"
+    install_ossutil
     if ossutil cp -f \
         -i "${ACCESS_KEY_ID}" \
         -k "${ACCESS_KEY_SECRET}" \

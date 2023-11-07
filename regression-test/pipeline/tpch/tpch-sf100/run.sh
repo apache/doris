@@ -41,7 +41,7 @@ exit_flag=0
     echo "#### 1. check if need to load data"
     SF="100" # SCALE FACTOR
     if ${DEBUG:-false}; then
-        SF="1"
+        SF="100"
     fi
     TPCH_DATA_DIR="/data/tpch/sf_${SF}"                                               # no / at the end
     TPCH_DATA_DIR_LINK="${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/tpch-data # no / at the end
@@ -61,10 +61,13 @@ exit_flag=0
                     url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpch/sf${SF}/${table_name}.tbl"
                     if ! wget --continue -t3 -q "${url}"; then echo "ERROR: wget --continue ${url}" && return 1; fi
                 elif [[ ${table_file_count[${table_name}]} -eq 10 ]]; then
-                    for i in {1..10}; do
-                        url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpch/sf${SF}/${table_name}.tbl.${i}"
-                        if ! wget --continue -t3 -q "${url}"; then echo "ERROR: wget --continue ${url}" && return 1; fi
-                    done
+                    (
+                        for i in {1..10}; do
+                            url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpch/sf${SF}/${table_name}.tbl.${i}"
+                            if ! wget --continue -t3 -q "${url}"; then echo "ERROR: wget --continue ${url}" && return 1; fi
+                        done
+                    ) &
+                    wait
                 fi
             done
         )
