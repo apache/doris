@@ -105,7 +105,7 @@ public:
         if (config::enable_fuzzy_mode && !_ready_for_read &&
             _should_log(_read_dependency_watcher.elapsed_time())) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
+                         << id() << " block tasks: " << _block_task.size();
         }
         return _ready_for_read ? nullptr : this;
     }
