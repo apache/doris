@@ -160,16 +160,16 @@ public:
         return *this;
     }
 
-    int64_t raw_rows = 0;
-    int64_t merged_rows = 0;
+    std::atomic<int64_t> raw_rows = 0;
+    std::atomic<int64_t> merged_rows = 0;
     int64_t sort_ns = 0;
     int64_t agg_ns = 0;
     int64_t put_into_output_ns = 0;
     int64_t delete_bitmap_ns = 0;
     int64_t segment_writer_ns = 0;
     int64_t duration_ns = 0;
-    int64_t sort_times = 0;
-    int64_t agg_times = 0;
+    std::atomic<int64_t> sort_times = 0;
+    std::atomic<int64_t> agg_times = 0;
 };
 
 class MemTable {

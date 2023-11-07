@@ -201,7 +201,7 @@ private:
     int64_t _cur_max_version;
 
     // total rows num written by DeltaWriter
-    int64_t _total_received_rows = 0;
+    std::atomic<int64_t> _total_received_rows = 0;
 
     std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 
