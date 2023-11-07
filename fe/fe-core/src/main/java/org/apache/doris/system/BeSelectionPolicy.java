@@ -158,9 +158,6 @@ public class BeSelectionPolicy {
     }
 
     public List<Backend> getCandidateBackends(ImmutableCollection<Backend> backends) {
-        for (Backend backend : backends) {
-            LOG.info("candidate backends:" + backend.getId());
-        }
         List<Backend> filterBackends = backends.stream().filter(this::isMatch).collect(Collectors.toList());
         List<Backend> preLocationFilterBackends = filterBackends.stream()
                 .filter(iterm -> preferredLocations.contains(iterm.getHost())).collect(Collectors.toList());

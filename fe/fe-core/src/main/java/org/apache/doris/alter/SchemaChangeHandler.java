@@ -1595,7 +1595,7 @@ public class SchemaChangeHandler extends AlterHandler {
         // set table state
         olapTable.setState(OlapTableState.SCHEMA_CHANGE);
         Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.BLOCK);
-        LOG.info("block table:" + tableId);
+        LOG.info("block table {}", tableId);
 
         // 2. add schemaChangeJob
         addAlterJobV2(schemaChangeJob);

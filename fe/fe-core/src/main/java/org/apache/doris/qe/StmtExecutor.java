@@ -1877,7 +1877,7 @@ public class StmtExecutor {
                     if (!backend.isDecommissioned()) {
                         context.setInsertGroupCommit(insertStmt.getTargetTable().getId(), backend);
                         find = true;
-                        LOG.info("choose new be:" + backend.getHost());
+                        LOG.debug("choose new be {}", backend.getId());
                         break;
                     }
                 }

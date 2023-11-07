@@ -145,6 +145,8 @@ import org.apache.doris.thrift.TGetBackendMetaResult;
 import org.apache.doris.thrift.TGetBinlogLagResult;
 import org.apache.doris.thrift.TGetBinlogRequest;
 import org.apache.doris.thrift.TGetBinlogResult;
+import org.apache.doris.thrift.TGetColumnInfoRequest;
+import org.apache.doris.thrift.TGetColumnInfoResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetMasterTokenRequest;
@@ -1859,6 +1861,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         long dbId = db.getId();
         DatabaseTransactionMgr dbTransactionMgr = Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(dbId);
         TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
+        LOG.info("request db_id:" + request.getDbId() + ",db_id:" + dbId + ",txn_id:" + request.getTxnId() + ",state:"
+                + transactionState);
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
@@ -3497,6 +3501,45 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         result.setNeedRecovery(res);
+        return result;
+    }
+
+    @Override
+    public TGetColumnInfoResult getColumnInfo(TGetColumnInfoRequest request) {
+        TGetColumnInfoResult result = new TGetColumnInfoResult();
+        TStatus errorStatus = new TStatus(TStatusCode.RUNTIME_ERROR);
+        long dbId = request.getDbId();
+        long tableId = request.getTableId();
+        if (!Env.getCurrentEnv().isMaster()) {
+            errorStatus.setStatusCode(TStatusCode.NOT_MASTER);
+            errorStatus.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            LOG.error("failed to getColumnInfo: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            errorStatus.setErrorMsgs(Lists.newArrayList(String.format("dbId=%d is not exists", dbId)));
+            result.setStatus(errorStatus);
+            return result;
+        }
+
+        Table table = db.getTable(tableId).get();
+        if (table == null) {
+            errorStatus.setErrorMsgs(
+                    (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
+            result.setStatus(errorStatus);
+            return result;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Column column : table.getFullSchema()) {
+            LOG.info(column.getName() + ":" + column.getUniqueId());
+            sb.append(column.getName() + ":" + column.getUniqueId() + ",");
+        }
+        String columnInfo = sb.toString();
+        columnInfo = columnInfo.substring(0, columnInfo.length() - 1);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        result.setColumnInfo(columnInfo);
         return result;
     }
 

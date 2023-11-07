@@ -1303,6 +1303,16 @@ struct TCheckWalRecoveryResult {
     2: optional bool need_recovery
 }
 
+struct TGetColumnInfoRequest {
+    1: optional i64 db_id
+    2: optional i64 table_id
+}
+
+struct TGetColumnInfoResult {
+    1: optional Status.TStatus status
+    2: optional string column_info
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1380,4 +1390,5 @@ service FrontendService {
     TGetBackendMetaResult getBackendMeta(1: TGetBackendMetaRequest request)
 
     TCheckWalRecoveryResult checkWalRecovery(1: TCheckWalRecoveryRequest request)
+    TGetColumnInfoResult getColumnInfo(1: TGetColumnInfoRequest request)
 }

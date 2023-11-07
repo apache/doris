@@ -43,8 +43,10 @@ private:
     Status get_wal_info(const std::string& wal, std::shared_ptr<std::pair<int64_t, std::string>>&);
     std::string get_tmp_path(const std::string wal);
     Status send_request(int64_t wal_id, const std::string& wal, const std::string& label);
-    Status abort_txn(int64_t _db_id, int64_t wal_id);
+    Status abort_txn(int64_t db_id, int64_t wal_id);
     Status check_wal_recovery(int64_t wal_id, bool& needRecovery);
+    Status get_column_info(int64_t db_id, int64_t tb_id);
+    Status read_wal_header(const std::string& wal, std::string& columns);
 
 private:
     ExecEnv* _exec_env;
@@ -58,5 +60,6 @@ private:
     bool need_replay(const replay_wal_info& info);
     Status replay_wal_internal(const std::string& wal);
     bool _stop = false;
+    std::map<int64_t, std::string> _column_map;
 };
 } // namespace doris

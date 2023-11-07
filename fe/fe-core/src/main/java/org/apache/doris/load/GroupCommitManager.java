@@ -157,14 +157,16 @@ public class GroupCommitManager {
     public boolean needRecovery(long dbId, long transactionId) {
         TransactionState state = Env.getCurrentGlobalTransactionMgr()
                 .getTransactionState(dbId, transactionId);
-        if (state != null && state.getTransactionStatus() == TransactionStatus.COMMITTED
+        if (state == null || state.getTransactionStatus() == null) {
+            LOG.info("txn {} state is null ,skip recovery", transactionId);
+            return false;
+        } else if (state.getTransactionStatus() == TransactionStatus.COMMITTED
                 || state.getTransactionStatus() == TransactionStatus.VISIBLE) {
             LOG.info("txn {} state is {}, "
                     + "skip recovery", transactionId, state.getTransactionStatus());
             return false;
         } else {
-            LOG.info("txn {} state is {} ,need recovery", transactionId,
-                    state == null ? "null" : state.getTransactionStatus());
+            LOG.info("txn {} state is {} ,need recovery", transactionId, state.getTransactionStatus());
             return true;
         }
     }

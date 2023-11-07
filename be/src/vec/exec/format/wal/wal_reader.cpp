@@ -73,27 +73,11 @@ void WalReader::string_split(const std::string& str, const std::string& splits,
 Status WalReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                               std::unordered_set<std::string>* missing_cols) {
     RETURN_IF_ERROR(_wal_reader->read_header(_version, _col_ids));
+    VLOG_DEBUG << "_version:" << _version << ",_col_ids:" << _col_ids;
     std::vector<std::string> col_element;
     string_split(_col_ids, ",", col_element);
-    int32_t index = 0;
-    for (auto col : col_element) {
-        try {
-            auto col_id = std::stoi(col);
-            _col_id_to_index_map.emplace(col_id, index);
-        } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid format, {}", e.what());
-        }
-        index++;
-    }
+    RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->get_wal_column_index(_wal_id, _column_index));
     return Status::OK();
-}
-
-int32_t WalReader::get_index(int32_t col_id) {
-    auto it = _col_id_to_index_map.find(col_id);
-    if (it != _col_id_to_index_map.end()) {
-        return it->second;
-    }
-    return -1;
 }
 
 } // namespace doris::vectorized

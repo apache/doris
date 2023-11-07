@@ -31,7 +31,7 @@ public:
                        std::unordered_set<std::string>* missing_cols) override;
     static void string_split(const std::string& str, const std::string& splits,
                              std::vector<std::string>& res);
-    int32_t get_index(int32_t col_id);
+    std::vector<size_t> get_index() { return _column_index; }
 
 private:
     RuntimeState* _state;
@@ -41,7 +41,7 @@ private:
     std::shared_ptr<doris::WalReader> _wal_reader = nullptr;
     uint32_t _version = 0;
     std::string _col_ids;
-    std::unordered_map<int32_t, int32_t> _col_id_to_index_map;
+    std::vector<size_t> _column_index;
 };
 } // namespace vectorized
 } // namespace doris

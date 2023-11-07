@@ -116,7 +116,6 @@ Status WalManager::get_wal_status_queue_size(const PGetWalQueueSizeRequest* requ
     std::lock_guard<std::shared_mutex> wrlock(_wal_status_lock);
     auto table_id = request->table_id();
     auto txn_id = request->txn_id();
-    LOG(INFO) << "table_id:" << table_id << ",txn_id:" << txn_id;
     size_t count = 0;
     auto it = _wal_status_queues.find(table_id);
     if (it == _wal_status_queues.end()) {
@@ -143,7 +142,6 @@ Status WalManager::get_all_wal_status_queue_size(const PGetWalQueueSizeRequest* 
         count += it->second.size();
     }
     response->set_size(count);
-    LOG(INFO) << "get all wal size:" << count;
     if (count > 0) {
         print_wal_status_queue();
     }
@@ -379,6 +377,28 @@ void WalManager::stop_relay_wal() {
     for (auto it = _table_map.begin(); it != _table_map.end(); it++) {
         it->second->stop();
     }
+}
+
+void WalManager::add_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index) {
+    _wal_column_id_map.emplace(wal_id, column_index);
+}
+
+void WalManager::erase_wal_column_index(int64_t wal_id) {
+    if (_wal_column_id_map.erase(wal_id)) {
+        LOG(INFO) << "erase " << wal_id << " from wal_column_id_map";
+    } else {
+        LOG(WARNING) << "fail to erase wal " << wal_id << " from wal_column_id_map";
+    }
+}
+
+Status WalManager::get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index) {
+    auto it = _wal_column_id_map.find(wal_id);
+    if (it != _wal_column_id_map.end()) {
+        column_index = it->second;
+    } else {
+        return Status::InternalError("cannot find wal {} in wal_column_id_map", wal_id);
+    }
+    return Status::OK();
 }
 
 } // namespace doris

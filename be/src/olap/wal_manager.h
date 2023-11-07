@@ -64,6 +64,9 @@ public:
     void stop();
     bool is_running();
     void stop_relay_wal();
+    void add_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
+    void erase_wal_column_index(int64_t wal_id);
+    Status get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
 
 private:
     ExecEnv* _exec_env;
@@ -80,5 +83,6 @@ private:
     std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes;
     std::unordered_map<int64_t, std::unordered_map<int64_t, WAL_STATUS>> _wal_status_queues;
     bool _stop = false;
+    std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;
 };
 } // namespace doris

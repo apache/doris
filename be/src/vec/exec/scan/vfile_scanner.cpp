@@ -548,7 +548,7 @@ Status VFileScanner::_pre_filter_src_block() {
 }
 
 Status VFileScanner::_convert_to_output_block(Block* block) {
-    if (!_is_load) {
+    if (!_is_load && _params->format_type != TFileFormatType::FORMAT_WAL) {
         return Status::OK();
     }
 
@@ -557,39 +557,22 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     // which is initialized by output columns
     // so no need to clear it
     // block->clear();
+    if (_params->format_type == TFileFormatType::FORMAT_WAL) {
+        vectorized::Block tmp_block;
+        auto* wal_reader = dynamic_cast<vectorized::WalReader*>(_cur_reader.get());
+        auto index_vector = wal_reader->get_index();
+        for (auto index : index_vector) {
+            tmp_block.insert(_src_block_ptr->get_by_position(index));
+        }
+        block->swap(tmp_block);
+        //_src_block_ptr->clear();?
+        return Status::OK();
+    }
 
     int ctx_idx = 0;
     size_t rows = _src_block_ptr->rows();
     auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
-    if (_params->format_type == TFileFormatType::FORMAT_WAL) {
-        auto* wal_reader = dynamic_cast<vectorized::WalReader*>(_cur_reader.get());
-        for (auto slot_desc : _output_tuple_desc->slots()) {
-            auto cid = slot_desc->col_unique_id();
-            auto index = wal_reader->get_index(cid);
-            vectorized::ColumnPtr column_ptr;
-            if (index != -1) {
-                DCHECK(index < _src_block.columns());
-                column_ptr = _src_block.get_by_position(index).column;
-
-            } else {
-                auto& ctx = _dest_vexpr_ctx[ctx_idx];
-                int result_column_id = -1;
-                RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
-                column_ptr = _src_block.get_by_position(result_column_id).column;
-                column_ptr = column_ptr->convert_to_full_column_if_const();
-                if (slot_desc->is_nullable()) {
-                    column_ptr = make_nullable(column_ptr);
-                }
-            }
-            block->insert(ctx_idx, vectorized::ColumnWithTypeAndName(std::move(column_ptr),
-                                                                     slot_desc->get_data_type_ptr(),
-                                                                     slot_desc->col_name()));
-            ctx_idx++;
-        }
-        _src_block_ptr->clear();
-        return Status::OK();
-    }
 
     // After convert, the column_ptr should be copied into output block.
     // Can not use block->insert() because it may cause use_count() non-zero bug
