@@ -78,13 +78,7 @@ public:
     ScannerDoneDependency(int id, vectorized::ScannerContext* scanner_ctx)
             : Dependency(id, "ScannerDoneDependency"), _scanner_ctx(scanner_ctx) {}
     void* shared_state() override { return nullptr; }
-    [[nodiscard]] Dependency* read_blocked_by() override {
-        return _scanner_ctx->done() ? nullptr : this;
-    }
-    void set_ready_for_read() override {
-        // ScannerContext is set done outside this function now and only stop watcher here.
-        _read_dependency_watcher.stop();
-    }
+    vectorized::ScannerContext* scanner_ctx() { return _scanner_ctx; }
 
 private:
     vectorized::ScannerContext* _scanner_ctx;
@@ -102,12 +96,8 @@ public:
         if (_scanner_ctx->get_num_running_scanners() == 0 && _scanner_ctx->should_be_scheduled()) {
             _scanner_ctx->reschedule_scanner_ctx();
         }
-        if (config::enable_fuzzy_mode && !_ready_for_read &&
-            _should_log(_read_dependency_watcher.elapsed_time())) {
-            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
-        }
-        return _ready_for_read ? nullptr : this;
+
+        return Dependency::read_blocked_by();
     }
 
 private:

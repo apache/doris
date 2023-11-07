@@ -730,16 +730,10 @@ public:
     void set_ready_for_write() override {}
     void block_writing() override {}
 
-    [[nodiscard]] Dependency* read_blocked_by() override {
-        if (config::enable_fuzzy_mode && !(_ready_for_read || _eos) &&
-            _should_log(_read_dependency_watcher.elapsed_time())) {
-            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
-        }
-        return _ready_for_read || _eos ? nullptr : this;
+    void set_eos() {
+        _eos = true;
+        WriteDependency::set_ready_for_read();
     }
-
-    void set_eos() { _eos = true; }
 
 private:
     PartitionSortNodeSharedState _partition_sort_state;
