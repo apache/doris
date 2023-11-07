@@ -84,24 +84,6 @@ class VOlapTableSinkV2;
 class DeltaWriterV2Map;
 
 using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
-using NodeIdForStream = std::unordered_map<brpc::StreamId, int64_t>;
-using NodePartitionTabletMapping =
-        std::unordered_map<int64_t, std::unordered_map<int64_t, std::unordered_set<int64_t>>>;
-
-class StreamSinkHandler : public brpc::StreamInputHandler {
-public:
-    StreamSinkHandler(VOlapTableSinkV2* sink) : _sink(sink) {}
-
-    int on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
-                             size_t size) override;
-
-    void on_idle_timeout(brpc::StreamId id) override {}
-
-    void on_closed(brpc::StreamId id) override;
-
-private:
-    VOlapTableSinkV2* _sink;
-};
 
 struct Rows {
     int64_t partition_id;
@@ -222,15 +204,6 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<Streams>> _streams_for_node;
     size_t _stream_index = 0;
     std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;
-
-    std::atomic<int> _pending_streams {0};
-
-    std::unordered_map<int64_t, std::vector<int64_t>> _tablet_success_map;
-    std::unordered_map<int64_t, std::vector<int64_t>> _tablet_failure_map;
-    bthread::Mutex _tablet_success_map_mutex;
-    bthread::Mutex _tablet_failure_map_mutex;
-
-    friend class StreamSinkHandler;
 };
 
 } // namespace vectorized
