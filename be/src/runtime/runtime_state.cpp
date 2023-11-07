@@ -124,7 +124,8 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file(nullptr) {
-    DCHECK(init(instance_id, query_options, query_globals, exec_env).ok());
+    [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
+    DCHECK(status.ok());
 }
 
 RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
