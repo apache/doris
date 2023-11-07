@@ -30,7 +30,7 @@ namespace doris {
 
 WalWriter::WalWriter(const std::string& file_name,
                      const std::shared_ptr<std::atomic_size_t>& all_wal_disk_bytes)
-        : _file_name(file_name), _disk_bytes(0), _all_wal_disk_bytes(all_wal_disk_bytes) {}
+        : _file_name(file_name), _all_wal_disk_bytes(all_wal_disk_bytes) {}
 
 WalWriter::~WalWriter() {}
 
