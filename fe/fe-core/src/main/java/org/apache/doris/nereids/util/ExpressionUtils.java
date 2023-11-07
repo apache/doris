@@ -282,7 +282,7 @@ public class ExpressionUtils {
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
-            List<E> exprs, Function<Expression, Expression> rewriteFunction) {
+            Collection<E> exprs, Function<Expression, Expression> rewriteFunction) {
         return exprs.stream()
                 .map(expr -> (E) expr.rewriteDownShortCircuit(rewriteFunction))
                 .collect(ImmutableList.toImmutableList());

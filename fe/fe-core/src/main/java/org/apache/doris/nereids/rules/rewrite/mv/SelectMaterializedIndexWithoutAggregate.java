@@ -62,7 +62,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // project with pushdown filter.
                 // Project(Filter(Scan))
                 logicalProject(logicalFilter(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg)))
-                        .thenApply(ctx -> {
+                        .thenApplyNoThrow(ctx -> {
                             LogicalProject<LogicalFilter<LogicalOlapScan>> project = ctx.root;
                             LogicalFilter<LogicalOlapScan> filter = project.child();
                             LogicalOlapScan scan = filter.child();
@@ -82,7 +82,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // project with filter that cannot be pushdown.
                 // Filter(Project(Scan))
                 logicalFilter(logicalProject(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg)))
-                        .thenApply(ctx -> {
+                        .thenApplyNoThrow(ctx -> {
                             LogicalFilter<LogicalProject<LogicalOlapScan>> filter = ctx.root;
                             LogicalProject<LogicalOlapScan> project = filter.child();
                             LogicalOlapScan scan = project.child();
@@ -101,7 +101,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // scan with filters could be pushdown.
                 // Filter(Scan)
                 logicalFilter(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg))
-                        .thenApply(ctx -> {
+                        .thenApplyNoThrow(ctx -> {
                             LogicalFilter<LogicalOlapScan> filter = ctx.root;
                             LogicalOlapScan scan = filter.child();
                             LogicalOlapScan mvPlan = select(
@@ -120,7 +120,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // project and scan.
                 // Project(Scan)
                 logicalProject(logicalOlapScan().when(this::shouldSelectIndexWithoutAgg))
-                        .thenApply(ctx -> {
+                        .thenApplyNoThrow(ctx -> {
                             LogicalProject<LogicalOlapScan> project = ctx.root;
                             LogicalOlapScan scan = project.child();
 
@@ -139,7 +139,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                 // only scan.
                 logicalOlapScan()
                         .when(this::shouldSelectIndexWithoutAgg)
-                        .thenApply(ctx -> {
+                        .thenApplyNoThrow(ctx -> {
                             LogicalOlapScan scan = ctx.root;
 
                             LogicalOlapScan mvPlan = select(
