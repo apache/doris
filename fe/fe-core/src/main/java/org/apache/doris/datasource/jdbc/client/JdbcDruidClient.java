@@ -26,6 +26,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.function.Consumer;
 
+import static org.apache.doris.catalog.ScalarType.MAX_DATETIMEV2_SCALE;
+import static org.apache.doris.catalog.ScalarType.MAX_VARCHAR_LENGTH;
+
 
 public class JdbcDruidClient extends JdbcClient {
     protected JdbcDruidClient(JdbcClientConfig jdbcClientConfig) {
@@ -70,13 +73,13 @@ public class JdbcDruidClient extends JdbcClient {
                 return Type.DOUBLE;
             case "TIMESTAMP":
                 int scale = fieldSchema.getDecimalDigits();
-                if (scale == -1 || scale > 6) {
-                    scale = 6;
+                if (scale == -1 || scale > MAX_DATETIMEV2_SCALE) {
+                    scale = MAX_DATETIMEV2_SCALE;
                 }
                 return ScalarType.createDatetimeV2Type(scale);
             case "VARCHAR":
                 if (fieldSchema.columnSize == -1){
-                    return ScalarType.createStringType();
+                    return ScalarType.createVarchar(MAX_VARCHAR_LENGTH);
                 }
                 return ScalarType.createVarchar(fieldSchema.columnSize);
             default:
