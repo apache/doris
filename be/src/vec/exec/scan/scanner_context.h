@@ -184,6 +184,8 @@ private:
 protected:
     virtual void _dispose_coloate_blocks_not_in_queue() {}
 
+    void _set_scanner_done();
+
     RuntimeState* _state;
     VScanNode* _parent;
     pipeline::ScanLocalStateBase* _local_state;
