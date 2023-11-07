@@ -32,7 +32,21 @@ enum class InvertedIndexQueryType {
     MATCH_ANY_QUERY = 5,
     MATCH_ALL_QUERY = 6,
     MATCH_PHRASE_QUERY = 7,
+    RANGE_QUERY = 8,
 };
+
+inline bool is_range_query(InvertedIndexQueryType query_type) {
+    return (query_type == InvertedIndexQueryType::GREATER_THAN_QUERY ||
+            query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY ||
+            query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
+            query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY);
+}
+
+inline bool is_match_query(InvertedIndexQueryType query_type) {
+    return (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+            query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+}
 
 inline std::string InvertedIndexQueryType_toString(InvertedIndexQueryType query_type) {
     switch (query_type) {
@@ -62,6 +76,9 @@ inline std::string InvertedIndexQueryType_toString(InvertedIndexQueryType query_
     }
     case InvertedIndexQueryType::MATCH_PHRASE_QUERY: {
         return "MPHRASE";
+    }
+    case InvertedIndexQueryType::RANGE_QUERY: {
+        return "RANGE";
     }
     default:
         return "";

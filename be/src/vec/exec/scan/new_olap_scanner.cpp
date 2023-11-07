@@ -520,76 +520,83 @@ void NewOlapScanner::_update_counters_before_close() {
     VScanner::_update_counters_before_close();
 
 #ifndef INCR_COUNTER
-#define INCR_COUNTER(Parent)                                                                      \
-    COUNTER_UPDATE(Parent->_io_timer, stats.io_ns);                                               \
-    COUNTER_UPDATE(Parent->_read_compressed_counter, stats.compressed_bytes_read);                \
-    _compressed_bytes_read += stats.compressed_bytes_read;                                        \
-    COUNTER_UPDATE(Parent->_decompressor_timer, stats.decompress_ns);                             \
-    COUNTER_UPDATE(Parent->_read_uncompressed_counter, stats.uncompressed_bytes_read);            \
-    COUNTER_UPDATE(Parent->_block_load_timer, stats.block_load_ns);                               \
-    COUNTER_UPDATE(Parent->_block_load_counter, stats.blocks_load);                               \
-    COUNTER_UPDATE(Parent->_block_fetch_timer, stats.block_fetch_ns);                             \
-    COUNTER_UPDATE(Parent->_block_convert_timer, stats.block_convert_ns);                         \
-    COUNTER_UPDATE(Parent->_raw_rows_counter, stats.raw_rows_read);                               \
-    _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;                             \
-    COUNTER_UPDATE(Parent->_vec_cond_timer, stats.vec_cond_ns);                                   \
-    COUNTER_UPDATE(Parent->_short_cond_timer, stats.short_cond_ns);                               \
-    COUNTER_UPDATE(Parent->_expr_filter_timer, stats.expr_filter_ns);                             \
-    COUNTER_UPDATE(Parent->_block_init_timer, stats.block_init_ns);                               \
-    COUNTER_UPDATE(Parent->_block_init_seek_timer, stats.block_init_seek_ns);                     \
-    COUNTER_UPDATE(Parent->_block_init_seek_counter, stats.block_init_seek_num);                  \
-    COUNTER_UPDATE(Parent->_block_conditions_filtered_timer, stats.block_conditions_filtered_ns); \
-    COUNTER_UPDATE(Parent->_first_read_timer, stats.first_read_ns);                               \
-    COUNTER_UPDATE(Parent->_second_read_timer, stats.second_read_ns);                             \
-    COUNTER_UPDATE(Parent->_first_read_seek_timer, stats.block_first_read_seek_ns);               \
-    COUNTER_UPDATE(Parent->_first_read_seek_counter, stats.block_first_read_seek_num);            \
-    COUNTER_UPDATE(Parent->_lazy_read_timer, stats.lazy_read_ns);                                 \
-    COUNTER_UPDATE(Parent->_lazy_read_seek_timer, stats.block_lazy_read_seek_ns);                 \
-    COUNTER_UPDATE(Parent->_lazy_read_seek_counter, stats.block_lazy_read_seek_num);              \
-    COUNTER_UPDATE(Parent->_output_col_timer, stats.output_col_ns);                               \
-    COUNTER_UPDATE(Parent->_rows_vec_cond_filtered_counter, stats.rows_vec_cond_filtered);        \
-    COUNTER_UPDATE(Parent->_rows_short_circuit_cond_filtered_counter,                             \
-                   stats.rows_short_circuit_cond_filtered);                                       \
-    COUNTER_UPDATE(Parent->_rows_vec_cond_input_counter, stats.vec_cond_input_rows);              \
-    COUNTER_UPDATE(Parent->_rows_short_circuit_cond_input_counter,                                \
-                   stats.short_circuit_cond_input_rows);                                          \
-    for (auto& [id, info] : stats.filter_info) {                                                  \
-        Parent->add_filter_info(id, info);                                                        \
-    }                                                                                             \
-    COUNTER_UPDATE(Parent->_stats_filtered_counter, stats.rows_stats_filtered);                   \
-    COUNTER_UPDATE(Parent->_dict_filtered_counter, stats.rows_dict_filtered);                     \
-    COUNTER_UPDATE(Parent->_bf_filtered_counter, stats.rows_bf_filtered);                         \
-    COUNTER_UPDATE(Parent->_del_filtered_counter, stats.rows_del_filtered);                       \
-    COUNTER_UPDATE(Parent->_del_filtered_counter, stats.rows_del_by_bitmap);                      \
-    COUNTER_UPDATE(Parent->_del_filtered_counter, stats.rows_vec_del_cond_filtered);              \
-    COUNTER_UPDATE(Parent->_conditions_filtered_counter, stats.rows_conditions_filtered);         \
-    COUNTER_UPDATE(Parent->_key_range_filtered_counter, stats.rows_key_range_filtered);           \
-    COUNTER_UPDATE(Parent->_total_pages_num_counter, stats.total_pages_num);                      \
-    COUNTER_UPDATE(Parent->_cached_pages_num_counter, stats.cached_pages_num);                    \
-    COUNTER_UPDATE(Parent->_bitmap_index_filter_counter, stats.rows_bitmap_index_filtered);       \
-    COUNTER_UPDATE(Parent->_bitmap_index_filter_timer, stats.bitmap_index_filter_timer);          \
-    COUNTER_UPDATE(Parent->_inverted_index_filter_counter, stats.rows_inverted_index_filtered);   \
-    COUNTER_UPDATE(Parent->_inverted_index_filter_timer, stats.inverted_index_filter_timer);      \
-    COUNTER_UPDATE(Parent->_inverted_index_query_cache_hit_counter,                               \
-                   stats.inverted_index_query_cache_hit);                                         \
-    COUNTER_UPDATE(Parent->_inverted_index_query_cache_miss_counter,                              \
-                   stats.inverted_index_query_cache_miss);                                        \
-    COUNTER_UPDATE(Parent->_inverted_index_query_timer, stats.inverted_index_query_timer);        \
-    COUNTER_UPDATE(Parent->_inverted_index_query_bitmap_copy_timer,                               \
-                   stats.inverted_index_query_bitmap_copy_timer);                                 \
-    COUNTER_UPDATE(Parent->_inverted_index_query_bitmap_op_timer,                                 \
-                   stats.inverted_index_query_bitmap_op_timer);                                   \
-    COUNTER_UPDATE(Parent->_inverted_index_searcher_open_timer,                                   \
-                   stats.inverted_index_searcher_open_timer);                                     \
-    COUNTER_UPDATE(Parent->_inverted_index_searcher_search_timer,                                 \
-                   stats.inverted_index_searcher_search_timer);                                   \
-    if (config::enable_file_cache) {                                                              \
-        io::FileCacheProfileReporter cache_profile(Parent->_segment_profile.get());               \
-        cache_profile.update(&stats.file_cache_stats);                                            \
-    }                                                                                             \
-    COUNTER_UPDATE(Parent->_output_index_result_column_timer,                                     \
-                   stats.output_index_result_column_timer);                                       \
-    COUNTER_UPDATE(Parent->_filtered_segment_counter, stats.filtered_segment_number);             \
+#define INCR_COUNTER(Parent)                                                                       \
+    COUNTER_UPDATE(Parent->_io_timer, stats.io_ns);                                                \
+    COUNTER_UPDATE(Parent->_read_compressed_counter, stats.compressed_bytes_read);                 \
+    _compressed_bytes_read += stats.compressed_bytes_read;                                         \
+    COUNTER_UPDATE(Parent->_decompressor_timer, stats.decompress_ns);                              \
+    COUNTER_UPDATE(Parent->_read_uncompressed_counter, stats.uncompressed_bytes_read);             \
+    COUNTER_UPDATE(Parent->_block_load_timer, stats.block_load_ns);                                \
+    COUNTER_UPDATE(Parent->_block_load_counter, stats.blocks_load);                                \
+    COUNTER_UPDATE(Parent->_block_fetch_timer, stats.block_fetch_ns);                              \
+    COUNTER_UPDATE(Parent->_block_convert_timer, stats.block_convert_ns);                          \
+    COUNTER_UPDATE(Parent->_raw_rows_counter, stats.raw_rows_read);                                \
+    _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;                              \
+    COUNTER_UPDATE(Parent->_vec_cond_timer, stats.vec_cond_ns);                                    \
+    COUNTER_UPDATE(Parent->_short_cond_timer, stats.short_cond_ns);                                \
+    COUNTER_UPDATE(Parent->_expr_filter_timer, stats.expr_filter_ns);                              \
+    COUNTER_UPDATE(Parent->_block_init_timer, stats.block_init_ns);                                \
+    COUNTER_UPDATE(Parent->_block_init_seek_timer, stats.block_init_seek_ns);                      \
+    COUNTER_UPDATE(Parent->_block_init_seek_counter, stats.block_init_seek_num);                   \
+    COUNTER_UPDATE(Parent->_block_conditions_filtered_timer, stats.block_conditions_filtered_ns);  \
+    COUNTER_UPDATE(Parent->_first_read_timer, stats.first_read_ns);                                \
+    COUNTER_UPDATE(Parent->_second_read_timer, stats.second_read_ns);                              \
+    COUNTER_UPDATE(Parent->_first_read_seek_timer, stats.block_first_read_seek_ns);                \
+    COUNTER_UPDATE(Parent->_first_read_seek_counter, stats.block_first_read_seek_num);             \
+    COUNTER_UPDATE(Parent->_lazy_read_timer, stats.lazy_read_ns);                                  \
+    COUNTER_UPDATE(Parent->_lazy_read_seek_timer, stats.block_lazy_read_seek_ns);                  \
+    COUNTER_UPDATE(Parent->_lazy_read_seek_counter, stats.block_lazy_read_seek_num);               \
+    COUNTER_UPDATE(Parent->_output_col_timer, stats.output_col_ns);                                \
+    COUNTER_UPDATE(Parent->_rows_vec_cond_filtered_counter, stats.rows_vec_cond_filtered);         \
+    COUNTER_UPDATE(Parent->_rows_short_circuit_cond_filtered_counter,                              \
+                   stats.rows_short_circuit_cond_filtered);                                        \
+    COUNTER_UPDATE(Parent->_rows_vec_cond_input_counter, stats.vec_cond_input_rows);               \
+    COUNTER_UPDATE(Parent->_rows_short_circuit_cond_input_counter,                                 \
+                   stats.short_circuit_cond_input_rows);                                           \
+    for (auto& [id, info] : stats.filter_info) {                                                   \
+        Parent->add_filter_info(id, info);                                                         \
+    }                                                                                              \
+    COUNTER_UPDATE(Parent->_stats_filtered_counter, stats.rows_stats_filtered);                    \
+    COUNTER_UPDATE(Parent->_dict_filtered_counter, stats.rows_dict_filtered);                      \
+    COUNTER_UPDATE(Parent->_bf_filtered_counter, stats.rows_bf_filtered);                          \
+    COUNTER_UPDATE(Parent->_del_filtered_counter, stats.rows_del_filtered);                        \
+    COUNTER_UPDATE(Parent->_del_filtered_counter, stats.rows_del_by_bitmap);                       \
+    COUNTER_UPDATE(Parent->_del_filtered_counter, stats.rows_vec_del_cond_filtered);               \
+    COUNTER_UPDATE(Parent->_conditions_filtered_counter, stats.rows_conditions_filtered);          \
+    COUNTER_UPDATE(Parent->_key_range_filtered_counter, stats.rows_key_range_filtered);            \
+    COUNTER_UPDATE(Parent->_total_pages_num_counter, stats.total_pages_num);                       \
+    COUNTER_UPDATE(Parent->_cached_pages_num_counter, stats.cached_pages_num);                     \
+    COUNTER_UPDATE(Parent->_bitmap_index_filter_counter, stats.rows_bitmap_index_filtered);        \
+    COUNTER_UPDATE(Parent->_bitmap_index_filter_timer, stats.bitmap_index_filter_timer);           \
+    COUNTER_UPDATE(Parent->_inverted_index_filter_counter, stats.rows_inverted_index_filtered);    \
+    COUNTER_UPDATE(Parent->_inverted_index_filter_timer, stats.inverted_index_filter_timer);       \
+    COUNTER_UPDATE(Parent->_inverted_index_block_column_predicate_filter_timer,                    \
+                   stats.inverted_index_block_column_predicate_filter_timer);                      \
+    COUNTER_UPDATE(Parent->_inverted_index_column_predicate_filter_timer,                          \
+                   stats.inverted_index_column_predicate_filter_timer);                            \
+    COUNTER_UPDATE(Parent->_inverted_index_bkd_intersect_timer,                                    \
+                   stats.inverted_index_bkd_intersect_timer);                                      \
+    COUNTER_UPDATE(Parent->_inverted_index_try_query_timer, stats.inverted_index_try_query_timer); \
+    COUNTER_UPDATE(Parent->_inverted_index_query_cache_hit_counter,                                \
+                   stats.inverted_index_query_cache_hit);                                          \
+    COUNTER_UPDATE(Parent->_inverted_index_query_cache_miss_counter,                               \
+                   stats.inverted_index_query_cache_miss);                                         \
+    COUNTER_UPDATE(Parent->_inverted_index_query_timer, stats.inverted_index_query_timer);         \
+    COUNTER_UPDATE(Parent->_inverted_index_query_bitmap_copy_timer,                                \
+                   stats.inverted_index_query_bitmap_copy_timer);                                  \
+    COUNTER_UPDATE(Parent->_inverted_index_query_bitmap_op_timer,                                  \
+                   stats.inverted_index_query_bitmap_op_timer);                                    \
+    COUNTER_UPDATE(Parent->_inverted_index_searcher_open_timer,                                    \
+                   stats.inverted_index_searcher_open_timer);                                      \
+    COUNTER_UPDATE(Parent->_inverted_index_searcher_search_timer,                                  \
+                   stats.inverted_index_searcher_search_timer);                                    \
+    if (config::enable_file_cache) {                                                               \
+        io::FileCacheProfileReporter cache_profile(Parent->_segment_profile.get());                \
+        cache_profile.update(&stats.file_cache_stats);                                             \
+    }                                                                                              \
+    COUNTER_UPDATE(Parent->_output_index_result_column_timer,                                      \
+                   stats.output_index_result_column_timer);                                        \
+    COUNTER_UPDATE(Parent->_filtered_segment_counter, stats.filtered_segment_number);              \
     COUNTER_UPDATE(Parent->_total_segment_counter, stats.total_segment_number);
 
     // Update counters for NewOlapScanner

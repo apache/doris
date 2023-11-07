@@ -23,25 +23,27 @@
 #include <CLucene/index/Term.h>
 #include <CLucene/search/query/TermIterator.h>
 
+#include "inverted_index_query.h"
 #include "roaring/roaring.hh"
 
 CL_NS_USE(index)
 
 namespace doris {
+using namespace segment_v2;
 
-class DisjunctionQuery {
+class RangeQuery {
 public:
-    DisjunctionQuery(IndexReader* reader);
-    ~DisjunctionQuery();
+    RangeQuery(IndexReader* reader);
+    ~RangeQuery();
 
-    void add(const std::wstring& field_name, const std::vector<std::string>& terms);
+    Status add(const std::wstring& field_name, InvertedIndexRangeQueryI* query);
     void search(roaring::Roaring& roaring);
+    [[nodiscard]] size_t get_terms_size() const { return _term_docs.size(); }
 
 private:
     IndexReader* _reader = nullptr;
-    std::vector<Term*> _terms;
-    std::vector<TermDocs*> _term_docs;
-    std::vector<TermIterator> _term_iterators;
+    std::vector<TermDocs*> _term_docs {};
+    std::vector<TermIterator> _term_iterators {};
 };
 
 } // namespace doris

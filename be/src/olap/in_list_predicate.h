@@ -219,6 +219,23 @@ public:
         return Status::OK();
     }
 
+    Status set_inverted_index_query_value(std::unique_ptr<InvertedIndexQueryBase>& query_value,
+                                          const Schema& schema) const override {
+        if (query_value == nullptr) {
+            auto column_desc = schema.column(_column_id);
+            query_value =
+                    std::make_unique<InvertedIndexPointQuery<Type, PT>>(column_desc->type_info());
+        }
+        HybridSetBase::IteratorBase* iter = _values->begin();
+        while (iter->has_next()) {
+            const T* value = reinterpret_cast<const T*>(iter->get_value());
+            auto q = static_cast<InvertedIndexPointQuery<Type, PT>*>(query_value.get());
+            RETURN_IF_ERROR(q->add_value(*value, InvertedIndexQueryType::EQUAL_QUERY));
+            iter->next();
+        }
+        return Status::OK();
+    }
+
     Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
@@ -226,18 +243,11 @@ public:
         }
         auto column_desc = schema.column(_column_id);
         std::string column_name = column_desc->name();
+        std::unique_ptr<InvertedIndexQueryBase> query_value = nullptr;
+        RETURN_IF_ERROR(set_inverted_index_query_value(query_value, schema));
         roaring::Roaring indices;
-        HybridSetBase::IteratorBase* iter = _values->begin();
-        while (iter->has_next()) {
-            const void* value = iter->get_value();
-            InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
-            roaring::Roaring index;
-            RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, value, query_type,
-                                                               num_rows, &index));
-            indices |= index;
-            iter->next();
-        }
-
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, query_value.get(), num_rows,
+                                                           &indices));
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE
         // keep it after query, since query will try to read null_bitmap and put it to cache

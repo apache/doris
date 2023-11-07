@@ -82,33 +82,11 @@ public:
         auto column_desc = schema.column(_column_id);
         std::string column_name = column_desc->name();
 
-        InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
-        switch (PT) {
-        case PredicateType::EQ:
-            query_type = InvertedIndexQueryType::EQUAL_QUERY;
-            break;
-        case PredicateType::NE:
-            query_type = InvertedIndexQueryType::EQUAL_QUERY;
-            break;
-        case PredicateType::LT:
-            query_type = InvertedIndexQueryType::LESS_THAN_QUERY;
-            break;
-        case PredicateType::LE:
-            query_type = InvertedIndexQueryType::LESS_EQUAL_QUERY;
-            break;
-        case PredicateType::GT:
-            query_type = InvertedIndexQueryType::GREATER_THAN_QUERY;
-            break;
-        case PredicateType::GE:
-            query_type = InvertedIndexQueryType::GREATER_EQUAL_QUERY;
-            break;
-        default:
-            return Status::InvalidArgument("invalid comparison predicate type {}", PT);
-        }
-
         roaring::Roaring roaring;
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &_value, query_type,
-                                                           num_rows, &roaring));
+        std::unique_ptr<InvertedIndexQueryBase> query_value = nullptr;
+        RETURN_IF_ERROR(set_inverted_index_query_value(query_value, schema));
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, query_value.get(), num_rows,
+                                                           &roaring));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE
@@ -256,6 +234,52 @@ public:
 
     bool can_do_bloom_filter(bool ngram) const override {
         return PT == PredicateType::EQ && !ngram;
+    }
+
+    Status set_inverted_index_query_value(std::unique_ptr<InvertedIndexQueryBase>& query_value,
+                                          const Schema& schema) const override {
+        if (query_value == nullptr) {
+            auto column_desc = schema.column(_column_id);
+            if constexpr (PT == PredicateType::EQ || PT == PredicateType::NE) {
+                query_value = std::make_unique<InvertedIndexPointQuery<Type, PT>>(
+                        column_desc->type_info());
+            } else {
+                query_value = std::make_unique<InvertedIndexRangeQuery<Type, PredicateType::RANGE>>(
+                        column_desc->type_info());
+            }
+        }
+        if constexpr (PT == PredicateType::EQ || PT == PredicateType::NE) {
+            auto q = static_cast<InvertedIndexPointQuery<Type, PT>*>(query_value.get());
+            RETURN_IF_ERROR(q->add_value(_value, InvertedIndexQueryType::EQUAL_QUERY));
+        } else {
+            InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
+            switch (PT) {
+            case PredicateType::EQ:
+                query_type = InvertedIndexQueryType::EQUAL_QUERY;
+                break;
+            case PredicateType::NE:
+                query_type = InvertedIndexQueryType::EQUAL_QUERY;
+                break;
+            case PredicateType::LT:
+                query_type = InvertedIndexQueryType::LESS_THAN_QUERY;
+                break;
+            case PredicateType::LE:
+                query_type = InvertedIndexQueryType::LESS_EQUAL_QUERY;
+                break;
+            case PredicateType::GT:
+                query_type = InvertedIndexQueryType::GREATER_THAN_QUERY;
+                break;
+            case PredicateType::GE:
+                query_type = InvertedIndexQueryType::GREATER_EQUAL_QUERY;
+                break;
+            default:
+                LOG(ERROR) << Status::InvalidArgument("invalid comparison predicate type {}", PT);
+            }
+            auto q = static_cast<InvertedIndexRangeQuery<Type, PredicateType::RANGE>*>(
+                    query_value.get());
+            RETURN_IF_ERROR(q->add_value(_value, query_type));
+        }
+        return Status::OK();
     }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,

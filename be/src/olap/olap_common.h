@@ -347,7 +347,11 @@ struct OlapReaderStatistics {
 
     int64_t rows_inverted_index_filtered = 0;
     int64_t inverted_index_filter_timer = 0;
+    int64_t inverted_index_block_column_predicate_filter_timer = 0;
+    int64_t inverted_index_column_predicate_filter_timer = 0;
+    int64_t inverted_index_try_query_timer = 0;
     int64_t inverted_index_query_timer = 0;
+    int64_t inverted_index_bkd_intersect_timer = 0;
     int64_t inverted_index_query_cache_hit = 0;
     int64_t inverted_index_query_cache_miss = 0;
     int64_t inverted_index_query_bitmap_copy_timer = 0;

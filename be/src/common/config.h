@@ -1053,6 +1053,8 @@ DECLARE_Int32(inverted_index_read_buffer_size);
 DECLARE_Int32(max_depth_in_bkd_tree);
 // index compaction
 DECLARE_Bool(inverted_index_compaction_enable);
+// max inverted index terms size for range query
+DECLARE_mInt32(inverted_index_max_terms);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 // semi-structure configs

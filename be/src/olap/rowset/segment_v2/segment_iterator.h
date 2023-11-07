@@ -181,7 +181,7 @@ private:
     [[nodiscard]] Status _apply_inverted_index_on_block_column_predicate(
             ColumnId column_id, MutilColumnBlockPredicate* pred,
             std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
-            bool* continue_apply);
+            std::vector<ColumnPredicate*>& remaining_predicates, bool* continue_apply);
     [[nodiscard]] Status _apply_index_except_leafnode_of_andnode();
     [[nodiscard]] Status _apply_bitmap_index_except_leafnode_of_andnode(
             ColumnPredicate* pred, roaring::Roaring* output_result);
@@ -392,6 +392,8 @@ private:
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<ColumnPredicate*> _col_predicates;
     std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
+    // comparison predicate will be cloned when segment_iterator init, we need to store the pair in order to find clone predicate directly.
+    std::unordered_map<const ColumnPredicate*, ColumnPredicate*> origin_to_clone_predicates;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
     bool _enable_common_expr_pushdown = false;
     std::vector<vectorized::VExprSPtr> _remaining_conjunct_roots;
