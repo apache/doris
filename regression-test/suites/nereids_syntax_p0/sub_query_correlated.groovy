@@ -59,6 +59,10 @@ suite ("sub_query_correlated") {
     """
 
     sql """
+        DROP TABLE IF EXISTS `sub_query_correlated_subquery10`
+    """
+
+    sql """
         create table if not exists sub_query_correlated_subquery1
         (k1 bigint, k2 bigint)
         duplicate key(k1)
@@ -123,6 +127,13 @@ suite ("sub_query_correlated") {
 
     sql """
         create table if not exists sub_query_correlated_subquery9
+            (k1 int, k2 varchar(128), k3 bigint, v1 bigint, v2 bigint)
+            distributed by hash(k2) buckets 1
+            properties('replication_num' = '1');
+    """
+
+    sql """
+        create table if not exists sub_query_correlated_subquery10
             (k1 int, k2 varchar(128), k3 bigint, v1 bigint, v2 bigint)
             distributed by hash(k2) buckets 1
             properties('replication_num' = '1');
@@ -531,6 +542,111 @@ suite ("sub_query_correlated") {
     qt_mark_join_nullable """
         select sub_query_correlated_subquery8.k1 in (select sub_query_correlated_subquery9.k3 from sub_query_correlated_subquery9) from sub_query_correlated_subquery8 order by k1, k2;
     """
+
+    qt_cir_5218_in_ok """
+        SELECT count(*)
+        FROM sub_query_correlated_subquery6
+        WHERE k1 IN 
+            (SELECT k1
+            FROM 
+                (SELECT k1,
+                sum(k3) AS bbb,
+                count(k2) AS aaa
+                FROM sub_query_correlated_subquery7
+                WHERE k1 > 0
+                        AND k3 > 0
+                GROUP BY  k1 ) y
+                WHERE y.aaa>0
+                        AND k1>1); 
+    """
+
+    qt_cir_5218_exists_ok_1 """
+        SELECT count(*)
+        FROM sub_query_correlated_subquery6
+        WHERE exists 
+            (SELECT k1
+            FROM 
+                (SELECT k1,
+                sum(k3) AS bbb,
+                count(k2) AS aaa
+                FROM sub_query_correlated_subquery7
+                WHERE k1 > 0
+                        AND k3 > 0
+                GROUP BY  k1 ) y
+                WHERE y.aaa>0
+                        AND k1>1); 
+    """
+
+    qt_cir_5218_exists_ok_2 """
+        SELECT count(*)
+            FROM sub_query_correlated_subquery6
+            WHERE exists
+                (SELECT k1
+                FROM 
+                    (SELECT k1
+                    FROM sub_query_correlated_subquery7
+                    WHERE sub_query_correlated_subquery6.k1 > 7
+                    GROUP BY  k1 ) y);
+    """
+
+    qt_cir_5218_exists_ok_3 """
+        SELECT count(*)
+            FROM sub_query_correlated_subquery6
+            WHERE exists
+                (SELECT k1
+                FROM 
+                    (SELECT k1
+                    FROM sub_query_correlated_subquery7
+                    WHERE sub_query_correlated_subquery6.k1 > sub_query_correlated_subquery7.k3
+                    GROUP BY  k1 ) y);
+    """
+
+    qt_cir_5218_exists_ok_4 """
+        SELECT count(*)
+            FROM sub_query_correlated_subquery6
+            WHERE exists
+                (SELECT sum(k3)
+                FROM 
+                    sub_query_correlated_subquery7
+                    WHERE sub_query_correlated_subquery6.k1 > sub_query_correlated_subquery7.k3);
+    """
+
+    qt_cir_5218_exists_ok_5 """
+        SELECT count(*)
+            FROM sub_query_correlated_subquery6
+            WHERE exists
+                (SELECT sum(k3)
+                FROM 
+                    sub_query_correlated_subquery10);
+    """
+
+    qt_cir_5218_exists_ok_6 """
+        SELECT count(*)
+            FROM sub_query_correlated_subquery6
+            WHERE exists
+                (SELECT sum(k3)
+                FROM 
+                    sub_query_correlated_subquery10 group by k2);
+    """
+
+    test {
+        sql """
+                SELECT count(*)
+                    FROM sub_query_correlated_subquery6
+                    WHERE k1 IN 
+                        (SELECT k1
+                        FROM 
+                            (SELECT k1,
+                            sum(k3) AS bbb,
+                            count(k2) AS aaa
+                            FROM sub_query_correlated_subquery7
+                            WHERE k1 > 0
+                                    AND k3 > 0 and sub_query_correlated_subquery6.k1 > 2
+                            GROUP BY  k1 ) y
+                            WHERE y.aaa>0
+                                    AND k1>1); """
+        exception "Unsupported correlated subquery with grouping and/or aggregation";
+    }
 
     // order_qt_doris_6937_2 """
     //     select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 not in (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 > sub_query_correlated_subquery1.k2) or k1 < 10 order by k1, k2;
