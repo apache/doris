@@ -16,7 +16,22 @@
 // under the License.
 
 suite("test_queries_tvf","p0,external,tvf,external_docker") {
-    def res = sql """ select * from queries(); """
-    logger.info("res.size() = " + res.size())
-    assertTrue(res.size() > 0)
+    def table_name = "test_queries_tvf"
+    sql """ DROP TABLE IF EXISTS ${table_name} """
+    sql """
+    CREATE TABLE IF NOT EXISTS ${table_name} (
+        `user_id` LARGEINT NOT NULL COMMENT "用户id",
+        `name` STRING COMMENT "用户名称",
+        `age` INT COMMENT "用户年龄",
+        )
+        DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
+    """
+
+    sql """insert into ${table_name} values (1, 'doris', 10);"""
+
+    sql """select * from ${table_name};"""
+
+    def res = sql """ select QueryId from queries() where `Sql` like "%${table_name}%"; """
+    logger.info("res = " + res)
+    assertEquals(2, res.size())
 }
