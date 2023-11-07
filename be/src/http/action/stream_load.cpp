@@ -76,6 +76,8 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_requests_total, MetricUnit::
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
 
+static constexpr size_t MIN_CHUNK_SIZE = 64 * 1024;
+
 #ifdef BE_TEST
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
@@ -376,15 +378,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     request.__set_loadId(ctx->id.to_thrift());
     if (ctx->use_streaming) {
         std::shared_ptr<io::StreamLoadPipe> pipe;
-        LOG(INFO) << "test 111" << ctx->receive_bytes;
         if (ctx->is_chunked_transfer) {
             pipe = std::make_shared<io::StreamLoadPipe>(
-                    io::kMaxPipeBufferedBytes /* max_buffered_bytes */,
-                    64 * 1024 /* min_chunk_size */, -1 /* total_length */);
+                    io::kMaxPipeBufferedBytes /* max_buffered_bytes */);
         } else {
             pipe = std::make_shared<io::StreamLoadPipe>(
                     io::kMaxPipeBufferedBytes /* max_buffered_bytes */,
-                    64 * 1024 /* min_chunk_size */, ctx->body_bytes /* total_length */);
+                    MIN_CHUNK_SIZE /* min_chunk_size */, ctx->body_bytes /* total_length */);
         }
         request.fileType = TFileType::FILE_STREAM;
         ctx->body_sink = pipe;
