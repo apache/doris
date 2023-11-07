@@ -141,14 +141,14 @@ druid
 
 -- !specified_database_2 --
 INFORMATION_SCHEMA
-lookup
+sys
 
 -- !specified_database_3 --
 
 -- !specified_database_4 --
 INFORMATION_SCHEMA
 druid
-lookup
+sys
 
 -- !sql --
 doris_jdbc_catalog_druid

@@ -21,7 +21,10 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.function.Consumer;
 
 
 public class JdbcDruidClient extends JdbcClient {
@@ -36,12 +39,24 @@ public class JdbcDruidClient extends JdbcClient {
 
     @Override
     protected String getDatabaseQuery() {
-        return "select SCHEMA_NAME from INFORMATION_SCHEMA.SCHEMATA where \"SCHEMA_NAME\" != 'view' and \"SCHEMA_NAME\" != 'sys'  ";
+        return "select SCHEMA_NAME from INFORMATION_SCHEMA.SCHEMATA where \"SCHEMA_NAME\" != 'view' and \"SCHEMA_NAME\" != 'lookup'  ";
     }
 
     @Override
-    protected String[] getTableTypes() {
-        return new String[]{"TABLE", " SYSTEM_TABLE"};
+    protected void processTable(String dbName, String tableName, String[] tableTypes,
+                                Consumer<ResultSet> resultSetConsumer) {
+        Connection conn = null;
+        ResultSet rs = null;
+        try {
+            conn = super.getConnection();
+            DatabaseMetaData databaseMetaData = conn.getMetaData();
+            rs = databaseMetaData.getTables(null, dbName, null, null);
+            resultSetConsumer.accept(rs);
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to process table", e);
+        } finally {
+            close(rs, conn);
+        }
     }
 
     @Override
@@ -54,9 +69,16 @@ public class JdbcDruidClient extends JdbcClient {
             case "FLOAT":
                 return Type.DOUBLE;
             case "TIMESTAMP":
-                return ScalarType.createDatetimeV2Type(6);
+                int scale = fieldSchema.getDecimalDigits();
+                if (scale == -1 || scale > 6) {
+                    scale = 6;
+                }
+                return ScalarType.createDatetimeV2Type(scale);
             case "VARCHAR":
-                return ScalarType.createStringType();
+                if (fieldSchema.columnSize == -1){
+                    return ScalarType.createStringType();
+                }
+                return ScalarType.createVarchar(fieldSchema.columnSize);
             default:
                 break;
         }
