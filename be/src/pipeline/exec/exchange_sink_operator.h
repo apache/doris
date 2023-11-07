@@ -113,11 +113,30 @@ private:
     std::atomic<int> _available_block;
 };
 
-class ChannelDependency final : public WriteDependency {
+/**
+ * We use this to control the execution for local exchange.
+ *              +---------------+                                    +---------------+                               +---------------+
+ *              | ExchangeSink1 |                                    | ExchangeSink2 |                               | ExchangeSink3 |
+ *              +---------------+                                    +---------------+                               +---------------+
+ *                     |                                                    |                                               |
+ *                     |                       +----------------------------+----------------------------------+            |
+ *                     +----+------------------|------------------------------------------+                    |            |
+ *                          |                  |                 +------------------------|--------------------|------------+-----+
+ *          Dependency 1-1  |   Dependency 2-1 |  Dependency 3-1 |         Dependency 1-2 |    Dependency 2-2  |  Dependency 3-2  |
+ *                    +----------------------------------------------+               +----------------------------------------------+
+ *                    |  queue1              queue2          queue3  |               |  queue1              queue2          queue3  |
+ *                    |                   LocalRecvr                 |               |                   LocalRecvr                 |
+ *                    +----------------------------------------------+               +----------------------------------------------+
+ *                         +-----------------+                                                        +------------------+
+ *                         | ExchangeSource1 |                                                        | ExchangeSource2 |
+ *                         +-----------------+                                                        +------------------+
+ */
+class LocalExchangeChannelDependency final : public WriteDependency {
 public:
-    ENABLE_FACTORY_CREATOR(ChannelDependency);
-    ChannelDependency(int id) : WriteDependency(id, "ChannelDependency") {}
-    ~ChannelDependency() override = default;
+    ENABLE_FACTORY_CREATOR(LocalExchangeChannelDependency);
+    LocalExchangeChannelDependency(int id)
+            : WriteDependency(id, "LocalExchangeChannelDependency") {}
+    ~LocalExchangeChannelDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 };
@@ -209,7 +228,7 @@ private:
     std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
     std::shared_ptr<AndDependency> _exchange_sink_dependency = nullptr;
     std::shared_ptr<BroadcastDependency> _broadcast_dependency = nullptr;
-    std::vector<std::shared_ptr<ChannelDependency>> _channels_dependency;
+    std::vector<std::shared_ptr<LocalExchangeChannelDependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     int _partition_count;
 };
