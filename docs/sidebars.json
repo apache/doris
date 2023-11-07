@@ -608,7 +608,8 @@
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal-bitmap-intersect-count",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal-bitmap-expr-calculate",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal-bitmap-expr-calculate-count",
-                                "sql-manual/sql-functions/bitmap-functions/bitmap-hash64"
+                                "sql-manual/sql-functions/bitmap-functions/bitmap-hash64",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap-remove"
                             ]
                         },
                         {
