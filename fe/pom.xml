@@ -17,7 +17,8 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>org.apache</groupId>
@@ -29,6 +30,157 @@ under the License.
     <version>${revision}</version>
     <packaging>pom</packaging>
     <name>Doris FE Project Parent POM</name>
+    <url>https://doris.apache.org/</url>
+    <licenses>
+        <license>
+            <name>Apache 2.0 License</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <scm>
+        <connection>scm:git:https://git@github.com/apache/doris.git</connection>
+        <developerConnection>scm:git:https://git@github.com/apache/doris.git</developerConnection>
+        <url>scm:git:https://git@github.com/apache/doris.git</url>
+        <tag>HEAD</tag>
+    </scm>
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/apache/doris/issues</url>
+    </issueManagement>
+    <mailingLists>
+        <mailingList>
+            <name>Dev Mailing List</name>
+            <post>dev@doris.apache.org</post>
+            <subscribe>dev-subscribe@doris.apache.org</subscribe>
+            <unsubscribe>dev-unsubscribe@doris.apache.org</unsubscribe>
+        </mailingList>
+        <mailingList>
+            <name>Commits Mailing List</name>
+            <post>commits@doris.apache.org</post>
+            <subscribe>commits-subscribe@doris.apache.org</subscribe>
+            <unsubscribe>commits-unsubscribe@doris.apache.org</unsubscribe>
+        </mailingList>
+    </mailingLists>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+                <version>1.2.5</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.commonjava.maven.plugins</groupId>
+                <artifactId>directory-maven-plugin</artifactId>
+                <version>0.1</version>
+                <executions>
+                    <execution>
+                        <id>directories</id>
+                        <goals>
+                            <goal>directory-of</goal>
+                        </goals>
+                        <phase>initialize</phase>
+                        <configuration>
+                            <property>fe.dir</property>
+                            <project>
+                                <groupId>org.apache.doris</groupId>
+                                <artifactId>fe</artifactId>
+                            </project>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>license-maven-plugin</artifactId>
+                <version>2.0.0</version>
+                <executions>
+                    <execution>
+                        <id>add-third-party</id>
+                        <goals>
+                            <goal>add-third-party</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>flatten-maven-plugin</artifactId>
+                    <version>1.2.5</version>
+                    <configuration>
+                        <updatePomFile>true</updatePomFile>
+                        <flattenMode>bom</flattenMode>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>flatten</id>
+                            <phase>process-resources</phase>
+                            <goals>
+                                <goal>flatten</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>flatten.clean</id>
+                            <phase>clean</phase>
+                            <goals>
+                                <goal>clean</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-checkstyle-plugin</artifactId>
+                    <version>3.1.2</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.puppycrawl.tools</groupId>
+                            <artifactId>checkstyle</artifactId>
+                            <version>9.3</version>
+                        </dependency>
+                    </dependencies>
+                    <configuration>
+                        <configLocation>check/checkstyle/checkstyle.xml</configLocation>
+                        <suppressionsLocation>check/checkstyle/suppressions.xml</suppressionsLocation>
+                        <encoding>UTF-8</encoding>
+                        <consoleOutput>true</consoleOutput>
+                        <failsOnError>true</failsOnError>
+                        <linkXRef>false</linkXRef>
+                        <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                        <excludes>
+                            **/apache/doris/thrift/*,
+                            **/apache/parquet/**/*
+                        </excludes>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>validate</id>
+                            <phase>validate</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.sonarsource.scanner.maven</groupId>
+                    <artifactId>sonar-maven-plugin</artifactId>
+                    <version>3.9.1.2184</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
     <modules>
         <module>fe-common</module>
         <module>spark-dpp</module>
@@ -173,6 +325,46 @@ under the License.
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
         <flatbuffers.version>1.12.0</flatbuffers.version>
     </properties>
+    <profiles>
+        <profile>
+            <id>general-env</id>
+            <activation>
+                <property>
+                    <name>!env.CUSTOM_MAVEN_REPO</name>
+                </property>
+            </activation>
+            <repositories>
+                <repository>
+                    <id>central</id>
+                    <name>central maven repo https</name>
+                    <url>https://repo.maven.apache.org/maven2</url>
+                </repository>
+                <repository>
+                    <id>snapshots</id>
+                    <name>apache snapshots maven repo https</name>
+                    <url>https://repository.apache.org/content/repositories/snapshots/</url>
+                </repository>
+                <!-- for java-cup -->
+                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
+                <repository>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
+                </repository>
+            </repositories>
+            <pluginRepositories>
+                <pluginRepository>
+                    <id>central</id>
+                    <url>https://repo.maven.apache.org/maven2</url>
+                </pluginRepository>
+                <!-- for cup-maven-plugin -->
+                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
+                <pluginRepository>
+                    <id>cloudera</id>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
+                </pluginRepository>
+            </pluginRepositories>
+        </profile>
+    </profiles>
     <dependencyManagement>
         <dependencies>
             <dependency>
@@ -534,12 +726,12 @@ under the License.
                 <exclusions>
                     <!-- thrift 0.13 depends on httpclient 4.5.10, should exclude it -->
                     <exclusion>
-                        <groupId>org.apache.httpcomponents</groupId>
                         <artifactId>httpclient</artifactId>
+                        <groupId>org.apache.httpcomponents</groupId>
                     </exclusion>
                     <exclusion>
-                        <groupId>org.apache.httpcomponents</groupId>
                         <artifactId>httpcore</artifactId>
+                        <groupId>org.apache.httpcomponents</groupId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -589,8 +781,8 @@ under the License.
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty</artifactId>
-                <version>${netty-3-test.version}</version>
                 <scope>test</scope>
+                <version>${netty-3-test.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
@@ -674,8 +866,8 @@ under the License.
                         <artifactId>logback-classic</artifactId>
                     </exclusion>
                     <exclusion>
-                        <groupId>org.elasticsearch.client</groupId>
                         <artifactId>elasticsearch-rest-high-level-client</artifactId>
+                        <groupId>org.elasticsearch.client</groupId>
                     </exclusion>
                     <exclusion>
                         <groupId>org.apache.hive</groupId>
@@ -900,13 +1092,13 @@ under the License.
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-sql_2.12</artifactId>
                 <version>${spark.version}</version>
-                <scope>provided</scope>
                 <exclusions>
                     <exclusion>
                         <groupId>org.apache.arrow</groupId>
                         <artifactId>arrow-vector</artifactId>
                     </exclusion>
                 </exclusions>
+                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.apache.spark</groupId>
@@ -921,16 +1113,16 @@ under the License.
                 <version>${hadoop.version}</version>
                 <exclusions>
                     <exclusion>
-                        <groupId>javax.servlet</groupId>
                         <artifactId>servlet-api</artifactId>
+                        <groupId>javax.servlet</groupId>
                     </exclusion>
                     <exclusion>
                         <groupId>io.netty</groupId>
                         <artifactId>netty</artifactId>
                     </exclusion>
                     <exclusion>
-                        <groupId>com.fasterxml.jackson.core</groupId>
                         <artifactId>jackson-databind</artifactId>
+                        <groupId>com.fasterxml.jackson.core</groupId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -948,8 +1140,8 @@ under the License.
                         <artifactId>log4j</artifactId>
                     </exclusion>
                     <exclusion>
-                        <groupId>javax.servlet</groupId>
                         <artifactId>servlet-api</artifactId>
+                        <groupId>javax.servlet</groupId>
                     </exclusion>
                     <!-- https://github.com/aws/aws-sdk-java/issues/1032 -->
                     <exclusion>
@@ -1052,16 +1244,16 @@ under the License.
                 <version>${hudi.version}</version>
                 <exclusions>
                     <exclusion>
-                        <groupId>commons-httpclient</groupId>
                         <artifactId>commons-httpclient</artifactId>
+                        <groupId>commons-httpclient</groupId>
                     </exclusion>
                     <exclusion>
-                        <groupId>io.netty</groupId>
                         <artifactId>netty-all</artifactId>
+                        <groupId>io.netty</groupId>
                     </exclusion>
                     <exclusion>
-                        <groupId>log4j</groupId>
                         <artifactId>log4j</artifactId>
+                        <groupId>log4j</groupId>
                     </exclusion>
                     <exclusion>
                         <groupId>org.apache.hive</groupId>
@@ -1241,8 +1433,8 @@ under the License.
                 <groupId>com.clickhouse</groupId>
                 <artifactId>clickhouse-jdbc</artifactId>
                 <version>${clickhouse.version}</version>
-                <classifier>all</classifier>
                 <scope>provided</scope>
+                <classifier>all</classifier>
             </dependency>
             <!-- https://mvnrepository.com/artifact/joda-time/joda-time -->
             <dependency>
@@ -1372,173 +1564,6 @@ under the License.
         </dependency>
 
     </dependencies>
-    <build>
-        <pluginManagement>
-            <plugins>
-                <plugin>
-                    <groupId>org.codehaus.mojo</groupId>
-                    <artifactId>flatten-maven-plugin</artifactId>
-                    <version>1.2.5</version>
-                    <configuration>
-                        <updatePomFile>true</updatePomFile>
-                        <flattenMode>bom</flattenMode>
-                    </configuration>
-                    <executions>
-                        <execution>
-                            <id>flatten</id>
-                            <goals>
-                                <goal>flatten</goal>
-                            </goals>
-                            <phase>process-resources</phase>
-                        </execution>
-                        <execution>
-                            <id>flatten.clean</id>
-                            <goals>
-                                <goal>clean</goal>
-                            </goals>
-                            <phase>clean</phase>
-                        </execution>
-                    </executions>
-                </plugin>
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-checkstyle-plugin</artifactId>
-                    <version>3.1.2</version>
-                    <configuration>
-                        <configLocation>check/checkstyle/checkstyle.xml</configLocation>
-                        <suppressionsLocation>check/checkstyle/suppressions.xml</suppressionsLocation>
-                        <encoding>UTF-8</encoding>
-                        <consoleOutput>true</consoleOutput>
-                        <failsOnError>true</failsOnError>
-                        <linkXRef>false</linkXRef>
-                        <includeTestSourceDirectory>true</includeTestSourceDirectory>
-                        <excludes>**/apache/doris/thrift/*,
-                            **/apache/parquet/**/*</excludes>
-                    </configuration>
-                    <dependencies>
-                        <dependency>
-                            <groupId>com.puppycrawl.tools</groupId>
-                            <artifactId>checkstyle</artifactId>
-                            <version>9.3</version>
-                        </dependency>
-                    </dependencies>
-                    <executions>
-                        <execution>
-                            <id>validate</id>
-                            <goals>
-                                <goal>check</goal>
-                            </goals>
-                            <phase>validate</phase>
-                        </execution>
-                    </executions>
-                </plugin>
-                <plugin>
-                    <groupId>org.sonarsource.scanner.maven</groupId>
-                    <artifactId>sonar-maven-plugin</artifactId>
-                    <version>3.9.1.2184</version>
-                </plugin>
-                <plugin>
-                    <groupId>com.diffplug.spotless</groupId>
-                    <artifactId>spotless-maven-plugin</artifactId>
-                    <version>2.22.8</version>
-                    <configuration>
-                        <ratchetFrom>origin/master</ratchetFrom>
-                        <java>
-                            <googleJavaFormat>
-                                <version>1.7</version>
-                                <style>AOSP</style>
-                            </googleJavaFormat>
-                            <licenseHeader>
-                                <!--suppress MavenModelInspection -->
-                                <file>${maven.multiModuleProjectDirectory}/check/spotless/copyright.txt</file>
-                            </licenseHeader>
-                            <removeUnusedImports />
-                            <trimTrailingWhitespace />
-                            <importOrder>
-                                <order>org.apache.doris,org.apache,org,com,java|javax,,</order>
-                            </importOrder>
-                        </java>
-                        <pom>
-                            <sortPom>
-                                <encoding>UTF-8</encoding>
-                                <nrOfIndentSpace>4</nrOfIndentSpace>
-                                <keepBlankLines>true</keepBlankLines>
-                                <indentBlankLines>false</indentBlankLines>
-                                <indentSchemaLocation>false</indentSchemaLocation>
-                                <spaceBeforeCloseEmptyElement>true</spaceBeforeCloseEmptyElement>
-                                <sortModules>false</sortModules>
-                                <sortExecutions>false</sortExecutions>
-                                <predefinedSortOrder>custom_1</predefinedSortOrder>
-                                <expandEmptyElements>false</expandEmptyElements>
-                                <sortProperties>false</sortProperties>
-                            </sortPom>
-                            <replace>
-                                <name>Leading blank line</name>
-                                <search>--&gt;
-                                    &lt;project</search>
-                                <replacement>--&gt;
-
-                                    &lt;project</replacement>
-                            </replace>
-                        </pom>
-                    </configuration>
-                </plugin>
-            </plugins>
-        </pluginManagement>
-        <plugins>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>flatten-maven-plugin</artifactId>
-                <version>1.2.5</version>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.commonjava.maven.plugins</groupId>
-                <artifactId>directory-maven-plugin</artifactId>
-                <version>0.1</version>
-                <executions>
-                    <execution>
-                        <id>directories</id>
-                        <goals>
-                            <goal>directory-of</goal>
-                        </goals>
-                        <phase>initialize</phase>
-                        <configuration>
-                            <property>fe.dir</property>
-                            <project>
-                                <groupId>org.apache.doris</groupId>
-                                <artifactId>fe</artifactId>
-                            </project>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-checkstyle-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>license-maven-plugin</artifactId>
-                <version>2.0.0</version>
-                <executions>
-                    <execution>
-                        <id>add-third-party</id>
-                        <goals>
-                            <goal>add-third-party</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>com.diffplug.spotless</groupId>
-                <artifactId>spotless-maven-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </build>
     <reporting>
         <plugins>
             <plugin>
@@ -1547,87 +1572,15 @@ under the License.
             </plugin>
         </plugins>
     </reporting>
-    <url>https://doris.apache.org/</url>
-    <licenses>
-        <license>
-            <name>Apache 2.0 License</name>
-            <url>https://www.apache.org/licenses/LICENSE-2.0.html</url>
-            <distribution>repo</distribution>
-        </license>
-    </licenses>
-    <mailingLists>
-        <mailingList>
-            <name>Dev Mailing List</name>
-            <subscribe>dev-subscribe@doris.apache.org</subscribe>
-            <unsubscribe>dev-unsubscribe@doris.apache.org</unsubscribe>
-            <post>dev@doris.apache.org</post>
-        </mailingList>
-        <mailingList>
-            <name>Commits Mailing List</name>
-            <subscribe>commits-subscribe@doris.apache.org</subscribe>
-            <unsubscribe>commits-unsubscribe@doris.apache.org</unsubscribe>
-            <post>commits@doris.apache.org</post>
-        </mailingList>
-    </mailingLists>
-    <scm>
-        <connection>scm:git:https://git@github.com/apache/doris.git</connection>
-        <developerConnection>scm:git:https://git@github.com/apache/doris.git</developerConnection>
-        <url>scm:git:https://git@github.com/apache/doris.git</url>
-        <tag>HEAD</tag>
-    </scm>
-    <issueManagement>
-        <system>GitHub</system>
-        <url>https://github.com/apache/doris/issues</url>
-    </issueManagement>
     <repositories>
         <!--todo waiting hive-catalog release-->
         <repository>
-            <snapshots>
-                <updatePolicy>always</updatePolicy>
-            </snapshots>
             <id>snapshots</id>
             <name>apache snapshots maven repo https</name>
             <url>https://repository.apache.org/content/repositories/snapshots/</url>
+            <snapshots>
+                <updatePolicy>always</updatePolicy>
+            </snapshots>
         </repository>
     </repositories>
-    <profiles>
-        <profile>
-            <id>general-env</id>
-            <activation>
-                <property>
-                    <name>!env.CUSTOM_MAVEN_REPO</name>
-                </property>
-            </activation>
-            <repositories>
-                <repository>
-                    <id>central</id>
-                    <name>central maven repo https</name>
-                    <url>https://repo.maven.apache.org/maven2</url>
-                </repository>
-                <repository>
-                    <id>snapshots</id>
-                    <name>apache snapshots maven repo https</name>
-                    <url>https://repository.apache.org/content/repositories/snapshots/</url>
-                </repository>
-                <!-- for java-cup -->
-                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
-                <repository>
-                    <id>cloudera</id>
-                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
-                </repository>
-            </repositories>
-            <pluginRepositories>
-                <pluginRepository>
-                    <id>central</id>
-                    <url>https://repo.maven.apache.org/maven2</url>
-                </pluginRepository>
-                <!-- for cup-maven-plugin -->
-                <!-- https://docs.cloudera.com/documentation/enterprise/release-notes/topics/cdh_vd_cdh5_maven_repo.html -->
-                <pluginRepository>
-                    <id>cloudera</id>
-                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
-                </pluginRepository>
-            </pluginRepositories>
-        </profile>
-    </profiles>
 </project>
