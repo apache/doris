@@ -505,19 +505,6 @@ void VDataStreamRecvr::cancel_stream(Status exec_status) {
 void VDataStreamRecvr::update_blocks_memory_usage(int64_t size) {
     _blocks_memory_usage->add(size);
     _blocks_memory_usage_current_value = _blocks_memory_usage->current_value();
-    if (_sender_to_local_channel_dependency.size() > 0 && size > 0 &&
-        _blocks_memory_usage_current_value > config::exchg_node_buffer_size_bytes && !_is_closed) {
-        for (size_t i = 0; i < _sender_to_local_channel_dependency.size(); i++) {
-            if (!sender_queue_empty(i)) {
-                _sender_to_local_channel_dependency[i]->block_writing();
-            }
-        }
-    } else if (_sender_to_local_channel_dependency.size() > 0 && size < 0 &&
-               _blocks_memory_usage_current_value <= config::exchg_node_buffer_size_bytes) {
-        for (auto& it : _sender_to_local_channel_dependency) {
-            it->set_ready_for_write();
-        }
-    }
 }
 
 void VDataStreamRecvr::close() {
