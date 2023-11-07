@@ -204,7 +204,8 @@ public:
     virtual ~SenderQueue();
 
     void set_local_channel_dependency(
-            std::shared_ptr<pipeline::LocalExchangeChannelDependency> local_channel_dependency) {
+            std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>&
+                    local_channel_dependency) {
         _local_channel_dependency = local_channel_dependency;
     }
 
@@ -254,7 +255,8 @@ protected:
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
 
     std::shared_ptr<pipeline::ExchangeDataDependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::LocalExchangeChannelDependency> _local_channel_dependency;
+    std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
+            _local_channel_dependency;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {
