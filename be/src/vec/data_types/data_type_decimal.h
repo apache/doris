@@ -38,6 +38,8 @@
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/type_limit.h"
+#include "runtime/types.h"
 #include "serde/data_type_decimal_serde.h"
 #include "util/binary_cast.hpp"
 #include "vec/columns/column_decimal.h"
@@ -167,17 +169,20 @@ public:
     const char* get_family_name() const override { return "Decimal"; }
     std::string do_get_name() const override;
     TypeIndex get_type_id() const override { return TypeId<T>::value; }
-    PrimitiveType get_type_as_primitive_type() const override {
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        TypeDescriptor desc;
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
-            return TYPE_DECIMAL32;
+            desc = TypeDescriptor(TYPE_DECIMAL32);
+        } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
+            desc = TypeDescriptor(TYPE_DECIMAL64);
+        } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+            desc = TypeDescriptor(TYPE_DECIMAL128I);
+        } else {
+            desc = TypeDescriptor(TYPE_DECIMALV2);
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
-            return TYPE_DECIMAL64;
-        }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
-            return TYPE_DECIMAL128I;
-        }
-        __builtin_unreachable();
+        desc.scale = scale;
+        desc.precision = precision;
+        return desc;
     }
 
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
@@ -618,6 +623,10 @@ ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType&
                 return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType>(value, 0, scale);
             }
         }
+        if constexpr (std::is_same_v<FromFieldType, Int128>) {
+            return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType>(value, 0, scale);
+        }
+
         return convert_decimals<DataTypeDecimal<Decimal64>, ToDataType>(value, 0, scale);
     }
 }

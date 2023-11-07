@@ -20,6 +20,8 @@
 #include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
 
+#include <memory>
+
 namespace doris {
 
 void NodeStatistics::merge(const NodeStatistics& other) {
@@ -85,6 +87,14 @@ void QueryStatistics::merge(QueryStatisticsRecvr* recvr) {
     recvr->merge(this);
 }
 
+void QueryStatistics::merge(QueryStatisticsRecvr* recvr, int sender_id) {
+    DCHECK(recvr != nullptr);
+    auto QueryStatisticsptr = recvr->find(sender_id);
+    if (QueryStatisticsptr) {
+        merge(*QueryStatisticsptr);
+    }
+}
+
 void QueryStatistics::clearNodeStatistics() {
     for (auto& pair : _nodes_statistics_map) {
         delete pair.second;
@@ -98,24 +108,26 @@ QueryStatistics::~QueryStatistics() {
 
 void QueryStatisticsRecvr::insert(const PQueryStatistics& statistics, int sender_id) {
     std::lock_guard<SpinLock> l(_lock);
-    QueryStatistics* query_statistics = nullptr;
-    auto iter = _query_statistics.find(sender_id);
-    if (iter == _query_statistics.end()) {
-        query_statistics = new QueryStatistics;
-        _query_statistics[sender_id] = query_statistics;
-    } else {
-        query_statistics = iter->second;
+    if (!_query_statistics.contains(sender_id)) {
+        _query_statistics[sender_id] = std::make_shared<QueryStatistics>();
     }
-    query_statistics->from_pb(statistics);
+    _query_statistics[sender_id]->from_pb(statistics);
 }
 
-QueryStatisticsRecvr::~QueryStatisticsRecvr() {
-    // It is unnecessary to lock here, because the destructor will be
-    // called alter DataStreamRecvr's close in ExchangeNode.
-    for (auto& pair : _query_statistics) {
-        delete pair.second;
+void QueryStatisticsRecvr::insert(QueryStatisticsPtr statistics, int sender_id) {
+    if (!statistics->collected()) return;
+    if (_query_statistics.contains(sender_id)) return;
+    std::lock_guard<SpinLock> l(_lock);
+    _query_statistics[sender_id] = statistics;
+}
+
+QueryStatisticsPtr QueryStatisticsRecvr::find(int sender_id) {
+    std::lock_guard<SpinLock> l(_lock);
+    auto it = _query_statistics.find(sender_id);
+    if (it != _query_statistics.end()) {
+        return it->second;
     }
-    _query_statistics.clear();
+    return nullptr;
 }
 
 } // namespace doris

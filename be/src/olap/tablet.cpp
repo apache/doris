@@ -450,7 +450,7 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset) {
         }
     }
     std::vector<RowsetSharedPtr> empty_vec;
-    modify_rowsets(empty_vec, rowsets_to_delete);
+    RETURN_IF_ERROR(modify_rowsets(empty_vec, rowsets_to_delete));
     ++_newly_created_rowset_num;
     return Status::OK();
 }
@@ -2004,21 +2004,28 @@ Status Tablet::create_rowset_writer(RowsetWriterContext& context,
 
 // create a rowset writer with rowset_id and seg_id
 // after writer, merge this transient rowset with original rowset
-Status Tablet::create_transient_rowset_writer(RowsetSharedPtr rowset_ptr,
-                                              std::unique_ptr<RowsetWriter>* rowset_writer) {
+Status Tablet::create_transient_rowset_writer(
+        RowsetSharedPtr rowset_ptr, std::unique_ptr<RowsetWriter>* rowset_writer,
+        std::shared_ptr<PartialUpdateInfo> partial_update_info) {
     RowsetWriterContext context;
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = std::make_shared<TabletSchema>();
     context.tablet_schema->copy_from(*(rowset_ptr->tablet_schema()));
-    context.tablet_schema->set_partial_update_info(false, std::set<std::string>());
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = table_id();
     context.enable_segcompaction = false;
     // ATTN: context.tablet is a shared_ptr, can't simply set it's value to `this`. We should
     // get the shared_ptr from tablet_manager.
-    context.tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
+    auto tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
+    if (!tablet) {
+        LOG(WARNING) << "cant find tablet by tablet_id=" << tablet_id();
+        return Status::NotFound(fmt::format("cant find tablet by tablet_id= {}", tablet_id()));
+    }
+    context.tablet = tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
+    context.partial_update_info = partial_update_info;
+    context.is_transient_rowset_writer = true;
     RETURN_IF_ERROR(
             create_transient_rowset_writer(context, rowset_ptr->rowset_id(), rowset_writer));
     (*rowset_writer)->set_segment_start_id(rowset_ptr->num_segments());
@@ -2962,7 +2969,16 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     auto rowset_id = rowset->rowset_id();
     Version dummy_version(end_version + 1, end_version + 1);
     auto rowset_schema = rowset->tablet_schema();
-    bool is_partial_update = rowset_schema->is_partial_update();
+    bool is_partial_update = rowset_writer && rowset_writer->is_partial_update();
+    bool have_input_seq_column = false;
+    if (is_partial_update && rowset_schema->has_sequence_col()) {
+        std::vector<uint32_t> including_cids =
+                rowset_writer->get_partial_update_info()->update_cids;
+        have_input_seq_column =
+                rowset_schema->has_sequence_col() &&
+                (std::find(including_cids.cbegin(), including_cids.cend(),
+                           rowset_schema->sequence_col_idx()) != including_cids.cend());
+    }
     // use for partial update
     PartialUpdateReadPlan read_plan_ori;
     PartialUpdateReadPlan read_plan_update;
@@ -2973,7 +2989,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     vectorized::Block ordered_block = block.clone_empty();
     uint32_t pos = 0;
 
-    seg->load_pk_index_and_bf(); // We need index blocks to iterate
+    RETURN_IF_ERROR(seg->load_pk_index_and_bf()); // We need index blocks to iterate
     auto pk_idx = seg->get_primary_key_index();
     int total = pk_idx->num_rows();
     uint32_t row_id = 0;
@@ -3031,12 +3047,32 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 continue;
             }
 
-            // sequence id smaller than the previous one, so delete current row
-            if (st.is<KEY_ALREADY_EXISTS>()) {
+            if (st.is<KEY_ALREADY_EXISTS>() && (!is_partial_update || have_input_seq_column)) {
+                // `st.is<KEY_ALREADY_EXISTS>()` means that there exists a row with the same key and larger value
+                // in seqeunce column.
+                // - If the current load is not a partial update, we just delete current row.
+                // - Otherwise, it means that we are doing the alignment process in publish phase due to conflicts
+                // during concurrent partial updates. And there exists another load which introduces a row with
+                // the same keys and larger sequence column value published successfully after the commit phase
+                // of the current load.
+                //     - If the columns we update include sequence column, we should delete the current row becase the
+                //       partial update on the current row has been `overwritten` by the previous one with larger sequence
+                //       column value.
+                //     - Otherwise, we should combine the values of the missing columns in the previous row and the values
+                //       of the including columns in the current row into a new row.
                 delete_bitmap->add({rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_COMMON},
                                    row_id);
                 continue;
-            } else if (is_partial_update && rowset_writer != nullptr) {
+            }
+            if (is_partial_update && rowset_writer != nullptr) {
+                if (delete_bitmap->contains(
+                            {rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
+                            row_id)) {
+                    LOG(INFO)
+                            << "DEBUG: skip a delete sign column while calc_segment_delete_bitmap "
+                            << "processing confict for partial update";
+                    continue;
+                }
                 // In publish version, record rows to be deleted for concurrent update
                 // For example, if version 5 and 6 update a row, but version 6 only see
                 // version 4 when write, and when publish version, version 5's value will
@@ -3083,8 +3119,11 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     }
 
     if (pos > 0) {
+        auto partial_update_info = rowset_writer->get_partial_update_info();
+        DCHECK(partial_update_info);
         RETURN_IF_ERROR(generate_new_block_for_partial_update(
-                rowset_schema, read_plan_ori, read_plan_update, rsid_to_rowset, &block));
+                rowset_schema, partial_update_info->missing_cids, partial_update_info->update_cids,
+                read_plan_ori, read_plan_update, rsid_to_rowset, &block));
         sort_block(block, ordered_block);
         int64_t size;
         RETURN_IF_ERROR(rowset_writer->flush_single_memtable(&ordered_block, &size));
@@ -3120,26 +3159,17 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
         return Status::InternalError("Can't find tablet id: {}, maybe already dropped.",
                                      tablet_id());
     }
-    std::vector<DeleteBitmapPtr> seg_delete_bitmaps;
     for (size_t i = 0; i < segments.size(); i++) {
         auto& seg = segments[i];
         if (token != nullptr) {
             RETURN_IF_ERROR(token->submit(tablet_ptr, rowset, seg, specified_rowsets, end_version,
-                                          rowset_writer));
+                                          delete_bitmap, rowset_writer));
         } else {
-            DeleteBitmapPtr seg_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
-            seg_delete_bitmaps.push_back(seg_delete_bitmap);
             RETURN_IF_ERROR(calc_segment_delete_bitmap(rowset, segments[i], specified_rowsets,
-                                                       seg_delete_bitmap, end_version,
-                                                       rowset_writer));
+                                                       delete_bitmap, end_version, rowset_writer));
         }
     }
 
-    if (token == nullptr) {
-        for (auto seg_delete_bitmap : seg_delete_bitmaps) {
-            delete_bitmap->merge(*seg_delete_bitmap);
-        }
-    }
     return Status::OK();
 }
 
@@ -3159,7 +3189,8 @@ std::vector<RowsetSharedPtr> Tablet::get_rowset_by_ids(
 }
 
 Status Tablet::generate_new_block_for_partial_update(
-        TabletSchemaSPtr rowset_schema, const PartialUpdateReadPlan& read_plan_ori,
+        TabletSchemaSPtr rowset_schema, const std::vector<uint32>& missing_cids,
+        const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
         const PartialUpdateReadPlan& read_plan_update,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         vectorized::Block* output_block) {
@@ -3170,10 +3201,8 @@ Status Tablet::generate_new_block_for_partial_update(
     // 4. mark current keys deleted
     CHECK(output_block);
     auto full_mutable_columns = output_block->mutate_columns();
-    auto old_block = rowset_schema->create_missing_columns_block();
-    auto missing_cids = rowset_schema->get_missing_cids();
-    auto update_block = rowset_schema->create_update_columns_block();
-    auto update_cids = rowset_schema->get_update_cids();
+    auto old_block = rowset_schema->create_block_by_cids(missing_cids);
+    auto update_block = rowset_schema->create_block_by_cids(update_cids);
 
     std::map<uint32_t, uint32_t> read_index_old;
     RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, missing_cids, read_plan_ori, rsid_to_rowset,
@@ -3287,7 +3316,7 @@ void Tablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
 Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) {
     int64_t cur_version = rowset->end_version();
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    _load_rowset_segments(rowset, &segments);
+    RETURN_IF_ERROR(_load_rowset_segments(rowset, &segments));
 
     // If this rowset does not have a segment, there is no need for an update.
     if (segments.empty()) {
@@ -3295,7 +3324,8 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
                   << tablet_id() << " cur max_version: " << cur_version;
         return Status::OK();
     }
-    RowsetIdUnorderedSet cur_rowset_ids = all_rs_id(cur_version - 1);
+    RowsetIdUnorderedSet cur_rowset_ids;
+    RETURN_IF_ERROR(all_rs_id(cur_version - 1, &cur_rowset_ids));
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     RETURN_IF_ERROR(calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
 
@@ -3305,7 +3335,6 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
                                        cur_version - 1, token.get()));
     RETURN_IF_ERROR(token->wait());
-    RETURN_IF_ERROR(token->get_delete_bitmap(delete_bitmap));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
@@ -3345,7 +3374,7 @@ Status Tablet::commit_phase_update_delete_bitmap(
     {
         std::shared_lock meta_rlock(_meta_lock);
         cur_version = max_version_unlocked().second;
-        cur_rowset_ids = all_rs_id(cur_version);
+        RETURN_IF_ERROR(all_rs_id(cur_version, &cur_rowset_ids));
         _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add,
                                &rowset_ids_to_del);
         specified_rowsets = get_rowset_by_ids(&rowset_ids_to_add);
@@ -3386,13 +3415,12 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
     {
         std::shared_lock meta_rlock(_meta_lock);
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
-        if (tablet_state() == TABLET_NOTREADY &&
-            SchemaChangeHandler::tablet_in_converting(tablet_id())) {
+        if (tablet_state() == TABLET_NOTREADY) {
             LOG(INFO) << "tablet is under alter process, update delete bitmap later, tablet_id="
                       << tablet_id();
             return Status::OK();
         }
-        cur_rowset_ids = all_rs_id(cur_version - 1);
+        RETURN_IF_ERROR(all_rs_id(cur_version - 1, &cur_rowset_ids));
     }
     auto t2 = watch.get_elapse_time_us();
 
@@ -3412,7 +3440,6 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
                                        cur_version - 1, token.get(), rowset_writer));
     RETURN_IF_ERROR(token->wait());
-    RETURN_IF_ERROR(token->get_delete_bitmap(delete_bitmap));
 
     std::stringstream ss;
     if (watch.get_elapse_time_us() < 1 * 1000 * 1000) {
@@ -3429,7 +3456,7 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
     LOG(INFO) << "[Publish] construct delete bitmap tablet: " << tablet_id()
               << ", rowset_ids to add: " << rowset_ids_to_add.size()
               << ", rowset_ids to del: " << rowset_ids_to_del.size()
-              << ", cur max_version: " << cur_version << ", transaction_id: " << txn_id << ","
+              << ", cur version: " << cur_version << ", transaction_id: " << txn_id << ","
               << ss.str() << " , total rows: " << total_rows;
 
     if (config::enable_merge_on_write_correctness_check && rowset->num_rows() != 0) {
@@ -3510,7 +3537,7 @@ Status Tablet::check_rowid_conversion(
         return Status::OK();
     }
     std::vector<segment_v2::SegmentSharedPtr> dst_segments;
-    _load_rowset_segments(dst_rowset, &dst_segments);
+    RETURN_IF_ERROR(_load_rowset_segments(dst_rowset, &dst_segments));
     std::unordered_map<RowsetId, std::vector<segment_v2::SegmentSharedPtr>, HashOfRowsetId>
             input_rowsets_segment;
 
@@ -3519,7 +3546,7 @@ Status Tablet::check_rowid_conversion(
         std::vector<segment_v2::SegmentSharedPtr>& segments =
                 input_rowsets_segment[src_rowset->rowset_id()];
         if (segments.empty()) {
-            _load_rowset_segments(src_rowset, &segments);
+            RETURN_IF_ERROR(_load_rowset_segments(src_rowset, &segments));
         }
         for (auto& [src, dst] : locations) {
             std::string src_key;
@@ -3561,18 +3588,24 @@ Status Tablet::check_rowid_conversion(
     return Status::OK();
 }
 
-RowsetIdUnorderedSet Tablet::all_rs_id(int64_t max_version) const {
-    RowsetIdUnorderedSet rowset_ids;
-    for (const auto& rs_it : _rs_version_map) {
-        if (rs_it.first.second == 1) {
+Status Tablet::all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const {
+    //  Ensure that the obtained versions of rowsets are continuous
+    std::vector<Version> version_path;
+    RETURN_IF_ERROR(capture_consistent_versions(Version(0, max_version), &version_path));
+    for (auto& ver : version_path) {
+        if (ver.second == 1) {
             // [0-1] rowset is empty for each tablet, skip it
             continue;
         }
-        if (rs_it.first.second <= max_version) {
-            rowset_ids.insert(rs_it.second->rowset_id());
+        auto it = _rs_version_map.find(ver);
+        if (it == _rs_version_map.end()) {
+            return Status::Error<CAPTURE_ROWSET_ERROR, false>(
+                    "fail to find Rowset for version. tablet={}, version={}", tablet_id(),
+                    ver.to_string());
         }
+        rowset_ids->emplace(it->second->rowset_id());
     }
-    return rowset_ids;
+    return Status::OK();
 }
 
 bool Tablet::check_all_rowset_segment() {

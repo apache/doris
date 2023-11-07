@@ -67,6 +67,12 @@ d
 -- !sql --
 ['ab','c','c','c']
 
+-- !sql_regexp_extract_all --
+	0
+	0
+	0
+	0
+
 -- !sql --
 a-b-c
 
@@ -223,4 +229,10 @@ Ben
 Suzi
 Suzi
 Ben
+
+-- !sql_field4 --
+3
+
+-- !sql_field5 --
+2
 

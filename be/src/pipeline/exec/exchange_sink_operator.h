@@ -60,8 +60,6 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    RuntimeState* state() { return _state; }
-
 private:
     std::unique_ptr<ExchangeSinkBuffer> _sink_buffer;
     int _dest_node_id = -1;

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -54,6 +55,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -100,6 +102,25 @@ public class BindSink implements AnalysisRuleFactory {
                                         "insert into cols should be corresponding to the query output");
                             }
 
+                            try {
+                                if (table.hasSequenceCol() && table.getSequenceMapCol() != null
+                                            && !sink.getColNames().isEmpty() && !boundSink.isPartialUpdate()) {
+                                    Column seqCol = table.getFullSchema().stream()
+                                                    .filter(col -> col.getName().equals(table.getSequenceMapCol()))
+                                                    .findFirst().get();
+                                    Optional<String> foundCol = sink.getColNames().stream()
+                                                    .filter(col -> col.equals(table.getSequenceMapCol()))
+                                                    .findFirst();
+                                    if (!foundCol.isPresent() && (seqCol.getDefaultValue() == null
+                                            || !seqCol.getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP))) {
+                                        throw new AnalysisException("Table " + table.getName()
+                                            + " has sequence column, need to specify the sequence column");
+                                    }
+                                }
+                            } catch (Exception e) {
+                                throw new AnalysisException(e.getMessage(), e.getCause());
+                            }
+
                             Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
                             for (int i = 0; i < boundSink.getCols().size(); ++i) {
                                 columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
@@ -137,10 +158,17 @@ public class BindSink implements AnalysisRuleFactory {
                                         if (table.hasSequenceCol()
                                                 && column.getName().equals(Column.SEQUENCE_COL)
                                                 && table.getSequenceMapCol() != null) {
-                                            Column seqCol = table.getBaseSchema(true).stream()
+                                            Optional<Column> seqCol = table.getFullSchema().stream()
                                                     .filter(col -> col.getName().equals(table.getSequenceMapCol()))
-                                                    .findFirst().get();
-                                            columnToOutput.put(column.getName(), columnToOutput.get(seqCol.getName()));
+                                                    .findFirst();
+                                            if (!seqCol.isPresent()) {
+                                                throw new AnalysisException("sequence column is not contained in"
+                                                        + " target table " + table.getName());
+                                            }
+                                            if (columnToOutput.get(seqCol.get().getName()) != null) {
+                                                columnToOutput.put(column.getName(),
+                                                        columnToOutput.get(seqCol.get().getName()));
+                                            }
                                         } else if (sink.isPartialUpdate()) {
                                             // If the current load is a partial update, the values of unmentioned
                                             // columns will be filled in SegmentWriter. And the output of sink node

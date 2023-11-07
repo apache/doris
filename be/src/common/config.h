@@ -80,7 +80,7 @@
 namespace doris {
 class Status;
 
-// If you want to modify the value of config, please go to common/config.cpp to modify.
+// If you want to modify the value of the config, please go to common/config.cpp to modify.
 namespace config {
 // Dir of custom config file
 DECLARE_String(custom_config_dir);
@@ -1144,6 +1144,9 @@ DECLARE_mBool(exit_on_exception);
 
 // Remove predicate that is always true for a segment.
 DECLARE_Bool(ignore_always_true_predicate_for_segment);
+
+// Dir of default timezone files
+DECLARE_String(default_tzfiles_path);
 
 #ifdef BE_TEST
 // test s3

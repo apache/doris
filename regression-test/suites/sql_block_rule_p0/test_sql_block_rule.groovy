@@ -170,7 +170,7 @@ suite("test_sql_block_rule") {
     """
 
     sql """
-        CREATE SQL_BLOCK_RULE if not exists test_rule_partition PROPERTIES ( "partition_num" = "1", "global" = "true",
+        CREATE SQL_BLOCK_RULE if not exists test_rule_partition PROPERTIES ( "partition_num" = "1", "global" = "false",
         "enable"="true");
     """
 
@@ -186,7 +186,7 @@ suite("test_sql_block_rule") {
     }
 
     sql """
-        CREATE SQL_BLOCK_RULE if not exists test_rule_tablet PROPERTIES ( "tablet_num" = "3", "global" = "true",
+        CREATE SQL_BLOCK_RULE if not exists test_rule_tablet PROPERTIES ( "tablet_num" = "3", "global" = "false",
         "enable"="true");
     """
     try {

@@ -190,6 +190,18 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         if (pruned) {
             auto options_with_pruned_predicates = read_options;
             options_with_pruned_predicates.column_predicates = pruned_predicates;
+            //because column_predicates is changed, we need to rebuild col_id_to_predicates so that inverted index will not go through it.
+            options_with_pruned_predicates.col_id_to_predicates.clear();
+            for (auto* pred : options_with_pruned_predicates.column_predicates) {
+                if (!options_with_pruned_predicates.col_id_to_predicates.contains(
+                            pred->column_id())) {
+                    options_with_pruned_predicates.col_id_to_predicates.insert(
+                            {pred->column_id(), std::make_shared<AndBlockColumnPredicate>()});
+                }
+                auto* single_column_block_predicate = new SingleColumnBlockPredicate(pred);
+                options_with_pruned_predicates.col_id_to_predicates[pred->column_id()]
+                        ->add_column_predicate(single_column_block_predicate);
+            }
             LOG(INFO) << "column_predicates pruned from " << read_options.column_predicates.size()
                       << " to " << pruned_predicates.size();
             return iter->get()->init(options_with_pruned_predicates);

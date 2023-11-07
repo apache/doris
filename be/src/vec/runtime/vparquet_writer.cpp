@@ -343,23 +343,28 @@ Status VParquetWriterWrapper::parse_schema() {
 #define RETURN_WRONG_TYPE \
     return Status::InvalidArgument("Invalid column type: {}", raw_column->get_name());
 
-#define DISPATCH_PARQUET_NUMERIC_WRITER(WRITER, COLUMN_TYPE, NATIVE_TYPE)                         \
-    parquet::RowGroupWriter* rgWriter = get_rg_writer();                                          \
-    parquet::WRITER* col_writer = static_cast<parquet::WRITER*>(rgWriter->column(i));             \
-    if (null_map != nullptr) {                                                                    \
-        auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();                  \
-        for (size_t row_id = 0; row_id < sz; row_id++) {                                          \
-            def_level[row_id] = null_data[row_id] == 0;                                           \
-        }                                                                                         \
-        col_writer->WriteBatch(sz, def_level.data(), nullptr,                                     \
-                               reinterpret_cast<const NATIVE_TYPE*>(                              \
-                                       assert_cast<const COLUMN_TYPE&>(*col).get_data().data())); \
-    } else if (const auto* not_nullable_column = check_and_get_column<const COLUMN_TYPE>(col)) {  \
-        col_writer->WriteBatch(                                                                   \
-                sz, nullable ? def_level.data() : nullptr, nullptr,                               \
-                reinterpret_cast<const NATIVE_TYPE*>(not_nullable_column->get_data().data()));    \
-    } else {                                                                                      \
-        RETURN_WRONG_TYPE                                                                         \
+#define DISPATCH_PARQUET_NUMERIC_WRITER(WRITER, COLUMN_TYPE, NATIVE_TYPE)                        \
+    parquet::RowGroupWriter* rgWriter = get_rg_writer();                                         \
+    parquet::WRITER* col_writer = static_cast<parquet::WRITER*>(rgWriter->column(i));            \
+    if (null_map != nullptr) {                                                                   \
+        auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();                 \
+        if (const auto* column = check_and_get_column<const COLUMN_TYPE>(col)) {                 \
+            for (size_t row_id = 0; row_id < sz; row_id++) {                                     \
+                if (null_data[row_id] != 0) {                                                    \
+                    single_def_level = 0;                                                        \
+                }                                                                                \
+                col_writer->WriteBatch(                                                          \
+                        1, &single_def_level, nullptr,                                           \
+                        reinterpret_cast<const NATIVE_TYPE*>(&column->get_data()[row_id]));      \
+                single_def_level = 1;                                                            \
+            }                                                                                    \
+        }                                                                                        \
+    } else if (const auto* not_nullable_column = check_and_get_column<const COLUMN_TYPE>(col)) { \
+        col_writer->WriteBatch(                                                                  \
+                sz, nullable ? def_level.data() : nullptr, nullptr,                              \
+                reinterpret_cast<const NATIVE_TYPE*>(not_nullable_column->get_data().data()));   \
+    } else {                                                                                     \
+        RETURN_WRONG_TYPE                                                                        \
     }
 
 #define DISPATCH_PARQUET_COMPLEX_WRITER(COLUMN_TYPE)                                             \
@@ -533,32 +538,31 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::Int64Writer* col_writer =
                         static_cast<parquet::Int64Writer*>(rgWriter->column(i));
-                uint64_t default_int64 = 0;
                 if (null_map != nullptr) {
                     auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();
                     for (size_t row_id = 0; row_id < sz; row_id++) {
                         def_level[row_id] = null_data[row_id] == 0;
                     }
                     int64_t tmp_data[sz];
+                    int idx = 0;
                     for (size_t row_id = 0; row_id < sz; row_id++) {
-                        if (null_data[row_id] != 0) {
-                            tmp_data[row_id] = default_int64;
-                        } else {
+                        if (null_data[row_id] == 0) {
                             VecDateTimeValue datetime_value = binary_cast<Int64, VecDateTimeValue>(
                                     assert_cast<const ColumnVector<Int64>&>(*col)
                                             .get_data()[row_id]);
-                            if (!datetime_value.unix_timestamp(&tmp_data[row_id],
+                            if (!datetime_value.unix_timestamp(&tmp_data[idx],
                                                                TimezoneUtils::default_time_zone)) {
                                 return Status::InternalError("get unix timestamp error.");
                             }
                             // -2177481943 represent '1900-12-31 23:54:17'
                             // but -2177481944 represent '1900-12-31 23:59:59'
                             // so for timestamp <= -2177481944, we subtract 343 (5min 43s)
-                            if (tmp_data[row_id] < timestamp_threshold) {
-                                tmp_data[row_id] -= timestamp_diff;
+                            if (tmp_data[idx] < timestamp_threshold) {
+                                tmp_data[idx] -= timestamp_diff;
                             }
                             // convert seconds to MILLIS seconds
-                            tmp_data[row_id] *= 1000;
+                            tmp_data[idx] *= 1000;
+                            ++idx;
                         }
                     }
                     col_writer->WriteBatch(sz, def_level.data(), nullptr,
@@ -594,7 +598,6 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::Int64Writer* col_writer =
                         static_cast<parquet::Int64Writer*>(rgWriter->column(i));
-                uint64_t default_int64 = 0;
                 if (null_map != nullptr) {
                     auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();
                     for (size_t row_id = 0; row_id < sz; row_id++) {
@@ -607,15 +610,14 @@ Status VParquetWriterWrapper::write(const Block& block) {
                     }
                     int32_t days_from_epoch = epoch_date.daynr();
                     int32_t tmp_data[sz];
+                    int idx = 0;
                     for (size_t row_id = 0; row_id < sz; row_id++) {
-                        if (null_data[row_id] != 0) {
-                            tmp_data[row_id] = default_int64;
-                        } else {
+                        if (null_data[row_id] == 0) {
                             int32_t days = binary_cast<Int64, VecDateTimeValue>(
                                                    assert_cast<const ColumnVector<Int64>&>(*col)
                                                            .get_data()[row_id])
                                                    .daynr();
-                            tmp_data[row_id] = days - days_from_epoch;
+                            tmp_data[idx++] = days - days_from_epoch;
                         }
                     }
                     col_writer->WriteBatch(sz, def_level.data(), nullptr,

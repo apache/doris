@@ -15,16 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mysql_jdbc_catalog", "p0") {
+suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_docker_mysql") {
     qt_sql """select current_catalog()"""
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String user = "test_jdbc_user";
+        String pwd = '123456';
+        def tokens = context.config.jdbcUrl.split('/')
+        def url = tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
         String catalog_name = "mysql_jdbc_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
-        String inDorisTable = "doris_in_tb";
+        String inDorisTable = "test_mysql_jdbc_doris_in_tb";
         String ex_tb0 = "ex_tb0";
         String ex_tb1 = "ex_tb1";
         String ex_tb2 = "ex_tb2";
@@ -52,20 +60,26 @@ suite("test_mysql_jdbc_catalog", "p0") {
         String dt = "dt";
         String dt_null = "dt_null";
 
+        try_sql("DROP USER ${user}")
+        sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+
+        sql """create database if not exists ${internal_db_name}; """
+
         sql """drop catalog if exists ${catalog_name} """
 
         sql """create catalog if not exists ${catalog_name} properties(
             "type"="jdbc",
             "user"="root",
             "password"="123456",
-            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
-            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+            "driver_url" = "${driver_url}",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
 
-        sql  """ drop table if exists ${inDorisTable} """
+        sql """use ${internal_db_name}"""
+        sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
-              CREATE TABLE ${inDorisTable} (
+              CREATE TABLE ${internal_db_name}.${inDorisTable} (
                 `id` INT NULL COMMENT "主键id",
                 `name` string NULL COMMENT "名字"
                 ) DISTRIBUTED BY HASH(id) BUCKETS 10
@@ -108,7 +122,24 @@ suite("test_mysql_jdbc_catalog", "p0") {
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
-        sql """ insert into ${test_insert} values ('${uuid1}', 'doris1', 18) """
+        connect(user=user, password="${pwd}", url=url) {
+            try {
+                sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
+                fail()
+            } catch (Exception e) {
+                log.info(e.getMessage())
+            }
+        }
+
+        sql """GRANT LOAD_PRIV ON ${catalog_name}.${ex_db_name}.${test_insert} TO ${user}"""
+
+        connect(user=user, password="${pwd}", url=url) {
+            try {
+                sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
+            } catch (Exception e) {
+                fail();
+            }
+        }
         order_qt_test_insert1 """ select name, age from ${test_insert} where id = '${uuid1}' order by age """
 
         String uuid2 = UUID.randomUUID().toString();
@@ -130,8 +161,8 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "type"="jdbc",
             "user"="root",
             "password"="123456",
-            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
-            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+            "driver_url" = "${driver_url}",
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "only_specified_database" = "true"
         );"""
@@ -147,8 +178,8 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "type"="jdbc",
             "user"="root",
             "password"="123456",
-            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}?useSSL=false",
-            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}?useSSL=false",
+            "driver_url" = "${driver_url}",
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "only_specified_database" = "true",
             "include_database_list" = "doris_test"
@@ -165,8 +196,8 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "type"="jdbc",
             "user"="root",
             "password"="123456",
-            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}?useSSL=false",
-            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}?useSSL=false",
+            "driver_url" = "${driver_url}",
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "only_specified_database" = "true",
             "exclude_database_list" = "doris_test"
@@ -183,8 +214,8 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "type"="jdbc",
             "user"="root",
             "password"="123456",
-            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}?useSSL=false",
-            "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}?useSSL=false",
+            "driver_url" = "${driver_url}",
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "only_specified_database" = "true",
             "include_database_list" = "doris_test",
@@ -202,8 +233,8 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "type"="jdbc",
             "jdbc.user"="root",
             "jdbc.password"="123456",
-            "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
-            "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+            "jdbc.driver_url" = "${driver_url}",
             "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
         """
         sql """ switch ${catalog_name} """
@@ -222,8 +253,8 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "type"="jdbc",
             "jdbc.user"="root",
             "jdbc.password"="123456",
-            "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
-            "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+            "jdbc.driver_url" = "${driver_url}",
             "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
         """
         qt_mysql_view """ select * from view_catalog.doris_test.mysql_view order by col_1;"""

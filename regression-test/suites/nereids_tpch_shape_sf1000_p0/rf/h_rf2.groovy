@@ -110,5 +110,5 @@ limit 100;
     // def outFile = "regression-test/suites/nereids_tpch_shape_sf1000_p0/ddl/rf/rf.2"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
-    assertEquals("RF3[ps_suppkey->[s_suppkey],RF2[n_nationkey->[s_nationkey],RF1[r_regionkey->[n_regionkey],RF0[p_partkey->[ps_partkey]", getRuntimeFilters(plan))
+    assertEquals("RF3[s_suppkey->[ps_suppkey],RF2[p_partkey->[ps_partkey],RF1[n_nationkey->[s_nationkey],RF0[r_regionkey->[n_regionkey]", getRuntimeFilters(plan))
 }

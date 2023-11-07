@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -251,34 +250,6 @@ public class ExpressionUtils {
         } else {
             return Optional.empty();
         }
-    }
-
-    /**
-     * get slot covered by cast
-     * example: input: cast(cast(table.columnA)) output: columnA.datatype
-     *
-     */
-    public static DataType getDatatypeCoveredByCast(Expression expr) {
-        if (expr instanceof Cast) {
-            return getDatatypeCoveredByCast(((Cast) expr).child());
-        }
-        return expr.getDataType();
-    }
-
-    /**
-     * judge if expression is slot covered by cast
-     * example: cast(cast(table.columnA))
-     */
-    public static boolean isExpressionSlotCoveredByCast(Expression expr) {
-        if (expr instanceof Cast) {
-            return isExpressionSlotCoveredByCast(((Cast) expr).child());
-        }
-        return expr instanceof SlotReference;
-    }
-
-    public static boolean isTwoExpressionEqualWithCast(Expression left, Expression right) {
-        return ExpressionUtils.extractSlotOrCastOnSlot(left)
-            .equals(ExpressionUtils.extractSlotOrCastOnSlot(right));
     }
 
     /**

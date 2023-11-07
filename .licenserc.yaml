@@ -18,6 +18,8 @@ header:
     - ".gitmodules"
     - ".licenserc.yaml"
     - ".rat-excludes"
+    - ".github/**"
+    - ".dockerignore"
     - "be/src/common/status.cpp"
     - "be/src/common/status.h"
     - "be/src/env/env.h"
@@ -88,5 +90,8 @@ header:
     - "regression-test/ssl_default_certificate/*"
     - "extension/beats/go.mod"
     - "extension/beats/go.sum"
-
+    - "pytest/hdfs"
+    - "pytest/qe"
+    - "pytest/sys/data"
+    - "pytest/deploy/*.conf"
   comment: on-failure

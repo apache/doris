@@ -26,13 +26,14 @@ PhysicalResultSink
 --------------------------------hashJoin[INNER_JOIN](store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
---------------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_sales]
-----------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
 ------------------------------------------PhysicalProject
---------------------------------------------filter((date_dim.d_dom >= 1)d_year IN (1998, 1999, 2000)(date_dim.d_dom <= 2))
-----------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------------PhysicalDistribute
+--------------------------------------------PhysicalProject
+----------------------------------------------filter((date_dim.d_dom >= 1)d_year IN (1998, 1999, 2000)(date_dim.d_dom <= 2))
+------------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
 ------------------------------------------filter(s_city IN ('Pleasant Hill', 'Five Points'))

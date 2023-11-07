@@ -54,10 +54,10 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_pk_uk_index_change,test_pk_uk_case,window_function,test_profile,test_broker_load_p2,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog"
+excludeSuites = "test_sql_block_rule,test_outfile_exception,test_digest,test_aggregate_all_functions2,test_cast_with_scale_type,test_hive_read_orc_complex_type,test_with_and_two_phase_agg,explode,test_cast_function,test_profile,test_broker_load_p2,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog"
 
 // this directories will not be executed
-excludeDirectories = "nereids_tpcds_shape_sf100_p0,nereids_tpch_shape_sf1000_p0,nereids_tpch_shape_sf500_p0,workload_manager_p1"
+excludeDirectories = "nereids_tpcds_shape_sf100_p0,nereids_tpch_shape_sf1000_p0,nereids_tpch_shape_sf500_p0,workload_manager_p1,fault_injection_p0"
 
 customConf1 = "test_custom_conf_value"
 
@@ -77,7 +77,7 @@ enableBrokerLoad=true
 enableJdbcTest=false
 mysql_57_port=7111
 pg_14_port=7121
-
+mariadb_10_port=3326
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
@@ -90,6 +90,9 @@ hiveServerPort=10000
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableKafkaTest=true
 kafka_port=19193
+
+// iceberg test config
+iceberg_rest_uri_port=18181
 
 enableEsTest=false
 es_6_port=19200

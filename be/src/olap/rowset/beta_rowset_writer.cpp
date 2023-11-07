@@ -20,6 +20,7 @@
 #include <assert.h>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
+#include <fmt/format.h>
 #include <stdio.h>
 
 #include <ctime> // time
@@ -33,7 +34,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/integral_types.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_options.h"
 #include "io/fs/file_system.h"
@@ -50,7 +50,9 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
+#include "runtime/thread_context.h"
 #include "segcompaction.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 #include "util/time.h"
 #include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
@@ -87,8 +89,8 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
     if (!_already_built) {       // abnormal exit, remove all files generated
         _segment_writer.reset(); // ensure all files are closed
-        auto fs = _rowset_meta->fs();
-        if (!fs) {
+        const auto& fs = _rowset_meta->fs();
+        if (!fs || !_rowset_meta->is_local()) { // Remote fs will delete them asynchronously
             return;
         }
         auto max_segment_id = std::max(_num_segment.load(), _next_segment_id.load());
@@ -99,7 +101,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
             WARN_IF_ERROR(fs->delete_file(seg_path),
-                          strings::Substitute("Failed to delete file=$0", seg_path));
+                          fmt::format("Failed to delete file={}", seg_path));
         }
     }
 }
@@ -733,6 +735,8 @@ Status BetaRowsetWriter::_do_create_segment_writer(
 Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                                 const FlushContext* flush_ctx) {
     size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
+    DBUG_EXECUTE_IF("BetaRowsetWriter._check_segment_number_limit_too_many_segments",
+                    { total_segment_num = dp->param("segnum", 1024); });
     if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
                 "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, _num_segment:{}, "

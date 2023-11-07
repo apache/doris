@@ -20,7 +20,6 @@ package org.apache.doris.common.util;
 import org.apache.doris.parser.DorisSqlSeparatorLexer;
 import org.apache.doris.parser.DorisSqlSeparatorParser;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
@@ -29,6 +28,7 @@ import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
 import org.antlr.v4.runtime.tree.ParseTree;
 
+import java.io.StringWriter;
 import java.util.Collections;
 import java.util.List;
 
@@ -51,11 +51,50 @@ public class SqlUtils {
         return sb.toString();
     }
 
+    /**
+     * add escape characters for string
+     * @param str
+     * eg:  "a'b" -> "a\'b"
+     * @return escaped string
+     */
     public static String escapeQuota(String str) {
-        if (Strings.isNullOrEmpty(str)) {
-            return str;
+        StringWriter writer = new StringWriter();
+        int strLen = str.length();
+        for (int i = 0; i < strLen; ++i) {
+            char c = str.charAt(i);
+            switch (c) {
+                case '\n':
+                    writer.append("\\n");
+                    break;
+                case '\t':
+                    writer.append("\\t");
+                    break;
+                case '\r':
+                    writer.append("\\r");
+                    break;
+                case '\b':
+                    writer.append("\\b");
+                    break;
+                case '\0':
+                    writer.append("\\0");
+                    break;
+                case '\032':
+                    writer.append("\\Z");
+                    break;
+                case '\'':
+                    writer.append("\\'");
+                    break;
+                case '\"':
+                    writer.append("\\\"");
+                    break;
+
+                default:
+                    writer.append(c);
+                    break;
+            }
         }
-        return str.replaceAll("\"", "\\\\\"");
+
+        return writer.toString();
     }
 
     public static List<String> splitMultiStmts(String sql) {

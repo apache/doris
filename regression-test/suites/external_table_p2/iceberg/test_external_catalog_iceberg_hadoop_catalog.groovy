@@ -37,7 +37,13 @@ suite("test_external_catalog_iceberg_hadoop_catalog", "p2,external,iceberg,exter
             qt_q03 """ select * from iceberg_hadoop_catalog order by c_custkey limit 3 """
         }
 
+        def q02 = {
+            qt_q04 """ select * from multi_partition2 order by val """
+            qt_q05 """ select count(*) from table_with_append_file where MAN_ID is not null """
+        }
+
         sql """ use `multi_catalog`; """
         q01()
+        q02()
     }
 }

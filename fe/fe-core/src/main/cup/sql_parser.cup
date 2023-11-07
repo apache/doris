@@ -296,7 +296,6 @@ terminal String
     KW_CLUSTERS,
     KW_COLLATE,
     KW_COLLATION,
-    KW_COLOCATE,
     KW_COLUMN,
     KW_COLUMNS,
     KW_COMMENT,
@@ -329,6 +328,7 @@ terminal String
     KW_DATEV2,
     KW_DAY,
     KW_DECIMAL,
+    KW_DECIMALV2,
     KW_DECIMALV3,
     KW_DECOMMISSION,
     KW_DEFAULT,
@@ -801,7 +801,6 @@ nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
-nonterminal ColocateGroupName colocate_group_name;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -1330,10 +1329,6 @@ alter_stmt ::=
     | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
-    :}
-    | KW_ALTER KW_COLOCATE KW_GROUP colocate_group_name:colocateGroupName KW_SET LPAREN key_value_map:properties RPAREN
-    {:
-        RESULT = new AlterColocateGroupStmt(colocateGroupName, properties);
     :}
     | KW_ALTER KW_WORKLOAD KW_GROUP ident_or_text:workloadGroupName opt_properties:properties
     {:
@@ -4001,7 +3996,11 @@ show_param ::=
     :}
     | KW_PROPERTY opt_user:user opt_wild_where
     {:
-        RESULT = new ShowUserPropertyStmt(user, parser.wild);
+        RESULT = new ShowUserPropertyStmt(user, parser.wild, false);
+    :}
+    | KW_ALL KW_PROPERTIES opt_wild_where
+    {:
+        RESULT = new ShowUserPropertyStmt(null, parser.wild, true);
     :}
     | KW_BACKUP opt_db:db opt_wild_where
     {:
@@ -5533,17 +5532,6 @@ table_name ::=
     {: RESULT = new TableName(ctl, db, tbl); :}
     ;
 
-colocate_group_name ::=
-    ident:group
-    {:
-        RESULT = new ColocateGroupName(null, group);
-    :}
-    | ident:db DOT ident:group
-    {:
-        RESULT = new ColocateGroupName(db, group);
-    :}
-    ;
-
 encryptkey_name ::=
     ident:name
     {:
@@ -6298,6 +6286,16 @@ type ::=
   {: RESULT = ScalarType.createDecimalV3Type(precision); :}
   | KW_DECIMALV3 LPAREN ident_or_text:precision COMMA ident_or_text:scale RPAREN
   {: RESULT = ScalarType.createDecimalV3Type(precision, scale); :}
+  | KW_DECIMALV2 LPAREN INTEGER_LITERAL:precision RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue()); :}
+  | KW_DECIMALV2 LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue(), scale.intValue()); :}
+  | KW_DECIMALV2
+  {: RESULT = ScalarType.createDecimalV2Type(); :}
+  | KW_DECIMALV2 LPAREN ident_or_text:precision RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision); :}
+  | KW_DECIMALV2 LPAREN ident_or_text:precision COMMA ident_or_text:scale RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision, scale); :}
   | KW_HLL
   {: ScalarType type = ScalarType.createHllType();
      RESULT = type;
@@ -7414,6 +7412,8 @@ keyword ::=
     | KW_DEFERRED:id
     {: RESULT = id; :}
     | KW_DEMAND:id
+    {: RESULT = id; :}
+    | KW_DECIMALV2:id
     {: RESULT = id; :}
     | KW_DECIMALV3:id
     {: RESULT = id; :}

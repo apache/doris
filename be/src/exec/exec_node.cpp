@@ -41,6 +41,7 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "util/stack_util.h"
 #include "util/uid_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
@@ -180,6 +181,14 @@ Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
     return Status::OK();
 }
 
+Status ExecNode::collect_query_statistics(QueryStatistics* statistics, int sender_id) {
+    DCHECK(statistics != nullptr);
+    for (auto child_node : _children) {
+        RETURN_IF_ERROR(child_node->collect_query_statistics(statistics, sender_id));
+    }
+    return Status::OK();
+}
+
 void ExecNode::release_resource(doris::RuntimeState* state) {
     if (!_is_resource_released) {
         if (_rows_returned_counter != nullptr) {
@@ -197,7 +206,7 @@ Status ExecNode::close(RuntimeState* state) {
                   << " already closed";
         return Status::OK();
     }
-    LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id()) << " closed";
+    LOG(INFO) << "fragment_instance_id=" << print_id(state->fragment_instance_id()) << " closed. ";
     _is_closed = true;
 
     Status result;
@@ -211,6 +220,9 @@ Status ExecNode::close(RuntimeState* state) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
     release_resource(state);
+    LOG(INFO) << "query= " << print_id(state->query_id())
+              << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+              << ", id=" << _id << " type=" << print_plan_node_type(_type) << " closed";
     return result;
 }
 

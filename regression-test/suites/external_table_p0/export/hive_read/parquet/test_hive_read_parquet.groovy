@@ -199,7 +199,7 @@ suite("test_hive_read_parquet", "external,hive,external_docker") {
                                     largeint_col STRING,
                                     `float_col` float,
                                     `double_col` double,
-                                    `char_col` char(5),
+                                    `char_col` STRING,
                                     `decimal_col` decimal ,
                                     `decimalv3_col` decimal ,
                                     `decimalv3_col2` decimal(1,0) ,

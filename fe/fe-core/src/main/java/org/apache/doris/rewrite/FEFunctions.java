@@ -150,7 +150,7 @@ public class FEFunctions {
         return new StringLiteral(result);
     }
 
-    @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIME")
+    @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIMEV2")
     public static DateLiteral dateParse(StringLiteral date, StringLiteral fmtLiteral) throws AnalysisException {
         DateLiteral dateLiteral = new DateLiteral();
         try {
