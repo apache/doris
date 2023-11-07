@@ -44,6 +44,39 @@ suite("test_bitmap_int") {
 
     sql "DROP TABLE test_int_bitmap"
 
+    sql "DROP TABLE IF EXISTS test_bitmap"
+    sql """CREATE TABLE
+    `test_bitmap` (
+    `id` varchar(16) NOT NULL,
+    `id_bitmap` bitmap BITMAP_UNION NOT NULL
+    ) DISTRIBUTED BY HASH (`id`) BUCKETS 1 PROPERTIES ("replication_num" = "1");"""
+
+    test {
+        sql """SELECT id_bitmap  FROM test_bitmap  WHERE (id_bitmap NOT IN (NULL) OR (1 = 1)) AND id_bitmap IS NOT NULL   LIMIT 20;"""
+        exception "errCode"
+    }
+
+    test {
+        sql """SELECT id_bitmap  FROM test_bitmap  WHERE id_bitmap IN (NULL) LIMIT 20;"""
+        exception "errCode"
+    }
+
+    test {
+        sql """SELECT id_bitmap  FROM test_bitmap  WHERE id_bitmap = 1 LIMIT 20;"""
+        exception "errCode"
+    }
+
+    test {
+        sql """SELECT case id_bitmap when 1 then 1 else 0 FROM test_bitmap;"""
+        exception "errCode"
+    }
+
+    qt_sql64_4 """SELECT id_bitmap  FROM test_bitmap  WHERE id_bitmap is null LIMIT 20;"""
+
+    qt_sql64_5 """select case when 1 = 0 then bitmap_from_string('0') else bitmap_from_string('0') end as new_bitmap;"""
+
+    sql "DROP TABLE IF EXISTS test_bitmap"
+
 }
 
 

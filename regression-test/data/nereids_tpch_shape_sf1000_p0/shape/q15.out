@@ -10,12 +10,13 @@ PhysicalResultSink
 --------------PhysicalOlapScan[supplier]
 ------------PhysicalDistribute
 --------------hashJoin[INNER_JOIN] hashCondition=((revenue0.total_revenue = max(total_revenue)))otherCondition=()
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((lineitem.l_shipdate < 1996-04-01) and (lineitem.l_shipdate >= 1996-01-01))
---------------------------PhysicalOlapScan[lineitem]
+----------------PhysicalProject
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute
+----------------------hashAgg[LOCAL]
+------------------------PhysicalProject
+--------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
+----------------------------PhysicalOlapScan[lineitem]
 ----------------PhysicalDistribute
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute
@@ -25,6 +26,6 @@ PhysicalResultSink
 ----------------------------PhysicalDistribute
 ------------------------------hashAgg[LOCAL]
 --------------------------------PhysicalProject
-----------------------------------filter((lineitem.l_shipdate < 1996-04-01) and (lineitem.l_shipdate >= 1996-01-01))
+----------------------------------filter((lineitem.l_shipdate < '1996-04-01') and (lineitem.l_shipdate >= '1996-01-01'))
 ------------------------------------PhysicalOlapScan[lineitem]
 

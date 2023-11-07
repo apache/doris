@@ -33,7 +33,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/olap_common.h"
-#include "exec/text_converter.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -62,14 +61,10 @@ struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;
-class VecDateTimeValue;
-struct DateTimeV2ValueType;
 template <typename T>
 class ColumnVector;
 template <typename T>
 class DataTypeDecimal;
-template <typename T>
-class DateV2Value;
 template <typename T>
 struct Decimal;
 } // namespace vectorized
@@ -174,7 +169,6 @@ public:
 
     int64_t size() const;
 
-    std::unordered_map<std::string, TypeDescriptor> get_name_to_type() override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
@@ -215,7 +209,7 @@ private:
         ~ORCFilterImpl() override = default;
         void filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
                     void* arg) const override {
-            orcReader->filter(data, sel, size, arg);
+            static_cast<void>(orcReader->filter(data, sel, size, arg));
         }
 
     private:
@@ -230,13 +224,14 @@ private:
         virtual void fillDictFilterColumnNames(
                 std::unique_ptr<orc::StripeInformation> current_strip_information,
                 std::list<std::string>& column_names) const override {
-            _orc_reader->fill_dict_filter_column_names(std::move(current_strip_information),
-                                                       column_names);
+            static_cast<void>(_orc_reader->fill_dict_filter_column_names(
+                    std::move(current_strip_information), column_names));
         }
         virtual void onStringDictsLoaded(
                 std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
                 bool* is_stripe_filtered) const override {
-            _orc_reader->on_string_dicts_loaded(column_name_to_dict_map, is_stripe_filtered);
+            static_cast<void>(_orc_reader->on_string_dicts_loaded(column_name_to_dict_map,
+                                                                  is_stripe_filtered));
         }
 
     private:
@@ -503,7 +498,7 @@ private:
     int64_t _range_size;
     const std::string& _ctz;
     const std::vector<std::string>* _column_names;
-    size_t _offset_days = 0;
+    int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
 
     std::list<std::string> _read_cols;
@@ -542,7 +537,6 @@ private:
     bool _is_acid = false;
     std::unique_ptr<IColumn::Filter> _filter = nullptr;
     LazyReadContext _lazy_read_ctx;
-    std::unique_ptr<TextConverter> _text_converter = nullptr;
     const TransactionalHiveReader::AcidRowIDSet* _delete_rows = nullptr;
     std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr = nullptr;
 

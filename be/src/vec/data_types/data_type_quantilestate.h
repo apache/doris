@@ -53,7 +53,9 @@ public:
     const char* get_family_name() const override { return "QuantileState"; }
 
     TypeIndex get_type_id() const override { return TypeIndex::QuantileState; }
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_QUANTILE_STATE; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_QUANTILE_STATE);
+    }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::QUANTILE_STATE;
     }
@@ -98,8 +100,8 @@ public:
     static void serialize_as_stream(const QuantileState& value, BufferWritable& buf);
 
     static void deserialize_as_stream(QuantileState& value, BufferReadable& buf);
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeQuantileStateSerDe>();
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeQuantileStateSerDe>(nesting_level);
     };
 };
 } // namespace doris::vectorized

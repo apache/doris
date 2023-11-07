@@ -190,6 +190,12 @@ public class ConnectContext {
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
+    //internal call like `insert overwrite` need skipAuth
+    // For example, `insert overwrite` only requires load permission,
+    // but the internal implementation will call the logic of `AlterTable`.
+    // In this case, `skipAuth` needs to be set to `true` to skip the permission check of `AlterTable`
+    private boolean skipAuth = false;
+
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
             sessionVariable.setQueryTimeoutS(queryTimeout);
@@ -748,7 +754,7 @@ public class ConnectContext {
         } else {
             String timeoutTag = "query";
             // insert stmt particularly
-            if (executor != null && executor.isInsertStmt()) {
+            if (executor != null && executor.isSyncLoadKindStmt()) {
                 timeoutTag = "insert";
             }
             // to ms
@@ -802,7 +808,7 @@ public class ConnectContext {
      * @return exact execution timeout
      */
     public int getExecTimeout() {
-        if (executor != null && executor.isInsertStmt()) {
+        if (executor != null && executor.isSyncLoadKindStmt()) {
             // particular for insert stmt, we can expand other type of timeout in the same way
             return Math.max(sessionVariable.getInsertTimeoutS(), sessionVariable.getQueryTimeoutS());
         } else if (executor != null && executor.isAnalyzeStmt()) {
@@ -902,6 +908,14 @@ public class ConnectContext {
 
     public Backend getInsertGroupCommit(long tableId) {
         return insertGroupCommitTableToBeMap.get(tableId);
+    }
+
+    public boolean isSkipAuth() {
+        return skipAuth;
+    }
+
+    public void setSkipAuth(boolean skipAuth) {
+        this.skipAuth = skipAuth;
     }
 }
 

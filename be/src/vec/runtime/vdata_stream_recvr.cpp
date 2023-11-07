@@ -46,7 +46,9 @@ VDataStreamRecvr::SenderQueue::SenderQueue(VDataStreamRecvr* parent_recvr, int n
         : _recvr(parent_recvr),
           _is_cancelled(false),
           _num_remaining_senders(num_senders),
-          _received_first_batch(false) {}
+          _received_first_batch(false) {
+    _cancel_status = Status::OK();
+}
 
 VDataStreamRecvr::SenderQueue::~SenderQueue() {
     // Check pending closures, if it is not empty, should clear it here. but it should not happen.
@@ -67,7 +69,7 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     std::unique_lock<std::mutex> l(_lock);
     // wait until something shows up or we know we're done
     while (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
-        VLOG_ROW << "wait arrival fragment_instance_id=" << _recvr->fragment_instance_id()
+        VLOG_ROW << "wait arrival fragment_instance_id=" << print_id(_recvr->fragment_instance_id())
                  << " node=" << _recvr->dest_node_id();
         // Don't count time spent waiting on the sender as active time.
         CANCEL_SAFE_SCOPED_TIMER(_recvr->_data_arrival_timer, &_is_cancelled);
@@ -81,6 +83,7 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
 
 Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block, bool* eos) {
     if (_is_cancelled) {
+        RETURN_IF_ERROR(_cancel_status);
         return Status::Cancelled("Cancelled");
     }
 
@@ -260,8 +263,9 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
     _sender_eos_set.insert(be_number);
     DCHECK_GT(_num_remaining_senders, 0);
     _num_remaining_senders--;
-    VLOG_FILE << "decremented senders: fragment_instance_id=" << _recvr->fragment_instance_id()
-              << " node_id=" << _recvr->dest_node_id() << " #senders=" << _num_remaining_senders;
+    VLOG_FILE << "decremented senders: fragment_instance_id="
+              << print_id(_recvr->fragment_instance_id()) << " node_id=" << _recvr->dest_node_id()
+              << " #senders=" << _num_remaining_senders;
     if (_num_remaining_senders == 0) {
         if (_dependency) {
             _dependency->set_always_done();
@@ -270,17 +274,19 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
     }
 }
 
-void VDataStreamRecvr::SenderQueue::cancel() {
+void VDataStreamRecvr::SenderQueue::cancel(Status cancel_status) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
             return;
         }
         _is_cancelled = true;
+        _cancel_status = cancel_status;
         if (_dependency) {
             _dependency->set_always_done();
         }
-        VLOG_QUERY << "cancelled stream: _fragment_instance_id=" << _recvr->fragment_instance_id()
+        VLOG_QUERY << "cancelled stream: _fragment_instance_id="
+                   << print_id(_recvr->fragment_instance_id())
                    << " node_id=" << _recvr->dest_node_id();
     }
     // Wake up all threads waiting to produce/consume batches.  They will all
@@ -444,14 +450,32 @@ Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     }
 }
 
-void VDataStreamRecvr::remove_sender(int sender_id, int be_number) {
+void VDataStreamRecvr::remove_sender(int sender_id, int be_number, Status exec_status) {
+    if (!exec_status.ok()) {
+        cancel_stream(exec_status);
+        return;
+    }
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->decrement_senders(be_number);
 }
 
-void VDataStreamRecvr::cancel_stream() {
+void VDataStreamRecvr::remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics,
+                                     Status exec_status) {
+    if (!exec_status.ok()) {
+        cancel_stream(exec_status);
+        return;
+    }
+    int use_sender_id = _is_merging ? sender_id : 0;
+    _sender_queues[use_sender_id]->decrement_senders(be_number);
+    _sub_plan_query_statistics_recvr->insert(statistics, sender_id);
+}
+
+void VDataStreamRecvr::cancel_stream(Status exec_status) {
+    VLOG_QUERY << "cancel_stream: fragment_instance_id=" << print_id(_fragment_instance_id)
+               << exec_status;
+
     for (int i = 0; i < _sender_queues.size(); ++i) {
-        _sender_queues[i]->cancel();
+        _sender_queues[i]->cancel(exec_status);
     }
 }
 
@@ -480,7 +504,7 @@ void VDataStreamRecvr::close() {
     }
     // Remove this receiver from the DataStreamMgr that created it.
     // TODO: log error msg
-    _mgr->deregister_recvr(fragment_instance_id(), dest_node_id());
+    static_cast<void>(_mgr->deregister_recvr(fragment_instance_id(), dest_node_id()));
     _mgr = nullptr;
 
     _merger.reset();

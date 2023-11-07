@@ -36,6 +36,7 @@
 
 #include "common/status.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -50,6 +51,15 @@ class DeltaWriter;
 class OlapMeta;
 struct TabletPublishStatistics;
 
+enum class TxnState {
+    NOT_FOUND = 0,
+    PREPARED = 1,
+    COMMITTED = 2,
+    ROLLEDBACK = 3,
+    ABORTED = 4,
+    DELETED = 5,
+};
+
 struct TabletTxnInfo {
     PUniqueId load_id;
     RowsetSharedPtr rowset;
@@ -59,6 +69,10 @@ struct TabletTxnInfo {
     RowsetIdUnorderedSet rowset_ids;
     int64_t creation_time;
     bool ingest {false};
+    std::shared_ptr<PartialUpdateInfo> partial_update_info;
+    TxnState state {TxnState::PREPARED};
+
+    TabletTxnInfo() = default;
 
     TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset)
             : load_id(load_id), rowset(rowset), creation_time(UnixSeconds()) {}
@@ -75,7 +89,14 @@ struct TabletTxnInfo {
               rowset_ids(ids),
               creation_time(UnixSeconds()) {}
 
-    TabletTxnInfo() {}
+    void prepare() { state = TxnState::PREPARED; }
+    void commit() { state = TxnState::COMMITTED; }
+    void rollback() { state = TxnState::ROLLEDBACK; }
+    void abort() {
+        if (state == TxnState::PREPARED) {
+            state = TxnState::ABORTED;
+        }
+    }
 };
 
 struct CommitTabletTxnInfo {
@@ -110,7 +131,7 @@ public:
 
     // add a txn to manager
     // partition id is useful in publish version stage because version is associated with partition
-    Status prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+    Status prepare_txn(TPartitionId partition_id, const Tablet& tablet,
                        TTransactionId transaction_id, const PUniqueId& load_id,
                        bool is_ingest = false);
     // most used for ut
@@ -118,7 +139,7 @@ public:
                        TTabletId tablet_id, TabletUid tablet_uid, const PUniqueId& load_id,
                        bool is_ingest = false);
 
-    Status commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+    Status commit_txn(TPartitionId partition_id, const Tablet& tablet,
                       TTransactionId transaction_id, const PUniqueId& load_id,
                       const RowsetSharedPtr& rowset_ptr, bool is_recovery);
 
@@ -127,7 +148,7 @@ public:
                        TabletPublishStatistics* stats);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
-    Status rollback_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+    Status rollback_txn(TPartitionId partition_id, const Tablet& tablet,
                         TTransactionId transaction_id);
 
     Status delete_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -142,6 +163,10 @@ public:
     Status publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                        TTabletId tablet_id, TabletUid tablet_uid, const Version& version,
                        TabletPublishStatistics* stats);
+
+    // only abort not committed txn
+    void abort_txn(TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
+                   TabletUid tablet_uid);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     Status rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,
@@ -160,10 +185,6 @@ public:
                                  std::map<TabletInfo, RowsetSharedPtr>* tablet_infos);
 
     void get_all_related_tablets(std::set<TabletInfo>* tablet_infos);
-
-    // Just check if the txn exists.
-    bool has_txn(TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
-                 TabletUid tablet_uid);
 
     // Get all expired txns and save them in expire_txn_map.
     // This is currently called before reporting all tablet info, to avoid iterating txn map for every tablets.
@@ -185,12 +206,16 @@ public:
                                        TTabletId tablet_id, TabletUid tablet_uid,
                                        bool unique_key_merge_on_write,
                                        DeleteBitmapPtr delete_bitmap,
-                                       const RowsetIdUnorderedSet& rowset_ids);
+                                       const RowsetIdUnorderedSet& rowset_ids,
+                                       std::shared_ptr<PartialUpdateInfo> partial_update_info);
     void get_all_commit_tablet_txn_info_by_tablet(
             const TabletSharedPtr& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec);
 
     int64_t get_txn_by_tablet_version(int64_t tablet_id, int64_t version);
     void update_tablet_version_txn(int64_t tablet_id, int64_t version, int64_t txn_id);
+
+    TxnState get_txn_state(TPartitionId partition_id, TTransactionId transaction_id,
+                           TTabletId tablet_id, TabletUid tablet_uid);
 
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;

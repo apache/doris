@@ -73,7 +73,8 @@ static void set_up() {
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = std::string(buffer) + "/data_test";
-    io::global_local_filesystem()->delete_and_create_directory(config::storage_root_path);
+    static_cast<void>(
+            io::global_local_filesystem()->delete_and_create_directory(config::storage_root_path));
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 
@@ -85,8 +86,8 @@ static void set_up() {
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
-    exec_env->set_storage_engine(k_engine.get());
-    k_engine->start_bg_threads();
+    static_cast<void>(exec_env->set_storage_engine(k_engine.get()));
+    static_cast<void>(k_engine->start_bg_threads());
 }
 
 static void tear_down() {
@@ -95,8 +96,8 @@ static void tear_down() {
     exec_env->set_storage_engine(nullptr);
     k_engine.reset();
     EXPECT_EQ(system("rm -rf ./data_test"), 0);
-    io::global_local_filesystem()->delete_directory(std::string(getenv("DORIS_HOME")) + "/" +
-                                                    UNUSED_PREFIX);
+    static_cast<void>(io::global_local_filesystem()->delete_directory(
+            std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX));
 }
 
 static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
@@ -445,12 +446,12 @@ static void generate_data(vectorized::Block* block, int8_t k1, int16_t k2, int32
     int16_t c2 = k2;
     columns[1]->insert_data((const char*)&c2, sizeof(c2));
 
-    vectorized::VecDateTimeValue c3;
+    VecDateTimeValue c3;
     c3.from_date_str("2020-07-16 19:39:43", 19);
     int64_t c3_int = c3.to_int64();
     columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
 
-    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> c4;
+    DateV2Value<DateV2ValueType> c4;
     c4.set_time(2022, 6, 6, 0, 0, 0, 0);
     uint32_t c4_int = c4.to_date_int_val();
     columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
@@ -482,7 +483,7 @@ TEST_F(TestDeltaWriter, open) {
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     OlapTableSchemaParam param;
 
@@ -503,7 +504,7 @@ TEST_F(TestDeltaWriter, open) {
 
     // test vec delta writer
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
+    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId()));
     EXPECT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
@@ -528,7 +529,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     //     const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
     OlapTableSchemaParam param;
@@ -548,7 +549,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     write_req.table_schema_param = &param;
     DeltaWriter* delta_writer = nullptr;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
+    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId()));
     ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;
@@ -575,12 +576,12 @@ TEST_F(TestDeltaWriter, vec_write) {
         int128_t k5 = -90000;
         columns[4]->insert_data((const char*)&k5, sizeof(k5));
 
-        vectorized::VecDateTimeValue k6;
+        VecDateTimeValue k6;
         k6.from_date_str("2048-11-10", 10);
         auto k6_int = k6.to_int64();
         columns[5]->insert_data((const char*)&k6_int, sizeof(k6_int));
 
-        vectorized::VecDateTimeValue k7;
+        VecDateTimeValue k7;
         k7.from_date_str("2636-08-16 19:39:43", 19);
         auto k7_int = k7.to_int64();
         columns[6]->insert_data((const char*)&k7_int, sizeof(k7_int));
@@ -592,7 +593,7 @@ TEST_F(TestDeltaWriter, vec_write) {
         decimal_value.assign_from_double(1.1);
         columns[9]->insert_data((const char*)&decimal_value, sizeof(decimal_value));
 
-        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> date_v2;
+        DateV2Value<DateV2ValueType> date_v2;
         date_v2.from_date_str("2048-11-10", 10);
         auto date_v2_int = date_v2.to_date_int_val();
         columns[10]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
@@ -612,12 +613,12 @@ TEST_F(TestDeltaWriter, vec_write) {
         int128_t v5 = -90000;
         columns[15]->insert_data((const char*)&v5, sizeof(v5));
 
-        vectorized::VecDateTimeValue v6;
+        VecDateTimeValue v6;
         v6.from_date_str("2048-11-10", 10);
         auto v6_int = v6.to_int64();
         columns[16]->insert_data((const char*)&v6_int, sizeof(v6_int));
 
-        vectorized::VecDateTimeValue v7;
+        VecDateTimeValue v7;
         v7.from_date_str("2636-08-16 19:39:43", 19);
         auto v7_int = v7.to_int64();
         columns[17]->insert_data((const char*)&v7_int, sizeof(v7_int));
@@ -694,7 +695,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     OlapTableSchemaParam param;
 
@@ -713,7 +714,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     write_req.table_schema_param = &param;
     DeltaWriter* delta_writer = nullptr;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
+    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId()));
     ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;
@@ -811,7 +812,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     OlapTableSchemaParam param;
 
@@ -834,8 +835,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     profile1 = std::make_unique<RuntimeProfile>("LoadChannels1");
     std::unique_ptr<RuntimeProfile> profile2;
     profile2 = std::make_unique<RuntimeProfile>("LoadChannels2");
-    DeltaWriter::open(&write_req, &delta_writer1, profile1.get(), TUniqueId());
-    DeltaWriter::open(&write_req, &delta_writer2, profile2.get(), TUniqueId());
+    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer1, profile1.get(), TUniqueId()));
+    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer2, profile2.get(), TUniqueId()));
     ASSERT_NE(delta_writer1, nullptr);
     ASSERT_NE(delta_writer2, nullptr);
 
@@ -995,7 +996,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         std::unique_ptr<RowwiseIterator> iter;
         std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset1->tablet_schema());
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        ((BetaRowset*)rowset1.get())->load_segments(&segments);
+        static_cast<void>(((BetaRowset*)rowset1.get())->load_segments(&segments));
         auto s = segments[0]->new_iterator(schema, opts, &iter);
         ASSERT_TRUE(s.ok());
         auto read_block = rowset1->tablet_schema()->create_block();
@@ -1023,7 +1024,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         std::unique_ptr<RowwiseIterator> iter;
         std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset2->tablet_schema());
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        ((BetaRowset*)rowset2.get())->load_segments(&segments);
+        static_cast<void>(((BetaRowset*)rowset2.get())->load_segments(&segments));
         auto s = segments[0]->new_iterator(schema, opts, &iter);
         ASSERT_TRUE(s.ok());
         auto read_block = rowset2->tablet_schema()->create_block();

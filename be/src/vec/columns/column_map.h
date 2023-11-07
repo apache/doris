@@ -36,6 +36,8 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_impl.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
@@ -77,7 +79,6 @@ public:
 
     std::string get_name() const override;
     const char* get_family_name() const override { return "Map"; }
-    TypeIndex get_data_type() const override { return TypeIndex::Map; }
 
     void for_each_subcolumn(ColumnCallback callback) override {
         callback(keys_column);
@@ -111,19 +112,16 @@ public:
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-
+    MutableColumnPtr get_shrinked_column() override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
     void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         return scatter_impl<ColumnMap>(num_columns, selector);
     }
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not implemented";
-    };
+
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
@@ -140,11 +138,26 @@ public:
         return append_data_by_selector_impl<ColumnMap>(res, selector);
     }
 
-    void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "replace_column_data not implemented";
+    void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
+        DCHECK(size() > self_row);
+        const auto& r = assert_cast<const ColumnMap&>(rhs);
+        const size_t nested_row_size = r.size_at(row);
+        const size_t r_key_nested_start_off = r.offset_at(row);
+        const size_t r_val_nested_start_off = r.offset_at(row);
+
+        if (self_row == 0) {
+            keys_column->clear();
+            values_column->clear();
+        }
+        get_offsets()[self_row] = get_offsets()[self_row - 1] + nested_row_size;
+        // here we use batch size to avoid many virtual call in nested column
+        keys_column->insert_range_from(r.get_keys(), r_key_nested_start_off, nested_row_size);
+        values_column->insert_range_from(r.get_values(), r_val_nested_start_off, nested_row_size);
     }
+
     void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "replace_column_data_default not implemented";
+        DCHECK(size() > self_row);
+        get_offsets()[self_row] = get_offsets()[self_row - 1];
     }
 
     ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() {
@@ -166,11 +179,10 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
-    void protect() override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
     void update_hashes_with_value(std::vector<SipHash>& hashes,
@@ -179,7 +191,8 @@ public:
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data = nullptr) const override;
 
-    void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+    void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;
 
     /******************** keys and values ***************/

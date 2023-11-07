@@ -30,6 +30,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -172,26 +174,33 @@ public class ColumnStatistic {
             String min = row.get(10);
             String max = row.get(11);
             if (min != null && !min.equalsIgnoreCase("NULL")) {
+                min = new String(Base64.getDecoder().decode(min),
+                            StandardCharsets.UTF_8);
+
                 try {
                     columnStatisticBuilder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
                     columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
                 } catch (AnalysisException e) {
                     LOG.warn("Failed to deserialize column {} min value {}.", col, min, e);
-                    columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+                    columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
                 }
             } else {
-                columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+                columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
             }
             if (max != null && !max.equalsIgnoreCase("NULL")) {
+
+                max = new String(Base64.getDecoder().decode(max),
+                            StandardCharsets.UTF_8);
+
                 try {
                     columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
                     columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
                 } catch (AnalysisException e) {
                     LOG.warn("Failed to deserialize column {} max value {}.", col, max, e);
-                    columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
+                    columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
                 }
             } else {
-                columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
+                columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
             }
             columnStatisticBuilder.setUpdatedTime(row.get(13));
             return columnStatisticBuilder.build();

@@ -69,8 +69,6 @@ import org.apache.doris.analysis.ShowLastInsertStmt;
 import org.apache.doris.analysis.ShowLoadProfileStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
-import org.apache.doris.analysis.ShowMTMVJobStmt;
-import org.apache.doris.analysis.ShowMTMVTaskStmt;
 import org.apache.doris.analysis.ShowPartitionIdStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.ShowPluginsStmt;
@@ -172,6 +170,7 @@ import org.apache.doris.common.profile.ProfileTreePrinter;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.ProfileManager;
@@ -189,9 +188,6 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.mtmv.MTMVJobManager;
-import org.apache.doris.mtmv.metadata.MTMVJob;
-import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
@@ -199,8 +195,9 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticsRepository;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.query.QueryStatsUtil;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
@@ -243,6 +240,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -422,10 +420,6 @@ public class ShowExecutor {
             handleCopyTablet();
         } else if (stmt instanceof ShowCatalogRecycleBinStmt) {
             handleShowCatalogRecycleBin();
-        } else if (stmt instanceof ShowMTMVJobStmt) {
-            handleMTMVJobs();
-        } else if (stmt instanceof ShowMTMVTaskStmt) {
-            handleMTMVTasks();
         } else if (stmt instanceof ShowTypeCastStmt) {
             handleShowTypeCastStmt();
         } else if (stmt instanceof ShowBuildIndexStmt) {
@@ -682,19 +676,6 @@ public class ShowExecutor {
         ProcNodeInterface procNode = showProcStmt.getNode();
 
         List<List<String>> finalRows = procNode.fetchResult().getRows();
-        // if this is superuser, hide ip and host info form backends info proc
-        if (procNode instanceof BackendsProcDir) {
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
-                // hide host info
-                for (List<String> row : finalRows) {
-                    row.remove(BackendsProcDir.HOSTNAME_INDEX);
-                }
-
-                // mod meta data
-                metaData.removeColumn(BackendsProcDir.HOSTNAME_INDEX);
-            }
-        }
-
         resultSet = new ShowResultSet(metaData, finalRows);
     }
 
@@ -1404,10 +1385,11 @@ public class ShowExecutor {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         Backend be = infoService.getBackendWithHttpPort(host, port);
         if (be == null) {
-            throw new AnalysisException(host + ":" + port + " is not a valid backend");
+            throw new AnalysisException(NetUtils.getHostPortInAccessibleFormat(host, port) + " is not a valid backend");
         }
         if (!be.isAlive()) {
-            throw new AnalysisException("Backend " + host + ":" + port + " is not alive");
+            throw new AnalysisException(
+                    "Backend " + NetUtils.getHostPortInAccessibleFormat(host, port) + " is not alive");
         }
 
         if (!url.getPath().equals("/api/_load_error_log")) {
@@ -1446,14 +1428,15 @@ public class ShowExecutor {
             resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
             return;
         }
-        long jobId = jobs.get(0).getJobId();
+        Job job = jobs.get(0);
+        long jobId = job.getJobId();
         List<JobTask> jobTasks = Env.getCurrentEnv().getJobTaskManager().getJobTasks(jobId);
         if (CollectionUtils.isEmpty(jobTasks)) {
             resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
             return;
         }
-        for (JobTask job : jobTasks) {
-            rows.add(job.getShowInfo());
+        for (JobTask jobTask : jobTasks) {
+            rows.add(jobTask.getShowInfo(job.getJobName()));
         }
         resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
     }
@@ -2454,7 +2437,7 @@ public class ShowExecutor {
     private void handleShowTableStats() {
         ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
         TableIf tableIf = showTableStatsStmt.getTable();
-        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
         /*
            HMSExternalTable table will fetch row count from HMS
            or estimate with file size and schema if it's not analyzed.
@@ -2663,9 +2646,16 @@ public class ShowExecutor {
         for (AnalysisInfo analysisInfo : results) {
             List<String> row = new ArrayList<>();
             row.add(String.valueOf(analysisInfo.jobId));
-            row.add(analysisInfo.catalogName);
-            row.add(analysisInfo.dbName);
-            row.add(analysisInfo.tblName);
+            CatalogIf<? extends DatabaseIf<? extends TableIf>> c = StatisticsUtil.findCatalog(analysisInfo.catalogId);
+            row.add(c.getName());
+            Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = c.getDb(analysisInfo.dbId);
+            row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
+            if (databaseIf.isPresent()) {
+                Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
+                row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
+            } else {
+                row.add("DB may get deleted");
+            }
             row.add(analysisInfo.colName);
             row.add(analysisInfo.jobType.toString());
             row.add(analysisInfo.analysisType.toString());
@@ -2796,46 +2786,6 @@ public class ShowExecutor {
                 .collect(Collectors.toList());
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
-    }
-
-    private void handleMTMVJobs() throws AnalysisException {
-        ShowMTMVJobStmt showStmt = (ShowMTMVJobStmt) stmt;
-        MTMVJobManager jobManager = Env.getCurrentEnv().getMTMVJobManager();
-        List<MTMVJob> jobs = Lists.newArrayList();
-        if (showStmt.isShowAllJobs()) {
-            jobs.addAll(jobManager.showAllJobs());
-        } else if (showStmt.isShowAllJobsFromDb()) {
-            jobs.addAll(jobManager.showJobs(showStmt.getDbName()));
-        } else if (showStmt.isShowAllJobsOnMv()) {
-            jobs.addAll(jobManager.showJobs(showStmt.getDbName(), showStmt.getMVName()));
-        } else if (showStmt.isSpecificJob()) {
-            jobs.add(jobManager.getJob(showStmt.getJobName()));
-        }
-        List<List<String>> results = Lists.newArrayList();
-        for (MTMVJob job : jobs) {
-            results.add(job.toStringRow());
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
-    }
-
-    private void handleMTMVTasks() throws AnalysisException {
-        ShowMTMVTaskStmt showStmt = (ShowMTMVTaskStmt) stmt;
-        MTMVJobManager jobManager = Env.getCurrentEnv().getMTMVJobManager();
-        List<MTMVTask> tasks = Lists.newArrayList();
-        if (showStmt.isShowAllTasks()) {
-            tasks.addAll(jobManager.getTaskManager().showAllTasks());
-        } else if (showStmt.isShowAllTasksFromDb()) {
-            tasks.addAll(jobManager.getTaskManager().showTasksWithLock(showStmt.getDbName()));
-        } else if (showStmt.isShowAllTasksOnMv()) {
-            tasks.addAll(jobManager.getTaskManager().showTasks(showStmt.getDbName(), showStmt.getMVName()));
-        } else if (showStmt.isSpecificTask()) {
-            tasks.add(jobManager.getTaskManager().getTask(showStmt.getTaskId()));
-        }
-        List<List<String>> results = Lists.newArrayList();
-        for (MTMVTask task : tasks) {
-            results.add(task.toStringRow());
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 
     private void handleShowTypeCastStmt() throws AnalysisException {

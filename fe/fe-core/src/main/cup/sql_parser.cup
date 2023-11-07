@@ -328,8 +328,11 @@ terminal String
     KW_DATETIME,
     KW_DATETIMEV2,
     KW_DATEV2,
+    KW_DATETIMEV1,
+    KW_DATEV1,
     KW_DAY,
     KW_DECIMAL,
+    KW_DECIMALV2,
     KW_DECIMALV3,
     KW_DECOMMISSION,
     KW_DEFAULT,
@@ -347,6 +350,7 @@ terminal String
     KW_DISTRIBUTION,
     KW_DIV,
     KW_DO,
+    KW_DORIS_INTERNAL_TABLE_ID,
     KW_DOUBLE,
     KW_DROP,
     KW_DROPP,
@@ -425,6 +429,8 @@ terminal String
     KW_INTERSECT,
     KW_INTERVAL,
     KW_INTO,
+    KW_IPV4,
+    KW_IPV6,
     KW_IS,
     KW_ISNULL,
     KW_ISOLATION,
@@ -577,6 +583,7 @@ terminal String
     KW_SNAPSHOT,
     KW_SONAME,
     KW_SPLIT,
+    KW_SQL,
     KW_SQL_BLOCK_RULE,
     KW_START,
     KW_STARTS,    
@@ -611,6 +618,7 @@ terminal String
     KW_TO,
     KW_TRANSACTION,
     KW_TRASH,
+    KW_TREE,
     KW_TRIGGERS,
     KW_TRIM,
     KW_TRUE,
@@ -841,7 +849,6 @@ nonterminal DistributionDesc opt_distribution;
 nonterminal Integer opt_distribution_number;
 nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
-nonterminal KeysDesc opt_mv_keys;
 nonterminal Long opt_id;
 
 nonterminal PartitionKeyDesc partition_key_desc;
@@ -948,14 +955,6 @@ nonterminal StorageBackend storage_backend;
 
 nonterminal ArrayList<LockTable> opt_lock_tables_list;
 nonterminal LockTable lock_table;
-
-// mv
-nonterminal MVRefreshInfo.BuildMode build_mv;
-nonterminal MVRefreshInfo.RefreshMethod opt_refresh_method;
-nonterminal MVRefreshTriggerInfo opt_refresh_trigger;
-nonterminal MVRefreshInfo opt_mv_refersh_info;
-nonterminal PartitionDesc opt_mv_partition;
-
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -1228,14 +1227,6 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshDbStmt(ctl, db, properties);
     :}
-    | KW_REFRESH KW_MATERIALIZED KW_VIEW table_name:mv
-    {:
-        RESULT = new RefreshMaterializedViewStmt(mv, MVRefreshInfo.RefreshMethod.COMPLETE);
-    :}
-    | KW_REFRESH KW_MATERIALIZED KW_VIEW table_name:mv KW_COMPLETE
-    {:
-        RESULT = new RefreshMaterializedViewStmt(mv, MVRefreshInfo.RefreshMethod.COMPLETE);
-    :}
     | KW_REFRESH KW_CATALOG ident:catalogName opt_properties:properties
     {:
         RESULT = new RefreshCatalogStmt(catalogName, properties);
@@ -1345,6 +1336,10 @@ alter_stmt ::=
     {:
         RESULT = new AlterCatalogPropertyStmt(catalogName, map);
     :}
+    | KW_ALTER KW_CATALOG ident:catalogName KW_MODIFY KW_COMMENT STRING_LITERAL:comment
+    {:
+        RESULT = new AlterCatalogCommentStmt(catalogName, comment);
+    :}
     | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
     {:
         RESULT = new AlterResourceStmt(resourceName, properties);
@@ -1385,10 +1380,6 @@ alter_stmt ::=
     | KW_ALTER KW_STORAGE KW_POLICY ident_or_text:policyName opt_properties:properties
     {:
         RESULT = new AlterPolicyStmt(policyName, properties);
-    :}
-    | KW_ALTER KW_MATERIALIZED KW_VIEW table_name:mv opt_mv_refersh_info:refreshInfo
-    {:
-        RESULT = new AlterMaterializedViewStmt(mv, refreshInfo);
     :}
     | KW_ALTER KW_USER
       opt_if_exists:ifExists
@@ -1723,97 +1714,6 @@ opt_intermediate_type ::=
     :}
     ;
 
-build_mv ::=
-    KW_BUILD KW_IMMEDIATE
-    {:
-        RESULT = MVRefreshInfo.BuildMode.IMMEDIATE;
-    :}
-    | KW_BUILD KW_DEFERRED
-    {:
-        RESULT = MVRefreshInfo.BuildMode.DEFERRED;
-    :}
-    ;
-
-opt_refresh_method ::=
-    {:
-        RESULT = null;
-    :}
-    | KW_FAST
-    {:
-        RESULT = MVRefreshInfo.RefreshMethod.FAST;
-    :}
-    | KW_COMPLETE
-    {:
-        RESULT = MVRefreshInfo.RefreshMethod.COMPLETE;
-    :}
-    | KW_FORCE
-    {:
-        RESULT = MVRefreshInfo.RefreshMethod.FORCE;
-    :}
-    ;
-
-opt_refresh_trigger ::=
-    {:
-        RESULT = new MVRefreshTriggerInfo(MVRefreshInfo.RefreshTrigger.DEMAND);
-    :}
-    | KW_ON KW_DEMAND
-    {:
-        RESULT = new MVRefreshTriggerInfo(MVRefreshInfo.RefreshTrigger.DEMAND);
-    :}
-    | KW_ON KW_COMMIT
-    {:
-        RESULT = new MVRefreshTriggerInfo(MVRefreshInfo.RefreshTrigger.COMMIT);
-    :}
-    | KW_START KW_WITH ident:start_time
-    {:
-        RESULT = new MVRefreshTriggerInfo(new MVRefreshIntervalTriggerInfo(start_time, -1, null));
-    :}
-    | KW_START KW_WITH STRING_LITERAL:start_time KW_NEXT INTEGER_LITERAL:interval time_unit:unit
-    {:
-        RESULT = new MVRefreshTriggerInfo(new MVRefreshIntervalTriggerInfo(start_time, interval, unit));
-    :}
-    | KW_NEXT INTEGER_LITERAL:interval time_unit:unit
-    {:
-        RESULT = new MVRefreshTriggerInfo(new MVRefreshIntervalTriggerInfo(null, interval, unit));
-    :}
-    ;
-
-opt_mv_refersh_info ::=
-    {:
-        RESULT = new MVRefreshInfo(true);
-    :}
-    | KW_REFRESH opt_refresh_method:refreshMethod opt_refresh_trigger:refreshTrigger
-    {:
-        RESULT = new MVRefreshInfo(refreshMethod, refreshTrigger);
-    :}
-    | KW_NEVER KW_REFRESH
-    {:
-        RESULT = new MVRefreshInfo(true);
-    :}
-    ;
-
-opt_mv_keys ::=
-    {:
-        RESULT = null;
-    :}
-    | KW_KEY LPAREN ident_list:keys RPAREN
-    {:
-        RESULT = new KeysDesc(KeysType.DUP_KEYS, keys);
-    :}
-    ;
-
-opt_mv_partition ::=
-    /* Empty: no partition */
-    {:
-        RESULT = null;
-    :}
-    /* Column partition */
-    | KW_PARTITION KW_BY LPAREN column_ref_list:columns RPAREN
-    {:
-        RESULT = new ColumnPartitionDesc(columns);
-    :}
-    ;
-
 // Create Statement
 create_stmt ::=
     /* Database */
@@ -1959,15 +1859,6 @@ create_stmt ::=
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_AS select_stmt:selectStmt opt_properties:properties
     {:
         RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
-    :}
-    | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName build_mv:buildMethod
-         opt_mv_refersh_info:refreshInfo
-         opt_mv_keys:keyDesc
-         opt_distribution:distributionDesc
-         opt_properties:properties
-         KW_AS query_stmt:query
-    {:
-        RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, keyDesc, null, distributionDesc, properties, query);
     :}
     | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
@@ -2662,17 +2553,17 @@ resource_desc ::=
 create_job_stmt ::=
      KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_job_starts:startsTime opt_job_ends:endsTime opt_comment:comment KW_DO stmt:executeSql  
     {:
-        CreateJobStmt stmt = new CreateJobStmt(jobLabel,null,false,time_interval,time_unit, startsTime, endsTime,comment,executeSql);
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,"RECURRING",null,time_interval,time_unit, startsTime, endsTime,comment,executeSql);
         RESULT = stmt;
     :}
     | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_STREAMING KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
     {:
-        CreateJobStmt stmt = new CreateJobStmt(jobLabel,atTime,true,null,null,null,null,comment,executeSql);
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,"STREAMING",atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
     :}    
     | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
     {:
-        CreateJobStmt stmt = new CreateJobStmt(jobLabel,atTime,false,null,null,null,null,comment,executeSql);
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,"ONE_TIME",atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
     :}
     ;                           
@@ -2842,49 +2733,6 @@ show_routine_load_task_stmt ::=
     KW_SHOW KW_ROUTINE KW_LOAD KW_TASK opt_db:dbName opt_wild_where
     {:
         RESULT = new ShowRoutineLoadTaskStmt(dbName, parser.where);
-    :}
-    ;
-
-show_mtmv_stmt ::=
-    KW_SHOW KW_MTMV KW_JOB
-    {:
-        RESULT = new ShowMTMVJobStmt();
-    :}
-    | KW_SHOW KW_MTMV KW_JOB KW_FOR ident:jobName
-    {:
-        RESULT = new ShowMTMVJobStmt(jobName);
-    :}
-    | KW_SHOW KW_MTMV KW_JOB KW_FROM ident:dbName
-    {:
-        RESULT = new ShowMTMVJobStmt(dbName, null);
-    :}
-    | KW_SHOW KW_MTMV KW_JOB KW_ON table_name:tbl
-    {:
-        RESULT = new ShowMTMVJobStmt(null, tbl);
-    :}
-    | KW_SHOW KW_MTMV KW_JOB KW_FROM ident:dbName KW_ON table_name:tbl
-    {:
-        RESULT = new ShowMTMVJobStmt(dbName, tbl);
-    :}
-    | KW_SHOW KW_MTMV KW_TASK
-    {:
-        RESULT = new ShowMTMVTaskStmt();
-    :}
-    | KW_SHOW KW_MTMV KW_TASK KW_FOR ident:taskId
-    {:
-        RESULT = new ShowMTMVTaskStmt(taskId);
-    :}
-    | KW_SHOW KW_MTMV KW_TASK KW_FROM ident:dbName
-    {:
-        RESULT = new ShowMTMVTaskStmt(dbName, null);
-    :}
-    | KW_SHOW KW_MTMV KW_TASK KW_ON table_name:tbl
-    {:
-        RESULT = new ShowMTMVTaskStmt(null, tbl);
-    :}
-    | KW_SHOW KW_MTMV KW_TASK KW_FROM ident:dbName KW_ON table_name:tbl
-    {:
-        RESULT = new ShowMTMVTaskStmt(dbName, tbl);
     :}
     ;
 
@@ -3253,6 +3101,15 @@ opt_partition ::=
         exprs.add(fnExpr);
         RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
     :}
+    | KW_AUTO KW_PARTITION KW_BY KW_RANGE function_name:functionName LPAREN expr_list:l COMMA
+        KW_INTERVAL expr:v ident:u RPAREN LPAREN opt_all_partition_desc_list:list RPAREN
+    {:
+        Expr fnExpr = FunctionCallExpr.functionWithIntervalConvert(functionName.getFunction().toLowerCase(), l.get(0), v, u); 
+        ArrayList<Expr> exprs = new ArrayList<Expr>();
+        exprs.add(fnExpr);
+        RESULT = RangePartitionDesc.createRangePartitionDesc(exprs, list);
+    :}
+
     /* expr list partition */
     | KW_AUTO KW_PARTITION KW_BY KW_LIST LPAREN expr_list:exprs RPAREN
             LPAREN opt_all_partition_desc_list:list RPAREN
@@ -4107,7 +3964,11 @@ show_param ::=
     :}
     | KW_PROPERTY opt_user:user opt_wild_where
     {:
-        RESULT = new ShowUserPropertyStmt(user, parser.wild);
+        RESULT = new ShowUserPropertyStmt(user, parser.wild, false);
+    :}
+    | KW_ALL KW_PROPERTIES opt_wild_where
+    {:
+        RESULT = new ShowUserPropertyStmt(null, parser.wild, true);
     :}
     | KW_BACKUP opt_db:db opt_wild_where
     {:
@@ -4297,7 +4158,7 @@ show_param ::=
     {:
         RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
     :}
-    | KW_CONVERT_LSC KW_FROM opt_db:db
+    | KW_CONVERT_LSC opt_db:db
     {:
         RESULT = new ShowConvertLSCStmt(db);
     :}
@@ -4457,15 +4318,19 @@ opt_builtin ::=
 
 opt_explain_options ::=
     {:
-        RESULT = new ExplainOptions(false, false);
+        RESULT = new ExplainOptions(false, false, false);
     :}
     | KW_VERBOSE
     {:
-        RESULT = new ExplainOptions(true, false);
+        RESULT = new ExplainOptions(true, false, false);
+    :}
+    | KW_TREE
+    {:
+        RESULT = new ExplainOptions(false, true, false);
     :}
     | KW_GRAPH
     {:
-        RESULT = new ExplainOptions(false, true);
+        RESULT = new ExplainOptions(false, false, true);
     :}
     ;
 
@@ -4827,7 +4692,7 @@ insert_stmt ::=
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
     | /* used for group commit */
-    KW_INSERT KW_INTO INTEGER_LITERAL:table_id opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
+    KW_INSERT KW_INTO KW_DORIS_INTERNAL_TABLE_ID LPAREN INTEGER_LITERAL:table_id RPAREN opt_with_label:label opt_col_list:cols opt_plan_hints:hints insert_source:source
     {:
         RESULT = new NativeInsertStmt(table_id, label, cols, source, hints);
     :}
@@ -6128,6 +5993,12 @@ with_analysis_properties ::=
              put(AnalyzeProperties.PROPERTY_FORCE_FULL, "true");
         }};
     :}
+    | KW_SQL
+    {:
+        RESULT = new HashMap<String, String>() {{
+             put(AnalyzeProperties.PROPERTY_PARTITION_COLUMN_FROM_SQL, "true");
+        }};
+    :}
 
     ;
 
@@ -6335,6 +6206,10 @@ type ::=
   {: RESULT = ScalarType.createDatetimeV2Type(precision.intValue()); :}
   | KW_DATETIME
   {: RESULT = ScalarType.createDatetimeType(); :}
+  | KW_DATEV1
+  {: RESULT = ScalarType.createDateV1Type(); :}
+  | KW_DATETIMEV1
+  {: RESULT = ScalarType.createDatetimeV1Type(); :}
   | KW_TIME LPAREN INTEGER_LITERAL:precision RPAREN
   {: RESULT = ScalarType.createTimeV2Type(precision.intValue()); :}
   | KW_TIME
@@ -6345,6 +6220,10 @@ type ::=
   {: RESULT = ScalarType.createDatetimeV2Type(precision.intValue()); :}
   | KW_DATETIMEV2
   {: RESULT = ScalarType.createDatetimeV2Type(0); :}
+  | KW_IPV4
+  {: RESULT = Type.IPV4; :}
+  | KW_IPV6
+  {: RESULT = Type.IPV6; :}
   | KW_BITMAP
   {: RESULT = Type.BITMAP; :}
   | KW_QUANTILE_STATE
@@ -6407,6 +6286,16 @@ type ::=
   {: RESULT = ScalarType.createDecimalV3Type(precision); :}
   | KW_DECIMALV3 LPAREN ident_or_text:precision COMMA ident_or_text:scale RPAREN
   {: RESULT = ScalarType.createDecimalV3Type(precision, scale); :}
+  | KW_DECIMALV2 LPAREN INTEGER_LITERAL:precision RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue()); :}
+  | KW_DECIMALV2 LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision.intValue(), scale.intValue()); :}
+  | KW_DECIMALV2
+  {: RESULT = ScalarType.createDecimalV2Type(); :}
+  | KW_DECIMALV2 LPAREN ident_or_text:precision RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision); :}
+  | KW_DECIMALV2 LPAREN ident_or_text:precision COMMA ident_or_text:scale RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision, scale); :}
   | KW_HLL
   {: ScalarType type = ScalarType.createHllType();
      RESULT = type;
@@ -6718,6 +6607,8 @@ non_pred_expr ::=
   | function_call_expr:e
   {: RESULT = e; :}
   | KW_DATE STRING_LITERAL:l
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATE), new StringLiteral(l)); :}
+  | KW_DATEV1 STRING_LITERAL:l
   {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATE), new StringLiteral(l)); :}
   | KW_DATEV2 STRING_LITERAL:l
   {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATEV2), new StringLiteral(l)); :}
@@ -7536,11 +7427,17 @@ keyword ::=
     {: RESULT = id; :}
     | KW_DATETIMEV2:id
     {: RESULT = id; :}
+    | KW_DATEV1:id
+    {: RESULT = id; :}
+    | KW_DATETIMEV1:id
+    {: RESULT = id; :}
     | KW_DECIMAL:id
     {: RESULT = id; :}
     | KW_DEFERRED:id
     {: RESULT = id; :}
     | KW_DEMAND:id
+    {: RESULT = id; :}
+    | KW_DECIMALV2:id
     {: RESULT = id; :}
     | KW_DECIMALV3:id
     {: RESULT = id; :}
@@ -7771,6 +7668,8 @@ keyword ::=
     | KW_TIMESTAMP:id
     {: RESULT = id; :}
     | KW_TRANSACTION:id
+    {: RESULT = id; :}
+    | KW_TREE:id
     {: RESULT = id; :}
     | KW_TEXT:id
     {: RESULT = id; :}

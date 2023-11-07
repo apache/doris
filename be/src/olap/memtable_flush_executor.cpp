@@ -25,6 +25,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/signal_handler.h"
 #include "olap/memtable.h"
 #include "olap/rowset/rowset_writer.h"
 #include "util/doris_metrics.h"
@@ -106,6 +107,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
                   << ", rows: " << memtable->stat().raw_rows;
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
+    signal::set_signal_task_id(_rowset_writer->load_id());
     std::unique_ptr<vectorized::Block> block = memtable->to_block();
     {
         SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());
@@ -167,17 +169,17 @@ void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
     int32_t data_dir_num = data_dirs.size();
     size_t min_threads = std::max(1, config::flush_thread_num_per_store);
     size_t max_threads = data_dir_num * min_threads;
-    ThreadPoolBuilder("MemTableFlushThreadPool")
-            .set_min_threads(min_threads)
-            .set_max_threads(max_threads)
-            .build(&_flush_pool);
+    static_cast<void>(ThreadPoolBuilder("MemTableFlushThreadPool")
+                              .set_min_threads(min_threads)
+                              .set_max_threads(max_threads)
+                              .build(&_flush_pool));
 
     min_threads = std::max(1, config::high_priority_flush_thread_num_per_store);
     max_threads = data_dir_num * min_threads;
-    ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
-            .set_min_threads(min_threads)
-            .set_max_threads(max_threads)
-            .build(&_high_prio_flush_pool);
+    static_cast<void>(ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
+                              .set_min_threads(min_threads)
+                              .set_max_threads(max_threads)
+                              .build(&_high_prio_flush_pool));
 }
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.

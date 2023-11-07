@@ -57,8 +57,6 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    RuntimeState* state() { return _state; }
-
 private:
     std::unique_ptr<ExchangeSinkBuffer<vectorized::VDataStreamSender>> _sink_buffer;
     int _dest_node_id = -1;
@@ -70,7 +68,7 @@ class ExchangeSinkQueueDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeSinkQueueDependency);
     ExchangeSinkQueueDependency(int id) : WriteDependency(id, "ResultQueueDependency") {}
-    ~ExchangeSinkQueueDependency() = default;
+    ~ExchangeSinkQueueDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 };
@@ -79,11 +77,11 @@ class BroadcastDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastDependency);
     BroadcastDependency(int id) : WriteDependency(id, "BroadcastDependency"), _available_block(0) {}
-    virtual ~BroadcastDependency() = default;
+    ~BroadcastDependency() override = default;
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {
         if (config::enable_fuzzy_mode && _available_block == 0 &&
-            _write_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            _should_log(_write_dependency_watcher.elapsed_time())) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
                          << id();
         }
@@ -109,6 +107,8 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
     }
 
+    int available_blocks() const { return _available_block; }
+
 private:
     std::atomic<int> _available_block;
 };
@@ -133,11 +133,11 @@ public:
               _serializer(this) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-
+    WriteDependency* dependency() override { return _exchange_sink_dependency.get(); }
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer);
-    bool channel_all_can_write();
     Status get_next_available_buffer(vectorized::BroadcastPBlockHolder** holder);
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
@@ -161,9 +161,8 @@ public:
 
     [[nodiscard]] int sender_id() const { return _sender_id; }
 
+    std::string id_name() override;
     segment_v2::CompressionTypePB& compression_type();
-
-    vectorized::VExprContextSPtrs partition_expr_ctxs;
 
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
     std::vector<std::shared_ptr<vectorized::PipChannel<ExchangeSinkLocalState>>>
@@ -204,7 +203,6 @@ private:
     // Sender instance id, unique within a fragment.
     int _sender_id;
     std::vector<vectorized::BroadcastPBlockHolder> _broadcast_pb_blocks;
-    int _broadcast_pb_block_idx;
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
@@ -212,11 +210,13 @@ private:
     std::shared_ptr<AndDependency> _exchange_sink_dependency = nullptr;
     std::shared_ptr<BroadcastDependency> _broadcast_dependency = nullptr;
     std::vector<std::shared_ptr<ChannelDependency>> _channels_dependency;
+    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    int _partition_count;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
 public:
-    ExchangeSinkOperatorX(RuntimeState* state, const RowDescriptor& row_desc,
+    ExchangeSinkOperatorX(RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
                           const TDataStreamSink& sink,
                           const std::vector<TPlanFragmentDestination>& destinations,
                           bool send_query_statistics_with_every_batch);
@@ -234,8 +234,6 @@ public:
                            int num_receivers = 1);
 
     Status try_close(RuntimeState* state, Status exec_status) override;
-    WriteDependency* wait_for_dependency(RuntimeState* state) override;
-    bool is_pending_finish(RuntimeState* state) const override;
 
 private:
     friend class ExchangeSinkLocalState;
@@ -243,19 +241,13 @@ private:
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
-    Status get_partition_column_result(vectorized::Block* block, int* result) const {
-        int counter = 0;
-        for (auto ctx : _partition_expr_ctxs) {
-            RETURN_IF_ERROR(ctx->execute(block, &result[counter++]));
-        }
-        return Status::OK();
-    }
-
-    template <typename Channels>
+    template <typename Channels, typename HashValueType>
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
-                            const uint64_t* channel_ids, int rows, vectorized::Block* block,
+                            const HashValueType* channel_ids, int rows, vectorized::Block* block,
                             bool eos);
     RuntimeState* _state = nullptr;
+
+    const std::vector<TExpr>& _texprs;
 
     const RowDescriptor& _row_desc;
 
@@ -265,10 +257,6 @@ private:
     // one while the other one is still being sent
     PBlock _pb_block1;
     PBlock _pb_block2;
-    PBlock* _cur_pb_block = nullptr;
-
-    // compute per-row partition values
-    vectorized::VExprContextSPtrs _partition_expr_ctxs;
 
     const std::vector<TPlanFragmentDestination> _dests;
     const bool _send_query_statistics_with_every_batch;

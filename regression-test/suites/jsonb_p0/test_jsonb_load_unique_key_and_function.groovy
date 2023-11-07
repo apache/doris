@@ -23,7 +23,8 @@ suite("test_jsonb_unique_load_and_function", "p0") {
     def testTable = "tbl_test_jsonb_unique"
     def dataFile = "test_jsonb_unique_key.csv"
 
-    sql """ set experimental_enable_nereids_planner = false """
+    sql """ set experimental_enable_nereids_planner = true """
+    sql """ set enable_fallback_to_original_planner = true """
 
     sql "DROP TABLE IF EXISTS ${testTable}"
 

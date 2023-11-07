@@ -1159,7 +1159,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 #### `max_bytes_per_broker_scanner`
 
-默认值：500 * 1024 * 1024 * 1024L  （500G）
+默认值：`500 * 1024 * 1024 * 1024L`  （500G）
 
 是否可以动态配置：true
 
@@ -1814,24 +1814,6 @@ show data （其他用法：HELP SHOW DATA）
 在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的 tablet 会导致整个查询失败，无法查询剩余的健康 tablet。
 
 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的 tablet 替换为空 tablet，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
-
-#### `recover_with_skip_missing_version`
-
-默认值：disable
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-有些场景下集群出现了不可恢复的元数据问题，数据已的visibleversion 已经和be 不匹配，
-
-这种情况下仍然需要恢复剩余的数据（可能能会导致数据的正确性有问题），这个配置同`recover_with_empty_tablet` 一样只能在紧急情况下使用
-
-这个配置有三个值：
-
-   * disable ：出现异常会正常报错。
-   * ignore_version: 忽略 fe partition 中记录的visibleVersion 信息， 使用replica version
-   * ignore_all: 除了ignore_version， 在遇到找不到可查询的replica 时，直接跳过而不是抛出异常
 
 #### `min_clone_task_timeout_sec`  和 `max_clone_task_timeout_sec`
 
@@ -2632,23 +2614,23 @@ SmallFileMgr 中存储的最大文件数
 
 #### `enable_date_conversion`
 
-默认值：false
+默认值：true
 
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为 true，FE 会自动将 Date/Datetime 转换为 DateV2/DatetimeV2(0)。
+FE 会自动将 Date/Datetime 转换为 DateV2/DatetimeV2(0)。
 
 #### `enable_decimal_conversion`
 
-默认值：false
+默认值：true
 
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为 true，FE 将自动将 DecimalV2 转换为 DecimalV3。
+FE 将自动将 DecimalV2 转换为 DecimalV3。
 
 #### `proxy_auth_magic_prefix`
 
@@ -2774,3 +2756,9 @@ show data （其他用法：HELP SHOW DATA）
 默认值：true
 
 禁止LocalDeployManager删除节点，防止cluster.info文件有误导致节点被删除。
+
+#### `mysqldb_replace_name`
+
+Default: mysql
+
+Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，请修改这个字段，为 doris 内置的 mysql database 更换一个名字

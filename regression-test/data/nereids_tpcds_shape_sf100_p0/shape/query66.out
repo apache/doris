@@ -22,9 +22,8 @@ PhysicalResultSink
 ------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 --------------------------------------PhysicalOlapScan[ship_mode]
 --------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_year = 1998))
---------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------filter((date_dim.d_year = 1998))
+------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------filter((cast(t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
 ----------------------------------PhysicalOlapScan[time_dim]
@@ -44,9 +43,8 @@ PhysicalResultSink
 ------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 --------------------------------------PhysicalOlapScan[ship_mode]
 --------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_year = 1998))
---------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------filter((date_dim.d_year = 1998))
+------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------filter((cast(t_time as BIGINT) <= 77621) and (time_dim.t_time >= 48821))
 ----------------------------------PhysicalOlapScan[time_dim]

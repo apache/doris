@@ -19,31 +19,41 @@
 
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <gen_cpp/Types_types.h>
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
 
-#include <algorithm>
 #include <functional>
 #include <ostream>
 #include <utility>
 
 #include "common/status.h"
+#include "exec/schema_scanner.h"
+#include "gen_cpp/descriptors.pb.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
 #include "parquet_pred_cmp.h"
 #include "parquet_thrift_util.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/slice.h"
+#include "util/timezone_utils.h"
+#include "vec/columns/column.h"
 #include "vec/common/typeid_cast.h"
-#include "vec/exec/format/format_common.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
 #include "vec/exec/format/parquet/vparquet_group_reader.h"
 #include "vec/exec/format/parquet/vparquet_page_index.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
@@ -106,58 +116,60 @@ ParquetReader::~ParquetReader() {
 void ParquetReader::_init_profile() {
     if (_profile != nullptr) {
         static const char* parquet_profile = "ParquetReader";
-        ADD_TIMER(_profile, parquet_profile);
+        ADD_TIMER_WITH_LEVEL(_profile, parquet_profile, 1);
 
-        _parquet_profile.filtered_row_groups =
-                ADD_CHILD_COUNTER(_profile, "FilteredGroups", TUnit::UNIT, parquet_profile);
-        _parquet_profile.to_read_row_groups =
-                ADD_CHILD_COUNTER(_profile, "ReadGroups", TUnit::UNIT, parquet_profile);
-        _parquet_profile.filtered_group_rows =
-                ADD_CHILD_COUNTER(_profile, "FilteredRowsByGroup", TUnit::UNIT, parquet_profile);
-        _parquet_profile.filtered_page_rows =
-                ADD_CHILD_COUNTER(_profile, "FilteredRowsByPage", TUnit::UNIT, parquet_profile);
-        _parquet_profile.lazy_read_filtered_rows =
-                ADD_CHILD_COUNTER(_profile, "FilteredRowsByLazyRead", TUnit::UNIT, parquet_profile);
-        _parquet_profile.filtered_bytes =
-                ADD_CHILD_COUNTER(_profile, "FilteredBytes", TUnit::BYTES, parquet_profile);
-        _parquet_profile.raw_rows_read =
-                ADD_CHILD_COUNTER(_profile, "RawRowsRead", TUnit::UNIT, parquet_profile);
-        _parquet_profile.to_read_bytes =
-                ADD_CHILD_COUNTER(_profile, "ReadBytes", TUnit::BYTES, parquet_profile);
+        _parquet_profile.filtered_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "FilteredGroups", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.to_read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "ReadGroups", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.filtered_group_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "FilteredRowsByGroup", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.filtered_page_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "FilteredRowsByPage", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.lazy_read_filtered_rows = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "FilteredRowsByLazyRead", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.filtered_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "FilteredBytes", TUnit::BYTES, parquet_profile, 1);
+        _parquet_profile.raw_rows_read = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "RawRowsRead", TUnit::UNIT, parquet_profile, 1);
+        _parquet_profile.to_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "ReadBytes", TUnit::BYTES, parquet_profile, 1);
         _parquet_profile.column_read_time =
-                ADD_CHILD_TIMER(_profile, "ColumnReadTime", parquet_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ColumnReadTime", parquet_profile, 1);
         _parquet_profile.parse_meta_time =
-                ADD_CHILD_TIMER(_profile, "ParseMetaTime", parquet_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ParseMetaTime", parquet_profile, 1);
         _parquet_profile.parse_footer_time =
-                ADD_CHILD_TIMER(_profile, "ParseFooterTime", parquet_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ParseFooterTime", parquet_profile, 1);
         _parquet_profile.open_file_time =
-                ADD_CHILD_TIMER(_profile, "FileOpenTime", parquet_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FileOpenTime", parquet_profile, 1);
         _parquet_profile.open_file_num =
-                ADD_CHILD_COUNTER(_profile, "FileNum", TUnit::UNIT, parquet_profile);
+                ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "FileNum", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.page_index_filter_time =
-                ADD_CHILD_TIMER(_profile, "PageIndexFilterTime", parquet_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "PageIndexFilterTime", parquet_profile, 1);
         _parquet_profile.row_group_filter_time =
-                ADD_CHILD_TIMER(_profile, "RowGroupFilterTime", parquet_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "RowGroupFilterTime", parquet_profile, 1);
 
-        _parquet_profile.file_read_time = ADD_TIMER(_profile, "FileReadTime");
-        _parquet_profile.file_read_calls = ADD_COUNTER(_profile, "FileReadCalls", TUnit::UNIT);
+        _parquet_profile.file_read_time = ADD_TIMER_WITH_LEVEL(_profile, "FileReadTime", 1);
+        _parquet_profile.file_read_calls =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileReadCalls", TUnit::UNIT, 1);
         _parquet_profile.file_meta_read_calls =
-                ADD_COUNTER(_profile, "FileMetaReadCalls", TUnit::UNIT);
-        _parquet_profile.file_read_bytes = ADD_COUNTER(_profile, "FileReadBytes", TUnit::BYTES);
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileMetaReadCalls", TUnit::UNIT, 1);
+        _parquet_profile.file_read_bytes =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileReadBytes", TUnit::BYTES, 1);
         _parquet_profile.decompress_time =
-                ADD_CHILD_TIMER(_profile, "DecompressTime", parquet_profile);
-        _parquet_profile.decompress_cnt =
-                ADD_CHILD_COUNTER(_profile, "DecompressCount", TUnit::UNIT, parquet_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecompressTime", parquet_profile, 1);
+        _parquet_profile.decompress_cnt = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "DecompressCount", TUnit::UNIT, parquet_profile, 1);
         _parquet_profile.decode_header_time =
-                ADD_CHILD_TIMER(_profile, "DecodeHeaderTime", parquet_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeHeaderTime", parquet_profile, 1);
         _parquet_profile.decode_value_time =
-                ADD_CHILD_TIMER(_profile, "DecodeValueTime", parquet_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeValueTime", parquet_profile, 1);
         _parquet_profile.decode_dict_time =
-                ADD_CHILD_TIMER(_profile, "DecodeDictTime", parquet_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeDictTime", parquet_profile, 1);
         _parquet_profile.decode_level_time =
-                ADD_CHILD_TIMER(_profile, "DecodeLevelTime", parquet_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeLevelTime", parquet_profile, 1);
         _parquet_profile.decode_null_map_time =
-                ADD_CHILD_TIMER(_profile, "DecodeNullMapTime", parquet_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", parquet_profile, 1);
     }
 }
 
@@ -457,18 +469,6 @@ Status ParquetReader::set_fill_columns(
     return Status::OK();
 }
 
-std::unordered_map<std::string, TypeDescriptor> ParquetReader::get_name_to_type() {
-    std::unordered_map<std::string, TypeDescriptor> map;
-    const auto& schema_desc = _file_metadata->schema();
-    std::unordered_set<std::string> column_names;
-    schema_desc.get_column_names(&column_names);
-    for (auto& name : column_names) {
-        auto field = schema_desc.get_column(name);
-        map.emplace(name, field->type);
-    }
-    return map;
-}
-
 Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
                                         std::vector<TypeDescriptor>* col_types) {
     RETURN_IF_ERROR(_open_file());
@@ -530,15 +530,14 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
-    {
-        SCOPED_RAW_TIMER(&_statistics.column_read_time);
-        Status batch_st =
-                _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
-        if (!batch_st.ok()) {
-            return Status::InternalError("Read parquet file {} failed, reason = {}",
-                                         _scan_range.path, batch_st.to_string());
-        }
+    SCOPED_RAW_TIMER(&_statistics.column_read_time);
+    Status batch_st =
+            _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
+    if (!batch_st.ok()) {
+        return Status::InternalError("Read parquet file {} failed, reason = {}", _scan_range.path,
+                                     batch_st.to_string());
     }
+
     if (_row_group_eof) {
         auto column_st = _current_group_reader->statistics();
         _column_statistics.merge(column_st);
@@ -785,8 +784,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         auto& conjuncts = conjunct_iter->second;
         std::vector<int> skipped_page_range;
         const FieldSchema* col_schema = schema_desc.get_column(read_col);
-        page_index.collect_skipped_page_range(&column_index, conjuncts, col_schema,
-                                              skipped_page_range, *_ctz);
+        static_cast<void>(page_index.collect_skipped_page_range(
+                &column_index, conjuncts, col_schema, skipped_page_range, *_ctz));
         if (skipped_page_range.empty()) {
             continue;
         }
@@ -794,8 +793,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff, &offset_index));
         for (int page_id : skipped_page_range) {
             RowRange skipped_row_range;
-            page_index.create_skipped_row_range(offset_index, row_group.num_rows, page_id,
-                                                &skipped_row_range);
+            static_cast<void>(page_index.create_skipped_row_range(offset_index, row_group.num_rows,
+                                                                  page_id, &skipped_row_range));
             // use the union row range
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
@@ -837,7 +836,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
 
 Status ParquetReader::_process_row_group_filter(const tparquet::RowGroup& row_group,
                                                 bool* filter_group) {
-    _process_column_stat_filter(row_group.columns, filter_group);
+    static_cast<void>(_process_column_stat_filter(row_group.columns, filter_group));
     _init_chunk_dicts();
     RETURN_IF_ERROR(_process_dict_filter(filter_group));
     _init_bloom_filter();

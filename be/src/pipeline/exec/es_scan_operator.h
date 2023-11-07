@@ -31,7 +31,7 @@ namespace doris {
 class ExecNode;
 
 namespace vectorized {
-class NewOlapScanner;
+class NewEsScanner;
 }
 } // namespace doris
 
@@ -46,23 +46,33 @@ public:
     EsScanLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
 
 private:
-    friend class vectorized::NewOlapScanner;
+    friend class vectorized::NewEsScanner;
 
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
     Status _process_conjuncts() override;
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 
     std::vector<std::unique_ptr<TEsScanRange>> _scan_ranges;
     std::unique_ptr<RuntimeProfile> _es_profile;
+    // FIXME: non-static data member '_rows_read_counter' of 'EsScanLocalState' shadows member inherited from type 'ScanLocalStateBase'
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
     RuntimeProfile::Counter* _rows_read_counter;
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
     RuntimeProfile::Counter* _read_timer;
     RuntimeProfile::Counter* _materialize_timer;
 };
 
 class EsScanOperatorX final : public ScanOperatorX<EsScanLocalState> {
 public:
-    EsScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    EsScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                    const DescriptorTbl& descs);
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;

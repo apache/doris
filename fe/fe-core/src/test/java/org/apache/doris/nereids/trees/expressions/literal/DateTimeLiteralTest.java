@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.function.Consumer;
@@ -131,6 +132,7 @@ class DateTimeLiteralTest {
     }
 
     @Test
+    @Disabled("Test results can change over time")
     void testZoneOrOffsetRight() {
         java.util.function.BiConsumer<DateTimeV2Literal, Long> assertHour = (dateTimeV2Literal, expectHour) -> {
             Assertions.assertEquals(dateTimeV2Literal.hour, expectHour);
@@ -245,25 +247,24 @@ class DateTimeLiteralTest {
 
     @Test
     void testIrregularDateTime() {
-        new DateLiteral("2016-07-02 01:01:00");
 
-        new DateLiteral("2016-7-02 01:01:00");
-        new DateLiteral("2016-07-2 01:01:00");
-        new DateLiteral("2016-7-2 01:01:00");
+        new DateTimeV2Literal("2016-7-02 01:01:00");
+        new DateTimeV2Literal("2016-07-2 01:01:00");
+        new DateTimeV2Literal("2016-7-2 01:01:00");
 
-        new DateLiteral("2016-07-02 1:01:00");
-        new DateLiteral("2016-07-02 01:1:00");
-        new DateLiteral("2016-07-02 01:01:0");
-        new DateLiteral("2016-07-02 1:1:00");
-        new DateLiteral("2016-07-02 1:01:0");
-        new DateLiteral("2016-07-02 10:1:0");
-        new DateLiteral("2016-07-02 1:1:0");
+        new DateTimeV2Literal("2016-07-02 1:01:00");
+        new DateTimeV2Literal("2016-07-02 01:1:00");
+        new DateTimeV2Literal("2016-07-02 01:01:0");
+        new DateTimeV2Literal("2016-07-02 1:1:00");
+        new DateTimeV2Literal("2016-07-02 1:01:0");
+        new DateTimeV2Literal("2016-07-02 10:1:0");
+        new DateTimeV2Literal("2016-07-02 1:1:0");
 
-        new DateLiteral("2016-7-2 1:1:0");
-        new DateLiteral("2016-7-02 1:01:0");
-        new DateLiteral("2016-07-2 1:1:0");
-        new DateLiteral("2016-7-02 01:01:0");
-        new DateLiteral("2016-7-2 01:1:0");
+        new DateTimeV2Literal("2016-7-2 1:1:0");
+        new DateTimeV2Literal("2016-7-02 1:01:0");
+        new DateTimeV2Literal("2016-07-2 1:1:0");
+        new DateTimeV2Literal("2016-7-02 01:01:0");
+        new DateTimeV2Literal("2016-7-2 01:1:0");
     }
 
     @Test

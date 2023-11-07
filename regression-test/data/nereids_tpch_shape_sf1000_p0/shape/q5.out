@@ -11,27 +11,27 @@ PhysicalResultSink
 ----------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey) and (customer.c_nationkey = supplier.s_nationkey))otherCondition=()
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey))otherCondition=()
+----------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_suppkey = supplier.s_suppkey))otherCondition=()
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_suppkey = supplier.s_suppkey))otherCondition=()
+--------------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey))otherCondition=()
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[lineitem]
+----------------------------PhysicalProject
+------------------------------filter((orders.o_orderdate < '1995-01-01') and (orders.o_orderdate >= '1994-01-01'))
+--------------------------------PhysicalOlapScan[orders]
+------------------------PhysicalDistribute
+--------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey))otherCondition=()
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[supplier]
 ----------------------------PhysicalDistribute
-------------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey))otherCondition=()
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[supplier]
+------------------------------hashJoin[INNER_JOIN] hashCondition=((nation.n_regionkey = region.r_regionkey))otherCondition=()
 --------------------------------PhysicalDistribute
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((nation.n_regionkey = region.r_regionkey))otherCondition=()
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[nation]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------filter((region.r_name = 'ASIA'))
-------------------------------------------PhysicalOlapScan[region]
-------------------------PhysicalProject
---------------------------filter((orders.o_orderdate < 1995-01-01) and (orders.o_orderdate >= 1994-01-01))
-----------------------------PhysicalOlapScan[orders]
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[nation]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((region.r_name = 'ASIA'))
+--------------------------------------PhysicalOlapScan[region]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[customer]

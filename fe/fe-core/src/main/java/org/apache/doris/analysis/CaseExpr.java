@@ -192,6 +192,9 @@ public class CaseExpr extends Expr {
             if (caseExpr instanceof Subquery && !caseExpr.getType().isScalarType()) {
                 throw new AnalysisException("Subquery in case-when must return scala type");
             }
+            if (caseExpr.getType().isBitmapType()) {
+                throw new AnalysisException("Unsupported bitmap type in expression: " + toSql());
+            }
             whenType = caseExpr.getType();
             lastCompatibleWhenExpr = children.get(0);
         } else {
@@ -225,6 +228,9 @@ public class CaseExpr extends Expr {
             if (whenExpr.contains(Predicates.instanceOf(Subquery.class))
                     && !((hasCaseExpr() && whenExpr instanceof Subquery || !checkSubquery(whenExpr)))) {
                 throw new AnalysisException("Only support subquery in binary predicate in case statement.");
+            }
+            if (whenExpr.getType().isBitmapType()) {
+                throw new AnalysisException("Unsupported bitmap type in expression: " + toSql());
             }
             // Determine maximum compatible type of the then exprs seen so far.
             // We will add casts to them at the very end.

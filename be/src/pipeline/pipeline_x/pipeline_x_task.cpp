@@ -25,6 +25,7 @@
 #include <ostream>
 #include <vector>
 
+#include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/pipeline.h"
@@ -43,14 +44,18 @@ class RuntimeState;
 
 namespace doris::pipeline {
 
-PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
+PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                              PipelineFragmentContext* fragment_context,
-                             RuntimeProfile* parent_profile)
-        : PipelineTask(pipeline, index, state, fragment_context, parent_profile),
+                             RuntimeProfile* parent_profile,
+                             std::shared_ptr<LocalExchangeSharedState> local_exchange_state,
+                             int task_idx)
+        : PipelineTask(pipeline, task_id, state, fragment_context, parent_profile),
           _operators(pipeline->operator_xs()),
           _source(_operators.front()),
           _root(_operators.back()),
-          _sink(pipeline->sink_shared_pointer()) {
+          _sink(pipeline->sink_shared_pointer()),
+          _local_exchange_state(local_exchange_state),
+          _task_idx(task_idx) {
     _pipeline_task_watcher.start();
     _sink->get_dependency(_downstream_dependency);
 }
@@ -66,43 +71,71 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
 
     {
         // set sink local state
-        auto& deps = get_downstream_dependency();
-        std::vector<LocalSinkStateInfo> infos;
-        for (auto& dep : deps) {
-            infos.emplace_back(
-                    LocalSinkStateInfo {_parent_profile, local_params.sender_id, dep.get(), tsink});
-        }
-        RETURN_IF_ERROR(_sink->setup_local_states(state, infos));
+        LocalSinkStateInfo info {_parent_profile, local_params.sender_id,
+                                 get_downstream_dependency(), tsink};
+        RETURN_IF_ERROR(_sink->setup_local_state(state, info));
     }
 
     std::vector<TScanRangeParams> no_scan_ranges;
     auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
-                                         _operators.front()->id(), no_scan_ranges);
+                                         _operators.front()->node_id(), no_scan_ranges);
+
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
-        auto& deps = get_upstream_dependency(_operators[op_idx]->id());
-        std::vector<LocalStateInfo> infos;
-        for (auto& dep : deps) {
-            LocalStateInfo info {
-                    op_idx == _operators.size() - 1
-                            ? _parent_profile
-                            : state->get_local_state(_operators[op_idx + 1]->id())->profile(),
-                    scan_ranges, dep.get()};
-            infos.emplace_back(info);
-        }
-        RETURN_IF_ERROR(_operators[op_idx]->setup_local_states(state, infos));
+        auto& deps = get_upstream_dependency(_operators[op_idx]->operator_id());
+        LocalStateInfo info {
+                op_idx == _operators.size() - 1
+                        ? _parent_profile
+                        : state->get_local_state(_operators[op_idx + 1]->operator_id())->profile(),
+                scan_ranges, deps, _local_exchange_state, _task_idx};
+        RETURN_IF_ERROR(_operators[op_idx]->setup_local_state(state, info));
     }
 
     _block = doris::vectorized::Block::create_unique();
-
+    RETURN_IF_ERROR(extract_dependencies());
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);
     _prepared = true;
     return Status::OK();
 }
 
+Status PipelineXTask::extract_dependencies() {
+    for (auto op : _operators) {
+        auto result = _state->get_local_state_result(op->operator_id());
+        if (!result) {
+            return result.error();
+        }
+        auto* local_state = result.value();
+        auto* dep = local_state->dependency();
+        DCHECK(dep != nullptr);
+        _read_dependencies.push_back(dep);
+        auto* fin_dep = local_state->finishdependency();
+        _finish_dependencies.push_back(fin_dep);
+    }
+    {
+        auto result = _state->get_sink_local_state_result(_sink->operator_id());
+        if (!result) {
+            return result.error();
+        }
+        auto* local_state = result.value();
+        auto* dep = local_state->dependency();
+        DCHECK(dep != nullptr);
+        _write_dependencies = dep;
+        auto* fin_dep = local_state->finishdependency();
+        _finish_dependencies.push_back(fin_dep);
+    }
+    {
+        auto result = _state->get_local_state_result(_source->operator_id());
+        if (!result) {
+            return result.error();
+        }
+        _filter_dependency = result.value()->filterdependency();
+    }
+    return Status::OK();
+}
+
 void PipelineXTask::_init_profile() {
     std::stringstream ss;
-    ss << "PipelineTask"
+    ss << "PipelineXTask"
        << " (index=" << _index << ")";
     auto* task_profile = new RuntimeProfile(ss.str());
     _parent_profile->add_child(task_profile, true, nullptr);
@@ -146,9 +179,9 @@ Status PipelineXTask::_open() {
     SCOPED_TIMER(_open_timer);
     _dry_run = _sink->should_dry_run(_state);
     for (auto& o : _operators) {
-        RETURN_IF_ERROR(_state->get_local_state(o->id())->open(_state));
+        RETURN_IF_ERROR(_state->get_local_state(o->operator_id())->open(_state));
     }
-    RETURN_IF_ERROR(_state->get_sink_local_state(_sink->id())->open(_state));
+    RETURN_IF_ERROR(_state->get_sink_local_state(_sink->operator_id())->open(_state));
     _opened = true;
     return Status::OK();
 }

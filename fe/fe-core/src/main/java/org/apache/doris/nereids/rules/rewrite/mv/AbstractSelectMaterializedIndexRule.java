@@ -77,7 +77,28 @@ import java.util.stream.Collectors;
  * Base class for selecting materialized index rules.
  */
 public abstract class AbstractSelectMaterializedIndexRule {
-    protected boolean shouldSelectIndex(LogicalOlapScan scan) {
+    protected boolean shouldSelectIndexWithAgg(LogicalOlapScan scan) {
+        switch (scan.getTable().getKeysType()) {
+            case AGG_KEYS:
+            case UNIQUE_KEYS:
+            case DUP_KEYS:
+                // SelectMaterializedIndexWithAggregate(R1) run before SelectMaterializedIndexWithoutAggregate(R2)
+                // if R1 selects baseIndex and preAggStatus is off
+                // we should give a chance to R2 to check if some prefix-index can be selected
+                // so if R1 selects baseIndex and preAggStatus is off, we keep scan's index unselected in order to
+                // let R2 to get a chance to do its work
+                // at last, after R1, the scan may be the 4 status
+                // 1. preAggStatus is ON and baseIndex is selected, it means select baseIndex is correct.
+                // 2. preAggStatus is ON and some other Index is selected, this is correct, too.
+                // 3. preAggStatus is OFF, no index is selected, it means R2 could get a chance to run
+                // so we check the preAggStatus and if some index is selected to make sure R1 can be run only once
+                return scan.getPreAggStatus().isOn() && !scan.isIndexSelected();
+            default:
+                return false;
+        }
+    }
+
+    protected boolean shouldSelectIndexWithoutAgg(LogicalOlapScan scan) {
         switch (scan.getTable().getKeysType()) {
             case AGG_KEYS:
             case UNIQUE_KEYS:
@@ -571,14 +592,6 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
 
         @Override
-        public Expression visitAlias(Alias alias, Void context) {
-            if (mvNameToMvSlot.containsKey(alias.toSlot().toSql())) {
-                return mvNameToMvSlot.get(alias.toSlot().toSql());
-            }
-            return visit(alias, context);
-        }
-
-        @Override
         public Expression visitScalarFunction(ScalarFunction scalarFunction, Void context) {
             List<Expression> newChildrenWithoutCast = scalarFunction.children().stream()
                     .map(child -> {
@@ -605,16 +618,20 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
     }
 
-    protected List<NamedExpression> generateProjectsAlias(
-            List<? extends NamedExpression> oldProjects, SlotContext slotContext) {
+    protected List<NamedExpression> generateProjectsAlias(List<? extends NamedExpression> oldProjects,
+            SlotContext slotContext) {
         return oldProjects.stream().map(e -> {
+            Expression real = e;
+            if (real instanceof Alias) {
+                real = real.child(0);
+            }
             if (slotContext.baseSlotToMvSlot.containsKey(e.toSlot())) {
                 return new Alias(e.getExprId(), slotContext.baseSlotToMvSlot.get(e.toSlot()), e.getName());
             }
-            if (slotContext.mvNameToMvSlot.containsKey(e.toSql())) {
-                return new Alias(e.getExprId(), slotContext.mvNameToMvSlot.get(e.toSql()), e.getName());
+            if (slotContext.mvNameToMvSlot.containsKey(real.toSql())) {
+                return new Alias(e.getExprId(), slotContext.mvNameToMvSlot.get(real.toSql()), e.getName());
             }
-            return e;
+            return e.toSlot();
         }).collect(ImmutableList.toImmutableList());
     }
 }

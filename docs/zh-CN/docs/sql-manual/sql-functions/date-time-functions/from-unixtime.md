@@ -28,20 +28,19 @@ under the License.
 ### description
 #### Syntax
 
-`DATETIME FROM_UNIXTIME(INT unix_timestamp[, VARCHAR string_format])`
+`DATETIME FROM_UNIXTIME(BIGINT unix_timestamp[, VARCHAR string_format])`
 
 
 将 unix 时间戳转化为对应的 time 格式，返回的格式由 `string_format` 指定
 
-支持date_format中的format格式，默认为 %Y-%m-%d %H:%i:%s
+支持 `date_format` 中的 format 格式，默认为 %Y-%m-%d %H:%i:%s
 
 传入的是整型，返回的是字符串类型
 
-其余 `string_format` 格式是非法的，返回NULL
+其余 `string_format` 格式是非法的，返回 NULL
 
-如果给定的时间戳小于 0 或大于 2147483647，则返回 NULL。即时间戳范围是：
+目前支持的 `unix_timestamp` 范围为 `[0, 32536771199]`，超出范围的 `unix_timestamp` 将会得到 NULL
 
-1970-01-01 00:00:00 ~ 2038-01-19 03:14:07
 
 ### example
 

@@ -25,7 +25,6 @@
 #include <utility>
 
 #include "common/logging.h"
-#include "io/fs/kafka_consumer_pipe.h"
 #include "librdkafka/rdkafkacpp.h"
 #include "runtime/routine_load/data_consumer.h"
 #include "runtime/stream_load/stream_load_context.h"
@@ -72,7 +71,8 @@ KafkaDataConsumerGroup::~KafkaDataConsumerGroup() {
     DCHECK(_queue.get_size() == 0);
 }
 
-Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx) {
+Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
+                                         std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe) {
     Status result_st = Status::OK();
     // start all consumers
     for (auto& consumer : _consumers) {
@@ -105,9 +105,6 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx)
     int64_t left_rows = ctx->max_batch_rows;
     int64_t left_bytes = ctx->max_batch_size;
 
-    std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe =
-            std::static_pointer_cast<io::KafkaConsumerPipe>(ctx->body_sink);
-
     LOG(INFO) << "start consumer group: " << _grp_id << ". max time(ms): " << left_time
               << ", batch rows: " << left_rows << ", batch size: " << left_bytes << ". "
               << ctx->brief();
@@ -128,9 +125,10 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx)
     bool eos = false;
     while (true) {
         if (eos || left_time <= 0 || left_rows <= 0 || left_bytes <= 0) {
+            _rows = ctx->max_batch_rows - left_rows;
             LOG(INFO) << "consumer group done: " << _grp_id
                       << ". consume time(ms)=" << ctx->max_interval_s * 1000 - left_time
-                      << ", received rows=" << ctx->max_batch_rows - left_rows
+                      << ", received rows=" << _rows
                       << ", received bytes=" << ctx->max_batch_size - left_bytes << ", eos: " << eos
                       << ", left_time: " << left_time << ", left_rows: " << left_rows
                       << ", left_bytes: " << left_bytes
@@ -142,7 +140,7 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx)
             _queue.shutdown();
             // cancel all consumers
             for (auto& consumer : _consumers) {
-                consumer->cancel(ctx);
+                static_cast<void>(consumer->cancel(ctx));
             }
 
             // waiting all threads finished
@@ -152,7 +150,7 @@ Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx)
                 kafka_pipe->cancel(result_st.to_string());
                 return result_st;
             }
-            kafka_pipe->finish();
+            static_cast<void>(kafka_pipe->finish());
             ctx->kafka_info->cmt_offset = std::move(cmt_offset);
             ctx->receive_bytes = ctx->max_batch_size - left_bytes;
             return Status::OK();

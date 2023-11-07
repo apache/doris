@@ -59,7 +59,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
                                     InvertedIndexCtx& inverted_index_ctx,
                                     IColumn& dest_nested_column,
                                     ColumnArray::Offsets64& dest_offsets,
-                                    NullMapType* dest_nested_null_map) {
+                                    NullMapType* dest_nested_null_map) const {
     ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
     ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
     ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
@@ -105,7 +105,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
 
 Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block,
                                       const ColumnNumbers& arguments, size_t result,
-                                      size_t /*input_rows_count*/) {
+                                      size_t /*input_rows_count*/) const {
     DCHECK_EQ(arguments.size(), 2);
     const auto& [src_column, left_const] =
             unpack_if_const(block.get_by_position(arguments[0]).column);

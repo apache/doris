@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "io/fs/kafka_consumer_pipe.h"
 #include "runtime/routine_load/data_consumer.h"
 #include "util/blocking_queue.hpp"
 #include "util/uid_util.h"
@@ -59,8 +60,15 @@ public:
         ++_counter;
     }
 
+    int64_t get_consumer_rows() const { return _rows; }
+
+    void set_consumer_rows(int64_t rows) { _rows = rows; }
+
     // start all consumers
-    virtual Status start_all(std::shared_ptr<StreamLoadContext> ctx) { return Status::OK(); }
+    virtual Status start_all(std::shared_ptr<StreamLoadContext> ctx,
+                             std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe) {
+        return Status::OK();
+    }
 
 protected:
     UniqueId _grp_id;
@@ -73,6 +81,8 @@ protected:
     // when the counter becomes zero, shutdown the queue to finish
     std::mutex _mutex;
     int _counter;
+    // received total rows
+    int64_t _rows {0};
 };
 
 // for kafka
@@ -82,7 +92,8 @@ public:
 
     virtual ~KafkaDataConsumerGroup();
 
-    Status start_all(std::shared_ptr<StreamLoadContext> ctx) override;
+    Status start_all(std::shared_ptr<StreamLoadContext> ctx,
+                     std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe) override;
     // assign topic partitions to all consumers equally
     Status assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx);
 

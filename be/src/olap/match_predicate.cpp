@@ -64,7 +64,7 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
     } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY &&
                is_numeric_type(column_desc->get_sub_field(0)->type_info()->type())) {
         char buf[column_desc->get_sub_field(0)->type_info()->size()];
-        column_desc->get_sub_field(0)->from_string(buf, _value);
+        RETURN_IF_ERROR(column_desc->get_sub_field(0)->from_string(buf, _value));
         RETURN_IF_ERROR(iterator->read_from_inverted_index(
                 column_desc->name(), buf, inverted_index_query_type, num_rows, &roaring, true));
     }

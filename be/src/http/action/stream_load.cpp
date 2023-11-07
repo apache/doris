@@ -398,9 +398,19 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_line_delimiter(http_req->header(HTTP_LINE_DELIMITER));
     }
     if (!http_req->header(HTTP_ENCLOSE).empty() && http_req->header(HTTP_ENCLOSE).size() > 0) {
+        const auto& enclose_str = http_req->header(HTTP_ENCLOSE);
+        if (enclose_str.length() != 1) {
+            return Status::InvalidArgument("enclose must be single-char, actually is {}",
+                                           enclose_str);
+        }
         request.__set_enclose(http_req->header(HTTP_ENCLOSE)[0]);
     }
     if (!http_req->header(HTTP_ESCAPE).empty() && http_req->header(HTTP_ESCAPE).size() > 0) {
+        const auto& escape_str = http_req->header(HTTP_ESCAPE);
+        if (escape_str.length() != 1) {
+            return Status::InvalidArgument("escape must be single-char, actually is {}",
+                                           escape_str);
+        }
         request.__set_escape(http_req->header(HTTP_ESCAPE)[0]);
     }
     if (!http_req->header(HTTP_PARTITIONS).empty()) {
@@ -599,13 +609,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     // to process this load
     if (!ctx->use_streaming) {
         return Status::OK();
-    }
-
-    if (ctx->group_commit) {
-        ctx->db_id = ctx->put_result.db_id;
-        ctx->table_id = ctx->put_result.table_id;
-        ctx->schema_version = ctx->put_result.base_schema_version;
-        return _exec_env->group_commit_mgr()->group_commit_stream_load(ctx);
     }
 
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);

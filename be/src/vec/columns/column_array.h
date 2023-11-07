@@ -52,9 +52,10 @@ class Arena;
 } // namespace doris
 
 //TODO: use marcos below to decouple array function calls
-#define ALL_COLUMNS_NUMBER                                                                       \
-    ColumnUInt8, ColumnInt8, ColumnInt16, ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32, \
-            ColumnFloat64, ColumnDecimal32, ColumnDecimal64, ColumnDecimal128I, ColumnDecimal128
+#define ALL_COLUMNS_NUMBER                                                                        \
+    ColumnUInt8, ColumnInt8, ColumnInt16, ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32,  \
+            ColumnFloat64, ColumnDecimal32, ColumnDecimal64, ColumnDecimal128I, ColumnDecimal128, \
+            ColumnDecimal256
 #define ALL_COLUMNS_TIME ColumnDate, ColumnDateTime, ColumnDateV2, ColumnDateTimeV2
 #define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME
 #define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString
@@ -127,7 +128,6 @@ public:
     const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
-    TypeIndex get_data_type() const override { return TypeIndex::Array; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
     void resize(size_t n) override;
@@ -141,7 +141,7 @@ public:
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
     void update_hashes_with_value(std::vector<SipHash>& hashes,
@@ -150,7 +150,8 @@ public:
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data = nullptr) const override;
 
-    void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+    void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
@@ -175,13 +176,9 @@ public:
     void reserve(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
-    void protect() override;
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
     ColumnPtr convert_to_full_column_if_const() const override;
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not implemented";
-    }
 
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }
@@ -227,18 +224,31 @@ public:
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override;
 
-    void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "replace_column_data not implemented";
+    void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
+        DCHECK(size() > self_row);
+        const auto& r = assert_cast<const ColumnArray&>(rhs);
+        const size_t nested_row_size = r.size_at(row);
+        const size_t r_nested_start_off = r.offset_at(row);
+
+        // we should clear data because we call resize() before replace_column_data()
+        if (self_row == 0) {
+            data->clear();
+        }
+        get_offsets()[self_row] = get_offsets()[self_row - 1] + nested_row_size;
+        // we make sure call replace_column_data() by order so, here we just insert data for nested
+        data->insert_range_from(r.get_data(), r_nested_start_off, nested_row_size);
     }
+
     void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "replace_column_data_default not implemented";
+        DCHECK(size() > self_row);
+        get_offsets()[self_row] = get_offsets()[self_row - 1];
     }
+
     void clear() override {
         data->clear();
         offsets->clear();
     }
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     size_t get_number_of_dimensions() const {
         const auto* nested_array = check_and_get_column<ColumnArray>(*data);
         if (!nested_array) {

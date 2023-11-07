@@ -12,12 +12,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 --------------------PhysicalOlapScan[store_sales]
 --------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------filter(d_year IN (1999, 2000))
---------------------------PhysicalOlapScan[date_dim]
+----------------------filter(d_year IN (1999, 2000))
+------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[customer]
+--------------------PhysicalOlapScan[customer]
 ------PhysicalProject
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute
@@ -28,12 +26,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk))otherCondition=()
 ----------------------PhysicalOlapScan[web_sales]
 ----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------filter(d_year IN (1999, 2000))
-----------------------------PhysicalOlapScan[date_dim]
+------------------------filter(d_year IN (1999, 2000))
+--------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[customer]
+--------------------PhysicalOlapScan[customer]
 --PhysicalResultSink
 ----PhysicalTopN
 ------PhysicalDistribute

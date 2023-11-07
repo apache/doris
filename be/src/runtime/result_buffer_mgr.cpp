@@ -92,7 +92,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
         // details see issue https://github.com/apache/doris/issues/16203
         // add extra 5s for avoid corner case
         int64_t max_timeout = time(nullptr) + exec_timout + 5;
-        cancel_at_time(max_timeout, query_id);
+        static_cast<void>(cancel_at_time(max_timeout, query_id));
     }
     *sender = control_block;
     return Status::OK();
@@ -156,7 +156,7 @@ Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
         BufferMap::iterator iter = _buffer_map.find(query_id);
 
         if (_buffer_map.end() != iter) {
-            iter->second->cancel();
+            static_cast<void>(iter->second->cancel());
             _buffer_map.erase(iter);
         }
     }
@@ -209,7 +209,7 @@ void ResultBufferMgr::cancel_thread() {
 
         // cancel query
         for (int i = 0; i < query_to_cancel.size(); ++i) {
-            cancel(query_to_cancel[i]);
+            static_cast<void>(cancel(query_to_cancel[i]));
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 

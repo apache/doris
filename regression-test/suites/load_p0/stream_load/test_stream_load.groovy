@@ -206,6 +206,8 @@ suite("test_stream_load", "p0") {
     def tableName7 = "test_unique_key_with_delete"
     def tableName8 = "test_array"
     def tableName10 = "test_struct"
+    def tableName11 = "test_map"
+
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """ DROP TABLE IF EXISTS ${tableName4} """
     sql """ DROP TABLE IF EXISTS ${tableName5} """
@@ -213,6 +215,7 @@ suite("test_stream_load", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName7} """
     sql """ DROP TABLE IF EXISTS ${tableName8} """
     sql """ DROP TABLE IF EXISTS ${tableName10} """
+    sql """ DROP TABLE IF EXISTS ${tableName11} """
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName3} (
       `k1` int(11) NULL,
@@ -296,7 +299,7 @@ suite("test_stream_load", "p0") {
       `k4` ARRAY<BIGINT> NULL COMMENT "",
       `k5` ARRAY<CHAR> NULL COMMENT "",
       `k6` ARRAY<VARCHAR(20)> NULL COMMENT "",
-      `k7` ARRAY<DATE> NULL COMMENT "", 
+      `k7` ARRAY<DATE> NULL COMMENT "",
       `k8` ARRAY<DATETIME> NULL COMMENT "",
       `k9` ARRAY<FLOAT> NULL COMMENT "",
       `k10` ARRAY<DOUBLE> NULL COMMENT "",
@@ -330,6 +333,41 @@ suite("test_stream_load", "p0") {
     "replication_allocation" = "tag.location.default: 1"
     );
     """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName11} (
+      `k1` int(11) NULL,
+      `k2` map<int, char(7)> NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    // load map with specific-length char with non-specific-length data
+    streamLoad {
+        table "${tableName11}"
+
+        set 'column_separator', '\t'
+
+        file 'map_char_test.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(4, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_map11 "SELECT * FROM ${tableName11} order by k1" 
 
     // load all columns
     streamLoad {
@@ -1076,7 +1114,22 @@ suite("test_stream_load", "p0") {
         }
 
         do_streamload_2pc.call(label, "commit")
-        sleep(60)
+        
+        def count = 0
+        while (true) {
+            res = sql "select count(*) from ${tableName15}"
+            if (res[0][0] > 0) {
+                break
+            }
+            if (count >= 60) {
+                log.error("stream load commit can not visible for long time")
+                assertEquals(2, res[0][0])
+                break
+            }
+            sleep(1000)
+            count++
+        }
+
         qt_sql_2pc_commit "select * from ${tableName15} order by k1"
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName15} FORCE"""

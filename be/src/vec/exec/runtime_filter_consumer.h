@@ -19,6 +19,7 @@
 
 #include "exec/exec_node.h"
 #include "exprs/runtime_filter.h"
+#include "pipeline/pipeline_x/dependency.h"
 
 namespace doris::vectorized {
 
@@ -37,6 +38,8 @@ public:
 
     bool runtime_filters_are_ready_or_timeout();
 
+    void init_runtime_filter_dependency(doris::pipeline::RuntimeFilterDependency*);
+
 protected:
     // Register and get all runtime filters at Init phase.
     Status _register_runtime_filter();
@@ -51,7 +54,6 @@ protected:
 
     // For runtime filters
     struct RuntimeFilterContext {
-        RuntimeFilterContext() : apply_mark(false), runtime_filter(nullptr) {}
         RuntimeFilterContext(IRuntimeFilter* rf) : apply_mark(false), runtime_filter(rf) {}
         // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
         bool apply_mark;
@@ -77,7 +79,7 @@ private:
 
     // True means all runtime filters are applied to scanners
     bool _is_all_rf_applied = true;
-    bool _blocked_by_rf = false;
+    std::shared_ptr<std::atomic_bool> _blocked_by_rf;
 
     RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
 };

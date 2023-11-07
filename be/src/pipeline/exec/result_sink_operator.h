@@ -43,29 +43,29 @@ public:
     bool can_write() override;
 };
 
-class ResultBufferDependency : public WriteDependency {
+class ResultBufferDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(ResultBufferDependency);
     ResultBufferDependency(int id) : WriteDependency(id, "ResultBufferDependency") {}
-    ~ResultBufferDependency() = default;
+    ~ResultBufferDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 };
 
-class ResultQueueDependency : public WriteDependency {
+class ResultQueueDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(ResultQueueDependency);
     ResultQueueDependency(int id) : WriteDependency(id, "ResultQueueDependency") {}
-    ~ResultQueueDependency() = default;
+    ~ResultQueueDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 };
 
-class CancelDependency : public WriteDependency {
+class CancelDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(CancelDependency);
     CancelDependency(int id) : WriteDependency(id, "CancelDependency") { _ready_for_write = false; }
-    ~CancelDependency() = default;
+    ~CancelDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 };
@@ -80,6 +80,7 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
+    WriteDependency* dependency() override { return _result_sink_dependency.get(); }
 
 private:
     friend class ResultSinkOperatorX;
@@ -101,15 +102,13 @@ private:
 
 class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
 public:
-    ResultSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
-                        const TResultSink& sink);
+    ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+                        const std::vector<TExpr>& select_exprs, const TResultSink& sink);
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override;
 
 private:
     friend class ResultSinkLocalState;

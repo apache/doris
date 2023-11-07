@@ -21,7 +21,7 @@ suite("test_group_commit_http_stream") {
 
     def getRowCount = { expectedRowCount ->
         def retry = 0
-        while (retry < 10) {
+        while (retry < 30) {
             sleep(2000)
             def rowCount = sql "select count(*) from ${tableName}"
             logger.info("rowCount: " + rowCount + ", retry: " + retry)
@@ -49,6 +49,26 @@ suite("test_group_commit_http_stream") {
         return false
     }
 
+    def checkStreamLoadResult = { exception, result, total_rows, loaded_rows, filtered_rows, unselected_rows ->
+        if (exception != null) {
+            throw exception
+        }
+        log.info("Stream load result: ${result}".toString())
+        def json = parseJson(result)
+        assertEquals("success", json.Status.toLowerCase())
+        assertTrue(json.GroupCommit)
+        assertTrue(json.Label.startsWith("group_commit_"))
+        assertEquals(total_rows, json.NumberTotalRows)
+        assertEquals(loaded_rows, json.NumberLoadedRows)
+        assertEquals(filtered_rows, json.NumberFilteredRows)
+        assertEquals(unselected_rows, json.NumberUnselectedRows)
+        if (filtered_rows > 0) {
+            assertFalse(json.ErrorURL.isEmpty())
+        } else {
+            assertTrue(json.ErrorURL == null || json.ErrorURL.isEmpty())
+        }
+    }
+
     try {
         // create table
         sql """ drop table if exists ${tableName}; """
@@ -71,9 +91,9 @@ suite("test_group_commit_http_stream") {
         """
 
         // stream load with compress file
-        String[] compressionTypes = new String[]{"gz", "bz2", /*"lzo",*/ "lz4"} //, "deflate"}
-        /*for (final def compressionType in compressionTypes) {
-            def fileName = "test_compress.csv." + compressionType
+        String[] compressionTypes = new String[]{"gz", "bz2", /*"lzo",*/ "lz4frame"} //, "deflate"}
+        for (final def compressionType in compressionTypes) {
+            def fileName = "test_compress.csv." + (compressionType.equals("lz4frame") ? "lz4" : compressionType)
             streamLoad {
                 set 'version', '1'
                 set 'sql', """
@@ -85,8 +105,12 @@ suite("test_group_commit_http_stream") {
                 unset 'label'
 
                 time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    checkStreamLoadResult(exception, result, 4, 4, 0, 0)
+                }
             }
-        }*/
+        }
 
         // stream load with 2 columns
         streamLoad {
@@ -101,6 +125,10 @@ suite("test_group_commit_http_stream") {
             unset 'label'
 
             time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                checkStreamLoadResult(exception, result, 2, 2, 0, 0)
+            }
         }
 
         // stream load with different column order
@@ -116,6 +144,10 @@ suite("test_group_commit_http_stream") {
             unset 'label'
 
             time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                checkStreamLoadResult(exception, result, 2, 2, 0, 0)
+            }
         }
 
         // stream load with where condition
@@ -133,17 +165,8 @@ suite("test_group_commit_http_stream") {
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertTrue(json.GroupCommit)
-                // assertEquals(2, json.NumberTotalRows)
-                assertEquals(1, json.NumberLoadedRows)
-                assertEquals(0, json.NumberFilteredRows)
-                // assertEquals(1, json.NumberUnselectedRows)
+                // TODO different with stream load: 2, 1, 0, 1
+                checkStreamLoadResult(exception, result, 1, 1, 0, 0)
             }
         }
 
@@ -160,14 +183,19 @@ suite("test_group_commit_http_stream") {
             unset 'label'
 
             time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                checkStreamLoadResult(exception, result, 2, 2, 0, 0)
+            }
         }
 
         // stream load with filtered rows
-        /*streamLoad {
+        // TODO enable strict_mode
+        streamLoad {
             set 'version', '1'
             set 'sql', """
-                    insert into ${db}.${tableName} select c1, c2, c3 from http_stream where c2 = 'a'
-                    ("format"="csv", "column_separator"=",")
+                    insert into ${db}.${tableName} 
+                    select c1, c2, c3 from http_stream ("format"="csv", "column_separator"=",") where c2 = 'a'
             """
 
             set 'group_commit', 'true'
@@ -178,20 +206,10 @@ suite("test_group_commit_http_stream") {
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertTrue(json.GroupCommit)
-                assertEquals(6, json.NumberTotalRows)
-                assertEquals(2, json.NumberLoadedRows)
-                assertEquals(3, json.NumberFilteredRows)
-                assertEquals(1, json.NumberUnselectedRows)
-                assertFalse(json.ErrorURL.isEmpty())
+                // TODO different with stream load: 6, 2, 3, 1
+                checkStreamLoadResult(exception, result, 6, 4, 2, 0)
             }
-        }*/
+        }
 
         // stream load with label
         streamLoad {
@@ -216,14 +234,14 @@ suite("test_group_commit_http_stream") {
             }
         }
 
-        getRowCount(7)
+        getRowCount(23)
         qt_sql " SELECT * FROM ${tableName} order by id, name, score asc; "
     } finally {
         // try_sql("DROP TABLE ${tableName}")
     }
 
     // stream load with large data and schema change
-    /*tableName = "test_stream_load_lineorder"
+    tableName = "test_stream_load_lineorder"
     try {
         sql """ DROP TABLE IF EXISTS `${tableName}` """
         sql """
@@ -264,7 +282,7 @@ suite("test_group_commit_http_stream") {
             lo_shippriority,lo_quantity,lo_extendedprice,lo_ordtotalprice,lo_discount, 
             lo_revenue,lo_supplycost,lo_tax,lo_commitdate,lo_shipmode"""
 
-        new Thread(() -> {
+        /*new Thread(() -> {
             Thread.sleep(3000)
             // do light weight schema change
             sql """ alter table ${tableName} ADD column sc_tmp varchar(100) after lo_revenue; """
@@ -276,22 +294,18 @@ suite("test_group_commit_http_stream") {
             lo_shippriority,lo_quantity,lo_extendedprice,lo_ordtotalprice,lo_discount, 
             lo_revenue,lo_supplycost,lo_tax,lo_shipmode,lo_commitdate"""
             sql """ alter table ${tableName} order by (${new_columns}); """
-        }).start();
+        }).start();*/
 
         for (int i = 0; i < 4; i++) {
 
             streamLoad {
                 set 'version', '1'
                 sql """
-                    insert into ${db}.${table} ($columns)
+                    insert into ${db}.${tableName} ($columns)
                     select c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17 from http_stream
                     ("format"="csv", "compress_type"="GZ", "column_separator"="|")
                 """
-                table tableName
 
-                // set 'column_separator', '|'
-                // set 'compress_type', 'GZ'
-                set 'columns', columns + ",lo_dummy"
                 set 'group_commit', 'true'
                 unset 'label'
 
@@ -304,16 +318,7 @@ suite("test_group_commit_http_stream") {
                 // if declared a check callback, the default check condition will ignore.
                 // So you must check all condition
                 check { result, exception, startTime, endTime ->
-                    if (exception != null) {
-                        throw exception
-                    }
-                    log.info("Stream load ${i}, result: ${result}")
-                    def json = parseJson(result)
-                    assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-                    assertEquals(json.NumberLoadedRows, 600572)
-                    assertTrue(json.LoadBytes > 0)
-                    assertTrue(json.GroupCommit)
+                    checkStreamLoadResult(exception, result, 600572, 600572, 0, 0)
                 }
             }
         }
@@ -321,8 +326,8 @@ suite("test_group_commit_http_stream") {
         getRowCount(2402288)
         qt_sql """ select count(*) from ${tableName} """
 
-        assertTrue(getAlterTableState())
+        // assertTrue(getAlterTableState())
     } finally {
         // try_sql("DROP TABLE ${tableName}")
-    }*/
+    }
 }

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
@@ -88,6 +87,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL32, "decimal(%d, %d)");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL64, "decimal(%d, %d)");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL128, "decimal(%d, %d)");
+        TYPE_STRING_MAP.put(PrimitiveType.DECIMAL256, "decimal(%d, %d)");
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
         TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
@@ -551,17 +551,18 @@ public class Util {
 
     public static TFileFormatType getFileFormatTypeFromName(String formatName) {
         String lowerFileFormat = Objects.requireNonNull(formatName).toLowerCase();
-        if (lowerFileFormat.equals("parquet")) {
+        if (lowerFileFormat.equals(FileFormatConstants.FORMAT_PARQUET)) {
             return TFileFormatType.FORMAT_PARQUET;
-        } else if (lowerFileFormat.equals("orc")) {
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ORC)) {
             return TFileFormatType.FORMAT_ORC;
-        } else if (lowerFileFormat.equals("json")) {
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_JSON)) {
             return TFileFormatType.FORMAT_JSON;
             // csv/csv_with_name/csv_with_names_and_types treat as csv format
-        } else if (lowerFileFormat.equals(FeConstants.csv) || lowerFileFormat.equals(FeConstants.csv_with_names)
-                || lowerFileFormat.equals(FeConstants.csv_with_names_and_types)
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV)
+                || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
+                || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)
                 // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
-                || lowerFileFormat.equals(FeConstants.text)) {
+                || lowerFileFormat.equals(FileFormatConstants.FORMAT_HIVE_TEXT)) {
             return TFileFormatType.FORMAT_CSV_PLAIN;
         } else if (lowerFileFormat.equals("wal")) {
             return TFileFormatType.FORMAT_WAL;

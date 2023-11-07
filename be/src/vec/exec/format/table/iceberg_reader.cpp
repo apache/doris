@@ -125,7 +125,7 @@ Status IcebergTableReader::init_reader(
     _file_col_names = file_col_names;
     _colname_to_value_range = colname_to_value_range;
     auto parquet_meta_kv = parquet_reader->get_metadata_key_values();
-    _gen_col_name_maps(parquet_meta_kv);
+    static_cast<void>(_gen_col_name_maps(parquet_meta_kv));
     _gen_file_col_names();
     _gen_new_colname_to_value_range();
     parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
@@ -271,7 +271,8 @@ Status IcebergTableReader::_position_delete(
                                         const_cast<cctz::time_zone*>(&_state->timezone_obj()),
                                         _io_ctx, _state);
             if (!init_schema) {
-                delete_reader.get_parsed_schema(&delete_file_col_names, &delete_file_col_types);
+                static_cast<void>(delete_reader.get_parsed_schema(&delete_file_col_names,
+                                                                  &delete_file_col_types));
                 init_schema = true;
             }
             create_status = delete_reader.open();
@@ -288,7 +289,7 @@ Status IcebergTableReader::_position_delete(
             std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                     partition_columns;
             std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-            delete_reader.set_fill_columns(partition_columns, missing_columns);
+            static_cast<void>(delete_reader.set_fill_columns(partition_columns, missing_columns));
 
             bool dictionary_coded = true;
             const tparquet::FileMetaData* meta_data = delete_reader.get_meta_data();
@@ -561,9 +562,19 @@ void IcebergTableReader::_gen_file_col_names() {
         auto name = _file_col_names[i];
         auto iter = _table_col_to_file_col.find(name);
         if (iter == _table_col_to_file_col.end()) {
-            _all_required_col_names.emplace_back(name);
+            // If the user creates the iceberg table, directly append the parquet file that already exists,
+            // there is no 'iceberg.schema' field in the footer of parquet, the '_table_col_to_file_col' may be empty.
+            // Because we are ignoring case, so, it is converted to lowercase here
+            auto name_low = to_lower(name);
+            _all_required_col_names.emplace_back(name_low);
             if (_has_iceberg_schema) {
                 _not_in_file_col_names.emplace_back(name);
+            } else {
+                _table_col_to_file_col.emplace(name, name_low);
+                _file_col_to_table_col.emplace(name_low, name);
+                if (name != name_low) {
+                    _has_schema_change = true;
+                }
             }
         } else {
             _all_required_col_names.emplace_back(iter->second);

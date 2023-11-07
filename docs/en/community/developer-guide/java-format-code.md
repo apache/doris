@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Java Format Code",
-    "language": "en"
+  "title": "Java Format Code",
+  "language": "en"
 }
 ---
 
@@ -89,6 +89,13 @@ After add the `build-support/IntelliJ-code-format.xml` file. Click `Code/Rearran
 
 ![](/images/idea-rearrange-code.png)
 
+## Spotless Plugin
+
+An error was found when checking the project code through `mvn spotless:check`, and then used `mvn spotless:apply` to format the code; when checking again, the formatting error disappeared.
+
+Tip: We use incremental code formatting, spotless will apply only to files which have changed since `origin/master`. If a `No such reference` error is prompted, please calling `git fetch origin master` before you call Spotless.
+Please refer to [how-can-i-enforce-formatting-gradually-aka-ratchet](https://github.com/diffplug/spotless/tree/main/plugin-maven#how-can-i-enforce-formatting-gradually-aka-ratchet) for details.
+
 ## Remove unused header
 
 **CTRL + ALT + O --->** to remove the unused imports in windows.
@@ -96,4 +103,3 @@ After add the `build-support/IntelliJ-code-format.xml` file. Click `Code/Rearran
 Auto remove unused header and reorder according to configure xml:
 
 Click `Preferences->Editor->Auto Import->Optimize Imports on the Fly`
-

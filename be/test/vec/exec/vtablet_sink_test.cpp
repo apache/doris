@@ -320,7 +320,7 @@ public:
 
             if (request->has_block() && _row_desc != nullptr) {
                 vectorized::Block block;
-                block.deserialize(request->block());
+                static_cast<void>(block.deserialize(request->block()));
 
                 for (size_t row_num = 0; row_num < block.rows(); ++row_num) {
                     std::stringstream out;
@@ -366,18 +366,19 @@ public:
         _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
         _env->_wal_manager = WalManager::create_shared(_env, wal_dir);
-        _env->wal_mgr()->init();
-        ThreadPoolBuilder("SendBatchThreadPool")
-                .set_min_threads(1)
-                .set_max_threads(5)
-                .set_max_queue_size(100)
-                .build(&_env->_send_batch_thread_pool);
+        static_cast<void>(_env->wal_mgr()->init());
+        static_cast<void>(ThreadPoolBuilder("SendBatchThreadPool")
+                                  .set_min_threads(1)
+                                  .set_max_threads(5)
+                                  .set_max_queue_size(100)
+                                  .build(&_env->_send_batch_thread_pool));
         config::tablet_writer_open_rpc_timeout_sec = 60;
         config::max_send_batch_parallelism_per_job = 1;
     }
 
     void TearDown() override {
-        io::global_local_filesystem()->delete_directory(wal_dir);
+        static_cast<void>(io::global_local_filesystem()->delete_directory(wal_dir));
+        SAFE_STOP(_env->_wal_manager);
         SAFE_DELETE(_env->_internal_client_cache);
         SAFE_DELETE(_env->_function_client_cache);
         SAFE_DELETE(_env->_master_info);
@@ -743,8 +744,8 @@ TEST_F(VOlapTableSinkTest, add_block_failed) {
 
     // Send batch multiple times, can make _cur_batch or _pending_batches(in channels) not empty.
     // To ensure the order of releasing resource is OK.
-    sink.send(&state, &block);
-    sink.send(&state, &block);
+    static_cast<void>(sink.send(&state, &block));
+    static_cast<void>(sink.send(&state, &block));
 
     // close
     st = sink.close(&state, Status::OK());
@@ -962,7 +963,7 @@ TEST_F(VOlapTableSinkTest, group_commit) {
     st = wal_reader.read_block(pblock);
     ASSERT_TRUE(st.ok());
     vectorized::Block wal_block;
-    wal_block.deserialize(pblock);
+    ASSERT_TRUE(wal_block.deserialize(pblock).ok());
     ASSERT_TRUE(st.ok() || st.is<ErrorCode::END_OF_FILE>());
     ASSERT_EQ(org_block.rows(), wal_block.rows());
     for (int i = 0; i < org_block.rows(); i++) {
@@ -1089,7 +1090,7 @@ TEST_F(VOlapTableSinkTest, group_commit_with_filter_row) {
     st = wal_reader.read_block(pblock);
     ASSERT_TRUE(st.ok());
     vectorized::Block wal_block;
-    wal_block.deserialize(pblock);
+    ASSERT_TRUE(wal_block.deserialize(pblock).ok());
     ASSERT_TRUE(st.ok() || st.is<ErrorCode::END_OF_FILE>());
     ASSERT_EQ(org_block.rows() - 1, wal_block.rows());
     for (int i = 0; i < wal_block.rows(); i++) {

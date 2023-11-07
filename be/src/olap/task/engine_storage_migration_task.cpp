@@ -79,7 +79,7 @@ Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t*
     *end_version = last_version->end_version();
     if (*end_version < start_version) {
         // rowsets are empty
-        VLOG_DEBUG << "consistent rowsets empty. tablet=" << _tablet->full_name()
+        VLOG_DEBUG << "consistent rowsets empty. tablet=" << _tablet->tablet_id()
                    << ", start_version=" << start_version << ", end_version=" << *end_version;
         return Status::OK();
     }
@@ -91,7 +91,7 @@ bool EngineStorageMigrationTask::_is_timeout() {
     int64_t time_elapsed = time(nullptr) - _task_start_time;
     if (time_elapsed > config::migration_task_timeout_secs) {
         LOG(WARNING) << "migration failed due to timeout, time_eplapsed=" << time_elapsed
-                     << ", tablet=" << _tablet->full_name();
+                     << ", tablet=" << _tablet->tablet_id();
         return true;
     }
     return false;
@@ -289,7 +289,7 @@ Status EngineStorageMigrationTask::_migrate() {
 
     if (!res.ok()) {
         // we should remove the dir directly for avoid disk full of junk data, and it's safe to remove
-        io::global_local_filesystem()->delete_directory(full_path);
+        static_cast<void>(io::global_local_filesystem()->delete_directory(full_path));
     }
     return res;
 }

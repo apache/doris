@@ -31,23 +31,21 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.MutableState;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -115,22 +113,25 @@ public class PhysicalHashJoin<
      * Return pair of left used slots and right used slots.
      */
     public Pair<List<ExprId>, List<ExprId>> getHashConjunctsExprIds() {
-        List<ExprId> exprIds1 = Lists.newArrayListWithCapacity(hashJoinConjuncts.size());
-        List<ExprId> exprIds2 = Lists.newArrayListWithCapacity(hashJoinConjuncts.size());
+        int size = hashJoinConjuncts.size();
+
+        List<ExprId> exprIds1 = new ArrayList<>(size);
+        List<ExprId> exprIds2 = new ArrayList<>(size);
 
         Set<ExprId> leftExprIds = left().getOutputExprIdSet();
         Set<ExprId> rightExprIds = right().getOutputExprIdSet();
 
         for (Expression expr : hashJoinConjuncts) {
-            expr.getInputSlotExprIds().forEach(exprId -> {
+            for (ExprId exprId : expr.getInputSlotExprIds()) {
                 if (leftExprIds.contains(exprId)) {
                     exprIds1.add(exprId);
                 } else if (rightExprIds.contains(exprId)) {
                     exprIds2.add(exprId);
                 } else {
-                    throw new RuntimeException("Could not generate valid equal on clause slot pairs for join");
+                    throw new RuntimeException("Invalid ExprId found: " + exprId
+                            + ". Cannot generate valid equal on clause slot pairs for join.");
                 }
-            });
+            }
         }
         return Pair.of(exprIds1, exprIds2);
     }
@@ -138,33 +139,6 @@ public class PhysicalHashJoin<
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitPhysicalHashJoin(this, context);
-    }
-
-    @Override
-    public String toString() {
-        List<Object> args = Lists.newArrayList("type", joinType,
-                "hashJoinCondition", hashJoinConjuncts,
-                "otherJoinCondition", otherJoinConjuncts,
-                "stats", statistics,
-                "fr", getMutableState(AbstractPlan.FRAGMENT_ID));
-        if (markJoinSlotReference.isPresent()) {
-            args.add("isMarkJoin");
-            args.add("true");
-        }
-        if (markJoinSlotReference.isPresent()) {
-            args.add("MarkJoinSlotReference");
-            args.add(markJoinSlotReference.get());
-        }
-        if (hint != JoinHint.NONE) {
-            args.add("hint");
-            args.add(hint);
-        }
-        if (!runtimeFilters.isEmpty()) {
-            args.add("runtimeFilters");
-            args.add(runtimeFilters.stream().map(rf -> rf.toString() + " ").collect(Collectors.toList()));
-        }
-        return Utils.toSqlString("PhysicalHashJoin[" + id.asInt() + "]" + getGroupIdWithPrefix(),
-                args.toArray());
     }
 
     @Override

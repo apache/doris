@@ -28,7 +28,7 @@ OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, StreamingOperator)
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticDependency>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<AnalyticSinkOperatorX>();
     _shared_state->partition_by_column_idxs.resize(p._partition_by_eq_expr_ctxs.size());
@@ -66,9 +66,9 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     return Status::OK();
 }
 
-AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                             const DescriptorTbl& descs)
-        : DataSinkOperatorX(tnode.node_id),
+AnalyticSinkOperatorX::AnalyticSinkOperatorX(ObjectPool* pool, int operator_id,
+                                             const TPlanNode& tnode, const DescriptorTbl& descs)
+        : DataSinkOperatorX(operator_id, tnode.node_id),
           _buffered_tuple_id(tnode.analytic_node.__isset.buffered_tuple_id
                                      ? tnode.analytic_node.buffered_tuple_id
                                      : 0) {}
@@ -103,7 +103,7 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
 
 Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     for (const auto& ctx : _agg_expr_ctxs) {
-        vectorized::VExpr::prepare(ctx, state, _child_x->row_desc());
+        static_cast<void>(vectorized::VExpr::prepare(ctx, state, _child_x->row_desc()));
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
         vector<TTupleId> tuple_ids;
@@ -122,11 +122,6 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-WriteDependency* AnalyticSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->write_blocked_by();
-}
-
 Status AnalyticSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::VExpr::open(_partition_by_eq_expr_ctxs, state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_order_by_eq_expr_ctxs, state));
@@ -138,8 +133,8 @@ Status AnalyticSinkOperatorX::open(RuntimeState* state) {
 
 Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* input_block,
                                    SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
     local_state._shared_state->input_eos = source_state == SourceState::FINISHED;
     if (local_state._shared_state->input_eos && input_block->rows() == 0) {
@@ -214,5 +209,7 @@ Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
     dst_column->insert_range_from(*column, 0, length);
     return Status::OK();
 }
+
+template class DataSinkOperatorX<AnalyticSinkLocalState>;
 
 } // namespace doris::pipeline

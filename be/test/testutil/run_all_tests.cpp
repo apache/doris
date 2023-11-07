@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
     doris::BackendOptions::init();
 
     auto service = std::make_unique<doris::HttpService>(doris::ExecEnv::GetInstance(), 0, 1);
-    service->start();
+    static_cast<void>(service->start());
     doris::global_test_http_host = "http://127.0.0.1:" + std::to_string(service->get_real_port());
 
     int res = RUN_ALL_TESTS();

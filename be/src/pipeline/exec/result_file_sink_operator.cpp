@@ -49,19 +49,19 @@ ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent
         : AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>(parent, state),
           _serializer(this) {}
 
-ResultFileSinkOperatorX::ResultFileSinkOperatorX(const RowDescriptor& row_desc,
+ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                                  const std::vector<TExpr>& t_output_expr)
-        : DataSinkOperatorX(0),
+        : DataSinkOperatorX(operator_id, 0),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr),
           _is_top_sink(true) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(
-        const RowDescriptor& row_desc, const TResultFileSink& sink,
+        int operator_id, const RowDescriptor& row_desc, const TResultFileSink& sink,
         const std::vector<TPlanFragmentDestination>& destinations,
         bool send_query_statistics_with_every_batch, const std::vector<TExpr>& t_output_expr,
         DescriptorTbl& descs)
-        : DataSinkOperatorX(0),
+        : DataSinkOperatorX(operator_id, 0),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr),
           _dests(destinations),
@@ -72,6 +72,7 @@ ResultFileSinkOperatorX::ResultFileSinkOperatorX(
 }
 
 Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::init(tsink));
     auto& sink = tsink.result_file_sink;
     CHECK(sink.__isset.file_options);
     _file_opts.reset(new vectorized::ResultFileOptions(sink.file_options));
@@ -100,11 +101,16 @@ Status ResultFileSinkOperatorX::open(RuntimeState* state) {
 
 Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _sender_id = info.sender_id;
 
     _brpc_wait_timer = ADD_TIMER(_profile, "BrpcSendTime.Wait");
+    _local_send_timer = ADD_TIMER(_profile, "LocalSendTime");
+    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
+    _split_block_distribute_by_channel_timer =
+            ADD_TIMER(_profile, "SplitBlockDistributeByChannelTime");
+    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     CHECK(p._file_opts.get() != nullptr);
     if (p._is_top_sink) {
@@ -146,13 +152,13 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         }
         _only_local_exchange = local_size == _channels.size();
     }
-    _writer->set_dependency(_async_writer_dependency.get());
+    _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
     _writer->set_header_info(p._header_type, p._header);
     return Status::OK();
 }
 
 Status ResultFileSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     return Base::open(state);
 }
@@ -162,7 +168,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
         return Status::OK();
     }
     SCOPED_TIMER(_close_timer);
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
 
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     if (_closed) {
@@ -182,11 +188,11 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
         // close sender, this is normal path end
         if (_sender) {
             _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
-            _sender->close(final_status);
+            static_cast<void>(_sender->close(final_status));
         }
-        state->exec_env()->result_mgr()->cancel_at_time(
+        static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
                 time(nullptr) + config::result_buffer_cancelled_interval_time,
-                state->fragment_instance_id());
+                state->fragment_instance_id()));
     } else {
         if (final_status.ok()) {
             bool all_receiver_eof = true;
@@ -234,8 +240,8 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                                     status = channel->send_local_block(&cur_block);
                                 } else {
                                     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                    status =
-                                            channel->send_block(_block_holder.get(), nullptr, true);
+                                    status = channel->send_broadcast_block(_block_holder.get(),
+                                                                           nullptr, true);
                                 }
                                 HANDLE_CHANNEL_STATUS(state, channel, status);
                             }
@@ -256,25 +262,16 @@ template <typename ChannelPtrType>
 void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
                                                    Status st) {
     channel->set_receiver_eof(st);
-    channel->close(state);
+    // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
+    static_cast<void>(channel->close(state, Status::OK()));
 }
 
 Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                      SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     return local_state.sink(state, in_block, source_state);
-}
-
-bool ResultFileSinkOperatorX::is_pending_finish(RuntimeState* state) const {
-    auto& local_state = state->get_sink_local_state(id())->cast<ResultFileSinkLocalState>();
-    return local_state.is_pending_finish();
-}
-
-WriteDependency* ResultFileSinkOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state.write_blocked_by();
 }
 
 } // namespace doris::pipeline

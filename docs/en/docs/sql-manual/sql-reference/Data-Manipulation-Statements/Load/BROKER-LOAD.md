@@ -143,6 +143,14 @@ WITH BROKER broker_name
 
     Specify some parameters of the imported format. For example, if the imported file is in `json` format, you can specify parameters such as `json_root`, `jsonpaths`, `fuzzy parse`, etc.
 
+    - <version since="dev" type="inline"> enclose </version>
+    
+        When the csv data field contains row delimiters or column delimiters, to prevent accidental truncation, single-byte characters can be specified as brackets for protection. For example, the column separator is ",", the bracket is "'", and the data is "a,'b,c'", then "b,c" will be parsed as a field.
+
+    - <version since="dev" type="inline"> escape </version>
+
+        Used to escape characters that appear in a csv field identical to the enclosing characters. For example, if the data is "a,'b,'c'", enclose is "'", and you want "b,'c to be parsed as a field, you need to specify a single-byte escape character, such as "\", and then modify the data to "a,' b,\'c'".
+
 - `WITH BROKER broker_name`
 
   Specify the Broker service name to be used. In the public cloud Doris. Broker service name is `bos`

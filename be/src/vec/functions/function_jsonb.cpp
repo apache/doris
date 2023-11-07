@@ -25,6 +25,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
@@ -185,7 +186,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
 
         auto null_map = ColumnUInt8::create(0, 0);
@@ -352,9 +353,16 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
     }
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (vectorized::HasGetVariadicArgumentTypesImpl<Impl>) {
+            return Impl::get_variadic_argument_types_impl();
+        } else {
+            return {};
+        }
+    }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         DCHECK_GE(arguments.size(), 2);
 
@@ -958,11 +966,19 @@ struct JsonbExtractBool : public JsonbExtractImpl<JsonbTypeBool> {
 struct JsonbExtractInt : public JsonbExtractImpl<JsonbTypeInt> {
     static constexpr auto name = "json_extract_int";
     static constexpr auto alias = "jsonb_extract_int";
+    static constexpr auto name2 = "get_json_int";
+    static DataTypes get_variadic_argument_types_impl() {
+        return {std::make_shared<DataTypeJsonb>(), std::make_shared<DataTypeString>()};
+    }
 };
 
 struct JsonbExtractBigInt : public JsonbExtractImpl<JsonbTypeInt64> {
     static constexpr auto name = "json_extract_bigint";
     static constexpr auto alias = "jsonb_extract_bigint";
+    static constexpr auto name2 = "get_json_bigint";
+    static DataTypes get_variadic_argument_types_impl() {
+        return {std::make_shared<DataTypeJsonb>(), std::make_shared<DataTypeString>()};
+    }
 };
 
 struct JsonbExtractLargeInt : public JsonbExtractImpl<JsonbTypeInt128> {
@@ -973,11 +989,19 @@ struct JsonbExtractLargeInt : public JsonbExtractImpl<JsonbTypeInt128> {
 struct JsonbExtractDouble : public JsonbExtractImpl<JsonbTypeDouble> {
     static constexpr auto name = "json_extract_double";
     static constexpr auto alias = "jsonb_extract_double";
+    static constexpr auto name2 = "get_json_double";
+    static DataTypes get_variadic_argument_types_impl() {
+        return {std::make_shared<DataTypeJsonb>(), std::make_shared<DataTypeString>()};
+    }
 };
 
 struct JsonbExtractString : public JsonbExtractStringImpl<JsonbTypeString> {
     static constexpr auto name = "json_extract_string";
     static constexpr auto alias = "jsonb_extract_string";
+    static constexpr auto name2 = "get_json_string";
+    static DataTypes get_variadic_argument_types_impl() {
+        return {std::make_shared<DataTypeJsonb>(), std::make_shared<DataTypeString>()};
+    }
 };
 
 struct JsonbExtractJsonb : public JsonbExtractStringImpl<JsonbTypeJson> {
@@ -1022,7 +1046,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
@@ -1146,7 +1170,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
@@ -1310,14 +1334,18 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionJsonbExtractBool::name, FunctionJsonbExtractBool::alias);
     factory.register_function<FunctionJsonbExtractInt>();
     factory.register_alias(FunctionJsonbExtractInt::name, FunctionJsonbExtractInt::alias);
+    factory.register_function<FunctionJsonbExtractInt>(JsonbExtractInt::name2);
     factory.register_function<FunctionJsonbExtractBigInt>();
     factory.register_alias(FunctionJsonbExtractBigInt::name, FunctionJsonbExtractBigInt::alias);
+    factory.register_function<FunctionJsonbExtractBigInt>(JsonbExtractBigInt::name2);
     factory.register_function<FunctionJsonbExtractLargeInt>();
     factory.register_alias(FunctionJsonbExtractLargeInt::name, FunctionJsonbExtractLargeInt::alias);
     factory.register_function<FunctionJsonbExtractDouble>();
     factory.register_alias(FunctionJsonbExtractDouble::name, FunctionJsonbExtractDouble::alias);
+    factory.register_function<FunctionJsonbExtractDouble>(JsonbExtractDouble::name2);
     factory.register_function<FunctionJsonbExtractString>();
     factory.register_alias(FunctionJsonbExtractString::name, FunctionJsonbExtractString::alias);
+    factory.register_function<FunctionJsonbExtractString>(JsonbExtractString::name2);
     factory.register_function<FunctionJsonbExtractJsonb>();
     // factory.register_alias(FunctionJsonbExtractJsonb::name, FunctionJsonbExtractJsonb::alias);
 

@@ -47,9 +47,17 @@
 #include <roaring/roaring.hh>
 #include <set>
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "io/fs/file_system.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"
@@ -281,10 +289,12 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                     "inverted index path: {} not exist.", index_file_path.string());
         }
 
-        InvertedIndexCacheHandle inverted_index_cache_handle;
-        InvertedIndexSearcherCache::instance()->get_index_searcher(
-                _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats);
-        auto index_searcher = inverted_index_cache_handle.get_index_searcher();
+        auto get_index_search = [this, &index_dir, &index_file_name, &stats]() {
+            InvertedIndexCacheHandle inverted_index_cache_handle;
+            static_cast<void>(InvertedIndexSearcherCache::instance()->get_index_searcher(
+                    _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats));
+            return inverted_index_cache_handle.get_index_searcher();
+        };
 
         std::unique_ptr<lucene::search::Query> query;
         std::wstring field_ws = std::wstring(column_name.begin(), column_name.end());
@@ -314,6 +324,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                 term_match_bitmap = cache_handle.get_bitmap();
             } else {
                 stats->inverted_index_query_cache_miss++;
+
+                auto index_searcher = get_index_search();
 
                 term_match_bitmap = std::make_shared<roaring::Roaring>();
 
@@ -362,6 +374,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
                     term_match_bitmap = cache_handle.get_bitmap();
                 } else {
                     stats->inverted_index_query_cache_miss++;
+
+                    auto index_searcher = get_index_search();
 
                     term_match_bitmap = std::make_shared<roaring::Roaring>();
                     // unique_ptr with custom deleter
@@ -471,7 +485,8 @@ void FullTextIndexReader::check_null_bitmap(const IndexSearcherPtr& index_search
     // to avoid open directory additionally for null_bitmap
     if (!null_bitmap_already_read) {
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory());
+        static_cast<void>(read_null_bitmap(&null_bitmap_cache_handle,
+                                           index_searcher->getReader()->directory()));
         null_bitmap_already_read = true;
     }
 }
@@ -565,14 +580,15 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
 
     roaring::Roaring result;
     InvertedIndexCacheHandle inverted_index_cache_handle;
-    InvertedIndexSearcherCache::instance()->get_index_searcher(
-            _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats);
+    static_cast<void>(InvertedIndexSearcherCache::instance()->get_index_searcher(
+            _fs, index_dir.c_str(), index_file_name, &inverted_index_cache_handle, stats));
     auto index_searcher = inverted_index_cache_handle.get_index_searcher();
 
     // try to reuse index_searcher's directory to read null_bitmap to cache
     // to avoid open directory additionally for null_bitmap
     InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-    read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory());
+    static_cast<void>(
+            read_null_bitmap(&null_bitmap_cache_handle, index_searcher->getReader()->directory()));
 
     try {
         if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||

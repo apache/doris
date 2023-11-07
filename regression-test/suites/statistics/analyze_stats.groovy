@@ -1,3 +1,5 @@
+import java.util.stream.Collectors
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,7 +18,9 @@
 // under the License.
 
 suite("test_analyze") {
-    String db = "regression_test_statistics"
+
+    String db = "test_analyze"
+
     String tbl = "analyzetestlimited_duplicate_all"
 
     sql """
@@ -27,9 +31,16 @@ suite("test_analyze") {
         CREATE DATABASE `${db}`
     """
 
+    // regression framework will auto create an default DB with name regression_test_$(case dir name) and use it to run case,
+    // if we do not use the default DB, here we should use the custom DB explicitly
+    sql """
+        USE `${db}`
+    """
+
     sql """
         DROP TABLE IF EXISTS `${tbl}`
     """
+
 
     sql """
           CREATE TABLE IF NOT EXISTS `${tbl}` (
@@ -78,12 +89,6 @@ suite("test_analyze") {
         'ps7qwcZjBjkGfcXYMw5HQMwnElzoHqinwk8vhQCbVoGBgfotc4oSkpD3tP34h4h0tTogDMwFu60iJm1bofUzyUQofTeRwZk8','4692206687866847780')
     """
 
-    def frontends = sql """
-        SHOW FRONTENDS;
-    """
-    if (frontends.size > 1) {
-        return;
-    }
     sql """
         ANALYZE DATABASE ${db}
     """
@@ -94,7 +99,7 @@ suite("test_analyze") {
 
     sql """
         SET enable_nereids_planner=true;
-
+        
         """
     sql """
         SET enable_fallback_to_original_planner=false;
@@ -106,18 +111,18 @@ suite("test_analyze") {
     Thread.sleep(1000 * 60)
 
     sql """
-        SELECT COUNT(*) FROM ${tbl};
+        SELECT * FROM ${tbl}; 
     """
 
     sql """
         DROP STATS ${tbl}(analyzetestlimitedk3)
     """
 
-    exception = null
+    def exception = null
 
     try {
         sql """
-            SELECT * FROM ${tbl};
+            SELECT * FROM ${tbl}; 
         """
     } catch (Exception e) {
         exception = e
@@ -132,7 +137,7 @@ suite("test_analyze") {
     """
 
     sql """
-        SELECT COUNT(*) FROM ${tbl};
+        SELECT * FROM ${tbl}; 
     """
 
     sql """
@@ -141,7 +146,7 @@ suite("test_analyze") {
 
     try {
         sql """
-            SELECT COUNT(*) FROM ${tbl};
+            SELECT * FROM ${tbl}; 
         """
     } catch (Exception e) {
         exception = e
@@ -184,14 +189,14 @@ suite("test_analyze") {
     assert contains_expected_table(show_result)
 
     sql """
-        DROP ANALYZE JOB ${a_result_3[0][4]}
+        DROP ANALYZE JOB ${a_result_3[0][0]}
     """
 
     show_result = sql """
         SHOW ANALYZE
     """
 
-    assert stats_job_removed(show_result, a_result_3[0][4])
+    assert stats_job_removed(show_result, a_result_3[0][0])
 
     sql """
         ANALYZE DATABASE ${db} WITH SAMPLE ROWS 5 WITH PERIOD 100000
@@ -232,8 +237,8 @@ suite("test_analyze") {
         SHOW COLUMN CACHED STATS analyze_partitioned_tbl_test(col1)
     """
 
-    def expected_result = { r ->
-        for (int i = 0; i < r.size; i++) {
+    def expected_result = { r->
+        for(int i = 0; i < r.size; i++) {
             if ((int) Double.parseDouble(r[i][1]) == 6) {
                 return true
             } else {
@@ -859,7 +864,7 @@ PARTITION `p598` VALUES IN (598),
 PARTITION `p599` VALUES IN (599)
 
         )
-    DISTRIBUTED BY HASH(`id`) BUCKETS 16
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
     PROPERTIES
     (
         "replication_num" = "1"
@@ -868,12 +873,15 @@ PARTITION `p599` VALUES IN (599)
     """
 
     sql """
-        INSERT INTO test_600_partition_table_analyze VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9),(10),(11),(12),(13),(14),(15),(16),(17),(18),(19),(20),(21),(22),(23),(24),(25),(26),(27),(28),(29),(30),(31),(32),(33),(34),(35),(36),(37),(38),(39),(40),(41),(42),(43),(44),(45),(46),(47),(48),(49),(50),(51),(52),(53),(54),(55),(56),(57),(58),(59),(60),(61),(62),(63),(64),(65),(66),(67),(68),(69),(70),(71),(72),(73),(74),(75),(76),(77),(78),(79),(80),(81),(82),(83),(84),(85),(86),(87),(88),(89),(90),(91),(92),(93),(94),(95),(96),(97),(98),(99),(100),(101),(102),(103),(104),(105),(106),(107),(108),(109),(110),(111),(112),(113),(114),(115),(116),(117),(118),(119),(120),(121),(122),(123),(124),(125),(126),(127),(128),(129),(130),(131),(132),(133),(134),(135),(136),(137),(138),(139),(140),(141),(142),(143),(144),(145),(146),(147),(148),(149),(150),(151),(152),(153),(154),(155),(156),(157),(158),(159),(160),(161),(162),(163),(164),(165),(166),(167),(168),(169),(170),(171),(172),(173),(174),(175),(176),(177),(178),(179),(180),(181),(182),(183),(184),(185),(186),(187),(188),(189),(190),(191),(192),(193),(194),(195),(196),(197),(198),(199),(200),(201),(202),(203),(204),(205),(206),(207),(208),(209),(210),(211),(212),(213),(214),(215),(216),(217),(218),(219),(220),(221),(222),(223),(224),(225),(226),(227),(228),(229),(230),(231),(232),(233),(234),(235),(236),(237),(238),(239),(240),(241),(242),(243),(244),(245),(246),(247),(248),(249),(250),(251),(252),(253),(254),(255),(256),(257),(258),(259),(260),(261),(262),(263),(264),(265),(266),(267),(268),(269),(270),(271),(272),(273),(274),(275),(276),(277),(278),(279),(280),(281),(282),(283),(284),(285),(286),(287),(288),(289),(290),(291),(292),(293),(294),(295),(296),(297),(298),(299),(300),(301),(302),(303),(304),(305),(306),(307),(308),(309),(310),(311),(312),(313),(314),(315),(316),(317),(318),(319),(320),(321),(322),(323),(324),(325),(326),(327),(328),(329),(330),(331),(332),(333),(334),(335),(336),(337),(338),(339),(340),(341),(342),(343),(344),(345),(346),(347),(348),(349),(350),(351),(352),(353),(354),(355),(356),(357),(358),(359),(360),(361),(362),(363),(364),(365),(366),(367),(368),(369),(370),(371),(372),(373),(374),(375),(376),(377),(378),(379),(380),(381),(382),(383),(384),(385),(386),(387),(388),(389),(390),(391),(392),(393),(394),(395),(396),(397),(398),(399),(400),(401),(402),(403),(404),(405),(406),(407),(408),(409),(410),(411),(412),(413),(414),(415),(416),(417),(418),(419),(420),(421),(422),(423),(424),(425),(426),(427),(428),(429),(430),(431),(432),(433),(434),(435),(436),(437),(438),(439),(440),(441),(442),(443),(444),(445),(446),(447),(448),(449),(450),(451),(452),(453),(454),(455),(456),(457),(458),(459),(460),(461),(462),(463),(464),(465),(466),(467),(468),(469),(470),(471),(472),(473),(474),(475),(476),(477),(478),(479),(480),(481),(482),(483),(484),(485),(486),(487),(488),(489),(490),(491),(492),(493),(494),(495),(496),(497),(498),(499),(500),(501),(502),(503),(504),(505),(506),(507),(508),(509),(510),(511),(512),(513),(514),(515),(516),(517),(518),(519),(520),(521),(522),(523),(524),(525),(526),(527),(528),(529),(530),(531),(532),(533),(534),(535),(536),(537),(538),(539),(540),(541),(542),(543),(544),(545),(546),(547),(548),(549),(550),(551),(552),(553),(554),(555),(556),(557),(558),(559),(560),(561),(562),(563),(564),(565),(566),(567),(568),(569),(570),(571),(572),(573),(574),(575),(576),(577),(578),(579),(580),(581),(582),(583),(584),(585),(586),(587),(588),(589),(590),(591),(592),(593),(594),(595),(596),(597),(598),(599)
+        INSERT INTO test_600_partition_table_analyze VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9),(10),(11),(12),(13),(14),(15),(16),(17),(18),(19),(20),(21),(22),(23),(24),(25),(26),(27),(28),(29),(30),(31),(32),(33),(34),(35),(36),(37),(38),(39),(40),(41),(42),(43),(44),(45),(46),(47),(48),(49),(50),(51),(52),(53),(54),(55),(56),(57),(58),(59),(60),(61),(62),(63),(64),(65),(66),(67),(68),(69),(70),(71),(72),(73),(74),(75),(76),(77),(78),(79),(80),(81),(82),(83),(84),(85),(86),(87),(88),(89),(90),(91),(92),(93),(94),(95),(96),(97),(98),(99),(100),(101),(102),(103),(104),(105),(106),(107),(108),(109),(110),(111),(112),(113),(114),(115),(116),(117),(118),(119),(120),(121),(122),(123),(124),(125),(126),(127),(128),(129),(130),(131),(132),(133),(134),(135),(136),(137),(138),(139),(140),(141),(142),(143),(144),(145),(146),(147),(148),(149),(150),(151),(152),(153),(154),(155),(156),(157),(158),(159),(160),(161),(162),(163),(164),(165),(166),(167),(168),(169),(170),(171),(172),(173),(174),(175),(176),(177),(178),(179),(180),(181),(182),(183),(184),(185),(186),(187),(188),(189),(190),(191),(192),(193),(194),(195),(196),(197),(198),(199),(200),(201),(202),(203),(204),(205),(206),(207),(208),(209),(210),(211),(212),(213),(214),(215),(216),(217),(218),(219),(220),(221),(222),(223),(224),(225),(226),(227),(228),(229),(230),(231),(232),(233),(234),(235),(236),(237),(238),(239),(240),(241),(242),(243),(244),(245),(246),(247),(248),(249),(250),(251),(252),(253),(254),(255),(256),(257),(258),(259),(260),(261),(262),(263),(264),(265),(266),(267),(268),(269),(270),(271),(272),(273),(274),(275),(276),(277),(278),(279),(280),(281),(282),(283),(284),(285),(286),(287),(288),(289),(290),(291),(292),(293),(294),(295),(296),(297),(298),(299),(300)
+    """
+    sql """
+        INSERT INTO test_600_partition_table_analyze VALUES (301),(302),(303),(304),(305),(306),(307),(308),(309),(310),(311),(312),(313),(314),(315),(316),(317),(318),(319),(320),(321),(322),(323),(324),(325),(326),(327),(328),(329),(330),(331),(332),(333),(334),(335),(336),(337),(338),(339),(340),(341),(342),(343),(344),(345),(346),(347),(348),(349),(350),(351),(352),(353),(354),(355),(356),(357),(358),(359),(360),(361),(362),(363),(364),(365),(366),(367),(368),(369),(370),(371),(372),(373),(374),(375),(376),(377),(378),(379),(380),(381),(382),(383),(384),(385),(386),(387),(388),(389),(390),(391),(392),(393),(394),(395),(396),(397),(398),(399),(400),(401),(402),(403),(404),(405),(406),(407),(408),(409),(410),(411),(412),(413),(414),(415),(416),(417),(418),(419),(420),(421),(422),(423),(424),(425),(426),(427),(428),(429),(430),(431),(432),(433),(434),(435),(436),(437),(438),(439),(440),(441),(442),(443),(444),(445),(446),(447),(448),(449),(450),(451),(452),(453),(454),(455),(456),(457),(458),(459),(460),(461),(462),(463),(464),(465),(466),(467),(468),(469),(470),(471),(472),(473),(474),(475),(476),(477),(478),(479),(480),(481),(482),(483),(484),(485),(486),(487),(488),(489),(490),(491),(492),(493),(494),(495),(496),(497),(498),(499),(500),(501),(502),(503),(504),(505),(506),(507),(508),(509),(510),(511),(512),(513),(514),(515),(516),(517),(518),(519),(520),(521),(522),(523),(524),(525),(526),(527),(528),(529),(530),(531),(532),(533),(534),(535),(536),(537),(538),(539),(540),(541),(542),(543),(544),(545),(546),(547),(548),(549),(550),(551),(552),(553),(554),(555),(556),(557),(558),(559),(560),(561),(562),(563),(564),(565),(566),(567),(568),(569),(570),(571),(572),(573),(574),(575),(576),(577),(578),(579),(580),(581),(582),(583),(584),(585),(586),(587),(588),(589),(590),(591),(592),(593),(594),(595),(596),(597),(598),(599)
     """
 
     sql """ANALYZE TABLE test_600_partition_table_analyze WITH SYNC"""
 
-    //  column_name | count | ndv  | num_null | data_size | avg_size_byte | min  | max  | updated_time
+    //  0:column_name | 1:count | 2:ndv  | 3:num_null | 4:data_size | 5:avg_size_byte | 6:min  | 7:max  | 8:updated_time
     id_col_stats = sql """
         SHOW COLUMN CACHED STATS test_600_partition_table_analyze(id);
     """
@@ -915,7 +923,7 @@ PARTITION `p599` VALUES IN (599)
     expected_col_stats(inc_res, 6, 1)
 
     sql """
-        DROP TABLE regression_test_statistics.increment_analyze_test;
+        DROP TABLE increment_analyze_test;
     """
 
     sql """
@@ -1039,6 +1047,7 @@ PARTITION `p599` VALUES IN (599)
         DROP TABLE IF EXISTS two_thousand_partition_table_test
     """
 
+    // check analyze table with thousand partition
     sql """
         CREATE TABLE two_thousand_partition_table_test (col1 int(11451) not null)
         DUPLICATE KEY(col1)
@@ -1047,7 +1056,7 @@ PARTITION `p599` VALUES IN (599)
                   from (0) to (1000001) INTERVAL 500
                   )
         DISTRIBUTED BY HASH(col1)
-        BUCKETS 3
+        BUCKETS 1
         PROPERTIES(
             "replication_num"="1"
         );
@@ -1057,4 +1066,89 @@ PARTITION `p599` VALUES IN (599)
         ANALYZE TABLE two_thousand_partition_table_test WITH SYNC;
     """
 
+    // meta check
+    sql """
+        CREATE TABLE `test_meta_management` (
+           `col1` varchar(11451) NOT NULL,
+           `col2` int(11) NOT NULL,
+           `col3` int(11) NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`col1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`col1`) BUCKETS 3
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        ); 
+    """
+
+    sql """insert into test_meta_management values(1, 2, 3);"""
+    sql """insert into test_meta_management values(4, 5, 6);"""
+    sql """insert into test_meta_management values(7, 1, 9);"""
+    sql """insert into test_meta_management values(3, 8, 2);"""
+    sql """insert into test_meta_management values(5, 2, 1);"""
+    sql """insert into test_meta_management values(41, 2, 3)"""
+
+    sql """ANALYZE TABLE test_meta_management WITH SYNC"""
+    sql """DROP STATS test_meta_management(col1)"""
+
+    def afterDropped = sql """SHOW TABLE STATS test_meta_management"""
+    def convert_col_list_str_to_java_collection = { cols ->
+        if (cols.startsWith("[") && cols.endsWith("]")) {
+            cols = cols.substring(1, cols.length() - 1);
+        }
+        return Arrays.stream(cols.split(",")).map(String::trim).collect(Collectors.toList())
+    }
+
+    def check_column = { r, expected ->
+        expected_result = convert_col_list_str_to_java_collection(expected)
+        actual_result = convert_col_list_str_to_java_collection(r[0][4])
+        System.out.println(expected_result)
+        System.out.println(actual_result)
+        return expected_result.containsAll(actual_result) && actual_result.containsAll(expected_result)
+    }
+    assert check_column(afterDropped, "[col2, col3]")
+    sql """ANALYZE TABLE test_meta_management WITH SYNC"""
+    afterDropped = sql """SHOW TABLE STATS test_meta_management"""
+    assert check_column(afterDropped, "[col1, col2, col3]")
+
+    // test analyze specific column
+    sql """CREATE TABLE test_analyze_specific_column (col1 varchar(11451) not null, col2 int not null, col3 int not null)
+    DUPLICATE KEY(col1)
+    DISTRIBUTED BY HASH(col1)
+    BUCKETS 3
+    PROPERTIES(
+            "replication_num"="1"
+    );"""
+    sql """insert into test_analyze_specific_column values('%.', 2, 1);"""
+    sql """ANALYZE TABLE test_analyze_specific_column(col2) WITH SYNC"""
+    result = sql """SHOW COLUMN STATS test_analyze_specific_column"""
+    assert result.size() == 1
+
+    // test escape sql
+    sql """
+         DROP TABLE IF EXISTS test_max_min_lit;
+    """
+
+    sql """
+          CREATE TABLE test_max_min_lit  (
+          `col1` varchar(32) NULL
+          ) ENGINE=OLAP
+            DUPLICATE KEY(`col1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`col1`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            ); 
+    """
+
+    sql """INSERT INTO test_max_min_lit VALUES("\\'")"""
+    sql """INSERT INTO test_max_min_lit VALUES('\\';')"""
+    sql "INSERT INTO test_max_min_lit VALUES('测试')"
+
+    sql """ANALYZE TABLE test_max_min_lit WITH SYNC"""
+    def max = sql """show column cached stats test_max_min_lit"""
+    def expected_max = { r, expected_value ->
+        return (r[0][7]).equals(expected_value)
+    }
+    expected_max(max, "测试")
 }

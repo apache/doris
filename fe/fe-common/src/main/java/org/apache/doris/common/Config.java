@@ -458,6 +458,10 @@ public class Config extends ConfigBase {
             "Maximal timeout for delete job, in seconds."})
     public static int delete_job_max_timeout_second = 300;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"Load 成功所需的最小写入副本数。",
+            "Minimal number of write successful replicas for load job."})
+    public static short min_load_replica_num = -1;
+
     @ConfField(description = {"load job 调度器的执行间隔，单位是秒。",
             "The interval of load job scheduler, in seconds."})
     public static int load_checker_interval_second = 5;
@@ -665,18 +669,6 @@ public class Config extends ConfigBase {
             "单个 broker scanner 的最大并发数。", "Maximal concurrency of broker scanners."})
     public static int max_broker_concurrency = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "导出作业的最大并发数。", "Limitation of the concurrency of running export jobs."})
-    public static int export_running_job_num_limit = 5;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "导出作业的默认超时时间。", "Default timeout of export jobs."})
-    public static int export_task_default_timeout_second = 2 * 3600; // 2h
-
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "每个导出作业的需要处理的 tablet 数量。", "Number of tablets need to be handled per export job."})
-    public static int export_tablet_num_per_task = 5;
-
     // TODO(cmy): Disable by default because current checksum logic has some bugs.
     @ConfField(mutable = true, masterOnly = true, description = {
             "一致性检查的开始时间。与 `consistency_check_end_time` 配合使用，决定一致性检查的起止时间。"
@@ -719,6 +711,10 @@ public class Config extends ConfigBase {
      *   Eventually the colocate plan cannot be used when querying.
      */
     @ConfField(mutable = true, masterOnly = true) public static boolean disable_colocate_balance = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"是否启用group间的均衡",
+            "is allow colocate balance between all groups"})
+    public static boolean disable_colocate_balance_between_groups = false;
 
     /**
      * The default user resource publishing timeout.
@@ -962,6 +958,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int schedule_batch_size = 50;
 
+    /**
+     * tablet health check interval. Do not modify it in production environment.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static long tablet_checker_interval_ms = 20 * 1000;
+
+    /**
+     * tablet scheduled interval. Do not modify it in production environment.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static long tablet_schedule_interval_ms = 1000;
 
     /**
      * Deprecated after 0.10
@@ -1157,6 +1164,15 @@ public class Config extends ConfigBase {
     public static int decommission_tablet_check_threshold = 5000;
 
     /**
+     * Decommission a tablet need to wait all the previous txns finished.
+     * If wait timeout, decommission will fail.
+     * Need to increase this wait time if the txn take a long time.
+     *
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int decommission_tablet_wait_time_seconds = 3600;
+
+    /**
      * Define thrift server's server model, default is TThreadPoolServer model
      */
     @ConfField
@@ -1236,20 +1252,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean recover_with_empty_tablet = false;
-
-    /**
-     * In some scenarios, there is an unrecoverable metadata problem in the cluster,
-     * and the visibleVersion of the data does not match be. In this case, it is still
-     * necessary to restore the remaining data (which may cause problems with the correctness of the data).
-     * This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
-     * This configuration has three values:
-     *   disable : If an exception occurs, an error will be reported normally.
-     *   ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
-     *   ignore_all: In addition to ignore_version, when encountering no queryable replica,
-     *   skip it directly instead of throwing an exception
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static String recover_with_skip_missing_version = "disable";
 
     /**
      * Whether to add a delete sign column when create unique table
@@ -1588,6 +1590,14 @@ public class Config extends ConfigBase {
     @ConfField
     public static int async_task_consumer_thread_num = 5;
 
+    /**
+     * When job is finished, it will be saved in job manager for a while.
+     * This configuration is used to control the max saved time.
+     * Default is 3 days.
+     */
+    @ConfField
+    public static int finish_job_max_saved_second = 60 * 60 * 24 * 3;
+
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_workload_group = false;
@@ -1904,6 +1914,12 @@ public class Config extends ConfigBase {
     public static boolean ssl_force_client_auth = false;
 
     /**
+     * ssl connection needs to authenticate client's certificate store type.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String ssl_trust_store_type = "PKCS12";
+
+    /**
      * Default CA certificate file location for mysql ssl connection.
      */
     @ConfField(mutable = false, masterOnly = false)
@@ -2000,12 +2016,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_round_robin_create_tablet = false;
-
-    /**
-     * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
-     */
-    @ConfField
-    public static boolean enable_stats = true;
 
     /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
@@ -2204,7 +2214,7 @@ public class Config extends ConfigBase {
             "控制统计信息的自动触发作业执行记录的持久化行数",
             "Determine the persist number of automatic triggered analyze job execution status"
     })
-    public static long auto_analyze_job_record_count = 20000;
+    public static long analyze_record_limit = 20000;
 
     @ConfField(description = {
             "Auto Buckets中最小的buckets数目",
@@ -2222,4 +2232,51 @@ public class Config extends ConfigBase {
             + "the default value is 4320, which is 3 days"})
     public static int arrow_flight_token_alive_time = 4320;
 
+    @ConfField(mutable = true, description = {
+            "Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，"
+            + "请修改这个字段，为 doris 内置的 mysql database 更换一个名字",
+            "To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. "
+            + "If this database conflicts with a user's own database, please modify this field to replace "
+            + "the name of the Doris built-in MySQL database with a different name."})
+    public static String mysqldb_replace_name = "mysql";
+
+    @ConfField(description = {
+        "设置允许跨域访问的特定域名,默认允许任何域名跨域访问",
+        "Set the specific domain name that allows cross-domain access. "
+            + "By default, any domain name is allowed cross-domain access"
+    })
+    public static String access_control_allowed_origin_domain = "*";
+
+    @ConfField(description = {
+            "开启java_udf, 默认为true。如果该配置为false，则禁止创建和使用java_udf。在一些场景下关闭该配置可防止命令注入攻击。",
+            "Used to enable java_udf, default is true. if this configuration is false, creation and use of java_udf is "
+                    + "disabled. in some scenarios it may be necessary to disable this configuration to prevent "
+                    + "command injection attacks."
+    })
+    public static boolean enable_java_udf = true;
+
+    @ConfField(description = {
+            "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
+                    + "默认为 false，如果 Image 文件中包含未知的模块，Doris 将会抛出异常。"
+                    + "该参数主要用于降级操作中，老版本可以兼容新版本的 Image 文件。",
+            "Whether to ignore unknown modules in Image file. "
+                    + "If true, metadata modules not in PersistMetaModules.MODULE_NAMES "
+                    + "will be ignored and skipped. Default is false, if Image file contains unknown modules, "
+                    + "Doris will throw exception. "
+                    + "This parameter is mainly used in downgrade operation, "
+                    + "old version can be compatible with new version Image file."
+    })
+    public static boolean ignore_unknown_metadata_module = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "从主节点同步image文件的超时时间，用户可根据${meta_dir}/image文件夹下面的image文件大小和节点间的网络环境调整，"
+                    + "单位为秒，默认值300",
+            "The timeout for FE Follower/Observer synchronizing an image file from the FE Master, can be adjusted by "
+                    + "the user on the size of image file in the ${meta_dir}/image and the network environment between "
+                    + "nodes. The default values is 300."
+    })
+    public static int sync_image_timeout_second = 300;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int publish_topic_info_interval_ms = 30000; // 30s
 }

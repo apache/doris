@@ -28,6 +28,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
+import org.apache.doris.nereids.parser.ParseDialect;
+import org.apache.doris.nereids.parser.ParseDialect.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
@@ -39,6 +41,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -112,7 +115,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
-    public static final String ENABLE_SIMPLY_PROFILE = "enable_simply_profile";
+    public static final String PROFILE_LEVEL = "profile_level";
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
@@ -210,6 +213,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PIPELINE_X_ENGINE = "enable_pipeline_x_engine";
 
+    public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
+
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
@@ -287,6 +292,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKIP_DELETE_SIGN = "skip_delete_sign";
 
     public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
+
+    public static final String SKIP_MISSING_VERSION = "skip_missing_version";
 
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
 
@@ -410,11 +417,17 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FULL_AUTO_ANALYZE_END_TIME = "full_auto_analyze_end_time";
 
+    public static final String SQL_DIALECT = "sql_dialect";
+
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
 
     public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
 
     public static final String ENABLE_FULL_AUTO_ANALYZE = "enable_full_auto_analyze";
+
+    public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
+
+    public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -423,6 +436,13 @@ public class SessionVariable implements Serializable, Writable {
             SKIP_STORAGE_ENGINE_MERGE,
             SHOW_HIDDEN_COLUMNS
     );
+
+    public static final String ENABLE_STATS = "enable_stats";
+    /**
+     * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
+     */
+    @VariableMgr.VarAttr(name = ENABLE_STATS)
+    public  boolean enableStats = true;
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -623,8 +643,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true)
     public int parallelPipelineTaskNum = 0;
 
-    @VariableMgr.VarAttr(name = ENABLE_SIMPLY_PROFILE, fuzzy = true)
-    public boolean enableSimplyProfile = true;
+    @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = true)
+    public int profileLevel = 3;
 
     @VariableMgr.VarAttr(name = MAX_INSTANCE_NUM)
     public int maxInstanceNum = 64;
@@ -703,6 +723,8 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     private boolean enablePipelineXEngine = false;
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
+    private boolean enableLocalShuffle = false;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableAggState = false;
@@ -834,7 +856,7 @@ public class SessionVariable implements Serializable, Writable {
 
 
     @VariableMgr.VarAttr(name = MAX_JOIN_NUMBER_BUSHY_TREE)
-    private int maxJoinNumBushyTree = 5;
+    private int maxJoinNumBushyTree = 8;
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = true;
@@ -955,6 +977,19 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
     public boolean skipDeleteBitmap = false;
+
+    // This variable replace the original FE config `recover_with_skip_missing_version`.
+    // In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover.
+    // This config can control the behavior of query. When it is set to `true`, the query will ignore the
+    // visible version recorded in FE partition, use the replica version. If the replica on BE has missing versions,
+    // the query will directly skip this missing version, and only return the data of the existing versions.
+    // Besides, the query will always try to select the one with the highest lastSuccessVersion among all surviving
+    // BE replicas, so as to recover as much data as possible.
+    // You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries.
+    // This variable conflicts with the use_fix_replica variable, when the use_fix_replica variable is not -1,
+    // this variable will not work.
+    @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION)
+    public boolean skipMissingVersion = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
@@ -1209,6 +1244,10 @@ public class SessionVariable implements Serializable, Writable {
             flag = VariableMgr.GLOBAL)
     public String fullAutoAnalyzeEndTime = "02:00:00";
 
+    @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
+            description = {"解析sql使用的方言", "The dialect used to parse sql."})
+    public String sqlDialect = "doris";
+
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
 
@@ -1223,6 +1262,53 @@ public class SessionVariable implements Serializable, Writable {
             description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
             flag = VariableMgr.GLOBAL)
     public boolean enableFullAutoAnalyze = true;
+
+    @VariableMgr.VarAttr(name = FASTER_FLOAT_CONVERT,
+            description = {"是否启用更快的浮点数转换算法，注意会影响输出格式", "Set true to enable faster float pointer number convert"})
+    public boolean fasterFloatConvert = false;
+
+    @VariableMgr.VarAttr(name = IGNORE_RUNTIME_FILTER_IDS,
+            description = {"在IGNORE_RUNTIME_FILTER_IDS列表中的runtime filter将不会被生成",
+                    "the runtime filter id in IGNORE_RUNTIME_FILTER_IDS list will not be generated"})
+
+    public String ignoreRuntimeFilterIds = "";
+    public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
+
+    public Set<Integer> getIgnoredRuntimeFilterIds() {
+        return Arrays.stream(ignoreRuntimeFilterIds.split(",[\\s]*"))
+                .map(v -> {
+                    int res = -1;
+                    try {
+                        res = Integer.valueOf(v);
+                    } catch (Exception e) {
+                        //ignore it
+                    }
+                    return res;
+                }).collect(ImmutableSet.toImmutableSet());
+    }
+
+    public void setIgnoreRuntimeFilterIds(String ignoreRuntimeFilterIds) {
+        this.ignoreRuntimeFilterIds = ignoreRuntimeFilterIds;
+    }
+
+    public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
+
+    public Set<String> getIgnoreShapePlanNodes() {
+        return Arrays.stream(ignoreShapePlanNodes.split(",[\\s]*")).collect(ImmutableSet.toImmutableSet());
+    }
+
+    public void setIgnoreShapePlanNodes(String ignoreShapePlanNodes) {
+        this.ignoreShapePlanNodes = ignoreShapePlanNodes;
+    }
+
+    @VariableMgr.VarAttr(name = IGNORE_SHAPE_NODE,
+            description = {"'explain shape plan' 命令中忽略的PlanNode 类型",
+                    "the plan node type which is ignored in 'explain shape plan' command"})
+    public String ignoreShapePlanNodes = "";
+
+    @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = { "控制是否在计算过程中使用Decimal256类型",
+            "Set to true to enable Decimal256 type" })
+    public boolean enableDecimal256 = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1654,7 +1740,7 @@ public class SessionVariable implements Serializable, Writable {
             int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
             int autoInstance = (size + 1) / 2;
             return Math.min(autoInstance, maxInstanceNum);
-        } else if (enablePipelineEngine) {
+        } else if (getEnablePipelineEngine()) {
             return parallelPipelineTaskNum;
         } else {
             return parallelExecInstanceNum;
@@ -1879,6 +1965,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enablePipelineXEngine = enablePipelineXEngine;
     }
 
+    public void setEnableLocalShuffle(boolean enableLocalShuffle) {
+        this.enableLocalShuffle = enableLocalShuffle;
+    }
+
     public boolean enablePushDownNoGroupAgg() {
         return enablePushDownNoGroupAgg;
     }
@@ -1927,6 +2017,17 @@ public class SessionVariable implements Serializable, Writable {
         this.enableOrcLazyMat = enableOrcLazyMat;
     }
 
+    public String getSqlDialect() {
+        return sqlDialect;
+    }
+
+    public ParseDialect.Dialect getSqlParseDialect() {
+        return ParseDialect.Dialect.getByName(sqlDialect);
+    }
+
+    public void setSqlDialect(String sqlDialect) {
+        this.sqlDialect = sqlDialect == null ? null : sqlDialect.toLowerCase();
+    }
 
     /**
      * getInsertVisibleTimeoutMs.
@@ -2273,6 +2374,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
         tResult.setEnablePipelineXEngine(enablePipelineXEngine);
+        tResult.setEnableLocalShuffle(enableLocalShuffle);
         tResult.setParallelInstance(getParallelExecInstanceNum());
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
@@ -2318,9 +2420,9 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setRepeatMaxNum(repeatMaxNum);
 
-        tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
+        tResult.setExternalSortBytesThreshold(0); // disable for now
 
-        tResult.setExternalAggBytesThreshold(externalAggBytesThreshold);
+        tResult.setExternalAggBytesThreshold(0); // disable for now
 
         tResult.setExternalAggPartitionBits(externalAggPartitionBits);
 
@@ -2344,6 +2446,12 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
 
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
+
+        tResult.setFasterFloatConvert(fasterFloatConvert);
+
+        tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
+
+        tResult.setSkipMissingVersion(skipMissingVersion);
 
         return tResult;
     }
@@ -2621,6 +2729,14 @@ public class SessionVariable implements Serializable, Writable {
         VariableMgr.setVar(this, new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
     }
 
+    public void disableNereidsJoinReorderOnce() throws DdlException {
+        if (!enableNereidsPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this, new SetVar(SessionVariable.DISABLE_JOIN_REORDER, new StringLiteral("true")));
+    }
+
     // return number of variables by given variable annotation
     public int getVariableNumByVariableAnnotation(VariableAnnotation type) {
         int num = 0;
@@ -2666,6 +2782,10 @@ public class SessionVariable implements Serializable, Writable {
         return connectContext.getSessionVariable().enableAggState;
     }
 
+    public boolean enableDecimal256() {
+        return enableDecimal256;
+    }
+
     public void checkAnalyzeTimeFormat(String time) {
         try {
             DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
@@ -2676,7 +2796,23 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    public boolean getEnableSimplyProfile() {
-        return this.enableSimplyProfile;
+    public int getProfileLevel() {
+        return this.profileLevel;
+    }
+
+    public boolean fasterFloatConvert() {
+        return this.fasterFloatConvert;
+    }
+
+    public void checkSqlDialect(String sqlDialect) {
+        if (StringUtils.isEmpty(sqlDialect)) {
+            LOG.warn("sqlDialect value is empty");
+            throw new UnsupportedOperationException("sqlDialect value is empty");
+        }
+        if (Arrays.stream(Dialect.values())
+                .noneMatch(dialect -> dialect.getDialectName().equalsIgnoreCase(sqlDialect))) {
+            LOG.warn("sqlDialect value is invalid, the invalid value is {}", sqlDialect);
+            throw new UnsupportedOperationException("sqlDialect value is invalid, the invalid value is " + sqlDialect);
+        }
     }
 }

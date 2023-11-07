@@ -96,12 +96,7 @@ struct FullBaseSchemaView {
     int32_t table_id = 0;
     std::string table_name;
     std::string db_name;
-
-    bool empty() { return column_name_to_column.empty() && schema_version == -1; }
 };
-
-Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
-                            FullBaseSchemaView* schema_view);
 
 Status send_fetch_full_base_schema_view_rpc(FullBaseSchemaView* schema_view);
 

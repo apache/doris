@@ -18,15 +18,70 @@
 #pragma once
 
 #include "common/logging.h"
+#include "util/bitmap_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_min_max.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/columns/column_complex.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/data_types/data_type_bitmap.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+
+/// For bitmap value
+struct BitmapValueData {
+private:
+    using Self = BitmapValueData;
+    bool has_value = false;
+    BitmapValue value;
+
+public:
+    BitmapValueData() = default;
+    BitmapValueData(bool has_value_, BitmapValue value_) : has_value(has_value_), value(value_) {}
+    [[nodiscard]] bool has() const { return has_value; }
+
+    void insert_result_into(IColumn& to) const {
+        if (has()) {
+            assert_cast<ColumnBitmap&>(to).get_data().push_back(value);
+        } else {
+            assert_cast<ColumnBitmap&>(to).insert_default();
+        }
+    }
+
+    void reset() {
+        if (has()) {
+            has_value = false;
+        }
+    }
+
+    void write(BufferWritable& buf) const {
+        write_binary(has(), buf);
+        if (has()) {
+            DataTypeBitMap::serialize_as_stream(value, buf);
+        }
+    }
+
+    void read(BufferReadable& buf, Arena* arena) {
+        read_binary(has_value, buf);
+        if (has()) {
+            DataTypeBitMap::deserialize_as_stream(value, buf);
+        }
+    }
+
+    void change(const IColumn& column, size_t row_num, Arena*) {
+        has_value = true;
+        value = assert_cast<const ColumnBitmap&>(column).get_data()[row_num];
+    }
+
+    void change(const Self& to, Arena*) {
+        has_value = true;
+        value = to.value;
+    }
+};
+
 template <typename VT, typename KT>
 struct AggregateFunctionMinMaxByBaseData {
 protected:
@@ -228,6 +283,11 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
                                                          SingleValueDataFixed<UInt64>>(
                 argument_types, result_is_nullable);
+    }
+    if (which.idx == TypeIndex::BitMap) {
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         BitmapValueData>(argument_types,
+                                                                          result_is_nullable);
     }
     return nullptr;
 }

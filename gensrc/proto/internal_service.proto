@@ -49,6 +49,7 @@ message PTransmitDataParams {
     // transfer the RowBatch to the Controller Attachment
     optional bool transfer_by_attachment = 10 [default = false];
     optional PUniqueId query_id = 11;
+    optional PStatus exec_status = 12;
 };
 
 message PTransmitDataResult {
@@ -474,6 +475,7 @@ enum PColumnType {
     COLUMN_TYPE_DECIMAL32 = 17;
     COLUMN_TYPE_DECIMAL64 = 18;
     COLUMN_TYPE_DECIMAL128I = 19;
+    COLUMN_TYPE_DECIMAL256 = 20;
 }
 
 message PMinMaxFilter {
@@ -494,12 +496,14 @@ enum PFilterType {
     MINMAX_FILTER = 2;
     IN_FILTER = 3;
     IN_OR_BLOOM_FILTER = 4;
+    MIN_FILTER = 5;
+    MAX_FILTER = 6;
 };
 
 message PMergeFilterRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
-    required PUniqueId fragment_id = 3;
+    required PUniqueId fragment_instance_id = 3;
     required PFilterType filter_type = 4;
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
@@ -515,7 +519,7 @@ message PMergeFilterResponse {
 message PPublishFilterRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
-    required PUniqueId fragment_id = 3;
+    required PUniqueId fragment_instance_id = 3;
     required PFilterType filter_type = 4;
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
@@ -716,16 +720,18 @@ message PGroupCommitInsertRequest {
     optional int64 db_id = 1;
     optional int64 table_id = 2;
     //  Descriptors.TDescriptorTable
-    optional bytes desc_tbl = 3;
+    // optional bytes desc_tbl = 3;
     optional int64 base_schema_version = 4;
 
     // TExecPlanFragmentParams -> TPlanFragment -> PlanNodes.TPlan
-    optional bytes plan_node = 5;
+    // optional bytes plan_node = 5;
     // TScanRangeParams
-    optional bytes scan_range_params = 6;
+    // optional bytes scan_range_params = 6;
 
     optional PUniqueId load_id = 7;
     repeated PDataRow data = 8;
+    // TExecPlanFragmentParams
+    optional PExecPlanFragmentRequest exec_plan_fragment_request = 9;
 }
 
 message PGroupCommitInsertResponse {
@@ -792,7 +798,7 @@ service PBackendService {
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
-    rpc open_stream_sink(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
+    rpc open_load_stream(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_add_block_by_http(PEmptyRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);

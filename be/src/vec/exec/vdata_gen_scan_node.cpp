@@ -131,13 +131,14 @@ Status VDataGenFunctionScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    _table_func->close(state);
+    static_cast<void>(_table_func->close(state));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     return ExecNode::close(state);
 }
 
-Status VDataGenFunctionScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+Status VDataGenFunctionScanNode::set_scan_ranges(RuntimeState* state,
+                                                 const std::vector<TScanRangeParams>& scan_ranges) {
     return _table_func->set_scan_ranges(scan_ranges);
 }
 

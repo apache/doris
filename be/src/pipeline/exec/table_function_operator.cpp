@@ -116,7 +116,7 @@ int TableFunctionLocalState::_find_last_fn_eos_idx() const {
 bool TableFunctionLocalState::_roll_table_functions(int last_eos_idx) {
     int i = last_eos_idx - 1;
     for (; i >= 0; --i) {
-        _fns[i]->forward();
+        static_cast<void>(_fns[i]->forward());
         if (!_fns[i]->eos()) {
             break;
         }
@@ -128,7 +128,7 @@ bool TableFunctionLocalState::_roll_table_functions(int last_eos_idx) {
     }
 
     for (int j = i + 1; j < _parent->cast<TableFunctionOperatorX>()._fn_num; ++j) {
-        _fns[j]->reset();
+        static_cast<void>(_fns[j]->reset());
     }
 
     return true;
@@ -197,7 +197,7 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
                     _fns[i]->get_value(columns[i + p._child_slots.size()]);
                 }
                 _current_row_insert_times++;
-                _fns[p._fn_num - 1]->forward();
+                static_cast<void>(_fns[p._fn_num - 1]->forward());
             }
         }
     }
@@ -243,8 +243,8 @@ Status TableFunctionLocalState::process_next_child_row() {
 }
 
 TableFunctionOperatorX::TableFunctionOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                               const DescriptorTbl& descs)
-        : Base(pool, tnode, descs) {}
+                                               int operator_id, const DescriptorTbl& descs)
+        : Base(pool, tnode, operator_id, descs) {}
 
 Status TableFunctionOperatorX::_prepare_output_slot_ids(const TPlanNode& tnode) {
     // Prepare output slot ids

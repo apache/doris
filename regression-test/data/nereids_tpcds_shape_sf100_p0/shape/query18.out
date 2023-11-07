@@ -15,36 +15,36 @@ PhysicalResultSink
 ------------------------PhysicalOlapScan[item]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk))otherCondition=()
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer_demographics]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk))otherCondition=()
-----------------------------------PhysicalDistribute
-------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_customer_sk = customer.c_customer_sk))otherCondition=()
-----------------------------------------PhysicalDistribute
-------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
+--------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_customer_sk = customer.c_customer_sk))otherCondition=()
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_cdemo_sk = cd1.cd_demo_sk))otherCondition=()
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[catalog_sales]
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------filter((cd1.cd_education_status = 'Advanced Degree') and (cd1.cd_gender = 'F'))
+--------------------------------------------PhysicalOlapScan[customer_demographics]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk))otherCondition=()
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[customer_demographics]
+--------------------------------------PhysicalDistribute
+----------------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk))otherCondition=()
+------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
-----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_bill_cdemo_sk = cd1.cd_demo_sk))otherCondition=()
-------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalOlapScan[catalog_sales]
-------------------------------------------------PhysicalDistribute
---------------------------------------------------PhysicalProject
-----------------------------------------------------filter((cd1.cd_education_status = 'Advanced Degree') and (cd1.cd_gender = 'F'))
-------------------------------------------------------PhysicalOlapScan[customer_demographics]
---------------------------------------------PhysicalDistribute
-----------------------------------------------PhysicalProject
-------------------------------------------------filter((date_dim.d_year = 1998))
---------------------------------------------------PhysicalOlapScan[date_dim]
-----------------------------------------PhysicalDistribute
-------------------------------------------PhysicalProject
---------------------------------------------filter(c_birth_month IN (1, 10, 2, 4, 7, 8))
-----------------------------------------------PhysicalOlapScan[customer]
-----------------------------------PhysicalDistribute
-------------------------------------PhysicalProject
---------------------------------------filter(ca_state IN ('GA', 'IN', 'ME', 'NC', 'OK', 'WA', 'WY'))
-----------------------------------------PhysicalOlapScan[customer_address]
+----------------------------------------------filter(c_birth_month IN (1, 10, 2, 4, 7, 8))
+------------------------------------------------PhysicalOlapScan[customer]
+------------------------------------------PhysicalDistribute
+--------------------------------------------PhysicalProject
+----------------------------------------------filter(ca_state IN ('GA', 'IN', 'ME', 'NC', 'OK', 'WA', 'WY'))
+------------------------------------------------PhysicalOlapScan[customer_address]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((date_dim.d_year = 1998))
+----------------------------------PhysicalOlapScan[date_dim]
 

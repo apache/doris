@@ -46,7 +46,7 @@ BrokerFileWriter::BrokerFileWriter(ExecEnv* env, const TNetworkAddress& broker_a
 
 BrokerFileWriter::~BrokerFileWriter() {
     if (_opened) {
-        close();
+        static_cast<void>(close());
     }
     CHECK(!_opened || _closed) << "open: " << _opened << ", closed: " << _closed;
 }

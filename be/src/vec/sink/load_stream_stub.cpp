@@ -35,15 +35,15 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
         Status st = Status::create(response.status());
 
         std::stringstream ss;
-        ss << "received response from backend " << _stub->_dst_id;
+        ss << "received response from backend " << _dst_id;
         if (response.success_tablet_ids_size() > 0) {
             ss << ", success tablet ids:";
             for (auto tablet_id : response.success_tablet_ids()) {
                 ss << " " << tablet_id;
             }
-            std::lock_guard<bthread::Mutex> lock(_stub->_success_tablets_mutex);
+            std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
             for (auto tablet_id : response.success_tablet_ids()) {
-                _stub->_success_tablets.push_back(tablet_id);
+                _success_tablets.push_back(tablet_id);
             }
         }
         if (response.failed_tablet_ids_size() > 0) {
@@ -51,9 +51,9 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
             for (auto tablet_id : response.failed_tablet_ids()) {
                 ss << " " << tablet_id;
             }
-            std::lock_guard<bthread::Mutex> lock(_stub->_failed_tablets_mutex);
+            std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
             for (auto tablet_id : response.failed_tablet_ids()) {
-                _stub->_failed_tablets.push_back(tablet_id);
+                _failed_tablets.push_back(tablet_id);
             }
         }
         ss << ", status: " << st;
@@ -78,9 +78,9 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
 }
 
 void LoadStreamStub::LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
-    std::lock_guard<bthread::Mutex> lock(_stub->_mutex);
-    _stub->_is_closed = true;
-    _stub->_close_cv.notify_all();
+    std::lock_guard<bthread::Mutex> lock(_mutex);
+    _is_closed.store(true);
+    _close_cv.notify_all();
 }
 
 LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id)
@@ -96,13 +96,12 @@ LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
           _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {};
 
 LoadStreamStub::~LoadStreamStub() {
-    std::unique_lock<bthread::Mutex> lock(_mutex);
-    if (_is_init && !_is_closed) {
+    if (_is_init.load() && !_handler.is_closed()) {
         brpc::StreamClose(_stream_id);
     }
 }
 
-// open_stream_sink
+// open_load_stream
 // tablets means
 Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const NodeInfo& node_info, int64_t txn_id,
@@ -110,10 +109,11 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const std::vector<PTabletID>& tablets_for_schema, bool enable_profile) {
     _num_open++;
     std::unique_lock<bthread::Mutex> lock(_mutex);
-    if (_is_init) {
+    if (_is_init.load()) {
         return Status::OK();
     }
     _dst_id = node_info.id;
+    _handler.set_dst_id(_dst_id);
     std::string host_port = get_host_port(node_info.host, node_info.brpc_port);
     brpc::StreamOptions opt;
     opt.max_buf_size = 20 << 20; // 20MB
@@ -124,7 +124,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     if (int ret = StreamCreate(&_stream_id, cntl, &opt)) {
         return Status::Error<true>(ret, "Failed to create stream");
     }
-    cntl.set_timeout_ms(config::open_stream_sink_timeout_ms);
+    cntl.set_timeout_ms(config::open_load_stream_timeout_ms);
     POpenStreamSinkRequest request;
     *request.mutable_load_id() = _load_id;
     request.set_src_id(_src_id);
@@ -138,7 +138,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     // use "pooled" connection to avoid conflicts between streaming rpc and regular rpc,
     // see: https://github.com/apache/brpc/issues/392
     const auto& stub = client_cache->get_new_client_no_cache(host_port, "baidu_std", "pooled");
-    stub->open_stream_sink(&cntl, &request, &response, nullptr);
+    stub->open_load_stream(&cntl, &request, &response, nullptr);
     for (const auto& resp : response.tablet_schemas()) {
         auto tablet_schema = std::make_unique<TabletSchema>();
         tablet_schema->init_from_pb(resp.tablet_schema());
@@ -152,7 +152,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     }
     LOG(INFO) << "Opened stream " << _stream_id << " for backend " << _dst_id << " (" << host_port
               << ")";
-    _is_init = true;
+    _is_init.store(true);
     return Status::OK();
 }
 
@@ -234,7 +234,11 @@ Status LoadStreamStub::_send_with_buffer(butil::IOBuf& buf, bool eos) {
 
 Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
     for (;;) {
-        int ret = brpc::StreamWrite(_stream_id, buf);
+        int ret;
+        {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+            ret = brpc::StreamWrite(_stream_id, buf);
+        }
         switch (ret) {
         case 0:
             return Status::OK();

@@ -23,6 +23,7 @@ suite("nereids_test_alias_function") {
     sql 'drop function if exists f1(datetimev2(3), int)'
     sql 'drop function if exists f2(datetimev2(3), int)'
     sql 'drop function if exists f3(int)'
+    sql 'drop function if exists f4(int, int)'
 
     sql '''
     create alias function f1(datetimev2(3), int) with parameter (datetime1, int1) as
@@ -37,6 +38,10 @@ suite("nereids_test_alias_function") {
     sql '''
     CREATE ALIAS FUNCTION f3(INT) with PARAMETER (int1) as
         f2(f1('2023-05-20', 2), int1)
+    '''
+
+    sql '''
+         CREATE ALIAS FUNCTION f4(INT,INT) WITH PARAMETER(n,d) AS add(1,floor(divide(n,d)))
     '''
 
     test {
@@ -73,6 +78,15 @@ suite("nereids_test_alias_function") {
                 ['20230518:01'],
                 ['20230518:01'],
                 ['20230518:01']
+        ])
+    }
+
+    test {
+        sql 'select f4(1,2) from test'
+        result([
+                [1.0d],
+                [1.0d],
+                [1.0d]
         ])
     }
 }

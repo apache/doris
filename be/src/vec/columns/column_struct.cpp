@@ -203,7 +203,7 @@ void ColumnStruct::update_xxHash_with_value(size_t start, size_t end, uint64_t& 
     }
 }
 
-void ColumnStruct::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnStruct::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                          const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
         column->update_crc_with_value(start, end, hash, nullptr);
@@ -217,10 +217,11 @@ void ColumnStruct::update_hashes_with_value(uint64_t* __restrict hashes,
     }
 }
 
-void ColumnStruct::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+void ColumnStruct::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                          uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
-        column->update_crcs_with_value(hash, type, null_data);
+        column->update_crcs_with_value(hash, type, rows, offset, null_data);
     }
 }
 
@@ -262,16 +263,6 @@ size_t ColumnStruct::filter(const Filter& filter) {
     return result_size;
 }
 
-Status ColumnStruct::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-    auto to = reinterpret_cast<vectorized::ColumnStruct*>(col_ptr);
-    const size_t tuple_size = columns.size();
-    DCHECK_EQ(to->tuple_size(), tuple_size);
-    for (size_t i = 0; i < tuple_size; ++i) {
-        columns[i]->filter_by_selector(sel, sel_size, &to->get_column(i));
-    }
-    return Status::OK();
-}
-
 ColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) const {
     const size_t tuple_size = columns.size();
     Columns new_columns(tuple_size);
@@ -301,6 +292,21 @@ void ColumnStruct::replicate(const uint32_t* indexs, size_t target_size, IColumn
     for (size_t i = 0; i != columns.size(); ++i) {
         columns[i]->replicate(indexs, target_size, *res.columns[i]);
     }
+}
+
+MutableColumnPtr ColumnStruct::get_shrinked_column() {
+    const size_t tuple_size = columns.size();
+    MutableColumns new_columns(tuple_size);
+
+    for (size_t i = 0; i < tuple_size; ++i) {
+        if (columns[i]->is_column_string() || columns[i]->is_column_array() ||
+            columns[i]->is_column_map() || columns[i]->is_column_struct()) {
+            new_columns[i] = columns[i]->get_shrinked_column();
+        } else {
+            new_columns[i] = columns[i]->get_ptr();
+        }
+    }
+    return ColumnStruct::create(std::move(new_columns));
 }
 
 MutableColumns ColumnStruct::scatter(ColumnIndex num_columns, const Selector& selector) const {
@@ -355,26 +361,6 @@ size_t ColumnStruct::allocated_bytes() const {
         res += column->allocated_bytes();
     }
     return res;
-}
-
-void ColumnStruct::protect() {
-    for (auto& column : columns) {
-        column->protect();
-    }
-}
-
-void ColumnStruct::get_extremes(Field& min, Field& max) const {
-    const size_t tuple_size = columns.size();
-
-    Tuple min_tuple(tuple_size);
-    Tuple max_tuple(tuple_size);
-
-    for (size_t i = 0; i < tuple_size; ++i) {
-        columns[i]->get_extremes(min_tuple[i], max_tuple[i]);
-    }
-
-    min = min_tuple;
-    max = max_tuple;
 }
 
 void ColumnStruct::for_each_subcolumn(ColumnCallback callback) {

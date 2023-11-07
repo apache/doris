@@ -72,7 +72,7 @@ Status BetaRowsetWriterV2::init(const RowsetWriterContext& rowset_writer_context
     _context = rowset_writer_context;
     _context.segment_collector = std::make_shared<SegmentCollectorT<BetaRowsetWriterV2>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BetaRowsetWriterV2>>(this);
-    _segment_creator.init(_context);
+    static_cast<void>(_segment_creator.init(_context));
     return Status::OK();
 }
 
@@ -103,12 +103,6 @@ Status BetaRowsetWriterV2::flush_memtable(vectorized::Block* block, int32_t segm
     }
 
     TabletSchemaSPtr flush_schema;
-    /* TODO: support dynamic schema
-    if (_context.tablet_schema->is_dynamic_schema()) {
-        // Unfold variant column
-        RETURN_IF_ERROR(_unfold_variant_column(*block, flush_schema));
-    }
-    */
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
         RETURN_IF_ERROR(

@@ -1297,16 +1297,22 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
         return false;
     }
     case JsonbType::T_Array: {
-        if (rhs->isArray() && ((ArrayVal*)this)->numElem() == ((ArrayVal*)rhs)->numElem() &&
-            ((ArrayVal*)this)->numPackedBytes() == ((ArrayVal*)rhs)->numPackedBytes()) {
-            for (int i = 0; i < ((ArrayVal*)this)->numElem(); ++i) {
-                if (!((ArrayVal*)this)->get(i)->contains(((ArrayVal*)rhs)->get(i))) {
-                    return false;
+        int lhs_num = ((ArrayVal*)this)->numElem();
+        if (rhs->isArray()) {
+            int rhs_num = ((ArrayVal*)rhs)->numElem();
+            if (rhs_num > lhs_num) return false;
+            int contains_num = 0;
+            for (int i = 0; i < lhs_num; ++i) {
+                for (int j = 0; j < rhs_num; ++j) {
+                    if (((ArrayVal*)this)->get(i)->contains(((ArrayVal*)rhs)->get(j))) {
+                        contains_num++;
+                        break;
+                    }
                 }
             }
-            return true;
+            return contains_num == rhs_num;
         }
-        for (int i = 0; i < ((ArrayVal*)this)->numElem(); ++i) {
+        for (int i = 0; i < lhs_num; ++i) {
             if (((ArrayVal*)this)->get(i)->contains(rhs)) {
                 return true;
             }
@@ -1320,7 +1326,7 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
             for (int i = 0; i < str_value2->numElem(); ++i) {
                 JsonbKeyValue* key = str_value2->getJsonbKeyValue(i);
                 JsonbValue* value = str_value1->find(key->getKeyStr(), key->klen());
-                if (key != nullptr && value != nullptr && !key->value()->contains(value))
+                if (key != nullptr && value != nullptr && !value->contains(key->value()))
                     return false;
             }
             return true;

@@ -34,10 +34,7 @@ public:
     using BasePtr = MinMaxFuncBase*;
     template <PrimitiveType type, size_t N>
     static BasePtr get_function() {
-        return new MinMaxNumFunc<std::conditional_t<
-                type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 || type == TYPE_DECIMAL128I,
-                vectorized::Decimal<typename PrimitiveTypeTraits<type>::CppType>,
-                typename PrimitiveTypeTraits<type>::CppType>>();
+        return new MinMaxNumFunc<typename PrimitiveTypeTraits<type>::CppType>();
     }
 };
 
@@ -106,7 +103,10 @@ public:
     M(TYPE_STRING)            \
     M(TYPE_DECIMAL32)         \
     M(TYPE_DECIMAL64)         \
-    M(TYPE_DECIMAL128I)
+    M(TYPE_DECIMAL128I)       \
+    M(TYPE_DECIMAL256)        \
+    M(TYPE_IPV4)              \
+    M(TYPE_IPV6)
 
 template <class Traits, size_t N = 0>
 typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
