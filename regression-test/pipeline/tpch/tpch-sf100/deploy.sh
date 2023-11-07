@@ -45,6 +45,7 @@ stop_doris && rm -rf output
 echo "#### 2. download doris binary tar ball"
 cd "${teamcity_build_checkoutDir}" || exit 1
 if download_oss_file "${pull_request_id:-}_${commit_id:-}.tar.gz"; then
+    if ! command -v pigz >/dev/null; then sudo apt install -y pigz; fi
     tar -I pigz -xf "${pull_request_id:-}_${commit_id:-}.tar.gz"
     if [[ -d output && -d output/fe && -d output/be ]]; then
         echo "INFO: be version: $(./output/be/lib/doris_be --version)"
