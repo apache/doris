@@ -412,13 +412,6 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
             PStreamHeader data;
             messages[i]->cutn(&data_buf, data_len);
 
-            /*
-            if (hdr.load_id().hi() != _load_id.hi() || hdr.load_id().lo() != _load_id.lo()) {
-                LOG(WARNING) << "ignored one message due to invalid load id " << hdr.load_id()
-                             << ", expected: " << _load_id;
-                continue;
-            }
-*/
             // step 3: dispatch
             _dispatch(id, hdr, &data_buf);
         }
@@ -429,6 +422,13 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
 void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data) {
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
+    if (UniqueId(hdr.load_id()) != UniqueId(_load_id)) {
+        Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>("invalid load id {}, expected {}",
+                                                               UniqueId(hdr.load_id()).to_string(),
+                                                               UniqueId(_load_id).to_string());
+        _report_failure(id, st, hdr);
+        return;
+    }
 
     {
         std::lock_guard lock_guard(_lock);
