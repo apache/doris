@@ -56,7 +56,7 @@ PUT /api/{db}/{table}/_stream_load
 
 1. Create a table
 
-   Use the `CREATE TABLE` command to create a table in the `demo` to store the data to be imported. For the specific import method, please refer to the [CREATE TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md) command manual. An example is as follows:
+   Use the `CREATE TABLE` command to create a table in the `demo` to store the data to be imported. For the specific create table method, please refer to the [CREATE TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md) command manual. An example is as follows:
 
    ```sql
    CREATE TABLE IF NOT EXISTS load_local_file_test
