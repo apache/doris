@@ -127,4 +127,40 @@ suite("eliminate_empty") {
     qt_except_empty_data """
         select r_regionkey from region where false except select n_nationkey from nation  
     """
+
+    sql """
+    drop table if exists eliminate_partition_prune;
+    """
+    sql """
+    CREATE TABLE `eliminate_partition_prune` (
+    `k1` int(11) NULL COMMENT "",
+    `k2` int(11) NULL COMMENT "",
+    `k3` int(11) NULL COMMENT ""
+    ) 
+    PARTITION BY RANGE(`k1`, `k2`)
+    (PARTITION p1 VALUES LESS THAN ("3", "1"),
+    PARTITION p2 VALUES [("3", "1"), ("7", "10")),
+    PARTITION p3 VALUES [("7", "10"), ("10", "15")))
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+    PROPERTIES ('replication_num' = '1');
+    """
+
+    
+    qt_prune_partition1 """
+        explain shape plan
+        select sum(k2)
+        from
+        (select * from eliminate_partition_prune where k1=100) T
+        group by k3;
+        """
+    sql """
+        insert into eliminate_partition_prune values (7, 0, 0)
+        """
+    qt_prune_partition2 """
+        explain shape plan
+        select sum(k2)
+        from
+        (select * from eliminate_partition_prune where k1=100) T
+        group by k3;
+        """
 }
