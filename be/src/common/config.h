@@ -929,6 +929,9 @@ CONF_mBool(allow_invalid_decimalv2_literal, "false");
 // data page size for primary key index.
 CONF_Int32(primary_key_data_page_size, "32768");
 
+// the max package size be thrift server can receive,avoid accepting error or too large package causing OOM,default 20M
+CONF_Int32(be_thrift_max_pkg_bytes, "20000000");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
