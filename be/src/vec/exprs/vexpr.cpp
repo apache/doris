@@ -241,6 +241,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::DATE_LITERAL:
         case TExprNodeType::STRING_LITERAL:
         case TExprNodeType::JSON_LITERAL:
+        case TExprNodeType::GEOMETRY_LITERAL:
         case TExprNodeType::NULL_LITERAL: {
             expr = VLiteral::create_shared(expr_node);
             break;

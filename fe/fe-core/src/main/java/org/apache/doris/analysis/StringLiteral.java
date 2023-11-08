@@ -312,6 +312,12 @@ public class StringLiteral extends LiteralExpr {
             return stringLiteral;
         } else if (targetType.isJsonbType()) {
             return new JsonLiteral(value);
+        } else if (targetType.isGeometryType()) {
+            try {
+                return new GeometryLiteral(value.getBytes("ISO-8859-1"));
+            } catch (UnsupportedEncodingException e) {
+                throw new AnalysisException("Fail to get geometry bytes");
+            }
         }
         return super.uncheckedCastTo(targetType);
     }

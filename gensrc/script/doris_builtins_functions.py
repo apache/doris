@@ -1926,45 +1926,53 @@ visible_functions = {
 
     # geo functions
     "Geo": [
-        [['ST_Point'], 'VARCHAR', ['DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
-        [['ST_X'], 'DOUBLE', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ST_Y'], 'DOUBLE', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ST_X'], 'DOUBLE', ['STRING'], 'ALWAYS_NULLABLE'],
-        [['ST_Y'], 'DOUBLE', ['STRING'], 'ALWAYS_NULLABLE'],
-
+        [['ST_Point'], 'GEOMETRY', ['DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
+        [['ST_X'], 'DOUBLE', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_Y'], 'DOUBLE', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
         [['ST_Distance_Sphere'], 'DOUBLE', ['DOUBLE', 'DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
         [['ST_Angle_Sphere'], 'DOUBLE', ['DOUBLE', 'DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
+        [['ST_Angle'], 'DOUBLE', ['GEOMETRY','GEOMETRY','GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_Azimuth'], 'DOUBLE', ['GEOMETRY','GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_Area_Square_Meters'], 'DOUBLE', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_Area_Square_Km'], 'DOUBLE', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_AsBinary'], 'VARCHAR', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_GeometryFromText', 'ST_GeomFromText'], 'GEOMETRY', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ST_GeometryFromText', 'ST_GeomFromText'], 'GEOMETRY', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['ST_GeometryFromWkb', 'ST_GeomFromWkb'], 'GEOMETRY', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ST_GeometryFromWkb', 'ST_GeomFromWkb'], 'GEOMETRY', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['ST_LineFromText', 'ST_LineStringFromText'], 'GEOMETRY', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ST_LineFromText', 'ST_LineStringFromText'], 'GEOMETRY', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['ST_Polygon', 'ST_PolyFromText', 'ST_PolygonFromText'], 'GEOMETRY', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ST_Polygon', 'ST_PolyFromText', 'ST_PolygonFromText'], 'GEOMETRY', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['ST_AsGeoJson'], 'VARCHAR', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_GeometryFromGeoJson', 'ST_GeomFromGeoJson'], 'GEOMETRY', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ST_GeometryFromGeoJson', 'ST_GeomFromGeoJson'], 'GEOMETRY', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['ST_Circle'], 'GEOMETRY', ['DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
+        [['ST_Contains'], 'BOOLEAN', ['GEOMETRY', 'GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_Intersects'], 'BOOLEAN', ['GEOMETRY', 'GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_Within'], 'BOOLEAN', ['GEOMETRY', 'GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_PointN'], 'GEOMETRY', ['GEOMETRY','INT'], 'ALWAYS_NULLABLE'],
+        [['ST_StartPoint'], 'GEOMETRY', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_EndPoint'], 'GEOMETRY', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_LineLocatePoint'], 'DOUBLE', ['GEOMETRY','GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_GeometryFromWkb', 'ST_GeomFromWkb'], 'GEOMETRY', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ST_GeometryFromWkb', 'ST_GeomFromWkb'], 'GEOMETRY', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['ST_ClosestPoint'], 'GEOMETRY', ['GEOMETRY','GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_DWithin'], 'BOOLEAN', ['GEOMETRY','GEOMETRY','DOUBLE'], 'ALWAYS_NULLABLE'],
+        [['ST_Buffer'], 'GEOMETRY', ['GEOMETRY','DOUBLE'], 'ALWAYS_NULLABLE'],
+        [['ST_Dimension'], 'INT', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_IsEmpty'], 'BOOLEAN', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_Length'], 'DOUBLE', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_IsClosed'], 'BOOLEAN', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_IsCollection'], 'BOOLEAN', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_IsRing'], 'BOOLEAN', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_NumGeometries'], 'BIGINT', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['ST_NumPoints'], 'BIGINT', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['St_GeometryType'], 'VARCHAR', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['St_Centroid'], 'GEOMETRY', ['GEOMETRY'], 'ALWAYS_NULLABLE'],
+        [['St_Boundary'], 'GEOMETRY', ['GEOMETRY'], 'ALWAYS_NULLABLE']
 
-        [['ST_Angle'], 'DOUBLE', ['VARCHAR','VARCHAR','VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ST_Angle'], 'DOUBLE', ['STRING','STRING','STRING'], 'ALWAYS_NULLABLE'],
-        [['ST_Azimuth'], 'DOUBLE', ['VARCHAR','VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ST_Azimuth'], 'DOUBLE', ['STRING','STRING'], 'ALWAYS_NULLABLE'],
-
-        [['ST_Area_Square_Meters'], 'DOUBLE', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ST_Area_Square_Meters'], 'DOUBLE', ['STRING'], 'ALWAYS_NULLABLE'],
-        [['ST_Area_Square_Km'], 'DOUBLE', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ST_Area_Square_Km'], 'DOUBLE', ['STRING'], 'ALWAYS_NULLABLE'],
-
-        [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ST_AsText', 'ST_AsWKT'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
-        [['ST_GeometryFromText', 'ST_GeomFromText'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ST_GeometryFromText', 'ST_GeomFromText'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
-
-        [['ST_GeometryFromWkb', 'ST_GeomFromWkb'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ST_GeometryFromWkb', 'ST_GeomFromWkb'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
-
-        [['ST_AsBinary'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ST_AsBinary'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
-
-        [['ST_LineFromText', 'ST_LineStringFromText'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ST_LineFromText', 'ST_LineStringFromText'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
-
-        [['ST_Polygon', 'ST_PolyFromText', 'ST_PolygonFromText'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ST_Polygon', 'ST_PolyFromText', 'ST_PolygonFromText'], 'VARCHAR', ['STRING'], 'ALWAYS_NULLABLE'],
-
-        [['ST_Circle'], 'VARCHAR', ['DOUBLE', 'DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
-
-        [['ST_Contains'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE']
     ],
 
     # grouping sets functions

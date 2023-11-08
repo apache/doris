@@ -30,7 +30,8 @@ enum GeoShapeType {
     GEO_SHAPE_MULTI_POINT = 4,
     GEO_SHAPE_MULTI_LINE_STRING = 5,
     GEO_SHAPE_MULTI_POLYGON = 6,
-    GEO_SHAPE_CIRCLE = 7,
+    GEO_SHAPE_GEOMETRY_COLLECTION = 7,
+    GEO_SHAPE_CIRCLE = 8,
 };
 
 enum GeoParseStatus {
@@ -45,6 +46,7 @@ enum GeoParseStatus {
     GEO_PARSE_CIRCLE_INVALID = 8,
     GEO_PARSE_WKT_SYNTAX_ERROR = 9,
     GEO_PARSE_WKB_SYNTAX_ERROR = 10,
+    GEO_PARSE_GEOJSON_SYNTAX_ERROR = 11,
 };
 
 std::string to_string(GeoParseStatus status);

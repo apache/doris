@@ -51,6 +51,7 @@ public enum PrimitiveType {
     // Aligning to 8 bytes so 16 total.
     VARCHAR("VARCHAR", 16, TPrimitiveType.VARCHAR, true),
     JSONB("JSON", 16, TPrimitiveType.JSONB, true),
+    GEOMETRY("GEOMETRY", 16, TPrimitiveType.GEOMETRY, true),
 
     DECIMALV2("DECIMALV2", 16, TPrimitiveType.DECIMALV2, true),
     DECIMAL32("DECIMAL32", 4, TPrimitiveType.DECIMAL32, true),
@@ -135,6 +136,7 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, STRING);
         builder.put(NULL_TYPE, JSONB);
         builder.put(NULL_TYPE, VARIANT);
+        builder.put(NULL_TYPE, GEOMETRY);
         builder.put(NULL_TYPE, BITMAP); //TODO(weixiang):why null type can cast to bitmap?
         builder.put(NULL_TYPE, TIME);
         builder.put(NULL_TYPE, TIMEV2);
@@ -454,6 +456,7 @@ public enum PrimitiveType {
         builder.put(VARCHAR, VARCHAR);
         builder.put(VARCHAR, JSONB);
         builder.put(VARCHAR, VARIANT);
+        builder.put(VARCHAR, GEOMETRY);
         builder.put(VARCHAR, STRING);
         builder.put(VARCHAR, TIME);
         builder.put(VARCHAR, TIMEV2);
@@ -481,6 +484,7 @@ public enum PrimitiveType {
         builder.put(STRING, VARCHAR);
         builder.put(STRING, JSONB);
         builder.put(STRING, VARIANT);
+        builder.put(STRING, GEOMETRY);
         builder.put(STRING, STRING);
         builder.put(STRING, TIME);
         builder.put(STRING, TIMEV2);
@@ -591,6 +595,10 @@ public enum PrimitiveType {
         builder.put(VARIANT, STRING);
         builder.put(VARIANT, JSONB);
 
+        // GEOMETRY
+        builder.put(GEOMETRY, VARCHAR);
+        builder.put(GEOMETRY, STRING);
+
         // HLL
         builder.put(HLL, HLL);
 
@@ -655,6 +663,7 @@ public enum PrimitiveType {
         supportedTypes.add(VARCHAR);
         supportedTypes.add(JSONB);
         supportedTypes.add(VARIANT);
+        supportedTypes.add(GEOMETRY);
         supportedTypes.add(STRING);
         supportedTypes.add(HLL);
         supportedTypes.add(CHAR);
@@ -768,6 +777,8 @@ public enum PrimitiveType {
                 return VARCHAR;
             case JSONB:
                 return JSONB;
+            case GEOMETRY:
+                return GEOMETRY;
             case STRING:
                 return STRING;
             case CHAR:
@@ -901,6 +912,10 @@ public enum PrimitiveType {
         return this == JSONB;
     }
 
+    public boolean isGeometryType() {
+        return this == GEOMETRY;
+    }
+
     public boolean isCharFamily() {
         return (this == VARCHAR || this == CHAR || this == STRING);
     }
@@ -970,6 +985,8 @@ public enum PrimitiveType {
             case JSONB:
             case VARIANT:
                 return MysqlColType.MYSQL_TYPE_JSON;
+            case GEOMETRY:
+                return MysqlColType.MYSQL_TYPE_GEOMETRY;
             case MAP:
                 return MysqlColType.MYSQL_TYPE_MAP;
             default:

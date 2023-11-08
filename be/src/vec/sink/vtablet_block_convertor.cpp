@@ -396,6 +396,25 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         }
         break;
     }
+    case TYPE_GEOMETRY: {
+        const auto column_string =
+                assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
+        for (size_t j = 0; j < row_count; ++j) {
+            if (!_filter_map[j]) {
+                if (is_nullable && column_ptr && column_ptr->is_null_at(j)) {
+                    continue;
+                }
+                auto str_val = column_string->get_data_at(j);
+                bool invalid = str_val.size == 0;
+                if (invalid) {
+                    error_msg.clear();
+                    fmt::format_to(error_msg, "{}", "geometry data is invalid");
+                    RETURN_IF_ERROR(set_invalid_and_append_error_msg(j));
+                }
+            }
+        }
+        break;
+    }
     default:
         break;
     }

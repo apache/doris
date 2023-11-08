@@ -56,6 +56,7 @@ import com.google.common.base.Predicates;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
@@ -412,8 +413,20 @@ public class FoldConstantsRule implements ExprRewriteRule {
                                 type = ScalarType.createType(
                                         PrimitiveType.fromThrift(ttype));
                             }
-                            retExpr = LiteralExpr.create(entry1.getValue().getContent(),
-                                    type);
+                            if (type.isGeometryType()) {
+                                byte[] bytes = entry1.getValue().getContentBytes().toByteArray();
+
+                                for (int i = 0; i < bytes.length; i++) {
+                                    bytes[i] = (byte) (bytes[i] & 0xFF);
+                                }
+
+                                String a = new String(bytes, StandardCharsets.ISO_8859_1);
+
+                                retExpr = LiteralExpr.create(a, type);
+                            } else {
+                                retExpr = LiteralExpr.create(entry1.getValue().getContent(),
+                                        type);
+                            }
                         } else {
                             retExpr = allConstMap.get(entry1.getKey());
                         }

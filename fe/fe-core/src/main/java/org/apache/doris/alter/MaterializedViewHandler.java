@@ -587,7 +587,8 @@ public class MaterializedViewHandler extends AlterHandler {
         }
         // if the column is complex type, we forbid to create materialized view
         for (Column column : newMVColumns) {
-            if (column.getDataType().isComplexType() || column.getDataType().isJsonbType()) {
+            if (column.getDataType().isComplexType() || column.getDataType().isJsonbType()
+                    || column.getDataType().isGeometryType()) {
                 throw new DdlException("The " + column.getDataType() + " column[" + column + "] not support "
                         + "to create materialized view");
             }

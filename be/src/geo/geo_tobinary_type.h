@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 #pragma once
+#include <limits>
 #include <memory>
 
 namespace doris {
 
 enum byteOrder { wkbXDR = 0, wkbNDR = 1 };
+
+constexpr double DoubleNotANumber = std::numeric_limits<double>::quiet_NaN();
 
 enum wkbType {
     wkbPoint = 1,

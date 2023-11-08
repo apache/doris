@@ -62,7 +62,7 @@ public class AggregateFunction extends Function {
                     "last_value");
 
     public static ImmutableSet<String> CUSTOM_AGGREGATE_FUNCTION_NAME_SET =
-            ImmutableSet.of("group_concat");
+            ImmutableSet.of("group_concat", "st_collect");
 
     public static ImmutableSet<String> SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET = ImmutableSet.of("group_concat");
 

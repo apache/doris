@@ -25,7 +25,7 @@
 #include <string>
 
 #include "common/logging.h"
-#include "geo/geo_types.h"
+#include "geo/util/GeoShape.h"
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
@@ -43,7 +43,7 @@ TEST_F(WktParseTest, normal) {
     auto status = WktParse::parse_wkt(wkt, strlen(wkt), &shape);
     EXPECT_EQ(GEO_PARSE_OK, status);
     EXPECT_NE(nullptr, shape);
-    LOG(INFO) << "parse result: " << shape->to_string();
+    LOG(INFO) << "parse result: " << shape->as_wkt();
     delete shape;
 }
 

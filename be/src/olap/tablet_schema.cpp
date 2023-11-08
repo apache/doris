@@ -108,6 +108,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_JSONB;
     } else if (0 == upper_type_str.compare("VARIANT")) {
         type = FieldType::OLAP_FIELD_TYPE_VARIANT;
+    } else if (0 == upper_type_str.compare("GEOMETRY")) {
+        type = FieldType::OLAP_FIELD_TYPE_GEOMETRY;
     } else if (0 == upper_type_str.compare("BOOLEAN")) {
         type = FieldType::OLAP_FIELD_TYPE_BOOL;
     } else if (0 == upper_type_str.compare(0, 3, "HLL")) {
@@ -250,6 +252,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_VARIANT:
         return "VARIANT";
 
+    case FieldType::OLAP_FIELD_TYPE_GEOMETRY:
+        return "GEOMETRY";
+
     case FieldType::OLAP_FIELD_TYPE_STRING:
         return "STRING";
 
@@ -356,6 +361,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
     case TPrimitiveType::JSONB:
         return string_length + sizeof(OLAP_JSONB_MAX_LENGTH);
+    case TPrimitiveType::GEOMETRY:
+        return string_length + sizeof(OLAP_GEOMETRY_MAX_LENGTH);
     case TPrimitiveType::STRUCT:
         // Note that(xy): this is the length of struct type itself,
         // the length of its subtypes are not included.

@@ -237,6 +237,8 @@ struct TypeDescriptor {
 
     bool is_json_type() const { return type == TYPE_JSONB; }
 
+    bool is_geometry_type() const { return type == TYPE_GEOMETRY; }
+
     static inline int get_decimal_byte_size(int precision) {
         DCHECK_GT(precision, 0);
         if (precision <= BeConsts::MAX_DECIMAL32_PRECISION) {

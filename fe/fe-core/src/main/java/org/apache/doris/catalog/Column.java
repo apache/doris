@@ -894,6 +894,9 @@ public class Column implements Writable, GsonPostProcessable {
             case JSONB:
                 sb.append(type.toString());
                 break;
+            case GEOMETRY:
+                sb.append(type.toString());
+                break;
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:

@@ -1898,7 +1898,6 @@ private:
             return &ConvertImplGenericToJsonb::execute;
         }
     }
-
     //TODO(Amory) . Need support more cast for key , value for map
     WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from_type,
                                    const DataTypeMap& to_type) const {

@@ -26,25 +26,25 @@
 #include "geo/machine.h"
 #include "geo/wkt_parse_type.h"
 #include "geo_tobinary_type.h"
-#include "geo_types.h"
 #include "iomanip"
+#include "util/GeoCollection.h"
+#include "util/GeoLineString.h"
+#include "util/GeoPoint.h"
+#include "util/GeoPolygon.h"
+#include "util/GeoShape.h"
 
 namespace doris {
 
-bool toBinary::geo_tobinary(GeoShape* shape, std::string* result) {
+bool toBinary::geo_tobinary(GeoShape* shape, std::string* result, int is_hex) {
     ToBinaryContext ctx;
     std::stringstream result_stream;
     ctx.outStream = &result_stream;
     if (toBinary::write(shape, &ctx)) {
-        std::stringstream hex_stream;
-        hex_stream << std::hex << std::setfill('0');
-        result_stream.seekg(0);
-        unsigned char c;
-        while (result_stream.read(reinterpret_cast<char*>(&c), 1)) {
-            hex_stream << std::setw(2) << static_cast<int>(c);
+        if (is_hex) {
+            *result = to_hex(result_stream.str());
+        } else {
+            *result = result_stream.str();
         }
-        //for compatibility with postgres
-        *result = "\\x" + hex_stream.str();
         return true;
     }
     return false;
@@ -56,10 +56,22 @@ bool toBinary::write(GeoShape* shape, ToBinaryContext* ctx) {
         return writeGeoPoint((GeoPoint*)(shape), ctx);
     }
     case GEO_SHAPE_LINE_STRING: {
-        return writeGeoLine((GeoLine*)(shape), ctx);
+        return writeGeoLine((GeoLineString*)(shape), ctx);
     }
     case GEO_SHAPE_POLYGON: {
         return writeGeoPolygon((GeoPolygon*)(shape), ctx);
+    }
+    case GEO_SHAPE_MULTI_POINT: {
+        return writeGeoCollection((GeoCollection*)(shape), wkbType::wkbMultiPoint, ctx);
+    }
+    case GEO_SHAPE_MULTI_LINE_STRING: {
+        return writeGeoCollection((GeoCollection*)(shape), wkbType::wkbMultiLineString, ctx);
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        return writeGeoCollection((GeoCollection*)(shape), wkbType::wkbMultiPolygon, ctx);
+    }
+    case GEO_SHAPE_GEOMETRY_COLLECTION: {
+        return writeGeoCollection((GeoCollection*)(shape), wkbType::wkbGeometryCollection, ctx);
     }
     default:
         return false;
@@ -69,29 +81,56 @@ bool toBinary::write(GeoShape* shape, ToBinaryContext* ctx) {
 bool toBinary::writeGeoPoint(GeoPoint* point, ToBinaryContext* ctx) {
     writeByteOrder(ctx);
     writeGeometryType(wkbType::wkbPoint, ctx);
-    GeoCoordinateList p = point->to_coords();
-
-    writeCoordinateList(p, false, ctx);
+    if (point->is_empty()) {
+        GeoCoordinate c(DoubleNotANumber, DoubleNotANumber);
+        writeCoordinate(c, ctx);
+    } else {
+        GeoCoordinates p = point->to_coords();
+        writeCoordinateList(p, false, ctx);
+    }
     return true;
 }
 
-bool toBinary::writeGeoLine(GeoLine* line, ToBinaryContext* ctx) {
+bool toBinary::writeGeoLine(GeoLineString* linestring, ToBinaryContext* ctx) {
     writeByteOrder(ctx);
     writeGeometryType(wkbType::wkbLine, ctx);
-    GeoCoordinateList p = line->to_coords();
-
-    writeCoordinateList(p, true, ctx);
+    if (linestring->is_empty()) {
+        writeInt(0, ctx);
+    } else {
+        GeoCoordinates p = linestring->to_coords();
+        writeCoordinateList(p, true, ctx);
+    }
     return true;
 }
 
 bool toBinary::writeGeoPolygon(doris::GeoPolygon* polygon, ToBinaryContext* ctx) {
     writeByteOrder(ctx);
     writeGeometryType(wkbType::wkbPolygon, ctx);
-    writeInt(polygon->numLoops(), ctx);
-    std::unique_ptr<GeoCoordinateListList> coordss(polygon->to_coords());
+    if (polygon->is_empty()) {
+        writeInt(0, ctx);
+    } else {
+        writeInt(polygon->num_loops(), ctx);
+        std::unique_ptr<GeoCoordinateLists> coords_list(polygon->to_coords());
+        for (int i = 0; i < coords_list->coords_list.size(); ++i) {
+            writeCoordinateList(*coords_list->coords_list[i], true, ctx);
+        }
+    }
+    return true;
+}
 
-    for (int i = 0; i < coordss->list.size(); ++i) {
-        writeCoordinateList(*coordss->list[i], true, ctx);
+bool toBinary::writeGeoCollection(doris::GeoCollection* collection, int wkbtype,
+                                  ToBinaryContext* ctx) {
+    writeByteOrder(ctx);
+    writeGeometryType(wkbtype, ctx);
+    if (collection->is_empty()) {
+        writeInt(0, ctx);
+    } else {
+        auto ngeoms = collection->get_num_geometries();
+        writeInt(static_cast<int>(ngeoms), ctx);
+        for (std::size_t i = 0; i < ngeoms; i++) {
+            GeoShape* shape = collection->get_geometries_n(i);
+            write(shape, ctx);
+        }
     }
     return true;
 }
@@ -116,15 +155,14 @@ void toBinary::writeInt(int val, ToBinaryContext* ctx) {
     ctx->outStream->write(reinterpret_cast<char*>(ctx->buf), 4);
 }
 
-void toBinary::writeCoordinateList(const GeoCoordinateList& coords, bool sized,
-                                   ToBinaryContext* ctx) {
-    std::size_t size = coords.list.size();
+void toBinary::writeCoordinateList(const GeoCoordinates& coords, bool sized, ToBinaryContext* ctx) {
+    std::size_t size = coords.coords.size();
 
     if (sized) {
         writeInt(static_cast<int>(size), ctx);
     }
     for (std::size_t i = 0; i < size; i++) {
-        GeoCoordinate coord = coords.list[i];
+        GeoCoordinate coord = coords.coords[i];
         writeCoordinate(coord, ctx);
     }
 }
@@ -134,6 +172,24 @@ void toBinary::writeCoordinate(GeoCoordinate& coords, ToBinaryContext* ctx) {
     ctx->outStream->write(reinterpret_cast<char*>(ctx->buf), 8);
     ByteOrderValues::putDouble(coords.y, ctx->buf, ctx->byteOrder);
     ctx->outStream->write(reinterpret_cast<char*>(ctx->buf), 8);
+}
+std::string toBinary::to_hex(std::string binary) {
+    std::stringstream wkb_binary;
+    const char* data = binary.data();
+
+    for (int i = 0; i < binary.size(); ++i) {
+        wkb_binary << *data;
+        data++;
+    }
+
+    std::stringstream hex_stream;
+    hex_stream << std::hex << std::setfill('0');
+    wkb_binary.seekg(0);
+    unsigned char c;
+    while (wkb_binary.read(reinterpret_cast<char*>(&c), 1)) {
+        hex_stream << std::setw(2) << static_cast<int>(c);
+    }
+    return hex_stream.str();
 }
 
 } // namespace doris
