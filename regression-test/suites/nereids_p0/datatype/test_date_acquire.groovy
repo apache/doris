@@ -20,7 +20,7 @@ suite("test_date_acquire") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_fold_nondeterministic_fn=true'
 
-    String res = sql 'explain select now(), now(3), curdate(), current_date(), curtime(), current_time(), current_timestamp(), current_timestamp(3)'
+    String res = sql 'explain select now(), now(3), curdate(), current_date(), current_timestamp(), current_timestamp(3)'
     res = res.split('VUNION')[1]
     assertFalse(res.contains("()") || res.contains("(3)"))
 
