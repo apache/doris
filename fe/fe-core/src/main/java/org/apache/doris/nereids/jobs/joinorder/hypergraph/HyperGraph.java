@@ -20,6 +20,7 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
@@ -36,7 +38,6 @@ import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,7 +49,6 @@ import java.util.Set;
 public class HyperGraph {
     private final List<Edge> edges = new ArrayList<>();
     private final List<Node> nodes = new ArrayList<>();
-    private final HashSet<Group> nodeSet = new HashSet<>();
     private final HashMap<Slot, Long> slotToNodeMap = new HashMap<>();
     // record all edges that can be placed on the subgraph
     private final Map<Long, BitSet> treeEdgesCache = new HashMap<>();
@@ -124,18 +124,16 @@ public class HyperGraph {
      * @return return the node index
      */
     public int addNode(Group group) {
-        Preconditions.checkArgument(!group.isValidJoinGroup());
         for (Slot slot : group.getLogicalExpression().getPlan().getOutput()) {
             Preconditions.checkArgument(!slotToNodeMap.containsKey(slot));
             slotToNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
         }
-        nodeSet.add(group);
         nodes.add(new Node(nodes.size(), group));
         return nodes.size() - 1;
     }
 
-    public boolean isNodeGroup(Group group) {
-        return nodeSet.contains(group);
+    public void updateNode(int idx, Group group) {
+        nodes.set(idx, nodes.get(idx).withGroup(group));
     }
 
     public HashMap<Long, List<NamedExpression>> getComplexProject() {
@@ -148,8 +146,10 @@ public class HyperGraph {
      * @param group The join group
      */
     public BitSet addEdge(Group group, Pair<BitSet, Long> leftEdgeNodes, Pair<BitSet, Long> rightEdgeNodes) {
-        Preconditions.checkArgument(group.isValidJoinGroup());
-        LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin) group.getLogicalExpression().getPlan();
+        Preconditions.checkArgument(isValidJoinGroup(group),
+                "HyperGraph edge must be join but was ", group);
+        LogicalJoin<? extends Plan, ? extends Plan> join =
+                (LogicalJoin<? extends Plan, ? extends Plan>) group.getLogicalExpression().getPlan();
         HashMap<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> conjuncts = new HashMap<>();
         for (Expression expression : join.getHashJoinConjuncts()) {
             // TODO: avoid calling calculateEnds if calNodeMap's results are same
@@ -302,6 +302,76 @@ public class HyperGraph {
             bitmap = LongBitmap.or(bitmap, slotToNodeMap.get(slot));
         }
         return bitmap;
+    }
+
+    public static HyperGraph from(Plan plan) {
+        Preconditions.checkArgument(plan.getGroupExpression().isPresent(),
+                "HyperGraph requires a GroupExpression in ", plan);
+        HyperGraph hyperGraph = new HyperGraph();
+        hyperGraph.buildGraph(plan.getGroupExpression().get());
+        return hyperGraph;
+    }
+
+    public static HyperGraph from(Group group) {
+        HyperGraph hyperGraph = new HyperGraph();
+        hyperGraph.buildGraph(group.getLogicalExpressions().get(0));
+        return hyperGraph;
+    }
+
+    private Pair<BitSet, Long> buildGraph(GroupExpression groupExpression) {
+        if (groupExpression.getOwnerGroup().getHyperGraph() != null) {
+            //TODO: mergeGroup
+            Preconditions.checkArgument(false, "mergeGroup has not been implemented");
+        }
+        // process Project
+        if (isValidProjectGroup(groupExpression.getOwnerGroup())) {
+            LogicalProject<?> project = (LogicalProject<?>) groupExpression.getPlan();
+            Pair<BitSet, Long> res = this.buildGraph(groupExpression.child(0).getLogicalExpressions().get(0));
+            for (NamedExpression expr : project.getProjects()) {
+                if (expr instanceof Alias) {
+                    this.addAlias((Alias) expr, res.second);
+                }
+            }
+            return res;
+        }
+
+        // process Other Node
+        if (!isValidJoinGroup(groupExpression.getOwnerGroup())) {
+            int idx = this.addNode(groupExpression.getOwnerGroup());
+            return Pair.of(new BitSet(), LongBitmap.newBitmap(idx));
+        }
+
+        // process Join
+        Pair<BitSet, Long> left = this.buildGraph(groupExpression.child(0).getLogicalExpressions().get(0));
+        Pair<BitSet, Long> right = this.buildGraph(groupExpression.child(1).getLogicalExpressions().get(0));
+        return Pair.of(this.addEdge(groupExpression.getOwnerGroup(), left, right),
+                LongBitmap.or(left.second, right.second));
+    }
+
+    /**
+     * inner join group without mark slot
+     */
+    public static boolean isValidJoinGroup(Group group) {
+        Plan plan = group.getLogicalExpressions().get(0).getPlan();
+        if (!(plan instanceof LogicalJoin)) {
+            return false;
+        }
+        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
+        return join.getJoinType() == JoinType.INNER_JOIN
+                && !join.isMarkJoin()
+                && !join.getExpressions().isEmpty();
+    }
+
+    /**
+     * the project with alias and slot
+     */
+    public static boolean isValidProjectGroup(Group group) {
+        Plan plan = group.getLogicalExpressions().get(0).getPlan();
+        if (!(plan instanceof LogicalProject)) {
+            return false;
+        }
+        return ((LogicalProject<? extends Plan>) plan).getProjects().stream()
+                .allMatch(e -> e instanceof Slot || e instanceof Alias);
     }
 
     /**

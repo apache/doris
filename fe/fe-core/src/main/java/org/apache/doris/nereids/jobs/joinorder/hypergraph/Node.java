@@ -33,11 +33,20 @@ public class Node {
     private final int index;
     // Due to group in Node is base group, so mergeGroup() don't need to consider it.
     private final Group group;
-    private final List<Edge> edges = new ArrayList<>();
+    private final List<Edge> edges;
 
-    public Node(int index, Group group) {
+    public Node(int index, Group group, List<Edge> edges) {
         this.group = group;
         this.index = index;
+        this.edges = edges;
+    }
+
+    public Node(int index, Group group) {
+        this(index, group, new ArrayList<>());
+    }
+
+    public Node withGroup(Group group) {
+        return new Node(index, group, edges);
     }
 
     public List<Edge> getEdges() {
