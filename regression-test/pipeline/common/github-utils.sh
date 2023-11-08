@@ -35,9 +35,10 @@ function create_an_issue_comment() {
 function create_an_issue_comment_tpch() {
     local ISSUE_NUMBER="$1"
     local COMMENT_BODY="$2"
+    local machine='aliyun_ecs.c7a.8xlarge_32C64G'
     COMMENT_BODY="
 <details>
-<summary>TPC-H test result</summary>
+<summary>TPC-H test result on machine: '${machine}'</summary>
 
 \`\`\`
 ${COMMENT_BODY}
