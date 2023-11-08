@@ -40,6 +40,7 @@ import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
@@ -1059,7 +1060,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
             assignmentCompatibleType = assignmentCompatibleType.isInvalid() ? children.get(i).type
                     : ScalarType.getAssignmentCompatibleType(assignmentCompatibleType, children.get(i).type,
-                    true);
+                    true, SessionVariable.getEnableDecimal256());
         }
         return assignmentCompatibleType;
     }

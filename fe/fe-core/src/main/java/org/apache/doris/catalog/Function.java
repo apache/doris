@@ -28,6 +28,7 @@ import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -361,14 +362,16 @@ public class Function implements Writable {
             return false;
         }
         for (int i = 0; i < this.argTypes.length; ++i) {
-            if (!Type.isImplicitlyCastable(other.argTypes[i], this.argTypes[i], true)) {
+            if (!Type.isImplicitlyCastable(other.argTypes[i], this.argTypes[i], true,
+                    SessionVariable.getEnableDecimal256())) {
                 return false;
             }
         }
         // Check trailing varargs.
         if (this.hasVarArgs) {
             for (int i = this.argTypes.length; i < other.argTypes.length; ++i) {
-                if (!Type.isImplicitlyCastable(other.argTypes[i], getVarArgsType(), true)) {
+                if (!Type.isImplicitlyCastable(other.argTypes[i], getVarArgsType(), true,
+                        SessionVariable.getEnableDecimal256())) {
                     return false;
                 }
             }
