@@ -380,7 +380,13 @@ public class LeadingHint extends Hint {
                             logicalPlan);
                     logicalJoin.setBitmap(LongBitmap.or(getBitmap(newStackTop.second), getBitmap(logicalPlan)));
                     if (stackTopLevel > 0) {
-                        stackTopLevel--;
+                        if (index < getTablelist().size()) {
+                            if (stackTopLevel > getLevellist().get(index)) {
+                                stackTopLevel--;
+                            }
+                        } else {
+                            stackTopLevel--;
+                        }
                     }
                     if (!stack.isEmpty()) {
                         newStackTop = stack.peek();

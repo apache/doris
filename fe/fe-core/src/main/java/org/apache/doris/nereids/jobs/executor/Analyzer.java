@@ -19,7 +19,6 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
-import org.apache.doris.nereids.processor.pre.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
@@ -32,6 +31,7 @@ import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
+import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
@@ -88,7 +88,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
     private static List<RewriteJob> buildAnalyzeJobs(Optional<CustomTableResolver> customTableResolver) {
         return jobs(
             // we should eliminate hint before "Subquery unnesting".
-            custom(RuleType.ELIMINATE_HINT, EliminateLogicalSelectHint::new),
+            topDown(new EliminateLogicalSelectHint()),
             topDown(new AnalyzeCTE()),
             bottomUp(
                 new BindRelation(customTableResolver),

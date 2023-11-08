@@ -35,10 +35,9 @@ public class CollectSubQueryAlias extends OneRewriteRuleFactory {
     public Rule build() {
         return RuleType.COLLECT_SUB_QUERY_ALIAS.build(
                 logicalSubQueryAlias().thenApply(ctx -> {
-                    if (ctx.cascadesContext.getStatementContext().isLeadingJoin()) {
+                    if (ctx.cascadesContext.isLeadingJoin()) {
                         String aliasName = ctx.root.getAlias();
-                        LeadingHint leading = (LeadingHint) ctx.cascadesContext.getStatementContext()
-                                .getHintMap().get("Leading");
+                        LeadingHint leading = (LeadingHint) ctx.cascadesContext.getHintMap().get("Leading");
                         RelationId newId = ctx.statementContext.getNextRelationId();
                         leading.putRelationIdAndTableName(Pair.of(newId, aliasName));
                         leading.getRelationIdToScanMap().put(newId, ctx.root);
