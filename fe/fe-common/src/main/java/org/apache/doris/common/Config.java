@@ -1915,7 +1915,7 @@ public class Config extends ConfigBase {
     public static long max_hive_partition_cache_num = 100000;
 
     @ConfField(mutable = false, masterOnly = false)
-    public static long max_hive_table_catch_num = 1000;
+    public static long max_hive_table_cache_num = 1000;
 
     @ConfField(mutable = false, masterOnly = false)
     public static short max_hive_list_partition_num = -1;
@@ -1946,7 +1946,7 @@ public class Config extends ConfigBase {
      * For external schema cache and hive meta cache.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static long external_cache_expire_time_minutes_after_access = 24 * 60; // 1 day
+    public static long external_cache_expire_time_minutes_after_access = 10; // 10 mins
 
     /**
      * Set session variables randomly to check more issues in github workflow

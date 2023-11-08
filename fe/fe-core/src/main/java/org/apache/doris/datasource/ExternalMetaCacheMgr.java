@@ -23,6 +23,8 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
+import org.apache.doris.planner.external.iceberg.IcebergMetadataCacheMgr;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -45,10 +47,12 @@ public class ExternalMetaCacheMgr {
     // catalog id -> table schema cache
     private Map<Long, ExternalSchemaCache> schemaCacheMap = Maps.newHashMap();
     private Executor executor;
+    private final IcebergMetadataCacheMgr icebergMetadataCacheMgr;
 
     public ExternalMetaCacheMgr() {
         executor = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_external_cache_loader_thread_pool_size,
                 "ExternalMetaCacheMgr", true);
+        icebergMetadataCacheMgr = new IcebergMetadataCacheMgr();
     }
 
     public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {
@@ -77,6 +81,10 @@ public class ExternalMetaCacheMgr {
         return cache;
     }
 
+    public IcebergMetadataCache getIcebergMetadataCache() {
+        return icebergMetadataCacheMgr.getIcebergMetadataCache();
+    }
+
     public void removeCache(String catalogId) {
         if (cacheMap.remove(catalogId) != null) {
             LOG.info("remove hive metastore cache for catalog {}" + catalogId);
@@ -84,6 +92,7 @@ public class ExternalMetaCacheMgr {
         if (schemaCacheMap.remove(catalogId) != null) {
             LOG.info("remove schema cache for catalog {}" + catalogId);
         }
+        icebergMetadataCacheMgr.removeCache(Long.valueOf(catalogId));
     }
 
     public void invalidateTableCache(long catalogId, String dbName, String tblName) {
@@ -96,6 +105,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.invalidateTableCache(dbName, tblName);
         }
+        icebergMetadataCacheMgr.invalidateTableCache(catalogId, dbName, tblName);
         LOG.debug("invalid table cache for {}.{} in catalog {}", dbName, tblName, catalogId);
     }
 
@@ -109,6 +119,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.invalidateDbCache(dbName);
         }
+        icebergMetadataCacheMgr.invalidateDbCache(catalogId, dbName);
         LOG.debug("invalid db cache for {} in catalog {}", dbName, catalogId);
     }
 
@@ -121,6 +132,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.invalidateAll();
         }
+        icebergMetadataCacheMgr.invalidateCatalogCache(catalogId);
         LOG.debug("invalid catalog cache for {}", catalogId);
     }
 
