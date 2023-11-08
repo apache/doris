@@ -56,21 +56,9 @@ TEST_F(DeltaWriterV2PoolTest, test_map) {
     auto map = pool.get_or_create(load_id);
     EXPECT_EQ(1, pool.size());
     WriteRequest req;
-    auto writer = map->get_or_create(100, [&req]() {
-        DeltaWriterV2* writer;
-        static_cast<void>(DeltaWriterV2::open(&req, {}, &writer));
-        return writer;
-    });
-    auto writer2 = map->get_or_create(101, [&req]() {
-        DeltaWriterV2* writer;
-        static_cast<void>(DeltaWriterV2::open(&req, {}, &writer));
-        return writer;
-    });
-    auto writer3 = map->get_or_create(100, [&req]() {
-        DeltaWriterV2* writer;
-        static_cast<void>(DeltaWriterV2::open(&req, {}, &writer));
-        return writer;
-    });
+    auto writer = map->get_or_create(100, [&req]() { return DeltaWriterV2::open(&req, {}); });
+    auto writer2 = map->get_or_create(101, [&req]() { return DeltaWriterV2::open(&req, {}); });
+    auto writer3 = map->get_or_create(100, [&req]() { return DeltaWriterV2::open(&req, {}); });
     EXPECT_EQ(2, map->size());
     EXPECT_EQ(writer, writer3);
     EXPECT_NE(writer, writer2);
