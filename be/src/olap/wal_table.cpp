@@ -201,8 +201,8 @@ Status WalTable::replay_wal_internal(const std::string& wal) {
         return Status::OK();
     }
     RETURN_IF_ERROR(abort_txn(_db_id, wal_id));
-#endif
     RETURN_IF_ERROR(get_column_info(_db_id, _table_id));
+#endif
     RETURN_IF_ERROR(send_request(wal_id, wal, label));
     return Status::OK();
 }

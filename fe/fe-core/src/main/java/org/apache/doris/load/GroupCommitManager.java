@@ -32,10 +32,9 @@ import org.apache.doris.transaction.TransactionStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Future;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class GroupCommitManager {
 
@@ -45,16 +44,17 @@ public class GroupCommitManager {
 
     private static final Logger LOG = LogManager.getLogger(GroupCommitManager.class);
 
-    private Map<Long, SchemaChangeStatus> statusMap = new HashMap<>();
+    private final Map<Long, SchemaChangeStatus> statusMap = new ConcurrentHashMap<>();
 
-    public synchronized boolean isBlock(long tableId) {
+    public boolean isBlock(long tableId) {
         if (statusMap.containsKey(tableId)) {
             return statusMap.get(tableId) == SchemaChangeStatus.BLOCK;
         }
         return false;
     }
 
-    public synchronized void setStatus(long tableId, SchemaChangeStatus status) {
+    public void setStatus(long tableId, SchemaChangeStatus status) {
+        LOG.debug("Setting status for tableId {}: {}", tableId, status);
         statusMap.put(tableId, status);
     }
 
@@ -119,6 +119,14 @@ public class GroupCommitManager {
         boolean done = false;
         long size = 0;
         while (!done && System.currentTimeMillis() - start <= Config.check_wal_queue_timeout_threshold) {
+            if (!backend.isAlive()) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    LOG.info("group commit manager sleep wait InterruptedException: ", ie);
+                }
+                continue;
+            }
             try {
                 Future<PGetWalQueueSizeResponse> future = BackendServiceProxy.getInstance()
                         .getAllWalQueueSize(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()), request);
@@ -126,6 +134,10 @@ public class GroupCommitManager {
             } catch (Exception e) {
                 LOG.warn("encounter exception while getting all wal queue size on backend id: " + backend.getId()
                         + ",exception:" + e);
+                String msg = e.getMessage();
+                if (msg.contains("Method") && msg.contains("unimplemented")) {
+                    break;
+                }
                 try {
                     Thread.sleep(100);
                 } catch (InterruptedException ie) {
@@ -153,6 +165,8 @@ public class GroupCommitManager {
         }
         return size;
     }
+
+
 
     public boolean needRecovery(long dbId, long transactionId) {
         TransactionState state = Env.getCurrentGlobalTransactionMgr()
