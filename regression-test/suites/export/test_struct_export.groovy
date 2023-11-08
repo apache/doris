@@ -86,6 +86,7 @@ suite("test_struct_export", "export") {
     if (backends.size() > 1) {
         outFile = "/tmp"
     }
+    def url = ""
     def urlHost = ""
     def csvFiles = ""
     logger.info("test_struct_export the outFilePath=" + outFilePath)
