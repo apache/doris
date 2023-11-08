@@ -120,7 +120,7 @@ public class AggregateExpression extends Expression implements UnaryExpression {
     }
 
     @Override
-    protected String getExpressionName() {
+    public String getExpressionName() {
         if (!this.exprName.isPresent()) {
             this.exprName = Optional.of(Utils.normalizeName(function.getName(), DEFAULT_EXPRESSION_NAME));
         }

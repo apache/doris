@@ -57,7 +57,7 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     }
 
     @Override
-    protected String getExpressionName() {
+    public String getExpressionName() {
         if (!this.exprName.isPresent()) {
             this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
         }

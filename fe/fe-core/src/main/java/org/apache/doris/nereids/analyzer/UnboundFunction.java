@@ -63,7 +63,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     }
 
     @Override
-    protected String getExpressionName() {
+    public String getExpressionName() {
         if (!this.exprName.isPresent()) {
             this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPRESSION_NAME));
         }

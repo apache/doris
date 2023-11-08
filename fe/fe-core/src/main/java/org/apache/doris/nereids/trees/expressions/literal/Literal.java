@@ -133,7 +133,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     }
 
     @Override
-    protected String getExpressionName() {
+    public String getExpressionName() {
         if (!this.exprName.isPresent()) {
             this.exprName = Optional.of("literal");
         }

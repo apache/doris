@@ -89,7 +89,7 @@ public class AssertNumRowsElement extends Expression implements LeafExpression, 
     }
 
     @Override
-    protected String getExpressionName() {
+    public String getExpressionName() {
         if (!this.exprName.isPresent()) {
             this.exprName = Optional.of(Utils.normalizeName(assertion.name().toLowerCase(), DEFAULT_EXPRESSION_NAME));
         }
