@@ -404,9 +404,8 @@ struct DateTimeOp {
             vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i], invalid);
 
             if (UNLIKELY(invalid)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND,
-                                fmt::format("Operation {} {} {} out of range, ", Transform::name,
-                                            vec_from0[i], vec_from1[i]));
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                                Transform::name, vec_from0[i], vec_from1[i]);
             }
         }
     }
@@ -434,9 +433,8 @@ struct DateTimeOp {
             vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i], invalid);
 
             if (UNLIKELY(invalid)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND,
-                                fmt::format("Operation {} {} {} out of range, ", Transform::name,
-                                            vec_from0[i], vec_from1[i]));
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                                Transform::name, vec_from0[i], vec_from1[i]);
             }
         }
     }
@@ -463,9 +461,8 @@ struct DateTimeOp {
             vec_to[i] = Transform::execute(vec_from[i], delta, invalid);
 
             if (UNLIKELY(invalid)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND,
-                                fmt::format("Operation {} {} {} out of range, ", Transform::name,
-                                            vec_from[i], delta));
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                                Transform::name, vec_from[i], delta);
             }
         }
     }
@@ -492,9 +489,8 @@ struct DateTimeOp {
             vec_to[i] = Transform::execute(vec_from[i], delta, invalid);
 
             if (UNLIKELY(invalid)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND,
-                                fmt::format("Operation {} {} {} out of range, ", Transform::name,
-                                            vec_from[i], delta));
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                                Transform::name, vec_from[i], delta);
             }
         }
     }
@@ -521,9 +517,8 @@ struct DateTimeOp {
             vec_to[i] = Transform::execute(from, delta.get_int(i), invalid);
 
             if (UNLIKELY(invalid)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND,
-                                fmt::format("Operation {} {} {} out of range, ", Transform::name,
-                                            from, delta.get_int(i)));
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                                Transform::name, from, delta.get_int(i));
             }
         }
     }
@@ -549,9 +544,8 @@ struct DateTimeOp {
             vec_to[i] = Transform::execute(from, delta[i], invalid);
 
             if (UNLIKELY(invalid)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND,
-                                fmt::format("Operation {} {} {} out of range, ", Transform::name,
-                                            from, delta[i]));
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                                Transform::name, from, delta[i]);
             }
         }
     }
