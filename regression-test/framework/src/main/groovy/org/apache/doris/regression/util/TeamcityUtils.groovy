@@ -24,34 +24,49 @@ import org.apache.tools.ant.util.DateUtils
 
 @CompileStatic
 class TeamcityUtils {
+    static String postfix = ""
+
+    static String getSuiteName(String name) {
+        if (postfix == "") {
+            return name
+        } else {
+            return name+"-"+postfix
+        }
+    }
+
     static String formatNow() {
         return DateUtils.format(System.currentTimeMillis(), "yyyy-MM-dd'T'HH:mm:ss.SSSZ")
     }
 
     static String formatStdOut(SuiteContext suiteContext, String msg) {
         String timestamp = formatNow()
-        return "##teamcity[testStdOut name='${suiteContext.flowName}' out='${escape(msg)}' flowId='${suiteContext.flowId}' timestamp='${timestamp}']"
+        String name = getSuiteName(suiteContext.flowName)
+        return "##teamcity[testStdOut name='${name}' out='${escape(msg)}' flowId='${suiteContext.flowId}' timestamp='${timestamp}']"
     }
 
     static String formatStdErr(SuiteContext suiteContext, String msg) {
         String timestamp = formatNow()
-        return "##teamcity[testStdErr name='${suiteContext.flowName}' out='${escape(msg)}' flowId='${suiteContext.flowId}' timestamp='${timestamp}']"
+        String name = getSuiteName(suiteContext.flowName)
+        return "##teamcity[testStdErr name='${name}' out='${escape(msg)}' flowId='${suiteContext.flowId}' timestamp='${timestamp}']"
     }
 
     static void testStarted(SuiteContext suiteContext) {
         String timestamp = formatNow()
+        String name = getSuiteName(suiteContext.flowName)
         println("##teamcity[flowStarted flowId='${suiteContext.flowId}' timestamp='${timestamp}']")
-        println("##teamcity[testStarted name='${suiteContext.flowName}' flowId='${suiteContext.flowId}' timestamp='${timestamp}']")
+        println("##teamcity[testStarted name='${name}' flowId='${suiteContext.flowId}' timestamp='${timestamp}']")
     }
 
     static void testFailed(SuiteContext suiteContext, String msg, String details) {
         String timestamp = formatNow()
-        println("##teamcity[testFailed name='${suiteContext.flowName}' message='${escape(msg)}' flowId='${suiteContext.flowId}' details='${escape(details)}' timestamp='${timestamp}']")
+        String name = getSuiteName(suiteContext.flowName)
+        println("##teamcity[testFailed name='${name}' message='${escape(msg)}' flowId='${suiteContext.flowId}' details='${escape(details)}' timestamp='${timestamp}']")
     }
 
     static void testFinished(SuiteContext suiteContext, long elapsed) {
         String timestamp = formatNow()
-        println("##teamcity[testFinished name='${suiteContext.flowName}' flowId='${suiteContext.flowId}' duration='${elapsed}' timestamp='${timestamp}']")
+        String name = getSuiteName(suiteContext.flowName)
+        println("##teamcity[testFinished name='${name}' flowId='${suiteContext.flowId}' duration='${elapsed}' timestamp='${timestamp}']")
         println("##teamcity[flowFinished flowId='${suiteContext.flowId}' timestamp='${timestamp}']")
     }
 
