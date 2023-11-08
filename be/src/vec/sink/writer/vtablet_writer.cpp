@@ -491,9 +491,8 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     std::unique_ptr<Payload> temp_payload = nullptr;
     if (_index_channel != nullptr && _index_channel->get_where_clause() != nullptr) {
         SCOPED_RAW_TIMER(&_stat.where_clause_ns);
-        temp_payload.reset(new Payload(
-                std::unique_ptr<vectorized::IColumn::Selector>(new vectorized::IColumn::Selector()),
-                std::vector<int64_t>()));
+        temp_payload = std::make_unique<Payload>(std::make_unique<vectorized::IColumn::Selector>(),
+                                                 std::vector<int64_t>());
         int result_index = -1;
         size_t column_number = block->columns();
         RETURN_IF_ERROR(_index_channel->get_where_clause()->execute(block, &result_index));
@@ -1256,7 +1255,7 @@ Status VTabletWriter::_automatic_create_partition() {
     request.__set_table_id(_vpartition->table_id());
     request.__set_partitionValues(_partitions_need_create);
 
-    VLOG(1) << "automatic partition rpc begin request " << request;
+    VLOG(1) << " automatic partition rpc begin request " << request;
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
     int time_out = _state->execution_timeout() * 1000;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
@@ -1267,7 +1266,7 @@ Status VTabletWriter::_automatic_create_partition() {
             time_out));
 
     Status status(Status::create(result.status));
-    VLOG(1) << "automatic partition rpc end response " << result;
+    VLOG(1) << " automatic partition rpc end response " << result;
     if (result.status.status_code == TStatusCode::OK) {
         // add new created partitions
         RETURN_IF_ERROR(_vpartition->add_partitions(result.partitions));
@@ -1444,20 +1443,38 @@ VTabletWriter::_get_partition_function() {
     return {_vpartition->get_part_func_ctx(), _vpartition->get_partition_function()};
 }
 
-void VTabletWriter::_save_missing_values(vectorized::ColumnPtr col,
-                                         vectorized::DataTypePtr value_type,
-                                         std::vector<int64_t> filter) {
-    _partitions_need_create.clear();
-    std::set<std::string> deduper;
+Status VTabletWriter::_save_missing_values(vectorized::ColumnPtr col,
+                                           vectorized::DataTypePtr value_type, Block* block,
+                                           std::vector<int64_t> filter) {
     // de-duplication
     for (auto row : filter) {
-        deduper.emplace(value_type->to_string(*col, row));
+        _batching_block->add_row(block, row);
+        auto val_str = value_type->to_string(*col, row);
+        if (!_deduper.contains(val_str)) {
+            _deduper.emplace(val_str);
+            TStringLiteral node;
+            node.value = val_str;
+            _partitions_need_create.emplace_back(std::vector {node}); // only 1 partition column now
+        }
     }
-    for (auto& value : deduper) {
-        TStringLiteral node;
-        node.value = value;
-        _partitions_need_create.emplace_back(std::vector {node}); // only 1 partition column now
+    //FIXME: use config value
+    if (_partitions_need_create.size() > 2000) {
+        return Status::EndOfFile("Encountered unqualified data, stop processing");
     }
+
+    return Status::OK();
+}
+
+Status VTabletWriter::_send_new_partition_batch() {
+    LOG(WARNING) << this << "send new partition batch";
+    if (!_deal_batched_block && _batching_rows) { // maybe try_close more than 1 time
+        RETURN_IF_ERROR(_automatic_create_partition());
+        _deal_batched_block = true;
+        Block tmp_block = _batching_block->to_block(); // for lval ref
+        LOG(WARNING) << this << tmp_block.dump_data();
+        RETURN_IF_ERROR(this->append_block(tmp_block));
+    }
+    return Status::OK();
 }
 
 Status VTabletWriter::_cancel_channel_and_check_intolerable_failure(
@@ -1495,7 +1512,13 @@ void VTabletWriter::_cancel_all_channel(Status status) {
 Status VTabletWriter::try_close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
-    _try_close = true;
+
+    // must before set _try_close
+    if (status.ok()) {
+        status = _send_new_partition_batch();
+    }
+
+    _try_close = true; // will stop periodic thread
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
         // if status is not ok, this sink may not be prepared, so that _profile is null
@@ -1553,8 +1576,8 @@ Status VTabletWriter::close(Status exec_status) {
         return _close_status;
     }
 
-    SCOPED_TIMER(_close_timer);
-    SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_TIMER(_close_timer);                   // why dup this?
+    SCOPED_TIMER(_profile->total_time_counter()); // why need this?
 
     // will make the last batch of request. close_wait will wait this finished.
     static_cast<void>(try_close(_state, exec_status));
@@ -1734,6 +1757,11 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             _state, &input_block, block, _vec_output_expr_ctxs, rows, has_filtered_rows));
 
+    // batching block rows which need new partitions. deal together at finish.
+    if (!_batching_block) [[unlikely]] {
+        _batching_block = MutableBlock::create_unique(block->create_same_struct_block(0).release());
+    }
+
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
     bool stop_processing = false;
@@ -1754,13 +1782,14 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         int result_idx = -1;
         if (_vpartition->is_projection_partition()) {
             // calc the start value of missing partition ranges.
+            // in VNodeChannel's add_block. the spare columns will be erased.
             RETURN_IF_ERROR(part_func->execute(part_ctx.get(), block.get(), &result_idx));
             VLOG_DEBUG << "Partition-calculated block:" << block->dump_data();
             // change the column to compare to transformed.
             _vpartition->set_transformed_slots({(uint16_t)result_idx});
         }
 
-        if (_vpartition->is_auto_partition()) {
+        if (_vpartition->is_auto_partition() && !_deal_batched_block) {
             std::vector<uint16_t> partition_keys = _vpartition->get_partition_keys();
             //TODO: use loop to create missing_vals for multi column.
             CHECK(partition_keys.size() == 1)
@@ -1775,46 +1804,43 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
             std::vector<bool> skip(num_rows, false);
             std::vector<uint32_t> tablet_indexes(num_rows, 0);
 
-            //TODO: we could use the buffer to save tablets we found so that no need to find them again when we created partitions and try to append block next time.
             RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block.get(), num_rows, partitions,
                                                          tablet_indexes, stop_processing, skip,
                                                          &missing_map));
 
-            if (missing_map.empty()) {
-                // we don't calculate it distribution when have missing values
-                if (has_filtered_rows) {
-                    for (int i = 0; i < num_rows; i++) {
-                        skip[i] = skip[i] || _block_convertor->filter_map()[i];
-                    }
+            // the missing vals for auto partition are also skipped.
+            if (has_filtered_rows) {
+                for (int i = 0; i < num_rows; i++) {
+                    skip[i] = skip[i] || _block_convertor->filter_map()[i];
                 }
-                _generate_row_distribution_payload(channel_to_payload, partitions, tablet_indexes,
-                                                   skip, num_rows);
-            } else { // for missing partition keys, calc the missing partition and save in _partitions_need_create
-                auto return_type = part_func->data_type();
+            }
+            //FIXME: why need this even when NEED_SEND_AGAIN before?
+            _generate_row_distribution_payload(channel_to_payload, partitions, tablet_indexes, skip,
+                                               num_rows);
 
-                // expose the data column
-                vectorized::ColumnPtr range_left_col = block->get_by_position(result_idx).column;
-                if (const auto* nullable =
-                            check_and_get_column<vectorized::ColumnNullable>(*range_left_col)) {
-                    range_left_col = nullable->get_nested_column_ptr();
-                    return_type =
-                            assert_cast<const vectorized::DataTypeNullable*>(return_type.get())
-                                    ->get_nested_type();
-                }
-                // calc the end value and save them.
-                _save_missing_values(range_left_col, return_type, missing_map);
-                // then call FE to create it. then FragmentExecutor will redo the load.
-                RETURN_IF_ERROR(_automatic_create_partition());
-                // now we need to rollback the metrics
-                _number_input_rows -= rows;
-                _state->update_num_rows_load_total(-rows);
-                _state->update_num_bytes_load_total(-bytes);
-                DorisMetrics::instance()->load_rows->increment(-rows);
-                DorisMetrics::instance()->load_bytes->increment(-bytes);
-                // In the next round, we will _generate_row_distribution_payload again to get right payload of new tablet
-                LOG(INFO) << "Auto created partition. Send block again.";
-                return Status::NeedSendAgain("");
-            }    // creating done
+            // for missing partition keys, calc the missing partition and save in _partitions_need_create
+            auto return_type = part_func->data_type();
+            // expose the data column
+            vectorized::ColumnPtr range_left_col = block->get_by_position(result_idx).column;
+            if (const auto* nullable =
+                        check_and_get_column<vectorized::ColumnNullable>(*range_left_col)) {
+                range_left_col = nullable->get_nested_column_ptr();
+                return_type = assert_cast<const vectorized::DataTypeNullable*>(return_type.get())
+                                      ->get_nested_type();
+            }
+            // calc the end value and save them. in the end of sending, we will create partitions for them and deal them.
+            RETURN_IF_ERROR(
+                    _save_missing_values(range_left_col, return_type, block.get(), missing_map));
+
+            size_t new_bt_rows = _batching_block->rows();
+            size_t new_bt_bytes = _batching_block->bytes();
+            _number_input_rows -= new_bt_rows - _batching_rows;
+            _state->update_num_rows_load_total(_batching_rows - new_bt_rows);
+            _state->update_num_bytes_load_total(_batching_bytes - new_bt_bytes);
+            DorisMetrics::instance()->load_rows->increment(_batching_rows - new_bt_rows);
+            DorisMetrics::instance()->load_bytes->increment(_batching_bytes - new_bt_bytes);
+            _batching_rows = new_bt_rows;
+            _batching_bytes = new_bt_bytes;
         } else { // not auto partition
             std::vector<VOlapTablePartition*> partitions(num_rows, nullptr);
             std::vector<bool> skip(num_rows, false);
@@ -1860,11 +1886,6 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
                                     _tablet_finder->num_filtered_rows() - filtered_rows,
                             _state, block.get(), _block_convertor.get(), _tablet_finder.get());
     }
-    // TODO: Before load, we need to projection unuseful column
-    // auto slots = _schema->tuple_desc()->slots();
-    // for (auto desc : slots) {
-    //     desc->col_pos();
-    // }
     // Add block to node channel
     for (size_t i = 0; i < _channels.size(); i++) {
         for (const auto& entry : channel_to_payload[i]) {

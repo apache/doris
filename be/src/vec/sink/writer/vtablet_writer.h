@@ -564,16 +564,19 @@ private:
                                       ChannelDistributionPayload& channel_to_payload,
                                       size_t num_rows, bool has_filtered_rows);
 
-    Status _cancel_channel_and_check_intolerable_failure(Status status, const std::string& err_msg,
-                                                         const std::shared_ptr<IndexChannel> ich,
-                                                         const std::shared_ptr<VNodeChannel> nch);
+    static Status _cancel_channel_and_check_intolerable_failure(Status status,
+                                                                const std::string& err_msg,
+                                                                std::shared_ptr<IndexChannel> ich,
+                                                                std::shared_ptr<VNodeChannel> nch);
 
     void _cancel_all_channel(Status status);
 
     std::pair<vectorized::VExprContextSPtr, vectorized::VExprSPtr> _get_partition_function();
 
-    void _save_missing_values(vectorized::ColumnPtr col, vectorized::DataTypePtr value_type,
-                              std::vector<int64_t> filter);
+    Status _save_missing_values(vectorized::ColumnPtr col, vectorized::DataTypePtr value_type,
+                                Block* block, std::vector<int64_t> filter);
+
+    Status _send_new_partition_batch();
 
     // create partitions when need for auto-partition table using #_partitions_need_create.
     Status _automatic_create_partition();
@@ -630,7 +633,11 @@ private:
 
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
-    // support only one partition column now
+    // for auto partition
+    std::unique_ptr<MutableBlock> _batching_block;
+    bool _deal_batched_block = false; // the last block.
+    size_t _batching_rows = 0, _batching_bytes = 0;
+    std::set<std::string> _deduper;
     std::vector<std::vector<TStringLiteral>> _partitions_need_create;
 
     std::unique_ptr<OlapTableBlockConvertor> _block_convertor;
