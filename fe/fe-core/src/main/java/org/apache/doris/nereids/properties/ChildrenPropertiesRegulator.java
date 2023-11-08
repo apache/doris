@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.plans.AggMode;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
@@ -178,6 +179,12 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         return true;
     }
 
+    private boolean couldNotRightBucketShuffleJoin(JoinType joinType) {
+        return joinType == JoinType.RIGHT_ANTI_JOIN
+                || joinType == JoinType.RIGHT_OUTER_JOIN
+                || joinType == JoinType.FULL_OUTER_JOIN;
+    }
+
     @Override
     public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
             Void context) {
@@ -207,12 +214,22 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         Optional<PhysicalProperties> updatedForLeft = Optional.empty();
         Optional<PhysicalProperties> updatedForRight = Optional.empty();
 
-        if ((leftHashSpec.getShuffleType() == ShuffleType.NATURAL
-                && rightHashSpec.getShuffleType() == ShuffleType.NATURAL)) {
+        if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
             // check colocate join with scan
-            if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
-                return true;
-            }
+            return true;
+        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType())) {
+            // right anti, right outer, full outer join could not do bucket shuffle join
+            // TODO remove this after we refactor coordinator
+            updatedForLeft = Optional.of(calAnotherSideRequired(
+                    ShuffleType.EXECUTION_BUCKETED, leftHashSpec, leftHashSpec,
+                    (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                    (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec()));
+            updatedForRight = Optional.of(calAnotherSideRequired(
+                    ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
+                    (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
+                    (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
+        } else if ((leftHashSpec.getShuffleType() == ShuffleType.NATURAL
+                && rightHashSpec.getShuffleType() == ShuffleType.NATURAL)) {
             updatedForRight = Optional.of(calAnotherSideRequired(
                     ShuffleType.STORAGE_BUCKETED, leftHashSpec, rightHashSpec,
                     (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
