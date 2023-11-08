@@ -313,7 +313,7 @@ private:
             auto build_idx = first[bucket_nums[probe_idx]];
 
             while (build_idx) {
-                if (keys[probe_idx] == build_keys[build_idx]) {
+                if (!visited[build_idx] && keys[probe_idx] == build_keys[build_idx]) {
                     visited[build_idx] = 1;
                 }
                 build_idx = next[build_idx];
@@ -333,13 +333,9 @@ private:
 
         auto do_the_probe = [&]() {
             auto matched_cnt_old = matched_cnt;
-            while (build_idx) {
+            while (build_idx && matched_cnt < batch_size) {
                 if (keys[probe_idx] == build_keys[build_idx]) {
                     build_idxs[matched_cnt++] = build_idx;
-                    if (UNLIKELY(matched_cnt >= batch_size)) {
-                        build_idx = next[build_idx];
-                        break;
-                    }
                 }
                 build_idx = next[build_idx];
             }
@@ -353,11 +349,7 @@ private:
             do_the_probe();
         }
 
-        while (probe_idx < probe_rows) {
-            if (matched_cnt >= batch_size) {
-                break;
-            }
-
+        while (probe_idx < probe_rows && matched_cnt < batch_size) {
             build_idx = first[bucket_nums[probe_idx]];
             do_the_probe();
         }
@@ -373,25 +365,16 @@ private:
         auto matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
-        while (probe_idx < probe_rows) {
+        while (probe_idx < probe_rows && matched_cnt < batch_size) {
             auto build_idx = first[bucket_nums[probe_idx]];
 
-            while (build_idx) {
-                if (keys[probe_idx] == build_keys[build_idx]) {
-                    break;
-                }
+            while (build_idx && keys[probe_idx] != build_keys[build_idx]) {
                 build_idx = next[build_idx];
             }
             bool matched =
                     JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ? build_idx != 0 : build_idx == 0;
-            if (matched) {
-                probe_idxs[matched_cnt++] = probe_idx++;
-                if (matched_cnt >= batch_size) {
-                    break;
-                }
-            } else {
-                probe_idx++;
-            }
+            probe_idxs[matched_cnt] = probe_idx++;
+            matched_cnt += matched;
         }
         return std::tuple {probe_idx, 0U, matched_cnt};
     }
