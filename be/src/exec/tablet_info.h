@@ -232,7 +232,7 @@ public:
                 } else {
                     // compute and save in buffer
                     (*partition_tablets_buffer)[partition_id] = tablet_indexes[index] =
-                        compute_function(block, index, *partitions[index]);
+                            compute_function(block, index, *partitions[index]);
                 }
             }
         }
