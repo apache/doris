@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "vec/columns/column_object.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -55,7 +56,9 @@ bool DataTypeObject::equals(const IDataType& rhs) const {
 int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
                                                           int be_exec_version) const {
     const auto& column_object = assert_cast<const ColumnObject&>(column);
-    assert(column_object.is_finalized());
+    if (!column_object.is_finalized()) {
+        const_cast<ColumnObject&>(column_object).finalize();
+    }
 
     const auto& subcolumns = column_object.get_subcolumns();
     size_t size = 0;
@@ -81,7 +84,9 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
 
 char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     const auto& column_object = assert_cast<const ColumnObject&>(column);
-    assert(column_object.is_finalized());
+    if (!column_object.is_finalized()) {
+        const_cast<ColumnObject&>(column_object).finalize();
+    }
 #ifndef NDEBUG
     // DCHECK size
     column_object.check_consistency();
@@ -139,8 +144,11 @@ const char* DataTypeObject::deserialize(const char* buf, IColumn* column,
         buf = type->deserialize(buf, sub_column.get(), be_exec_version);
 
         // add subcolumn to column_object
-        PathInData key {column_meta_pb.name()};
-        column_object->add_sub_column(key, std::move(sub_column));
+        PathInData key;
+        if (!column_meta_pb.name().empty()) {
+            key = PathInData {column_meta_pb.name()};
+        }
+        column_object->add_sub_column(key, std::move(sub_column), type);
     }
 
     column_object->finalize();
@@ -149,6 +157,18 @@ const char* DataTypeObject::deserialize(const char* buf, IColumn* column,
     column_object->check_consistency();
 #endif
     return buf;
+}
+
+std::string DataTypeObject::to_string(const IColumn& column, size_t row_num) const {
+    const auto& variant = assert_cast<const ColumnObject&>(column);
+    std::string res;
+    variant.serialize_one_row_to_string(row_num, &res);
+    return res;
+}
+
+void DataTypeObject::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
+    const auto& variant = assert_cast<const ColumnObject&>(column);
+    variant.serialize_one_row_to_string(row_num, ostr);
 }
 
 } // namespace doris::vectorized

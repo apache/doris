@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <rapidjson/document.h>
 #include <stdint.h>
 
 #include <memory>
@@ -31,6 +32,7 @@
 #include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_buffer.hpp"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/io/reader_buffer.h"
 
@@ -273,6 +275,12 @@ public:
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 
+    // rapidjson
+    virtual void write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                        rapidjson::Document::AllocatorType& allocator,
+                                        int row_num) const;
+    virtual void read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
+
 protected:
     bool _return_object_as_string = false;
     // This parameter indicates what level the serde belongs to and is mainly used for complex types
@@ -281,6 +289,11 @@ protected:
     // The _nesting_level of StructSerde is 1
     // The _nesting_level of StringSerde is 2
     int _nesting_level = 1;
+
+    static void convert_field_to_rapidjson(const vectorized::Field& field, rapidjson::Value& target,
+                                           rapidjson::Document::AllocatorType& allocator);
+    static void convert_array_to_rapidjson(const vectorized::Array& array, rapidjson::Value& target,
+                                           rapidjson::Document::AllocatorType& allocator);
 };
 
 /// Invert values since Arrow interprets 1 as a non-null value, while doris as a null

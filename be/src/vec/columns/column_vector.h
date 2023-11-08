@@ -412,6 +412,10 @@ public:
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
+    double get_ratio_of_default_rows(double sample_ratio) const override {
+        return this->template get_ratio_of_default_rows_impl<Self>(sample_ratio);
+    }
+
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
     void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
@@ -427,8 +431,6 @@ public:
     }
 
     //    void gather(ColumnGathererStream & gatherer_stream) override;
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }

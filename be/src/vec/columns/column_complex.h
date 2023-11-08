@@ -233,8 +233,6 @@ public:
                                "compare_at for " + std::string(get_family_name()));
     }
 
-    bool can_be_inside_nullable() const override { return true; }
-
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 

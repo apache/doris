@@ -59,6 +59,10 @@ public:
         return TPrimitiveType::INVALID_TYPE;
     }
 
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_NONE;
+    }
+
     MutableColumnPtr create_column() const override;
 
     bool equals(const IDataType& rhs) const override;
@@ -67,7 +71,6 @@ public:
     bool text_can_contain_only_valid_utf8() const override { return true; }
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return 0; }
-    bool can_be_inside_nullable() const override { return true; }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override {

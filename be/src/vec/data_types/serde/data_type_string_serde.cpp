@@ -19,6 +19,9 @@
 
 #include <assert.h>
 #include <gen_cpp/types.pb.h>
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 #include <stddef.h>
 
 #include "arrow/array/builder_binary.h"
@@ -251,6 +254,27 @@ Status DataTypeStringSerDe::write_column_to_orc(const std::string& timezone, con
 
     cur_batch->numElements = end - start;
     return Status::OK();
+}
+
+void DataTypeStringSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                                 rapidjson::Document::AllocatorType& allocator,
+                                                 int row_num) const {
+    const auto& col = static_cast<const ColumnString&>(column);
+    const auto& data_ref = col.get_data_at(row_num);
+    result.SetString(data_ref.data, data_ref.size);
+}
+
+void DataTypeStringSerDe::read_one_cell_from_json(IColumn& column,
+                                                  const rapidjson::Value& result) const {
+    auto& col = static_cast<ColumnString&>(column);
+    if (!result.IsString()) {
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        result.Accept(writer);
+        col.insert_data(buffer.GetString(), buffer.GetSize());
+        return;
+    }
+    col.insert_data(result.GetString(), result.GetStringLength());
 }
 
 } // namespace vectorized

@@ -15,32 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/DataTypes/DataTypeNothing.cpp
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/ColumnNothing.h
 // and modified by Doris
 
-#include "vec/data_types/data_type_nothing.h"
+#pragma once
 
-#include <typeinfo>
-
-#include "vec/columns/column_nothing.h"
+#include "vec/columns/column_dummy.h"
 
 namespace doris::vectorized {
 
-MutableColumnPtr DataTypeNothing::create_column() const {
-    return ColumnNothing::create(0);
-}
+class ColumnNothing final : public COWHelper<IColumnDummy, ColumnNothing> {
+private:
+    friend class COWHelper<IColumnDummy, ColumnNothing>;
 
-char* DataTypeNothing::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    LOG(FATAL) << "not support";
-}
+    ColumnNothing(size_t s_) { s = s_; }
 
-const char* DataTypeNothing::deserialize(const char* buf, IColumn* column,
-                                         int be_exec_version) const {
-    LOG(FATAL) << "not support";
-}
+    ColumnNothing(const ColumnNothing&) = default;
 
-bool DataTypeNothing::equals(const IDataType& rhs) const {
-    return typeid(rhs) == typeid(*this);
-}
+public:
+    const char* get_family_name() const override { return "Nothing"; }
+    MutableColumnPtr clone_dummy(size_t s_) const override { return ColumnNothing::create(s_); }
+
+    bool structure_equals(const IColumn& rhs) const override {
+        return typeid(rhs) == typeid(ColumnNothing);
+    }
+};
 
 } // namespace doris::vectorized

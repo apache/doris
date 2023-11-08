@@ -79,6 +79,7 @@ public:
 
     virtual TypeDescriptor get_type_as_type_descriptor() const = 0;
     virtual TPrimitiveType::type get_type_as_tprimitive_type() const = 0;
+    virtual doris::FieldType get_storage_field_type() const = 0;
 
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
@@ -215,10 +216,6 @@ public:
 
     /* the data type create from type_null, NULL literal*/
     virtual bool is_null_literal() const { return false; }
-
-    /** If this data type cannot be wrapped in Nullable data type.
-      */
-    virtual bool can_be_inside_nullable() const { return false; }
 
     virtual bool low_cardinality() const { return false; }
 

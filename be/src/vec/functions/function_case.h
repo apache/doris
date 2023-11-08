@@ -33,6 +33,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
@@ -258,6 +259,7 @@ public:
                       std::is_same_v<ColumnType, ColumnArray> ||
                       std::is_same_v<ColumnType, ColumnMap> ||
                       std::is_same_v<ColumnType, ColumnStruct> ||
+                      std::is_same_v<ColumnType, ColumnObject> ||
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnIPv4> ||
                       std::is_same_v<ColumnType, ColumnIPv6>) {
