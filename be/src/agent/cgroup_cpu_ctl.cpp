@@ -54,6 +54,19 @@ void CgroupCpuCtl::update_cpu_hard_limit(int cpu_hard_limit) {
     }
 }
 
+void CgroupCpuCtl::update_cpu_soft_limit(int cpu_shares) {
+    if (!_init_succ) {
+        return;
+    }
+    std::lock_guard<std::shared_mutex> w_lock(_lock_mutex);
+    if (_cpu_shares != cpu_shares) {
+        Status ret = modify_cg_cpu_soft_limit_no_lock(cpu_shares);
+        if (ret.ok()) {
+            _cpu_shares = cpu_shares;
+        }
+    }
+}
+
 Status CgroupCpuCtl::write_cg_sys_file(std::string file_path, int value, std::string msg,
                                        bool is_append) {
     int fd = open(file_path.c_str(), is_append ? O_RDWR | O_APPEND : O_RDWR);
@@ -97,9 +110,11 @@ Status CgroupV1CpuCtl::init() {
         }
     }
 
-    // quota path
+    // quota file
     _cgroup_v1_cpu_tg_quota_file = _cgroup_v1_cpu_tg_path + "/cpu.cfs_quota_us";
-    // task path
+    // cpu.shares file
+    _cgroup_v1_cpu_tg_shares_file = _cgroup_v1_cpu_tg_path + "/cpu.shares";
+    // task file
     _cgroup_v1_cpu_tg_task_file = _cgroup_v1_cpu_tg_path + "/tasks";
     LOG(INFO) << "cgroup v1 cpu path init success"
               << ", query tg path=" << _cgroup_v1_cpu_tg_path
@@ -108,6 +123,11 @@ Status CgroupV1CpuCtl::init() {
               << ", core num=" << _cpu_core_num;
     _init_succ = true;
     return Status::OK();
+}
+
+Status CgroupV1CpuCtl::modify_cg_cpu_soft_limit_no_lock(int cpu_shares) {
+    std::string msg = "modify cpu shares to " + std::to_string(cpu_shares);
+    return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_shares_file, cpu_shares, msg, false);
 }
 
 Status CgroupV1CpuCtl::modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) {

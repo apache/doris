@@ -52,7 +52,8 @@ public:
                              std::vector<TaskGroupPtr>* task_groups);
 
     Status create_and_get_task_scheduler(uint64_t wg_id, std::string wg_name, int cpu_hard_limit,
-                                         ExecEnv* exec_env, QueryContext* query_ctx_ptr);
+                                         int cpu_shares, ExecEnv* exec_env,
+                                         QueryContext* query_ctx_ptr);
 
     void delete_task_group_by_ids(std::set<uint64_t> id_set);
 
