@@ -32,8 +32,8 @@ accessKeySecret=${OSS_accessKeySecret:-}
 }
 
 function check_oss_file_exist() {
-    if [[ -z ${ACCESS_KEY_ID} || -z ${ACCESS_KEY_SECRET} ]]; then
-        echo "ERROR: env ACCESS_KEY_ID and ACCESS_KEY_SECRET not set"
+    if [[ -z ${OSS_accessKeyID} || -z ${OSS_accessKeySecret} ]]; then
+        echo "ERROR: env OSS_accessKeyID and OSS_accessKeySecret not set"
         return 1
     fi
     # Check if the file exists.
@@ -42,8 +42,8 @@ function check_oss_file_exist() {
     OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile-release"}"
     install_ossutil
     if ossutil stat \
-        -i "${ACCESS_KEY_ID}" \
-        -k "${ACCESS_KEY_SECRET}" \
+        -i "${OSS_accessKeyID}" \
+        -k "${OSS_accessKeySecret}" \
         "${OSS_DIR}/${file_name}"; then
         echo "INFO: ${file_name} file exists." && return 0
     else
@@ -67,8 +67,8 @@ function download_oss_file() {
 }
 
 function upload_file_to_oss() {
-    if [[ -z ${ACCESS_KEY_ID} || -z ${ACCESS_KEY_SECRET} ]]; then
-        echo "ERROR: env ACCESS_KEY_ID and ACCESS_KEY_SECRET not set"
+    if [[ -z ${OSS_accessKeyID} || -z ${OSS_accessKeySecret} ]]; then
+        echo "ERROR: env OSS_accessKeyID and OSS_accessKeySecret not set"
         return 1
     fi
     if [[ ! -f "$1" ]] || [[ "$1" != "/"* ]]; then
@@ -85,8 +85,8 @@ function upload_file_to_oss() {
     install_ossutil
     cd "${dir_name}" || return 1
     if ossutil cp -f \
-        -i "${ACCESS_KEY_ID}" \
-        -k "${ACCESS_KEY_SECRET}" \
+        -i "${OSS_accessKeyID}" \
+        -k "${OSS_accessKeySecret}" \
         "${file_name}" \
         "${OSS_DIR}/${file_name}"; then
         if ! check_oss_file_exist "${file_name}"; then return 1; fi
