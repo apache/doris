@@ -328,6 +328,10 @@ public class VariableMgr {
                 || varType == VariableAnnotation.NONE)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
+        if (ctx.getField().getAnnotation(VarAttr.class).forceGlobal()
+                && setVar.getType() != SetType.GLOBAL) {
+            throw new DdlException(setVar.getVariable() + " should set global");
+        }
         return ctx;
     }
 
@@ -806,6 +810,8 @@ public class VariableMgr {
 
         // Enum options for this config item, if it has.
         String[] options() default {};
+
+        boolean forceGlobal() default false;
     }
 
     private static class VarContext {

@@ -38,6 +38,7 @@ import org.apache.doris.persist.DropWorkloadGroupOperationLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUserIdentity;
 import org.apache.doris.thrift.TopicInfo;
@@ -127,7 +128,8 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             workloadGroups.add(workloadGroup.toThrift());
             // note(wb) -1 to tell be no need to not use cpu hard limit
             int cpuHardLimitThriftVal = -1;
-            if (Config.enable_cpu_hard_limit && workloadGroup.getCpuHardLimit() > 0) {
+            if (VariableMgr.getDefaultSessionVariable().enableCpuHardLimit
+                    && workloadGroup.getCpuHardLimit() > 0) {
                 cpuHardLimitThriftVal = workloadGroup.getCpuHardLimit();
             }
             workloadGroups.get(0).getProperties().put(WorkloadGroup.CPU_HARD_LIMIT,

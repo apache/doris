@@ -1605,9 +1605,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
 
-    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_cpu_hard_limit = false;
-
     @ConfField(mutable = true)
     public static boolean disable_shared_scan = false;
 
