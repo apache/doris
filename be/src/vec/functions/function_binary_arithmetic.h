@@ -79,7 +79,8 @@ struct OperationTraits {
             std::is_same_v<Op, DivideIntegralImpl<T, T>>;
     static constexpr bool can_overflow =
             (is_plus_minus || is_multiply) &&
-            (IsDecimalV2<OpA> || IsDecimalV2<OpB> || IsDecimal256<OpA> || IsDecimal256<OpB>);
+            (IsDecimalV2<OpA> || IsDecimalV2<OpB> || IsDecimal128I<OpA> || IsDecimal128I<OpB> ||
+             IsDecimal256<OpA> || IsDecimal256<OpB>);
     static constexpr bool has_variadic_argument =
             !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Op>()))>;
 };
