@@ -34,9 +34,16 @@ class ClusterOptions {
 
     int feNum = 1
     int beNum = 3
-    int beDiskNum = 1
     List<String> feConfigs = []
     List<String> beConfigs = []
+
+    // each be disks, a disks format is: disk_type=disk_num[,disk_capacity]
+    // here disk_type=HDD or SSD,  disk capacity is in gb unit.
+    // for example: beDisks = ["HDD=1", "SSD=2,10", "SSD=10,3"] means:
+    // each be has 1 HDD disks without capacity limit, 2 SSD disks with 10GB capacity limit,
+    // and 10 SSD disks with 3GB capacity limit
+    // if not specific, docker will let each be contains 1 HDD disk.
+    List<String> beDisks = null
 
     void enableDebugPoints() {
         feConfigs.add('enable_debug_points=true')
@@ -184,7 +191,9 @@ class SuiteCluster {
             sb.append('--be-config ')
             options.beConfigs.forEach(item -> sb.append(' ' + item + ' '))
         }
-        sb.append('--be-disk-num ' + options.beDiskNum + ' ')
+        if (options.beDisks != null) {
+            sb.append('--be-disks ' + options.beDisks.join(" ") + ' ')
+        }
         sb.append('--wait-timeout 180')
 
         runCmd(sb.toString(), -1)

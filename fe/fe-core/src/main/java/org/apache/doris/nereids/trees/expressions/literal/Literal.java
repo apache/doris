@@ -132,7 +132,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     }
 
     @Override
-    protected String getExpressionName() {
+    public String getExpressionName() {
         return "literal";
     }
 

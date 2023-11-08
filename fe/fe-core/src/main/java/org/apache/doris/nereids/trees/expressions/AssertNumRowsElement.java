@@ -88,7 +88,7 @@ public class AssertNumRowsElement extends Expression implements LeafExpression, 
     }
 
     @Override
-    protected String getExpressionName() {
+    public String getExpressionName() {
         return assertion.name().toLowerCase();
     }
 

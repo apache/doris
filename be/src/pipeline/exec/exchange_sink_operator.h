@@ -68,7 +68,7 @@ class ExchangeSinkQueueDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeSinkQueueDependency);
     ExchangeSinkQueueDependency(int id) : WriteDependency(id, "ResultQueueDependency") {}
-    ~ExchangeSinkQueueDependency() = default;
+    ~ExchangeSinkQueueDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 };
@@ -77,11 +77,11 @@ class BroadcastDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(BroadcastDependency);
     BroadcastDependency(int id) : WriteDependency(id, "BroadcastDependency"), _available_block(0) {}
-    virtual ~BroadcastDependency() = default;
+    ~BroadcastDependency() override = default;
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {
         if (config::enable_fuzzy_mode && _available_block == 0 &&
-            _write_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
+            _should_log(_write_dependency_watcher.elapsed_time())) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
                          << id();
         }
@@ -107,15 +107,36 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Should not reach here!");
     }
 
+    int available_blocks() const { return _available_block; }
+
 private:
     std::atomic<int> _available_block;
 };
 
-class ChannelDependency final : public WriteDependency {
+/**
+ * We use this to control the execution for local exchange.
+ *              +---------------+                                    +---------------+                               +---------------+
+ *              | ExchangeSink1 |                                    | ExchangeSink2 |                               | ExchangeSink3 |
+ *              +---------------+                                    +---------------+                               +---------------+
+ *                     |                                                    |                                               |
+ *                     |                       +----------------------------+----------------------------------+            |
+ *                     +----+------------------|------------------------------------------+                    |            |
+ *                          |                  |                 +------------------------|--------------------|------------+-----+
+ *          Dependency 1-1  |   Dependency 2-1 |  Dependency 3-1 |         Dependency 1-2 |    Dependency 2-2  |  Dependency 3-2  |
+ *                    +----------------------------------------------+               +----------------------------------------------+
+ *                    |  queue1              queue2          queue3  |               |  queue1              queue2          queue3  |
+ *                    |                   LocalRecvr                 |               |                   LocalRecvr                 |
+ *                    +----------------------------------------------+               +----------------------------------------------+
+ *                         +-----------------+                                                        +------------------+
+ *                         | ExchangeSource1 |                                                        | ExchangeSource2 |
+ *                         +-----------------+                                                        +------------------+
+ */
+class LocalExchangeChannelDependency final : public WriteDependency {
 public:
-    ENABLE_FACTORY_CREATOR(ChannelDependency);
-    ChannelDependency(int id) : WriteDependency(id, "ChannelDependency") {}
-    ~ChannelDependency() override = default;
+    ENABLE_FACTORY_CREATOR(LocalExchangeChannelDependency);
+    LocalExchangeChannelDependency(int id)
+            : WriteDependency(id, "LocalExchangeChannelDependency") {}
+    ~LocalExchangeChannelDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 };
@@ -201,14 +222,13 @@ private:
     // Sender instance id, unique within a fragment.
     int _sender_id;
     std::vector<vectorized::BroadcastPBlockHolder> _broadcast_pb_blocks;
-    int _broadcast_pb_block_idx;
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
     std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
     std::shared_ptr<AndDependency> _exchange_sink_dependency = nullptr;
     std::shared_ptr<BroadcastDependency> _broadcast_dependency = nullptr;
-    std::vector<std::shared_ptr<ChannelDependency>> _channels_dependency;
+    std::vector<std::shared_ptr<LocalExchangeChannelDependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     int _partition_count;
 };

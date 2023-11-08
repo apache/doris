@@ -95,4 +95,8 @@ public class Counter implements AbstractReceiver {
     public int getLimit() {
         return limit;
     }
+
+    public int getEmitCount() {
+        return emitCount;
+    }
 }

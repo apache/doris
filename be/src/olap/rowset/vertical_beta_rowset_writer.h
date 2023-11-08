@@ -49,6 +49,8 @@ public:
 
     int64_t num_rows() const override { return _total_key_group_rows; }
 
+    virtual const RowsetWriterContext& context() const override { LOG(FATAL) << "Not implemented"; }
+
 private:
     // only key group will create segment writer
     Status _create_segment_writer(const std::vector<uint32_t>& column_ids, bool is_key,

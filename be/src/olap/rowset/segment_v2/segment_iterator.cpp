@@ -38,7 +38,6 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "io/io_common.h"
-#include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/field.h"
 #include "olap/iterators.h"
@@ -1650,8 +1649,12 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
             size_t nrows = range.second - range.first;
             {
                 _opts.stats->block_first_read_seek_num += 1;
-                SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
-                RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
+                if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
+                    SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
+                    RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
+                } else {
+                    RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
+                }
             }
             size_t rows_read = nrows;
             RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
@@ -2055,7 +2058,9 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts_and_filter_block(
             _common_expr_ctxs_push_down, block, _columns_to_filter, prev_columns, filter));
 
+    const auto origin_size = selected_size;
     selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
+    _opts.stats->rows_common_expr_filtered += (origin_size - selected_size);
     return Status::OK();
 }
 

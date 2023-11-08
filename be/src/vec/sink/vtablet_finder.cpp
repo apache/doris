@@ -41,21 +41,24 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int rows,
+                                      std::vector<VOlapTablePartition*>& partitions,
+                                      std::vector<uint32_t>& tablet_index, bool& stop_processing,
+                                      std::vector<bool>& skip, std::vector<int64_t>* miss_rows) {
+    for (int index = 0; index < rows; index++) {
+        _vpartition->find_partition(block, index, partitions[index]);
+    }
 
-Status OlapTabletFinder::find_tablet(RuntimeState* state, Block* block, int row_index,
-                                     const VOlapTablePartition** partition, uint32_t& tablet_index,
-                                     bool& stop_processing, bool& is_continue,
-                                     bool* missing_partition) {
-    Status status = Status::OK();
-    *partition = nullptr;
-    tablet_index = 0;
-    BlockRow block_row;
-    block_row = {block, row_index};
-    if (!_vpartition->find_partition(&block_row, partition)) {
-        if (missing_partition != nullptr) { // auto partition table
-            *missing_partition = true;
-            return status;
-        } else {
+    std::vector<uint32_t> qualified_rows;
+    qualified_rows.reserve(rows);
+
+    for (int row_index = 0; row_index < rows; row_index++) {
+        if (partitions[row_index] == nullptr) [[unlikely]] {
+            if (miss_rows != nullptr) {          // auto partition table
+                miss_rows->push_back(row_index); // already reserve memory outside
+                skip[row_index] = true;
+                continue;
+            }
             RETURN_IF_ERROR(state->append_error_msg_to_file(
                     []() -> std::string { return ""; },
                     [&]() -> std::string {
@@ -70,33 +73,34 @@ Status OlapTabletFinder::find_tablet(RuntimeState* state, Block* block, int row_
             if (stop_processing) {
                 return Status::EndOfFile("Encountered unqualified data, stop processing");
             }
-            is_continue = true;
-            return status;
+            skip[row_index] = true;
+            continue;
         }
-    }
-    if (!(*partition)->is_mutable) {
-        _num_immutable_partition_filtered_rows++;
-        is_continue = true;
-        return status;
-    }
-    if ((*partition)->num_buckets <= 0) {
-        std::stringstream ss;
-        ss << "num_buckets must be greater than 0, num_buckets=" << (*partition)->num_buckets;
-        return Status::InternalError(ss.str());
-    }
-    _partition_ids.emplace((*partition)->id);
-    if (_find_tablet_mode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
-        if (_partition_to_tablet_map.find((*partition)->id) == _partition_to_tablet_map.end()) {
-            tablet_index = _vpartition->find_tablet(&block_row, **partition);
-            _partition_to_tablet_map.emplace((*partition)->id, tablet_index);
-        } else {
-            tablet_index = _partition_to_tablet_map[(*partition)->id];
+        if (!partitions[row_index]->is_mutable) [[unlikely]] {
+            _num_immutable_partition_filtered_rows++;
+            skip[row_index] = true;
+            continue;
         }
-    } else {
-        tablet_index = _vpartition->find_tablet(&block_row, **partition);
+        if (partitions[row_index]->num_buckets <= 0) [[unlikely]] {
+            std::stringstream ss;
+            ss << "num_buckets must be greater than 0, num_buckets="
+               << partitions[row_index]->num_buckets;
+            return Status::InternalError(ss.str());
+        }
+
+        _partition_ids.emplace(partitions[row_index]->id);
+
+        qualified_rows.push_back(row_index);
     }
 
-    return status;
+    if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_ROW) {
+        _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index);
+    } else {
+        _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index,
+                                  &_partition_to_tablet_map);
+    }
+
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

@@ -59,7 +59,7 @@ class RuntimeState;
 
 namespace pipeline {
 struct ExchangeDataDependency;
-class ChannelDependency;
+class LocalExchangeChannelDependency;
 } // namespace pipeline
 
 namespace vectorized {
@@ -125,7 +125,8 @@ public:
 
     bool is_closed() const { return _is_closed; }
 
-    void set_dependency(std::shared_ptr<pipeline::ChannelDependency> dependency);
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency(
+            int sender_id);
 
 private:
     void update_blocks_memory_usage(int64_t size);
@@ -183,7 +184,8 @@ private:
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
     bool _enable_pipeline;
-    std::shared_ptr<pipeline::ChannelDependency> _dependency;
+    std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
+            _sender_to_local_channel_dependency;
 };
 
 class ThreadClosure : public google::protobuf::Closure {
@@ -200,6 +202,12 @@ public:
     SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile);
 
     virtual ~SenderQueue();
+
+    void set_local_channel_dependency(
+            std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>&
+                    local_channel_dependency) {
+        _local_channel_dependency = local_channel_dependency;
+    }
 
     virtual bool should_wait();
 
@@ -225,10 +233,6 @@ public:
         _dependency = dependency;
     }
 
-    void set_channel_dependency(std::shared_ptr<pipeline::ChannelDependency> channel_dependency) {
-        _channel_dependency = channel_dependency;
-    }
-
 protected:
     Status _inner_get_batch_without_lock(Block* block, bool* eos);
 
@@ -251,7 +255,8 @@ protected:
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
 
     std::shared_ptr<pipeline::ExchangeDataDependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::ChannelDependency> _channel_dependency = nullptr;
+    std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
+            _local_channel_dependency;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {
@@ -270,5 +275,6 @@ public:
 
     void add_block(Block* block, bool use_move) override;
 };
+
 } // namespace vectorized
 } // namespace doris
