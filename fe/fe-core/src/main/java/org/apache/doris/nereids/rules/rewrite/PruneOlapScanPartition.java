@@ -28,10 +28,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import java.util.ArrayList;
 import java.util.List;
