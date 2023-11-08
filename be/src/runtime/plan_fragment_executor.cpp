@@ -224,6 +224,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
     _runtime_state->set_per_fragment_instance_idx(params.sender_id);
     _runtime_state->set_num_per_fragment_instances(params.num_senders);
+    _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
+    _runtime_state->set_total_load_streams(request.total_load_streams);
 
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
@@ -332,9 +334,25 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
                               : doris::vectorized::Block::create_unique();
         bool eos = false;
 
+        auto st = Status::OK();
+        auto handle_group_commit = [&]() {
+            if (UNLIKELY(_group_commit && !st.ok() && block != nullptr)) {
+                auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block.get());
+                std::unique_lock<doris::Mutex> l(*(future_block->lock));
+                if (!future_block->is_handled()) {
+                    future_block->set_result(st, 0, 0);
+                    future_block->cv->notify_all();
+                }
+            }
+        };
+
         while (!eos) {
             RETURN_IF_CANCELLED(_runtime_state);
-            RETURN_IF_ERROR(get_vectorized_internal(block.get(), &eos));
+            st = get_vectorized_internal(block.get(), &eos);
+            if (UNLIKELY(!st.ok())) {
+                handle_group_commit();
+                return st;
+            }
 
             // Collect this plan and sub plan statistics, and send to parent plan.
             if (_collect_query_statistics_with_every_batch) {
@@ -342,23 +360,13 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             }
 
             if (!eos || block->rows() > 0) {
-                auto st = _sink->send(runtime_state(), block.get());
+                st = _sink->send(runtime_state(), block.get());
                 //TODO: Asynchronisation need refactor this
                 if (st.is<NEED_SEND_AGAIN>()) { // created partition, do it again.
                     st = _sink->send(runtime_state(), block.get());
                     DCHECK(!st.is<NEED_SEND_AGAIN>());
                 }
-                if (UNLIKELY(!st.ok() || block->rows() == 0)) {
-                    // Used for group commit insert
-                    if (_group_commit) {
-                        auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block.get());
-                        std::unique_lock<doris::Mutex> l(*(future_block->lock));
-                        if (!future_block->is_handled()) {
-                            future_block->set_result(st, 0, 0);
-                            future_block->cv->notify_all();
-                        }
-                    }
-                }
+                handle_group_commit();
                 if (st.is<END_OF_FILE>()) {
                     break;
                 }

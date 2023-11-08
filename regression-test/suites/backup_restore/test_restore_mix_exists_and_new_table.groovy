@@ -64,7 +64,7 @@ suite("test_restore_mix_exists_and_new_table", "backup_restore") {
         Thread.sleep(3000)
     }
 
-    snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
+    def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
     def dropTables = tables[0..5]

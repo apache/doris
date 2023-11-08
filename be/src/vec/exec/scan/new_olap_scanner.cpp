@@ -182,7 +182,8 @@ Status NewOlapScanner::init() {
             {
                 std::shared_lock rdlock(tablet->get_header_lock());
                 auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
-                                                     &read_source.rs_splits);
+                                                     &read_source.rs_splits,
+                                                     _state->skip_missing_version());
                 if (!st.ok()) {
                     LOG(WARNING) << "fail to init reader.res=" << st;
                     return Status::InternalError(
@@ -552,6 +553,7 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(Parent->_rows_vec_cond_input_counter, stats.vec_cond_input_rows);              \
     COUNTER_UPDATE(Parent->_rows_short_circuit_cond_input_counter,                                \
                    stats.short_circuit_cond_input_rows);                                          \
+    COUNTER_UPDATE(Parent->_rows_common_expr_filtered_counter, stats.rows_common_expr_filtered);  \
     for (auto& [id, info] : stats.filter_info) {                                                  \
         Parent->add_filter_info(id, info);                                                        \
     }                                                                                             \

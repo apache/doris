@@ -83,6 +83,19 @@ statement
         TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
+    | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
+        (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
+        (REFRESH refreshMethod? refreshTrigger?)?
+        (KEY keys=identifierList)?
+        (COMMENT STRING_LITERAL)?
+        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
+        propertyClause?
+        AS query                                                        #createMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier              #refreshMTMV
+    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
+       | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
+       | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
+    | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier      #dropMTMV
     ;
 
 dataDesc
@@ -110,6 +123,26 @@ dataDesc
     ;
 
 // -----------------Command accessories-----------------
+buildMode
+    : BUILD (IMMEDIATE | DEFERRED)
+    ;
+
+refreshTrigger
+    : ON MANUAL
+    | ON SCHEDULE refreshSchedule
+    ;
+
+refreshSchedule
+    : EVERY INTEGER_VALUE mvRefreshUnit (STARTS STRING_LITERAL)?
+    ;
+
+mvRefreshUnit
+    : SECOND | MINUTE | HOUR | DAY | WEEK
+    ;
+
+refreshMethod
+    : COMPLETE
+    ;
 
 identifierOrText
     : errorCapturingIdentifier
@@ -413,7 +446,14 @@ multipartIdentifier
     ;
     
 // ----------------Create Table Fields----------
-    
+simpleColumnDefs
+    : cols+=simpleColumnDef (COMMA cols+=simpleColumnDef)*
+    ;
+
+simpleColumnDef
+    : colName=identifier (COMMENT comment=STRING_LITERAL)?
+    ;
+
 columnDefs
     : cols+=columnDef (COMMA cols+=columnDef)*
     ;
@@ -958,6 +998,7 @@ nonReserved
     | LOCATION
     | LOCK
     | LOGICAL
+    | MANUAL
     | MAP
     | MATERIALIZED
     | MAX
@@ -1033,6 +1074,7 @@ nonReserved
     | ROUTINE
     | S3
     | SAMPLE
+    | SCHEDULE
     | SCHEDULER
     | SCHEMA
     | SECOND

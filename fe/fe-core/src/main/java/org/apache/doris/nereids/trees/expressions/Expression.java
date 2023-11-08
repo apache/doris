@@ -96,7 +96,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     // Name of expr, this is used by generating column name automatically when there is no
     // alias
-    protected String getExpressionName() {
+    public String getExpressionName() {
         return this.exprName;
     }
 

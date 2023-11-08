@@ -64,10 +64,11 @@ public:
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::DATEV2;
     }
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_DATEV2;
+    }
     const char* get_family_name() const override { return "DateV2"; }
     std::string do_get_name() const override { return "DateV2"; }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeDateV2SerDe>(nesting_level);
@@ -120,10 +121,11 @@ public:
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::DATETIMEV2;
     }
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
+    }
     const char* get_family_name() const override { return "DateTimeV2"; }
     std::string do_get_name() const override { return "DateTimeV2"; }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;

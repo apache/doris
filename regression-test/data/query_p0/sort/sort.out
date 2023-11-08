@@ -3146,3 +3146,63 @@ z
 3023-03-21T08:00	1023.1023	1023
 3024-03-21T08:00	1024.1024	1024
 
+-- !order_by_col_str --
+1	A
+2	A
+5	B
+6	B
+3	a
+4	a
+7	b
+8	b
+
+-- !order_by_col_str_null --
+2	\N
+4	\N
+6	\N
+8	\N
+1	A
+5	B
+3	a
+7	b
+
+-- !order_by_col_varchar --
+1	A
+2	A
+5	B
+6	B
+3	a
+4	a
+7	b
+8	b
+
+-- !order_by_col_varchar_null --
+2	\N
+4	\N
+6	\N
+8	\N
+1	A
+5	B
+3	a
+7	b
+
+-- !order_by_col_char --
+1	A
+2	A
+5	B
+6	B
+3	a
+4	a
+7	b
+8	b
+
+-- !order_by_col_char_null --
+2	\N
+4	\N
+6	\N
+8	\N
+1	A
+5	B
+3	a
+7	b
+

@@ -1023,7 +1023,7 @@ Status SchemaChangeHandler::_get_versions_to_be_changed(
     *max_rowset = rowset;
 
     RETURN_IF_ERROR(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
-                                                             versions_to_be_changed));
+                                                             versions_to_be_changed, false, false));
 
     return Status::OK();
 }

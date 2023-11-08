@@ -17,8 +17,6 @@
 
 package org.apache.doris.common;
 
-import java.util.concurrent.TimeUnit;
-
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -1254,20 +1252,6 @@ public class Config extends ConfigBase {
     public static boolean recover_with_empty_tablet = false;
 
     /**
-     * In some scenarios, there is an unrecoverable metadata problem in the cluster,
-     * and the visibleVersion of the data does not match be. In this case, it is still
-     * necessary to restore the remaining data (which may cause problems with the correctness of the data).
-     * This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
-     * This configuration has three values:
-     *   disable : If an exception occurs, an error will be reported normally.
-     *   ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
-     *   ignore_all: In addition to ignore_version, when encountering no queryable replica,
-     *   skip it directly instead of throwing an exception
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static String recover_with_skip_missing_version = "disable";
-
-    /**
      * Whether to add a delete sign column when create unique table
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1775,7 +1759,7 @@ public class Config extends ConfigBase {
      * Used to determined how many statistics collection SQL could run simultaneously.
      */
     @ConfField
-    public static int statistics_simultaneously_running_task_num = 5;
+    public static int statistics_simultaneously_running_task_num = 3;
 
     /**
      * if table has too many replicas, Fe occur oom when schema change.
@@ -2082,7 +2066,7 @@ public class Config extends ConfigBase {
      * FE OOM.
      */
     @ConfField
-    public static long stats_cache_size = 10_0000;
+    public static long stats_cache_size = 50_0000;
 
     /**
      * This configuration is used to enable the statistics of query information, which will record
@@ -2104,9 +2088,6 @@ public class Config extends ConfigBase {
             "是否启用binlog特性",
             "Whether to enable binlog feature"})
     public static boolean enable_feature_binlog = false;
-
-    @ConfField
-    public static int analyze_task_timeout_in_hours = 12;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
@@ -2173,9 +2154,6 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean forbid_running_alter_job = false;
 
-    @ConfField
-    public static int table_stats_health_threshold = 80;
-
     @ConfField(description = {
             "暂时性配置项，开启后会自动将所有的olap表修改为可light schema change",
             "temporary config filed, will make all olap tables enable light schema change"
@@ -2201,28 +2179,6 @@ public class Config extends ConfigBase {
                     + "The larger the value, the more uniform the distribution of the hash algorithm, "
                     + "but it will increase the memory overhead."})
     public static int virtual_node_number = 2048;
-
-    @ConfField(description = {"控制对大表的自动ANALYZE的最小时间间隔，"
-            + "在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes的表仅ANALYZE一次",
-            "This controls the minimum time interval for automatic ANALYZE on large tables. Within this interval,"
-                    + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once."})
-    public static long huge_table_auto_analyze_interval_in_millis = TimeUnit.HOURS.toMillis(12);
-
-    @ConfField(description = {"定义大表的大小下界，在开启enable_auto_sample的情况下，"
-            + "大小超过该值的表将会自动通过采样收集统计信息", "This defines the lower size bound for large tables. "
-            + "When enable_auto_sample is enabled, tables larger than this value will automatically collect "
-            + "statistics through sampling"})
-    public static long huge_table_lower_bound_size_in_bytes = 5L * 1024 * 1024 * 1024;
-
-    @ConfField(description = {"定义开启开启大表自动sample后，对大表的采样比例",
-            "This defines the number of sample percent for large tables when automatic sampling for"
-                    + "large tables is enabled"})
-    public static int huge_table_default_sample_rows = 4194304;
-
-    @ConfField(description = {"是否开启大表自动sample，开启后对于大小超过huge_table_lower_bound_size_in_bytes会自动通过采样收集"
-            + "统计信息", "Whether to enable automatic sampling for large tables, which, when enabled, automatically"
-            + "collects statistics through sampling for tables larger than 'huge_table_lower_bound_size_in_bytes'"})
-    public static boolean enable_auto_sample = false;
 
     @ConfField(description = {
             "控制统计信息的自动触发作业执行记录的持久化行数",
@@ -2262,6 +2218,14 @@ public class Config extends ConfigBase {
     public static String access_control_allowed_origin_domain = "*";
 
     @ConfField(description = {
+            "开启java_udf, 默认为true。如果该配置为false，则禁止创建和使用java_udf。在一些场景下关闭该配置可防止命令注入攻击。",
+            "Used to enable java_udf, default is true. if this configuration is false, creation and use of java_udf is "
+                    + "disabled. in some scenarios it may be necessary to disable this configuration to prevent "
+                    + "command injection attacks."
+    })
+    public static boolean enable_java_udf = true;
+
+    @ConfField(description = {
             "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
                     + "默认为 false，如果 Image 文件中包含未知的模块，Doris 将会抛出异常。"
                     + "该参数主要用于降级操作中，老版本可以兼容新版本的 Image 文件。",
@@ -2285,4 +2249,11 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "对于自动分区表，防止用户意外创建大量分区，每个OLAP表允许的分区数量为`max_auto_partition_num`。默认2000。",
+            "For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, "
+                    + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000."
+    })
+    public static int max_auto_partition_num = 2000;
 }

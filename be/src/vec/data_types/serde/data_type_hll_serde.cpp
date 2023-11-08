@@ -53,9 +53,11 @@ Status DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int r
          * for null values in nested types, we use null to represent them, just like the json format.
          */
         if (_nesting_level >= 2) {
-            bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_NESTED_TYPE.c_str(), 4);
+            bw.write(DataTypeNullableSerDe::NULL_IN_COMPLEX_TYPE.c_str(),
+                     strlen(NULL_IN_COMPLEX_TYPE.c_str()));
         } else {
-            bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(), 2);
+            bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
+                     strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
         }
         return Status::OK();
     }
