@@ -153,6 +153,7 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
+    _backend_id = state->backend_id();
     _stream_per_node = state->load_stream_per_node();
     _total_streams = state->total_load_streams();
     _num_local_sink = state->num_local_sink();
@@ -205,7 +206,7 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
         _delta_writer_for_tablet = std::make_shared<DeltaWriterV2Map>(_load_id);
     }
     _build_tablet_node_mapping();
-    RETURN_IF_ERROR(_init_streams(state->backend_id()));
+    RETURN_IF_ERROR(_init_streams(_backend_id));
     return Status::OK();
 }
 
@@ -233,23 +234,28 @@ Status VOlapTableSinkV2::_init_streams(int64_t src_id) {
 
 Status VOlapTableSinkV2::_open_streams() {
     for (auto& [dst_id, streams] : _streams_for_node) {
-        auto node_info = _nodes_info->find_node(dst_id);
-        if (node_info == nullptr) {
-            return Status::InternalError("Unknown node {} in tablet location", dst_id);
-        }
-        // get tablet schema from each backend only in the 1st stream
-        for (auto& stream : streams->streams() | std::ranges::views::take(1)) {
-            const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
-            RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(),
-                                         *node_info, _txn_id, *_schema, tablets_for_schema,
-                                         _total_streams, _state->enable_profile()));
-        }
-        // for the rest streams, open without getting tablet schema
-        for (auto& stream : streams->streams() | std::ranges::views::drop(1)) {
-            RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(),
-                                         *node_info, _txn_id, *_schema, {}, _total_streams,
-                                         _state->enable_profile()));
-        }
+        RETURN_IF_ERROR(_open_streams_to_backend(dst_id, *streams));
+    }
+    return Status::OK();
+}
+
+Status VOlapTableSinkV2::_open_streams_to_backend(int64_t dst_id, ::doris::stream_load::LoadStreams& streams) {
+    auto node_info = _nodes_info->find_node(dst_id);
+    if (node_info == nullptr) {
+        return Status::InternalError("Unknown node {} in tablet location", dst_id);
+    }
+    // get tablet schema from each backend only in the 1st stream
+    for (auto& stream : streams.streams() | std::ranges::views::take(1)) {
+        const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
+        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(),
+                                        *node_info, _txn_id, *_schema, tablets_for_schema,
+                                        _total_streams, _state->enable_profile()));
+    }
+    // for the rest streams, open without getting tablet schema
+    for (auto& stream : streams.streams() | std::ranges::views::drop(1)) {
+        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(),
+                                        *node_info, _txn_id, *_schema, {}, _total_streams,
+                                        _state->enable_profile()));
     }
     return Status::OK();
 }
@@ -307,6 +313,12 @@ Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, Streams& streams) {
         return Status::InternalError("unknown tablet location, tablet id = {}", tablet_id);
     }
     for (auto& node_id : location->node_ids) {
+        if (!_streams_for_node.contains(node_id)) {
+            auto load_streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
+                    _load_id, _backend_id, node_id, _stream_per_node, _num_local_sink);
+            RETURN_IF_ERROR(_open_streams_to_backend(node_id, *load_streams));
+            _streams_for_node[node_id] = load_streams;
+        }
         streams.emplace_back(_streams_for_node.at(node_id)->streams().at(_stream_index));
     }
     _stream_index = (_stream_index + 1) % _stream_per_node;
