@@ -4,9 +4,6 @@
 [submodule ".github/actions/get-workflow-origin"]
 	path = .github/actions/get-workflow-origin
 	url = https://github.com/potiuk/get-workflow-origin.git
-[submodule ".github/actions/clang-format-lint-action"]
-	path = .github/actions/clang-format-lint-action
-	url = https://github.com/DoozyX/clang-format-lint-action.git
 [submodule ".github/actions/setup-maven"]
 	path = .github/actions/setup-maven
 	url = https://github.com/stCarolas/setup-maven.git
@@ -19,12 +16,6 @@
 [submodule ".github/actions/ccache-action"]
 	path = .github/actions/ccache-action
 	url = https://github.com/hendrikmuhs/ccache-action
-[submodule ".github/actions/action-sh-checker"]
-	path = .github/actions/action-sh-checker
-	url = https://github.com/luizm/action-sh-checker
-[submodule ".github/actions/clang-tidy-review"]
-	path = .github/actions/clang-tidy-review
-	url = https://github.com/ZedThree/clang-tidy-review.git
 [submodule "be/src/apache-orc"]
 	path = be/src/apache-orc
 	url = https://github.com/apache/doris-thirdparty.git
