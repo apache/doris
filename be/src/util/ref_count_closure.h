@@ -96,7 +96,7 @@ public:
     //  Will delete itself
     void Run() override {
         SCOPED_TRACK_MEMORY_TO_UNKNOWN();
-        Defer defer {[&]() {
+        Defer defer {[auto_release = auto_release_]() {
             if (auto_release) {
                 delete this;
             }
@@ -110,7 +110,7 @@ public:
         }
     }
 
-    void join() { brpc::Join(cntl.call_id()); }
+    void join() { brpc::Join(cntl_.call_id()); }
 
 public:
     // controller has to be the same lifecycle with the closure, because brpc may use
