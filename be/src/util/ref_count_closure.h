@@ -117,7 +117,7 @@ public:
         Defer defer {[&]() { delete this; }};
         // If lock failed, it means the callback object is deconstructed, then no need
         // to deal with the callback any more.
-        if (Callback tmp = callback_.lock()) {
+        if (auto tmp = callback_.lock()) {
             tmp->call();
         }
     }
