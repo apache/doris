@@ -977,6 +977,20 @@ suite("test_stream_load", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    streamLoad {
+        table "${tableName14}"
+        set 'merge_type', 'other'
+        file 'test_default_value.csv'
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("[INVALID_ARGUMENT]Invalid merge type other", json.Message)
+        }
+    }
     
     sql "sync"
     def res = sql "select * from ${tableName14}"
