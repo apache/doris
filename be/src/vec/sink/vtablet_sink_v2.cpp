@@ -217,7 +217,6 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     signal::set_signal_task_id(_load_id);
 
-    _build_tablet_node_mapping();
     RETURN_IF_ERROR(_open_streams());
     RETURN_IF_ERROR(_init_row_distribution());
 
@@ -308,7 +307,7 @@ Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, Streams& streams) {
         return Status::InternalError("unknown tablet location, tablet id = {}", tablet_id);
     }
     for (auto& node_id : location->node_ids) {
-        streams.emplace_back(_streams_for_node[node_id]->streams().at(_stream_index));
+        streams.emplace_back(_streams_for_node.at(node_id)->streams().at(_stream_index));
     }
     _stream_index = (_stream_index + 1) % _stream_per_node;
     return Status::OK();
