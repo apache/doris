@@ -103,10 +103,8 @@ public:
         }};
         // If lock failed, it means the callback object is deconstructed, then no need
         // to deal with the callback any more.
-        if (callback_ != nullptr) {
-            if (Callback tmp = callback_.lock()) {
-                tmp->call(response_, cntl_);
-            }
+        if (Callback tmp = callback_.lock()) {
+            tmp->call(response_, cntl_);
         }
     }
 
