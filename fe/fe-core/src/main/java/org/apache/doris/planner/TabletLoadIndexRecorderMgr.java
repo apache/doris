@@ -77,9 +77,9 @@ public class TabletLoadIndexRecorderMgr extends MasterDaemon {
             int tabletLoadIndex = loadIndex % numBuckets;
             loadIndex++;
             // To reduce the compute time cost, only update timestamp when load index is
-            // larger than TIMES_FOR_UPDATE_TIMESTAMP
-            if (loadIndex >= TIMES_FOR_UPDATE_TIMESTAMP) {
-                loadIndex = loadIndex - TIMES_FOR_UPDATE_TIMESTAMP;
+            // greater than or equal to both TIMES_FOR_UPDATE_TIMESTAMP and numBuckets
+            if (loadIndex >= Math.max(TIMES_FOR_UPDATE_TIMESTAMP, numBuckets)) {
+                loadIndex = loadIndex % numBuckets;
                 this.updateTimestamp = System.currentTimeMillis();
             }
             return tabletLoadIndex;
