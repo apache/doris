@@ -718,23 +718,19 @@ void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcContro
                                                      google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
-        RowDescriptor row_desc = ExecEnv::GetInstance()->result_mgr()->find_row_descriptor(
-                UniqueId(request->finst_id()).to_thrift());
-        if (row_desc.equals(RowDescriptor())) {
-            auto st = Status::NotFound("not found row descriptor");
-            st.to_protobuf(result->mutable_status());
-            return;
-        }
-
-        std::shared_ptr<arrow::Schema> schema;
-        auto st = convert_to_arrow_schema(row_desc, &schema);
-        if (UNLIKELY(!st.ok())) {
+        std::shared_ptr<arrow::Schema> schema =
+                ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
+                        UniqueId(request->finst_id()).to_thrift());
+        if (schema == nullptr) {
+            LOG(INFO) << "not found arrow flight schema, maybe query has been canceled";
+            auto st = Status::NotFound(
+                    "not found arrow flight schema, maybe query has been canceled");
             st.to_protobuf(result->mutable_status());
             return;
         }
 
         std::string schema_str;
-        st = serialize_arrow_schema(row_desc, &schema, &schema_str);
+        auto st = serialize_arrow_schema(&schema, &schema_str);
         if (st.ok()) {
             result->set_schema(std::move(schema_str));
         }
