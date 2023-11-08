@@ -59,6 +59,7 @@ github:
           - BE UT (Doris BE UT)
           - Build Broker
           - Build Documents
+          - ShellCheck
           - clickbench-new (clickbench)
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
