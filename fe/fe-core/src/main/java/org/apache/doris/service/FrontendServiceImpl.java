@@ -3295,6 +3295,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
+        // check partition's number limit.
+        int partitionNum = olapTable.getPartitionNum() + addPartitionClauseMap.size();
+        if (partitionNum > Config.max_auto_partition_num) {
+            olapTable.writeUnlock();
+            String errorMessage = String.format(
+                    "create partition failed. partition numbers %d will exceed limit variable max_auto_partition_num%d",
+                    partitionNum, Config.max_auto_partition_num);
+            LOG.warn(errorMessage);
+            errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
+            result.setStatus(errorStatus);
+            return result;
+        }
+
         for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
             try {
                 // here maybe check and limit created partitions num
