@@ -45,7 +45,7 @@ class Recorder {
         return failureCounter.get()
     }
 
-    public static int getFatalNum() {
+    public int getFatalNum() {
         return fatalScriptList.size()
     }
 
