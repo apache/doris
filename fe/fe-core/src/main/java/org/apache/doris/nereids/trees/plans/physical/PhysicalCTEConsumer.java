@@ -150,4 +150,9 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
         return super.pushDownRuntimeFilter(context, generator, builderNode,
                 src, probeExpr, type, buildSideNdv, exprOrder);
     }
+
+    @Override
+    public boolean canPushDownRuntimeFilter() {
+        return true;
+    }
 }

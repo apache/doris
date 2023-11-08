@@ -18,11 +18,16 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_jsonb_load_and_function", "p0") {
+
+    // TODO: remove it after we add implicit cast check in Nereids
+    sql "set enable_nereids_dml=false"
+
     // define a sql table
     def testTable = "tbl_test_jsonb"
     def dataFile = "test_jsonb.csv"
 
-    sql """ set experimental_enable_nereids_planner = false """
+    sql """ set experimental_enable_nereids_planner = true """
+    sql """ set enable_fallback_to_original_planner = true """
 
     sql "DROP TABLE IF EXISTS ${testTable}"
 

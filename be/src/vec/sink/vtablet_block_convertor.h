@@ -40,14 +40,14 @@ namespace doris::vectorized {
 class OlapTableBlockConvertor {
 public:
     OlapTableBlockConvertor(TupleDescriptor* output_tuple_desc)
-            : _output_tuple_desc(output_tuple_desc), _filter_bitmap(1024) {}
+            : _output_tuple_desc(output_tuple_desc) {}
 
     Status validate_and_convert_block(RuntimeState* state, vectorized::Block* input_block,
                                       std::shared_ptr<vectorized::Block>& block,
                                       vectorized::VExprContextSPtrs output_vexpr_ctxs, size_t rows,
                                       bool& has_filtered_rows);
 
-    const Bitmap& filter_bitmap() { return _filter_bitmap; }
+    const char* filter_map() const { return _filter_map.data(); }
 
     int64_t validate_data_ns() const { return _validate_data_ns; }
 
@@ -66,15 +66,15 @@ private:
 
     Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
                             vectorized::ColumnPtr column, size_t slot_index, bool* stop_processing,
-                            fmt::memory_buffer& error_prefix,
+                            fmt::memory_buffer& error_prefix, const uint32_t row_count,
                             vectorized::IColumn::Permutation* rows = nullptr);
 
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
     // set stop_processing if we want to stop the whole process now.
-    Status _validate_data(RuntimeState* state, vectorized::Block* block, int64_t& filtered_rows,
-                          bool* stop_processing);
+    Status _validate_data(RuntimeState* state, vectorized::Block* block, const uint32_t rows,
+                          int& filtered_rows, bool* stop_processing);
 
     // some output column of output expr may have different nullable property with dest slot desc
     // so here need to do the convert operation
@@ -93,8 +93,10 @@ private:
     std::map<int, int64_t> _min_decimal64_val;
     std::map<int, int128_t> _max_decimal128_val;
     std::map<int, int128_t> _min_decimal128_val;
+    std::map<int, wide::Int256> _max_decimal256_val;
+    std::map<int, wide::Int256> _min_decimal256_val;
 
-    Bitmap _filter_bitmap;
+    std::vector<char> _filter_map;
 
     int64_t _validate_data_ns = 0;
     int64_t _num_filtered_rows = 0;

@@ -72,7 +72,7 @@ Status BetaRowsetWriterV2::init(const RowsetWriterContext& rowset_writer_context
     _context = rowset_writer_context;
     _context.segment_collector = std::make_shared<SegmentCollectorT<BetaRowsetWriterV2>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BetaRowsetWriterV2>>(this);
-    _segment_creator.init(_context);
+    RETURN_IF_ERROR(_segment_creator.init(_context));
     return Status::OK();
 }
 
@@ -88,7 +88,7 @@ Status BetaRowsetWriterV2::create_file_writer(uint32_t segment_id, io::FileWrite
     return Status::OK();
 }
 
-Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, SegmentStatistics& segstat) {
+Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
     for (const auto& stream : _streams) {
         RETURN_IF_ERROR(stream->add_segment(_context.partition_id, _context.index_id,
                                             _context.tablet_id, segment_id, segstat));
@@ -103,12 +103,6 @@ Status BetaRowsetWriterV2::flush_memtable(vectorized::Block* block, int32_t segm
     }
 
     TabletSchemaSPtr flush_schema;
-    /* TODO: support dynamic schema
-    if (_context.tablet_schema->is_dynamic_schema()) {
-        // Unfold variant column
-        RETURN_IF_ERROR(_unfold_variant_column(*block, flush_schema));
-    }
-    */
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
         RETURN_IF_ERROR(

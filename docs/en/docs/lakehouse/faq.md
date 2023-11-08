@@ -87,6 +87,8 @@ under the License.
 
    Add `-Djava.security.krb5.conf=/your-path` to the `JAVA_OPTS` of the broker startup script `start_broker.sh`.
 
+8. When using Kerberos configuration in the Catalog, the `hadoop.username` property cannot be appeared in Catalog properties.
+
 ## JDBC Catalog
 
 1. An error is reported when connecting to SQLServer through JDBC Catalog: `unable to find valid certification path to requested target`
@@ -216,6 +218,21 @@ under the License.
     </property> 
    ```
 
+10. Error：java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+
+    Entire error info found in FE.log is shown as below:
+    ```
+    org.apache.doris.common.UserException: errCode = 2, detailMessage = S3 list path failed. path=s3://bucket/part-*,msg=errors while get file status listStatus on s3://bucket: com.amazonaws.SdkClientException: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    org.apache.doris.common.UserException: errCode = 2, detailMessage = S3 list path exception. path=s3://bucket/part-*, err: errCode = 2, detailMessage = S3 list path failed. path=s3://bucket/part-*,msg=errors while get file status listStatus on s3://bucket: com.amazonaws.SdkClientException: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    org.apache.hadoop.fs.s3a.AWSClientIOException: listStatus on s3://bucket: com.amazonaws.SdkClientException: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    Caused by: com.amazonaws.SdkClientException: Unable to execute HTTP request: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    Caused by: javax.net.ssl.SSLException: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    Caused by: java.lang.RuntimeException: Unexpected error: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    Caused by: java.security.InvalidAlgorithmParameterException: the trustAnchors parameter must be non-empty
+    ```
+    
+    Try to update FE node CA certificates, use command `update-ca-trust (CentOS/RockyLinux)`, then restart FE process.
+
 ## HDFS
 
 1. What to do with the`java.lang.VerifyError: xxx` error when accessing HDFS 3.x?
@@ -244,16 +261,6 @@ under the License.
 
          `dfs.client.hedged.read.threshold.millis` is the read threshold in milliseconds. When a read request exceeds this threshold and is not returned, Hedged Read will be triggered.
 
-     - Configure parameters in be.conf
-
-         ```
-         enable_hdfs_hedged_read = true
-         hdfs_hedged_read_thread_num = 128
-         hdfs_hedged_read_threshold_time = 500
-         ```
-
-         This method will enable Hedged Read globally on BE nodes (not enabled by default). And ignore the Hedged Read property set when creating the Catalog.
-
      After enabling it, you can see related parameters in Query Profile:
 
      `TotalHedgedRead`: The number of Hedged Reads initiated.
@@ -262,4 +269,10 @@ under the License.
 
      Note that the value here is the cumulative value of a single HDFS Client, not the value of a single query. The same HDFS Client will be reused by multiple queries.
 
+## DLF Catalog
 
+1. When using DLF Catalog, BE reads `Invalid address` when fetching JindoFS data and needs to add the domain name to IP mapping that appears in the log in `/ets/hosts`.
+
+2. When reading data is not authorized, use the `hadoop.username` property to specify the authorized user.
+
+3. The metadata in the DLF Catalog is consistent with the DLF. When DLF is used to manage metadata, newly imported Hive partitions may not be synchronized by DLF, resulting in inconsistency between the DLF and Hive metadata. In this case, ensure firstly that the Hive metadata is fully synchronized by DLF.

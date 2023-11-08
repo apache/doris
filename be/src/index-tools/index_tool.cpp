@@ -196,7 +196,7 @@ int main(int argc, char** argv) {
                 std::vector<FileInfo> files;
                 bool exists = false;
                 std::filesystem::path root_dir(FLAGS_directory);
-                fs->list(root_dir, true, &files, &exists);
+                static_cast<void>(fs->list(root_dir, true, &files, &exists));
                 if (!exists) {
                     std::cout << FLAGS_directory << " is not exists" << std::endl;
                     return -1;

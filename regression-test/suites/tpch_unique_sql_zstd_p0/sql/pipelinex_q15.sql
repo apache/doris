@@ -1,4 +1,4 @@
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */
   s_suppkey,
   s_name,
   s_address,

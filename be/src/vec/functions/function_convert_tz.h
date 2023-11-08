@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -53,18 +54,7 @@
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/io/io_helper.h"
-
-namespace doris {
-namespace vectorized {
-class DataTypeDate;
-class VecDateTimeValue;
-struct DateTimeV2ValueType;
-struct DateV2ValueType;
-template <typename T>
-class DateV2Value;
-} // namespace vectorized
-} // namespace doris
-
+#include "vec/runtime/vdatetime_value.h"
 namespace doris::vectorized {
 
 template <typename DateValueType, typename ArgType>
@@ -119,8 +109,8 @@ struct ConvertTZImpl {
                                    NullMap& result_null_map, const size_t index_now) {
         DateValueType ts_value =
                 binary_cast<NativeType, DateValueType>(date_column->get_element(index_now));
-        int64_t timestamp;
         cctz::time_zone from_tz {}, to_tz {};
+        ReturnDateType ts_value2;
 
         if (!TimezoneUtils::find_cctz_time_zone(from_tz_name, from_tz)) {
             result_null_map[index_now] = true;
@@ -134,17 +124,32 @@ struct ConvertTZImpl {
             return;
         }
 
-        if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
-            result_null_map[index_now] = true;
-            result_column->insert_default();
-            return;
-        }
+        if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
+            std::pair<int64_t, int64_t> timestamp;
+            if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
+                result_null_map[index_now] = true;
+                result_column->insert_default();
+                return;
+            }
 
-        ReturnDateType ts_value2;
-        if (!ts_value2.from_unixtime(timestamp, to_tz)) {
-            result_null_map[index_now] = true;
-            result_column->insert_default();
-            return;
+            if (!ts_value2.from_unixtime(timestamp, to_tz)) {
+                result_null_map[index_now] = true;
+                result_column->insert_default();
+                return;
+            }
+        } else {
+            int64_t timestamp;
+            if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
+                result_null_map[index_now] = true;
+                result_column->insert_default();
+                return;
+            }
+
+            if (!ts_value2.from_unixtime(timestamp, to_tz)) {
+                result_null_map[index_now] = true;
+                result_column->insert_default();
+                return;
+            }
         }
 
         result_column->insert(binary_cast<ReturnDateType, ReturnNativeType>(ts_value2));
@@ -189,7 +194,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 
         bool col_const[3];

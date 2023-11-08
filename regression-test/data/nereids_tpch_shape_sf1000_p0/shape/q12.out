@@ -8,10 +8,10 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](orders.o_orderkey = lineitem.l_orderkey)
+----------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey))otherCondition=()
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[orders]
 ------------------PhysicalProject
---------------------filter(l_shipmode IN ('MAIL', 'SHIP')(lineitem.l_shipdate < lineitem.l_commitdate)(lineitem.l_receiptdate < 1995-01-01)(lineitem.l_receiptdate >= 1994-01-01)(lineitem.l_commitdate < lineitem.l_receiptdate))
+--------------------filter((lineitem.l_commitdate < lineitem.l_receiptdate) and (lineitem.l_receiptdate < '1995-01-01') and (lineitem.l_receiptdate >= '1994-01-01') and (lineitem.l_shipdate < lineitem.l_commitdate) and l_shipmode IN ('MAIL', 'SHIP'))
 ----------------------PhysicalOlapScan[lineitem]
 

@@ -31,15 +31,15 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
-void DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                  BufferWritable& bw,
-                                                  FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
+Status DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                    int end_idx, BufferWritable& bw,
+                                                    FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
-                                                    BufferWritable& bw,
-                                                    FormatOptions& options) const {
+Status DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                      BufferWritable& bw,
+                                                      FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -57,22 +57,22 @@ void DataTypeArraySerDe::serialize_one_cell_to_json(const IColumn& column, int r
     //  add ' ' to keep same with origin format with array
     options.field_delim = options.collection_delim;
     options.field_delim += " ";
-    nested_serde->serialize_column_to_json(nested_column, offset, next_offset, bw, options);
+    RETURN_IF_ERROR(nested_serde->serialize_column_to_json(nested_column, offset, next_offset, bw,
+                                                           options));
     bw.write("]", 1);
+    return Status::OK();
 }
 
 Status DataTypeArraySerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
                                                                int* num_deserialized,
-                                                               const FormatOptions& options,
-                                                               int nesting_level) const {
+                                                               const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
 Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                          const FormatOptions& options,
-                                                          int nesting_level) const {
+                                                          const FormatOptions& options) const {
     if (slice.empty()) {
         return Status::InvalidArgument("slice is empty!");
     }
@@ -91,7 +91,8 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     }
     // empty array []
     if (slice.size == 2) {
-        offsets.push_back(offsets.back());
+        auto last_off = offsets.back();
+        offsets.push_back(last_off);
         return Status::OK();
     }
     slice.remove_prefix(1);
@@ -108,10 +109,17 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     slices.emplace_back(slice);
     size_t slice_size = slice.size;
     // pre add total slice can reduce lasted element check.
+    char quote_char = 0;
     for (int idx = 0; idx < slice_size; ++idx) {
         char c = slice[idx];
         if (c == '"' || c == '\'') {
-            has_quote = !has_quote;
+            if (!has_quote) {
+                quote_char = c;
+                has_quote = !has_quote;
+            } else if (has_quote && quote_char == c) {
+                quote_char = 0;
+                has_quote = !has_quote;
+            }
         } else if (!has_quote && (c == '[' || c == '{')) {
             ++nested_level;
         } else if (!has_quote && (c == ']' || c == '}')) {
@@ -133,15 +141,15 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     }
 
     int elem_deserialized = 0;
-    Status st = nested_serde->deserialize_column_from_json_vector(
-            nested_column, slices, &elem_deserialized, options, nesting_level + 1);
+    Status st = nested_serde->deserialize_column_from_json_vector(nested_column, slices,
+                                                                  &elem_deserialized, options);
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return st;
 }
 
-Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
-                                                               const FormatOptions& options,
-                                                               int nesting_level) const {
+Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(
+        IColumn& column, Slice& slice, const FormatOptions& options,
+        int hive_text_complex_type_delimiter_level) const {
     if (slice.empty()) {
         return Status::InvalidArgument("slice is empty!");
     }
@@ -150,7 +158,8 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(IColumn& column, 
     IColumn& nested_column = array_column.get_data();
     DCHECK(nested_column.is_nullable());
 
-    char collection_delimiter = options.get_collection_delimiter(nesting_level);
+    char collection_delimiter =
+            options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
 
     std::vector<Slice> slices;
     for (int idx = 0, start = 0; idx <= slice.size; idx++) {
@@ -163,23 +172,22 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(IColumn& column, 
 
     int elem_deserialized = 0;
     Status status = nested_serde->deserialize_column_from_hive_text_vector(
-            nested_column, slices, &elem_deserialized, options, nesting_level + 1);
+            nested_column, slices, &elem_deserialized, options,
+            hive_text_complex_type_delimiter_level + 1);
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return status;
 }
 
-Status DataTypeArraySerDe::deserialize_column_from_hive_text_vector(IColumn& column,
-                                                                    std::vector<Slice>& slices,
-                                                                    int* num_deserialized,
-                                                                    const FormatOptions& options,
-                                                                    int nesting_level) const {
+Status DataTypeArraySerDe::deserialize_column_from_hive_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options, int hive_text_complex_type_delimiter_level) const {
     DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
 }
 
-void DataTypeArraySerDe::serialize_one_cell_to_hive_text(const IColumn& column, int row_num,
-                                                         BufferWritable& bw, FormatOptions& options,
-                                                         int nesting_level) const {
+void DataTypeArraySerDe::serialize_one_cell_to_hive_text(
+        const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+        int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -192,13 +200,13 @@ void DataTypeArraySerDe::serialize_one_cell_to_hive_text(const IColumn& column, 
 
     const IColumn& nested_column = data_column.get_data();
 
-    char delimiter = options.get_collection_delimiter(nesting_level);
+    char delimiter = options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
     for (size_t i = start; i < end; ++i) {
         if (i != start) {
             bw.write(delimiter);
         }
         nested_serde->serialize_one_cell_to_hive_text(nested_column, i, bw, options,
-                                                      nesting_level + 1);
+                                                      hive_text_complex_type_delimiter_level + 1);
     }
 }
 
@@ -279,7 +287,8 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
             }
         }
         if (data.is_null_at(j)) {
-            if (0 != result.push_string("NULL", strlen("NULL"))) {
+            if (0 != result.push_string(NULL_IN_COMPLEX_TYPE.c_str(),
+                                        strlen(NULL_IN_COMPLEX_TYPE.c_str()))) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
@@ -313,6 +322,36 @@ Status DataTypeArraySerDe::write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                  bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                               const NullMap* null_map,
+                                               orc::ColumnVectorBatch* orc_col_batch, int start,
+                                               int end, std::vector<StringRef>& buffer_list) const {
+    orc::ListVectorBatch* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
+    cur_batch->offsets[0] = 0;
+
+    const ColumnArray& array_col = assert_cast<const ColumnArray&>(column);
+    const IColumn& nested_column = array_col.get_data();
+    auto& offsets = array_col.get_offsets();
+
+    cur_batch->elements->resize(nested_column.size());
+    for (size_t row_id = start; row_id < end; row_id++) {
+        size_t offset = offsets[row_id - 1];
+        size_t next_offset = offsets[row_id];
+
+        if (cur_batch->notNull[row_id] == 1) {
+            static_cast<void>(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
+                                                                cur_batch->elements.get(), offset,
+                                                                next_offset, buffer_list));
+        }
+
+        cur_batch->offsets[row_id + 1] = next_offset;
+    }
+    cur_batch->elements->numElements = nested_column.size();
+
+    cur_batch->numElements = end - start;
+    return Status::OK();
 }
 
 } // namespace vectorized

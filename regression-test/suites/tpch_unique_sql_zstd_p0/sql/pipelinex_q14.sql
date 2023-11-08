@@ -1,5 +1,5 @@
 -- tables: lineitem,part
-SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=false) */ 100.00 * sum(CASE
+SELECT /*+SET_VAR(experimental_enable_pipeline_x_engine=true) */ 100.00 * sum(CASE
                     WHEN p_type LIKE 'PROMO%'
                       THEN l_extendedprice * (1 - l_discount)
                     ELSE 0

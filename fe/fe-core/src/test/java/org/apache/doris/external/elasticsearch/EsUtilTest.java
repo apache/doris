@@ -227,25 +227,25 @@ public class EsUtilTest extends EsTestCase {
             String name = column.getName();
             String type = column.getType().toSql();
             if ("test2".equals(name)) {
-                Assertions.assertEquals("datetimev2(0)", type);
+                Assertions.assertEquals("DATETIMEV2(0)", type);
             }
             if ("test3".equals(name)) {
-                Assertions.assertEquals("datetimev2(0)", type);
+                Assertions.assertEquals("DATETIMEV2(0)", type);
             }
             if ("test4".equals(name)) {
-                Assertions.assertEquals("datev2", type);
+                Assertions.assertEquals("DATEV2", type);
             }
             if ("test5".equals(name)) {
-                Assertions.assertEquals("datetimev2(0)", type);
+                Assertions.assertEquals("DATETIMEV2(0)", type);
             }
             if ("test6".equals(name)) {
-                Assertions.assertEquals("datev2", type);
+                Assertions.assertEquals("DATEV2", type);
             }
             if ("test7".equals(name)) {
-                Assertions.assertEquals("datetimev2(0)", type);
+                Assertions.assertEquals("DATETIMEV2(0)", type);
             }
             if ("test8".equals(name)) {
-                Assertions.assertEquals("bigint(20)", type);
+                Assertions.assertEquals("BIGINT", type);
             }
         }
     }
@@ -255,8 +255,8 @@ public class EsUtilTest extends EsTestCase {
         ObjectNode testFieldAlias = EsUtil.getRootSchema(
                 EsUtil.getMapping(loadJsonFromFile("data/es/test_field_alias.json")), null, new ArrayList<>());
         List<Column> parseColumns = EsUtil.genColumnsFromEs("test_field_alias", null, testFieldAlias, true, new ArrayList<>());
-        Assertions.assertEquals("datetimev2(0)", parseColumns.get(2).getType().toSql());
-        Assertions.assertEquals("text", parseColumns.get(4).getType().toSql());
+        Assertions.assertEquals("DATETIMEV2(0)", parseColumns.get(2).getType().toSql());
+        Assertions.assertEquals("TEXT", parseColumns.get(4).getType().toSql());
     }
 
     @Test
@@ -278,5 +278,12 @@ public class EsUtilTest extends EsTestCase {
 
     }
 
+    @Test
+    public void testDefaultMapping() throws IOException, URISyntaxException {
+        ObjectNode testAliases = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/default_mappings.json"),
+                null);
+        Assertions.assertEquals("{\"@timestamp\":{\"type\":\"date\"},\"@version\":{\"type\":\"keyword\"},\"act\":{\"type\":\"text\",\"norms\":false,\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"app\":{\"type\":\"text\",\"norms\":false,\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"tags\":{\"type\":\"text\",\"norms\":false,\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"type\":{\"type\":\"text\",\"norms\":false,\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}},\"uid\":{\"type\":\"text\",\"norms\":false,\"fields\":{\"keyword\":{\"type\":\"keyword\",\"ignore_above\":256}}}}",
+                testAliases.toString());
+    }
 
 }

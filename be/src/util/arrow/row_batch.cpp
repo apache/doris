@@ -39,6 +39,8 @@
 #include "runtime/types.h"
 #include "util/arrow/block_convertor.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -68,8 +70,6 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         *result = arrow::float64();
         break;
     case TYPE_LARGEINT:
-        *result = arrow::fixed_size_binary(sizeof(int128_t));
-        break;
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_HLL:
@@ -95,7 +95,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_ARRAY: {
         DCHECK_EQ(type.children.size(), 1);
         std::shared_ptr<arrow::DataType> item_type;
-        convert_to_arrow_type(type.children[0], &item_type);
+        static_cast<void>(convert_to_arrow_type(type.children[0], &item_type));
         *result = std::make_shared<arrow::ListType>(item_type);
         break;
     }
@@ -103,8 +103,8 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         DCHECK_EQ(type.children.size(), 2);
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
-        convert_to_arrow_type(type.children[0], &key_type);
-        convert_to_arrow_type(type.children[1], &val_type);
+        static_cast<void>(convert_to_arrow_type(type.children[0], &key_type));
+        static_cast<void>(convert_to_arrow_type(type.children[1], &val_type));
         *result = std::make_shared<arrow::MapType>(key_type, val_type);
         break;
     }
@@ -113,11 +113,15 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         std::vector<std::shared_ptr<arrow::Field>> fields;
         for (size_t i = 0; i < type.children.size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
-            convert_to_arrow_type(type.children[i], &field_type);
+            static_cast<void>(convert_to_arrow_type(type.children[i], &field_type));
             fields.push_back(std::make_shared<arrow::Field>(type.field_names[i], field_type,
                                                             type.contains_nulls[i]));
         }
         *result = std::make_shared<arrow::StructType>(fields);
+        break;
+    }
+    case TYPE_VARIANT: {
+        *result = arrow::utf8();
         break;
     }
     default:
@@ -133,6 +137,20 @@ Status convert_to_arrow_field(SlotDescriptor* desc, std::shared_ptr<arrow::Field
     return Status::OK();
 }
 
+Status convert_block_arrow_schema(const vectorized::Block& block,
+                                  std::shared_ptr<arrow::Schema>* result) {
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    for (const auto& type_and_name : block) {
+        std::shared_ptr<arrow::DataType> arrow_type;
+        RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type->get_type_as_type_descriptor(),
+                                              &arrow_type));
+        fields.push_back(std::make_shared<arrow::Field>(type_and_name.name, arrow_type,
+                                                        type_and_name.type->is_nullable()));
+    }
+    *result = arrow::schema(std::move(fields));
+    return Status::OK();
+}
+
 Status convert_to_arrow_schema(const RowDescriptor& row_desc,
                                std::shared_ptr<arrow::Schema>* result) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
@@ -142,6 +160,22 @@ Status convert_to_arrow_schema(const RowDescriptor& row_desc,
             RETURN_IF_ERROR(convert_to_arrow_field(desc, &field));
             fields.push_back(field);
         }
+    }
+    *result = arrow::schema(std::move(fields));
+    return Status::OK();
+}
+
+Status convert_expr_ctxs_arrow_schema(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
+                                      std::shared_ptr<arrow::Schema>* result) {
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    for (auto expr_ctx : output_vexpr_ctxs) {
+        std::shared_ptr<arrow::DataType> arrow_type;
+        auto root_expr = expr_ctx->root();
+        RETURN_IF_ERROR(convert_to_arrow_type(root_expr->type(), &arrow_type));
+        auto field_name = root_expr->is_slot_ref() ? root_expr->expr_name()
+                                                   : root_expr->data_type()->get_name();
+        fields.push_back(
+                std::make_shared<arrow::Field>(field_name, arrow_type, root_expr->is_nullable()));
     }
     *result = arrow::schema(std::move(fields));
     return Status::OK();
@@ -190,15 +224,13 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
     return Status::OK();
 }
 
-Status serialize_arrow_schema(RowDescriptor row_desc, std::shared_ptr<arrow::Schema>* schema,
-                              std::string* result) {
-    std::vector<SlotDescriptor*> slots;
-    for (auto tuple_desc : row_desc.tuple_descriptors()) {
-        slots.insert(slots.end(), tuple_desc->slots().begin(), tuple_desc->slots().end());
+Status serialize_arrow_schema(std::shared_ptr<arrow::Schema>* schema, std::string* result) {
+    auto make_empty_result = arrow::RecordBatch::MakeEmpty(*schema);
+    if (!make_empty_result.ok()) {
+        return Status::InternalError("serialize_arrow_schema failed, reason: {}",
+                                     make_empty_result.status().ToString());
     }
-    auto block = vectorized::Block(slots, 0);
-    std::shared_ptr<arrow::RecordBatch> batch;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, *schema, arrow::default_memory_pool(), &batch));
+    auto batch = make_empty_result.ValueOrDie();
     return serialize_record_batch(*batch, result);
 }
 

@@ -24,25 +24,26 @@ suite("array_function") {
     qt_3 "SELECT ARRAY_MAP((x,y)->x+y, ARRAY(-41, NULL, -18), ARRAY(98, 47, NULL))"
     qt_4 "SELECT ARRAY_MAP(x->x+1, ARRAY(-82.31, -72.18, 35.59, -67.13))"
     qt_5 "SELECT ARRAY_MAP((x,y)->x+y, ARRAY(-37.03, 81.89, 56.38, -36.76), ARRAY(1.56, -14.58, 42.22, -56.13))"    
-    // test {
-    //     sql "select array(), array(null), array(1), array('abc'), array(null, 1), array(1, null)"
-    //     result([["[]", "[NULL]", "[1]", "['abc']", "[NULL, 1]", "[1, NULL]"]])
-    // }
+     test {
+         sql "select array(), array(null), array(1), array('abc'), array(null, 1), array(1, null)"
+         result([["[]", "[NULL]", "[1]", "[\"abc\"]", "[NULL, 1]", "[1, NULL]"]])
+     }
 
-    // test {
-    //     sql "select array(), array('a'), array(number, 'a') from numbers('number'='3')"
-    //     result([
-    //         ["[]", "['a']", "['0', 'a']"],
-    //         ["[]", "['a']", "['1', 'a']"],
-    //         ["[]", "['a']", "['2', 'a']"]
-    //     ])
-    // }
+     test {
+         sql "select array(), array('a'), array(number, 'a') from numbers('number'='3')"
+         result([
+             ["[]", "[\"a\"]", "[\"0\", \"a\"]"],
+             ["[]", "[\"a\"]", "[\"1\", \"a\"]"],
+             ["[]", "[\"a\"]", "[\"2\", \"a\"]"]
+         ])
+     }
 
-    // test {
-    //     sql """select
-    //                  array_min(array(5, 4, 3, 2, 1, null)),
-    //                  array_join(array(5, 4, 3, 2, 1, null), ','),
-    //                  array_union(array(1, 2, 3), array(4.0, 5.0, 6.1))"""
-    //     result([[1, "5,4,3,2,1", "[1, 2, 3, 4, 5, 6.1]"]])
-    // }
+    test {
+        sql """
+            SELECT [[[2]], [['aa'],[2,1.0]]]
+        """
+        result([
+                ["""[[["2"]], [["aa"], ["2.0", "1.0"]]]"""]
+        ])
+    }
 }

@@ -467,7 +467,7 @@ Status SnapshotLoader::remote_http_download(
 
         for (const auto& filename : filename_list) {
             std::string remote_file_url = fmt::format(
-                    "http://{}:{}/api/_tablet/_download?token={}&file={}/{}",
+                    "http://{}:{}/api/_tablet/_download?token={}&file={}/{}&channel=ingest_binlog",
                     remote_tablet_snapshot.remote_be_addr.hostname,
                     remote_tablet_snapshot.remote_be_addr.port, remote_tablet_snapshot.remote_token,
                     remote_tablet_snapshot.remote_snapshot_path, filename);
@@ -697,7 +697,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
 
     // rename the rowset ids and tabletid info in rowset meta
     Status convert_status = SnapshotManager::instance()->convert_rowset_ids(
-            snapshot_path, tablet_id, tablet->replica_id(), schema_hash);
+            snapshot_path, tablet_id, tablet->replica_id(), tablet->partition_id(), schema_hash);
     if (!convert_status.ok()) {
         std::stringstream ss;
         ss << "failed to convert rowsetids in snapshot: " << snapshot_path

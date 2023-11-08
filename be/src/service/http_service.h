@@ -22,6 +22,8 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 
+struct bufferevent_rate_limit_group;
+
 namespace doris {
 
 class ExecEnv;
@@ -37,12 +39,17 @@ public:
     Status start();
     void stop();
 
+    // get real port
+    int get_real_port() const;
+
 private:
     ExecEnv* _env;
     ObjectPool _pool;
 
     std::unique_ptr<EvHttpServer> _ev_http_server;
     std::unique_ptr<WebPageHandler> _web_page_handler;
+
+    std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group {nullptr};
 
     bool stopped = false;
 };

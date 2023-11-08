@@ -46,11 +46,11 @@ public:
 
 class HashJoinBuildSinkOperatorX;
 
-class SharedHashTableDependency : public WriteDependency {
+class SharedHashTableDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(SharedHashTableDependency);
     SharedHashTableDependency(int id) : WriteDependency(id, "SharedHashTableDependency") {}
-    ~SharedHashTableDependency() = default;
+    ~SharedHashTableDependency() override = default;
 
     void* shared_state() override { return nullptr; }
 };
@@ -68,14 +68,26 @@ public:
     Status process_build_block(RuntimeState* state, vectorized::Block& block, uint8_t offset);
 
     void init_short_circuit_for_probe();
-    HashJoinBuildSinkOperatorX* join_build() { return (HashJoinBuildSinkOperatorX*)_parent; }
+
+    bool build_unique() const;
+    std::vector<TRuntimeFilterDesc>& runtime_filter_descs() const;
+    std::shared_ptr<vectorized::Arena> arena() { return _shared_state->arena; }
+
+    void add_hash_buckets_info(const std::string& info) const {
+        _profile->add_info_string("HashTableBuckets", info);
+    }
+    void add_hash_buckets_filled_info(const std::string& info) const {
+        _profile->add_info_string("HashTableFilledBuckets", info);
+    }
+    WriteDependency* dependency() override { return _shared_hash_table_dependency.get(); }
 
 protected:
     void _hash_table_init(RuntimeState* state);
     void _set_build_ignore_flag(vectorized::Block& block, const std::vector<int>& res_col_ids);
     friend class HashJoinBuildSinkOperatorX;
-    friend struct vectorized::HashJoinBuildContext;
-    friend struct vectorized::RuntimeFilterContext;
+    template <class HashTableContext, typename Parent>
+    friend struct vectorized::ProcessHashTableBuild;
+    friend struct vectorized::ProcessRuntimeFilterBuild;
 
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
@@ -118,7 +130,7 @@ protected:
 class HashJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
-    HashJoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -133,25 +145,14 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        if (local_state._should_build_hash_table) {
-            return nullptr;
-        }
-        return local_state._shared_hash_table_dependency->write_blocked_by();
-    }
-
     bool should_dry_run(RuntimeState* state) override {
-        auto tmp = _is_broadcast_join && !state->get_sink_local_state(id())
-                                                  ->cast<HashJoinBuildSinkLocalState>()
-                                                  ._should_build_hash_table;
-        return tmp;
+        return _is_broadcast_join && !state->get_sink_local_state(operator_id())
+                                              ->cast<HashJoinBuildSinkLocalState>()
+                                              ._should_build_hash_table;
     }
 
 private:
     friend class HashJoinBuildSinkLocalState;
-    friend struct vectorized::HashJoinBuildContext;
-    friend struct vectorized::RuntimeFilterContext;
 
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
@@ -161,16 +162,11 @@ private:
     // mark the join column whether support null eq
     std::vector<bool> _is_null_safe_eq_join;
 
-    vectorized::Sizes _build_key_sz;
-
     bool _is_broadcast_join = false;
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller = nullptr;
 
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-
-    std::atomic_bool _probe_open_finish = false;
-    bool _probe_ignore_null = false;
 };
 
 } // namespace pipeline

@@ -17,11 +17,8 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.ExecuteStmt;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
-import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -35,7 +32,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
@@ -47,9 +44,9 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPacket;
-import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -60,6 +57,7 @@ import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
@@ -73,9 +71,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.channels.AsynchronousCloseException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -83,11 +78,16 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Process one mysql connection, receive one packet, process, send one packet.
+ * Process one connection, the life cycle is the same as connection
  */
-public class ConnectProcessor {
+public abstract class ConnectProcessor {
+    public enum ConnectType {
+        MYSQL,
+        ARROW_FLIGHT_SQL
+    }
+
     private static final Logger LOG = LogManager.getLogger(ConnectProcessor.class);
-    private static final TextMapGetter<Map<String, String>> getter =
+    protected static final TextMapGetter<Map<String, String>> getter =
             new TextMapGetter<Map<String, String>>() {
                 @Override
                 public Iterable<String> keys(Map<String, String> carrier) {
@@ -102,17 +102,17 @@ public class ConnectProcessor {
                     return "";
                 }
             };
-    private final ConnectContext ctx;
-    private ByteBuffer packetBuf;
-    private StmtExecutor executor = null;
+    protected final ConnectContext ctx;
+    protected StmtExecutor executor = null;
+    protected ConnectType connectType;
+    protected ArrayList<StmtExecutor> returnResultFromRemoteExecutor = new ArrayList<>();
 
     public ConnectProcessor(ConnectContext context) {
         this.ctx = context;
     }
 
-    // COM_INIT_DB: change current database of this session.
-    private void handleInitDb() {
-        String fullDbName = new String(packetBuf.array(), 1, packetBuf.limit() - 1);
+    // change current database of this session.
+    protected void handleInitDb(String fullDbName) {
         if (Strings.isNullOrEmpty(ctx.getClusterName())) {
             ctx.getState().setError(ErrorCode.ERR_CLUSTER_NAME_NULL, "Please enter cluster");
             return;
@@ -159,24 +159,22 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
-    // COM_QUIT: set killed flag and then return OK packet.
-    private void handleQuit() {
+    // set killed flag
+    protected void handleQuit() {
         ctx.setKilled();
         ctx.getState().setOk();
     }
 
-    // process COM_PING statement, do nothing, just return one OK packet.
-    private void handlePing() {
+    // do nothing
+    protected void handlePing() {
         ctx.getState().setOk();
     }
 
-    private void handleStmtReset() {
+    protected void handleStmtReset() {
         ctx.getState().setOk();
     }
 
-    private void handleStmtClose() {
-        packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
-        int stmtId = packetBuf.getInt();
+    protected void handleStmtClose(int stmtId) {
         LOG.debug("close stmt id: {}", stmtId);
         ConnectContext.get().removePrepareStmt(String.valueOf(stmtId));
         // No response packet is sent back to the client, see
@@ -184,119 +182,27 @@ public class ConnectProcessor {
         ctx.getState().setNoop();
     }
 
-    private void debugPacket() {
-        byte[] bytes = packetBuf.array();
-        StringBuilder printB = new StringBuilder();
-        for (byte b : bytes) {
-            if (Character.isLetterOrDigit((char) b & 0xFF)) {
-                char x = (char) b;
-                printB.append(x);
-            } else {
-                printB.append("0x" + Integer.toHexString(b & 0xFF));
-            }
-            printB.append(" ");
-        }
-        LOG.debug("debug packet {}", printB.toString().substring(0, 200));
-    }
-
-    private static boolean isNull(byte[] bitmap, int position) {
+    protected static boolean isNull(byte[] bitmap, int position) {
         return (bitmap[position / 8] & (1 << (position & 7))) != 0;
     }
 
-    // process COM_EXECUTE, parse binary row data
-    // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
-    private void handleExecute() {
-        // debugPacket();
-        packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
-        // parse stmt_id, flags, params
-        int stmtId = packetBuf.getInt();
-        // flag
-        packetBuf.get();
-        // iteration_count always 1,
-        packetBuf.getInt();
-        LOG.debug("execute prepared statement {}", stmtId);
-        PrepareStmtContext prepareCtx = ctx.getPreparedStmt(String.valueOf(stmtId));
-        if (prepareCtx == null) {
-            LOG.debug("No such statement in context, stmtId:{}", stmtId);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR,
-                    "msg: Not supported such prepared statement");
-            return;
-        }
-        ctx.setStartTime();
-        if (prepareCtx.stmt.getInnerStmt() instanceof QueryStmt) {
-            ctx.getState().setIsQuery(true);
-        }
-        prepareCtx.stmt.setIsPrepared();
-        int paramCount = prepareCtx.stmt.getParmCount();
-        // null bitmap
-        byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
-        packetBuf.get(nullbitmapData);
-        String stmtStr = "";
-        try {
-            // new_params_bind_flag
-            if ((int) packetBuf.get() != 0) {
-                // parse params's types
-                for (int i = 0; i < paramCount; ++i) {
-                    int typeCode = packetBuf.getChar();
-                    LOG.debug("code {}", typeCode);
-                    prepareCtx.stmt.placeholders().get(i).setTypeCode(typeCode);
-                }
-            }
-            List<LiteralExpr> realValueExprs = new ArrayList<>();
-            // parse param data
-            for (int i = 0; i < paramCount; ++i) {
-                if (isNull(nullbitmapData, i)) {
-                    realValueExprs.add(new NullLiteral());
-                    continue;
-                }
-                LiteralExpr l = prepareCtx.stmt.placeholders().get(i).createLiteralFromType();
-                l.setupParamFromBinary(packetBuf);
-                realValueExprs.add(l);
-            }
-            ExecuteStmt executeStmt = new ExecuteStmt(String.valueOf(stmtId), realValueExprs);
-            // TODO set real origin statement
-            executeStmt.setOrigStmt(new OriginStatement("null", 0));
-            executeStmt.setUserInfo(ctx.getCurrentUserIdentity());
-            LOG.debug("executeStmt {}", executeStmt);
-            executor = new StmtExecutor(ctx, executeStmt);
-            ctx.setExecutor(executor);
-            executor.execute();
-            stmtStr = executeStmt.toSql();
-        } catch (Throwable e)  {
-            // Catch all throwable.
-            // If reach here, maybe palo bug.
-            LOG.warn("Process one query failed because unknown reason: ", e);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
-        }
-        auditAfterExec(stmtStr, prepareCtx.stmt.getInnerStmt(), null, false);
-    }
-
-    private void auditAfterExec(String origStmt, StatementBase parsedStmt,
-                    Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+    protected void auditAfterExec(String origStmt, StatementBase parsedStmt,
+            Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
         AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
     }
 
-    // Process COM_QUERY statement,
     // only throw an exception when there is a problem interacting with the requesting client
-    private void handleQuery(MysqlCommand mysqlCommand) {
+    protected void handleQuery(MysqlCommand mysqlCommand, String originStmt) {
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         }
-        // convert statement to Java string
-        byte[] bytes = packetBuf.array();
-        int ending = packetBuf.limit() - 1;
-        while (ending >= 1 && bytes[ending] == '\0') {
-            ending--;
-        }
-        String originStmt = new String(bytes, 1, ending, StandardCharsets.UTF_8);
 
         String sqlHash = DigestUtils.md5Hex(originStmt);
         ctx.setSqlHash(sqlHash);
         ctx.getAuditEventBuilder().reset();
         ctx.getAuditEventBuilder()
                 .setTimestamp(System.currentTimeMillis())
-                .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
+                .setClientIp(ctx.getClientIP())
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
                 .setSqlHash(ctx.getSqlHash());
 
@@ -306,6 +212,10 @@ public class ConnectProcessor {
         if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
                 stmts = new NereidsParser().parseSQL(originStmt);
+            } catch (NotSupportedException e) {
+                // Parse sql failed, audit it and return
+                handleQueryException(e, originStmt, null, null);
+                return;
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
                 LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
@@ -351,10 +261,25 @@ public class ConnectProcessor {
 
             try {
                 executor.execute();
-                if (i != stmts.size() - 1) {
-                    ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
-                    if (ctx.getState().getStateType() != MysqlStateType.ERR) {
-                        finalizeCommand();
+                if (connectType.equals(ConnectType.MYSQL)) {
+                    if (i != stmts.size() - 1) {
+                        ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
+                        if (ctx.getState().getStateType() != MysqlStateType.ERR) {
+                            finalizeCommand();
+                        }
+                    }
+                } else if (connectType.equals(ConnectType.ARROW_FLIGHT_SQL)) {
+                    if (!ctx.isReturnResultFromLocal()) {
+                        returnResultFromRemoteExecutor.add(executor);
+                    }
+                    Preconditions.checkState(ctx.getFlightSqlChannel().resultNum() <= 1);
+                    if (ctx.getFlightSqlChannel().resultNum() == 1 && i != stmts.size() - 1) {
+                        String errMsg = "Only be one stmt that returns the result and it is at the end. stmts.size(): "
+                                + stmts.size();
+                        LOG.warn(errMsg);
+                        ctx.getState().setError(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT, errMsg);
+                        ctx.getState().setErrType(QueryState.ErrType.OTHER_ERR);
+                        break;
                     }
                 }
                 auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
@@ -376,8 +301,8 @@ public class ConnectProcessor {
     }
 
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
-    private void handleQueryException(Throwable throwable, String origStmt,
-                                      StatementBase parsedStmt, Data.PQueryStatistics statistics) {
+    protected void handleQueryException(Throwable throwable, String origStmt,
+            StatementBase parsedStmt, Data.PQueryStatistics statistics) {
         if (ctx.getMinidump() != null) {
             MinidumpUtils.saveMinidumpString(ctx.getMinidump(), DebugUtil.printId(ctx.queryId()));
         }
@@ -388,6 +313,11 @@ public class ConnectProcessor {
         } else if (throwable instanceof UserException) {
             LOG.warn("Process one query failed because.", throwable);
             ctx.getState().setError(((UserException) throwable).getMysqlErrorCode(), throwable.getMessage());
+            // set it as ANALYSIS_ERR so that it won't be treated as a query failure.
+            ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
+        } else if (throwable instanceof NotSupportedException) {
+            LOG.warn("Process one query failed because.", throwable);
+            ctx.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET, throwable.getMessage());
             // set it as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } else {
@@ -405,7 +335,7 @@ public class ConnectProcessor {
     }
 
     // analyze the origin stmt and return multi-statements
-    private List<StatementBase> parse(String originStmt) throws AnalysisException, DdlException {
+    protected List<StatementBase> parse(String originStmt) throws AnalysisException, DdlException {
         LOG.debug("the originStmts are: {}", originStmt);
         // Parse statement with parser generated by CUP&FLEX
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
@@ -433,9 +363,8 @@ public class ConnectProcessor {
 
     // Get the column definitions of a table
     @SuppressWarnings("rawtypes")
-    private void handleFieldList() throws IOException {
+    protected void handleFieldList(String tableName) {
         // Already get command code.
-        String tableName = new String(MysqlProto.readNulTerminateString(packetBuf), StandardCharsets.UTF_8);
         if (Strings.isNullOrEmpty(tableName)) {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
             return;
@@ -453,18 +382,21 @@ public class ConnectProcessor {
 
         table.readLock();
         try {
-            MysqlChannel channel = ctx.getMysqlChannel();
-            MysqlSerializer serializer = channel.getSerializer();
+            if (connectType.equals(ConnectType.MYSQL)) {
+                MysqlChannel channel = ctx.getMysqlChannel();
+                MysqlSerializer serializer = channel.getSerializer();
 
-            // Send fields
-            // NOTE: Field list doesn't send number of fields
-            List<Column> baseSchema = table.getBaseSchema();
-            for (Column column : baseSchema) {
-                serializer.reset();
-                serializer.writeField(db.getFullName(), table.getName(), column, true);
-                channel.sendOnePacket(serializer.toByteBuffer());
+                // Send fields
+                // NOTE: Field list doesn't send number of fields
+                List<Column> baseSchema = table.getBaseSchema();
+                for (Column column : baseSchema) {
+                    serializer.reset();
+                    serializer.writeField(db.getFullName(), table.getName(), column, true);
+                    channel.sendOnePacket(serializer.toByteBuffer());
+                }
+            } else if (connectType.equals(ConnectType.ARROW_FLIGHT_SQL)) {
+                // TODO
             }
-
         } catch (Throwable throwable) {
             handleQueryException(throwable, "", null, null);
         } finally {
@@ -473,62 +405,9 @@ public class ConnectProcessor {
         ctx.getState().setEof();
     }
 
-    private void dispatch() throws IOException {
-        int code = packetBuf.get();
-        MysqlCommand command = MysqlCommand.fromCode(code);
-        if (command == null) {
-            ErrorReport.report(ErrorCode.ERR_UNKNOWN_COM_ERROR);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unknown command(" + code + ")");
-            LOG.warn("Unknown command(" + code + ")");
-            return;
-        }
-        LOG.debug("handle command {}", command);
-        ctx.setCommand(command);
-        ctx.setStartTime();
-
-        switch (command) {
-            case COM_INIT_DB:
-                handleInitDb();
-                break;
-            case COM_QUIT:
-                handleQuit();
-                break;
-            case COM_QUERY:
-            case COM_STMT_PREPARE:
-                ctx.initTracer("trace");
-                Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").setNoParent().startSpan();
-                try (Scope scope = rootSpan.makeCurrent()) {
-                    handleQuery(command);
-                } catch (Exception e) {
-                    rootSpan.recordException(e);
-                    throw e;
-                } finally {
-                    rootSpan.end();
-                }
-                break;
-            case COM_STMT_EXECUTE:
-                handleExecute();
-                break;
-            case COM_FIELD_LIST:
-                handleFieldList();
-                break;
-            case COM_PING:
-                handlePing();
-                break;
-            case COM_STMT_RESET:
-                handleStmtReset();
-                break;
-            case COM_STMT_CLOSE:
-                handleStmtClose();
-                break;
-            default:
-                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
-                LOG.warn("Unsupported command(" + command + ")");
-                break;
-        }
-    }
-
-    private ByteBuffer getResultPacket() {
+    // only Mysql protocol
+    protected ByteBuffer getResultPacket() {
+        Preconditions.checkState(connectType.equals(ConnectType.MYSQL));
         MysqlPacket packet = ctx.getState().toResponsePacket();
         if (packet == null) {
             // possible two cases:
@@ -545,7 +424,9 @@ public class ConnectProcessor {
 
     // When any request is completed, it will generally need to send a response packet to the client
     // This method is used to send a response packet to the client
-    private void finalizeCommand() throws IOException {
+    // only Mysql protocol
+    public void finalizeCommand() throws IOException {
+        Preconditions.checkState(connectType.equals(ConnectType.MYSQL));
         ByteBuffer packet;
         if (executor != null && executor.isForwardToMaster()
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
@@ -726,47 +607,9 @@ public class ConnectProcessor {
         return result;
     }
 
-    // Process a MySQL request
-    public void processOnce() throws IOException {
-        // set status of query to OK.
-        ctx.getState().reset();
-        executor = null;
-
-        // reset sequence id of MySQL protocol
-        final MysqlChannel channel = ctx.getMysqlChannel();
-        channel.setSequenceId(0);
-        // read packet from channel
-        try {
-            packetBuf = channel.fetchOnePacket();
-            if (packetBuf == null) {
-                LOG.warn("Null packet received from network. remote: {}", channel.getRemoteHostPortString());
-                throw new IOException("Error happened when receiving packet.");
-            }
-        } catch (AsynchronousCloseException e) {
-            // when this happened, timeout checker close this channel
-            // killed flag in ctx has been already set, just return
-            return;
-        }
-
-        // dispatch
-        dispatch();
-        // finalize
-        finalizeCommand();
-
-        ctx.setCommand(MysqlCommand.COM_SLEEP);
-    }
-
-    public void loop() {
-        while (!ctx.isKilled()) {
-            try {
-                processOnce();
-            } catch (Exception e) {
-                // TODO(zhaochun): something wrong
-                LOG.warn("Exception happened in one session(" + ctx + ").", e);
-                ctx.setKilled();
-                break;
-            }
-        }
+    // only Mysql protocol
+    public void processOnce() throws IOException, NotImplementedException {
+        throw new NotImplementedException("Not Impl processOnce");
     }
 }
 

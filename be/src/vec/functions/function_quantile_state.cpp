@@ -86,7 +86,7 @@ public:
 
     template <bool is_nullable>
     Status execute_internal(const ColumnPtr& column, const DataTypePtr& data_type,
-                            MutableColumnPtr& column_result) {
+                            MutableColumnPtr& column_result, float compression) const {
         auto type_error = [&]() {
             return Status::RuntimeError("Illegal column {} of argument of function {}",
                                         column->get_name(), get_name());
@@ -127,16 +127,17 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const ColumnPtr& column = block.get_by_position(arguments[0]).column;
         const DataTypePtr& data_type = block.get_by_position(arguments[0]).type;
         auto compression_arg = check_and_get_column_const<ColumnFloat32>(
                 block.get_by_position(arguments.back()).column);
+        float compression = 2048;
         if (compression_arg) {
             auto compression_arg_val = compression_arg->get_value<Float32>();
             if (compression_arg_val && compression_arg_val >= QUANTILE_STATE_COMPRESSION_MIN &&
                 compression_arg_val <= QUANTILE_STATE_COMPRESSION_MAX) {
-                this->compression = compression_arg_val;
+                compression = compression_arg_val;
             }
         }
         WhichDataType which(data_type);
@@ -148,18 +149,17 @@ public:
             const DataTypePtr& nested_data_type =
                     static_cast<const DataTypeNullable*>(data_type.get())->get_nested_type();
             WhichDataType nested_which(nested_data_type);
-            execute_internal<true>(column, data_type, column_result);
+            static_cast<void>(
+                    execute_internal<true>(column, data_type, column_result, compression));
         } else {
-            execute_internal<false>(column, data_type, column_result);
+            static_cast<void>(
+                    execute_internal<false>(column, data_type, column_result, compression));
         }
         if (status.ok()) {
             block.replace_by_position(result, std::move(column_result));
         }
         return status;
     }
-
-private:
-    float compression = 2048;
 };
 
 class FunctionQuantileStatePercent : public IFunction {
@@ -178,7 +178,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto res_data_column = ColumnFloat64::create();
         auto& res = res_data_column->get_data();
         auto data_null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -195,8 +195,8 @@ public:
                 block.get_by_position(arguments.back()).column);
 
         if (!percent_arg) {
-            LOG(FATAL) << fmt::format(
-                    "Second argument to {} must be a constant string describing type", get_name());
+            return Status::InternalError(
+                    "Second argument to {} must be a constant float describing type", get_name());
         }
         float percent_arg_value = percent_arg->get_value<Float32>();
         if (percent_arg_value < 0 || percent_arg_value > 1) {

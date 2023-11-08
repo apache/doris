@@ -74,7 +74,7 @@ public:
     }
 };
 
-FlightSqlServer::FlightSqlServer(std::shared_ptr<Impl> impl) : impl_(std::move(impl)) {}
+FlightSqlServer::FlightSqlServer(std::shared_ptr<Impl> impl) : _impl(std::move(impl)) {}
 
 arrow::Result<std::shared_ptr<FlightSqlServer>> FlightSqlServer::create() {
     std::shared_ptr<Impl> impl = std::make_shared<Impl>();
@@ -88,13 +88,13 @@ arrow::Result<std::shared_ptr<FlightSqlServer>> FlightSqlServer::create() {
 }
 
 FlightSqlServer::~FlightSqlServer() {
-    join();
+    static_cast<void>(join());
 }
 
 arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> FlightSqlServer::DoGetStatement(
         const arrow::flight::ServerCallContext& context,
         const arrow::flight::sql::StatementQueryTicket& command) {
-    return impl_->DoGetStatement(context, command);
+    return _impl->DoGetStatement(context, command);
 }
 
 Status FlightSqlServer::init(int port) {
@@ -108,6 +108,18 @@ Status FlightSqlServer::init(int port) {
             arrow::flight::Location::ForGrpcTcp(BackendOptions::get_service_bind_address(), port)
                     .Value(&bind_location));
     arrow::flight::FlightServerOptions flight_options(bind_location);
+
+    // Not authenticated in BE flight server.
+    // After the authentication between the ADBC Client and the FE flight server is completed,
+    // the FE flight server will put the query id in the Ticket and send it back to the Client.
+    // When the Client uses the Ticket to fetch data from the BE flight server, the BE flight
+    // server will verify the query id, this step is equivalent to authentication.
+    _header_middleware = std::make_shared<NoOpHeaderAuthServerMiddlewareFactory>();
+    _bearer_middleware = std::make_shared<NoOpBearerAuthServerMiddlewareFactory>();
+    flight_options.auth_handler = std::make_unique<arrow::flight::NoOpAuthHandler>();
+    flight_options.middleware.push_back({"header-auth-server", _header_middleware});
+    flight_options.middleware.push_back({"bearer-auth-server", _bearer_middleware});
+
     RETURN_DORIS_STATUS_IF_ERROR(Init(flight_options));
     LOG(INFO) << "Arrow Flight Service bind to host: " << BackendOptions::get_service_bind_address()
               << ", port: " << port;

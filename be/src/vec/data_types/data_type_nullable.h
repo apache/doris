@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -58,8 +59,9 @@ public:
     }
     const char* get_family_name() const override { return "Nullable"; }
     TypeIndex get_type_id() const override { return TypeIndex::Nullable; }
-    PrimitiveType get_type_as_primitive_type() const override {
-        return nested_data_type->get_type_as_primitive_type();
+
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(nested_data_type->get_type_as_type_descriptor());
     }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return nested_data_type->get_type_as_tprimitive_type();
@@ -121,8 +123,9 @@ public:
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
     bool is_null_literal() const override { return nested_data_type->is_null_literal(); }
 
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeNullableSerDe>(nested_data_type->get_serde());
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeNullableSerDe>(nested_data_type->get_serde(nesting_level),
+                                                       nesting_level);
     }
 
 private:

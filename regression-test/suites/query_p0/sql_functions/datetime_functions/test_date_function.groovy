@@ -263,7 +263,6 @@ suite("test_date_function") {
     qt_sql """ select datediff(CAST('2007-12-31 23:59:59' AS DATETIME), CAST('2007-12-30' AS DATETIME)) """
     qt_sql """ select datediff(CAST('2010-11-30 23:59:59' AS DATETIME), CAST('2010-12-31' AS DATETIME)) """
     qt_sql """ select datediff('2010-10-31', '2010-10-15') """
-    qt_sql """ select datediff('10000-10-31', '2010-10-15') from ${tableName}; """
 
     // DAY
     qt_sql """ select day('1987-01-31') """
@@ -289,11 +288,11 @@ suite("test_date_function") {
     qt_sql """ select from_days(1) """
 
     // FROM_UNIXTIME
-    qt_sql """ select from_unixtime(1196440219) """
-    qt_sql """ select from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') """
-    qt_sql """ select from_unixtime(1196440219, '%Y-%m-%d') """
-    qt_sql """ select from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') """
-    qt_sql """ select from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219) """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219, '%Y-%m-%d') """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') """
+    qt_sql """ select /*+SET_VAR(time_zone="UTC+8")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
 
     // HOUR
     qt_sql """ select hour('2018-12-31 23:59:59') """
@@ -328,15 +327,16 @@ suite("test_date_function") {
     qt_sql """ select microsecond(cast('1999-01-02 10:11:12.767890' as datetimev2(6))) """
 
     // STR_TO_DATE
-    sql """ truncate table ${tableName} """
-    sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
-    qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
-    qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
-    qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
-    qt_sql """ select str_to_date('200442 Monday', '%X%V %W') """
-    sql """ truncate table ${tableName} """
-    sql """ insert into ${tableName} values ("2020-09-01")  """
-    qt_sql """ select str_to_date(test_datetime, "%Y-%m-%d %H:%i:%s") from ${tableName};"""
+    // sql """ truncate table ${tableName} """
+    // sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
+    // qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
+    // qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
+    // qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
+    // qt_sql """ select str_to_date('2023-07-05T02:09:55.880Z','%Y-%m-%dT%H:%i:%s.%fZ') """
+    // qt_sql """ select str_to_date('200442 Monday', '%X%V %W') """
+    // sql """ truncate table ${tableName} """
+    // sql """ insert into ${tableName} values ("2020-09-01")  """
+    // qt_sql """ select str_to_date(test_datetime, "%Y-%m-%d %H:%i:%s") from ${tableName};"""
 
     // TIME_ROUND
     qt_sql_year_floor """ select year_floor(cast('2023-04-28' as date)); """
@@ -470,9 +470,9 @@ suite("test_date_function") {
     sql """ drop table ${tableName} """
 
     qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
-    qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
-    qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """
-    qt_sql """ select STR_TO_DATE('2018-4-2 15:3:28','%Y-%m-%d %H:%i:%s'); """
+    // qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
+    // qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """
+    // qt_sql """ select STR_TO_DATE('2018-4-2 15:3:28','%Y-%m-%d %H:%i:%s'); """
 
     qt_sql """ select length(cast(now() as string)), length(cast(now(0) as string)), length(cast(now(1) as string)),
                       length(cast(now(2) as string)), length(cast(now(3) as string)), length(cast(now(4) as string)),

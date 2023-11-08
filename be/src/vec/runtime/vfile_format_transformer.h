@@ -22,30 +22,42 @@
 
 #include "common/status.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris::vectorized {
 
 class VFileFormatTransformer {
 public:
-    VFileFormatTransformer(const VExprContextSPtrs& output_vexpr_ctxs, bool output_object_data)
-            : _output_vexpr_ctxs(output_vexpr_ctxs),
+    VFileFormatTransformer(RuntimeState* state, const VExprContextSPtrs& output_vexpr_ctxs,
+                           bool output_object_data)
+            : _state(state),
+              _output_vexpr_ctxs(output_vexpr_ctxs),
               _cur_written_rows(0),
-              _output_object_data(output_object_data) {}
+              _output_object_data(output_object_data) {
+        DataTypes data_types;
+        for (int i = 0; i < output_vexpr_ctxs.size(); ++i) {
+            data_types.push_back(output_vexpr_ctxs[i]->root()->data_type());
+        }
+        _options._output_object_data = output_object_data;
+        _serdes = vectorized::create_data_type_serdes(data_types);
+    }
 
     virtual ~VFileFormatTransformer() = default;
 
     virtual Status open() = 0;
-
     virtual Status write(const Block& block) = 0;
-
     virtual Status close() = 0;
-
     virtual int64_t written_len() = 0;
 
 protected:
+    RuntimeState* _state; // not owned, set when init
     const VExprContextSPtrs& _output_vexpr_ctxs;
     int64_t _cur_written_rows;
     bool _output_object_data;
+    vectorized::DataTypeSerDeSPtrs _serdes;
+    vectorized::DataTypeSerDe::FormatOptions _options;
 };
 } // namespace doris::vectorized

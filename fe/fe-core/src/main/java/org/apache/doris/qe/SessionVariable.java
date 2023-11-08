@@ -28,6 +28,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
+import org.apache.doris.nereids.parser.ParseDialect;
+import org.apache.doris.nereids.parser.ParseDialect.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
@@ -39,6 +41,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -59,6 +62,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * System variable.
@@ -112,7 +116,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
-    public static final String ENABLE_SIMPLY_PROFILE = "enable_simply_profile";
+    public static final String PROFILE_LEVEL = "profile_level";
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
@@ -210,6 +214,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PIPELINE_X_ENGINE = "enable_pipeline_x_engine";
 
+    public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
+
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
@@ -288,6 +294,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
 
+    public static final String SKIP_MISSING_VERSION = "skip_missing_version";
+
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
 
     public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
@@ -339,6 +347,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER = "max_table_count_use_cascades_join_reorder";
     public static final int MIN_JOIN_REORDER_TABLE_COUNT = 2;
 
+    public static final String JOIN_REORDER_TIME_LIMIT = "join_order_time_limit";
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
     public static final String ENABLE_MINIDUMP = "enable_minidump";
@@ -410,9 +419,28 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FULL_AUTO_ANALYZE_END_TIME = "full_auto_analyze_end_time";
 
+    public static final String SQL_DIALECT = "sql_dialect";
+
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
 
     public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
+
+    public static final String ENABLE_FULL_AUTO_ANALYZE = "enable_full_auto_analyze";
+
+    public static final String FASTER_FLOAT_CONVERT = "faster_float_convert";
+
+    public static final String ENABLE_DECIMAL256 = "enable_decimal256";
+
+    public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
+
+    public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
+    public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
+
+    public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
+            = "huge_table_auto_analyze_interval_in_millis";
+
+    public static final String TABLE_STATS_HEALTH_THRESHOLD
+            = "table_stats_health_threshold";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -421,6 +449,13 @@ public class SessionVariable implements Serializable, Writable {
             SKIP_STORAGE_ENGINE_MERGE,
             SHOW_HIDDEN_COLUMNS
     );
+
+    public static final String ENABLE_STATS = "enable_stats";
+    /**
+     * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
+     */
+    @VariableMgr.VarAttr(name = ENABLE_STATS)
+    public  boolean enableStats = true;
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -463,7 +498,7 @@ public class SessionVariable implements Serializable, Writable {
     public int queryTimeoutS = 900;
 
     // query timeout in second.
-    @VariableMgr.VarAttr(name = ANALYZE_TIMEOUT, needForward = true)
+    @VariableMgr.VarAttr(name = ANALYZE_TIMEOUT, flag = VariableMgr.GLOBAL, needForward = true)
     public int analyzeTimeoutS = 43200;
 
     // The global max_execution_time value provides the default for the session value for new connections.
@@ -621,8 +656,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true)
     public int parallelPipelineTaskNum = 0;
 
-    @VariableMgr.VarAttr(name = ENABLE_SIMPLY_PROFILE, fuzzy = true)
-    public boolean enableSimplyProfile = true;
+    @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = true)
+    public int profileLevel = 3;
 
     @VariableMgr.VarAttr(name = MAX_INSTANCE_NUM)
     public int maxInstanceNum = 64;
@@ -687,7 +722,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean extractWideRangeExpr = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML, needForward = true)
-    public boolean enableNereidsDML = false;
+    public boolean enableNereidsDML = true;
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
     public boolean enableStrictConsistencyDml = false;
@@ -701,6 +736,8 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     private boolean enablePipelineXEngine = false;
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
+    private boolean enableLocalShuffle = false;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableAggState = false;
@@ -832,7 +869,7 @@ public class SessionVariable implements Serializable, Writable {
 
 
     @VariableMgr.VarAttr(name = MAX_JOIN_NUMBER_BUSHY_TREE)
-    private int maxJoinNumBushyTree = 5;
+    private int maxJoinNumBushyTree = 8;
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = true;
@@ -904,7 +941,7 @@ public class SessionVariable implements Serializable, Writable {
     private double broadcastHashtableMemLimitPercentage = 0.2;
 
     @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true)
-    public boolean enableRuntimeFilterPrune = false;
+    public boolean enableRuntimeFilterPrune = true;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
@@ -953,6 +990,19 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
     public boolean skipDeleteBitmap = false;
+
+    // This variable replace the original FE config `recover_with_skip_missing_version`.
+    // In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover.
+    // This config can control the behavior of query. When it is set to `true`, the query will ignore the
+    // visible version recorded in FE partition, use the replica version. If the replica on BE has missing versions,
+    // the query will directly skip this missing version, and only return the data of the existing versions.
+    // Besides, the query will always try to select the one with the highest lastSuccessVersion among all surviving
+    // BE replicas, so as to recover as much data as possible.
+    // You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries.
+    // This variable conflicts with the use_fix_replica variable, when the use_fix_replica variable is not -1,
+    // this variable will not work.
+    @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION)
+    public boolean skipMissingVersion = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
@@ -1068,6 +1118,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, needForward = true)
     public int maxTableCountUseCascadesJoinReorder = 10;
+
+    @VariableMgr.VarAttr(name = JOIN_REORDER_TIME_LIMIT, needForward = true)
+    public long joinReorderTimeLimit = 1000;
 
     // If this is true, the result of `show roles` will return all user default role
     @VariableMgr.VarAttr(name = SHOW_USER_DEFAULT_ROLE, needForward = true)
@@ -1199,13 +1252,17 @@ public class SessionVariable implements Serializable, Writable {
             description = {"该参数定义自动ANALYZE例程的开始时间",
                     "This parameter defines the start time for the automatic ANALYZE routine."},
             flag = VariableMgr.GLOBAL)
-    public String fullAutoAnalyzeStartTime = "";
+    public String fullAutoAnalyzeStartTime = "00:00:00";
 
     @VariableMgr.VarAttr(name = FULL_AUTO_ANALYZE_END_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
             description = {"该参数定义自动ANALYZE例程的结束时间",
                     "This parameter defines the end time for the automatic ANALYZE routine."},
             flag = VariableMgr.GLOBAL)
-    public String fullAutoAnalyzeEndTime = "";
+    public String fullAutoAnalyzeEndTime = "23:59:59";
+
+    @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
+            description = {"解析sql使用的方言", "The dialect used to parse sql."})
+    public String sqlDialect = "doris";
 
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
@@ -1216,6 +1273,100 @@ public class SessionVariable implements Serializable, Writable {
                     + "If the specified type of cache is not hit, an error will be reported."},
             options = {"none", "sql_cache", "partition_cache"})
     public String testQueryCacheHit = "none";
+
+    @VariableMgr.VarAttr(name = ENABLE_FULL_AUTO_ANALYZE,
+            description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
+            flag = VariableMgr.GLOBAL)
+    public boolean enableFullAutoAnalyze = true;
+
+    @VariableMgr.VarAttr(name = FASTER_FLOAT_CONVERT,
+            description = {"是否启用更快的浮点数转换算法，注意会影响输出格式", "Set true to enable faster float pointer number convert"})
+    public boolean fasterFloatConvert = false;
+
+    @VariableMgr.VarAttr(name = IGNORE_RUNTIME_FILTER_IDS,
+            description = {"在IGNORE_RUNTIME_FILTER_IDS列表中的runtime filter将不会被生成",
+                    "the runtime filter id in IGNORE_RUNTIME_FILTER_IDS list will not be generated"})
+
+    public String ignoreRuntimeFilterIds = "";
+
+    @VariableMgr.VarAttr(name = STATS_INSERT_MERGE_ITEM_COUNT, flag = VariableMgr.GLOBAL, description = {
+            "控制统计信息相关INSERT攒批数量", "Controls the batch size for stats INSERT merging."
+    }
+    )
+    public int statsInsertMergeItemCount = 200;
+
+    @VariableMgr.VarAttr(name = HUGE_TABLE_DEFAULT_SAMPLE_ROWS, flag = VariableMgr.GLOBAL, description = {
+            "定义开启开启大表自动sample后，对大表的采样比例",
+            "This defines the number of sample percent for large tables when automatic sampling for"
+                    + "large tables is enabled"
+
+    })
+    public long hugeTableDefaultSampleRows = 4194304;
+
+
+    @VariableMgr.VarAttr(name = HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES, flag = VariableMgr.GLOBAL,
+            description = {
+                    "大小超过该值的表将会自动通过采样收集统计信息",
+                    "This defines the lower size bound for large tables. "
+                            + "When enable_auto_sample is enabled, tables"
+                            + "larger than this value will automatically collect "
+                            + "statistics through sampling"})
+    public long hugeTableLowerBoundSizeInBytes = 5L * 1024 * 1024 * 1024;
+
+    @VariableMgr.VarAttr(name = HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
+            description = {"控制对大表的自动ANALYZE的最小时间间隔，"
+                    + "在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes的表仅ANALYZE一次",
+                    "This controls the minimum time interval for automatic ANALYZE on large tables."
+                            + "Within this interval,"
+                            + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once."})
+    public long hugeTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(12);
+
+    @VariableMgr.VarAttr(name = TABLE_STATS_HEALTH_THRESHOLD, flag = VariableMgr.GLOBAL,
+            description = {"取值在0-100之间，当自上次统计信息收集操作之后"
+                    + "数据更新量达到 (100 - table_stats_health_threshold)% ，认为该表的统计信息已过时",
+                    "The value should be between 0 and 100. When the data update quantity "
+                            + "exceeds (100 - table_stats_health_threshold)% since the last "
+                            + "statistics collection operation, the statistics for this table are"
+                            + "considered outdated."})
+    public int tableStatsHealthThreshold = 60;
+
+    public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
+
+    public Set<Integer> getIgnoredRuntimeFilterIds() {
+        return Arrays.stream(ignoreRuntimeFilterIds.split(",[\\s]*"))
+                .map(v -> {
+                    int res = -1;
+                    try {
+                        res = Integer.valueOf(v);
+                    } catch (Exception e) {
+                        //ignore it
+                    }
+                    return res;
+                }).collect(ImmutableSet.toImmutableSet());
+    }
+
+    public void setIgnoreRuntimeFilterIds(String ignoreRuntimeFilterIds) {
+        this.ignoreRuntimeFilterIds = ignoreRuntimeFilterIds;
+    }
+
+    public static final String IGNORE_SHAPE_NODE = "ignore_shape_nodes";
+
+    public Set<String> getIgnoreShapePlanNodes() {
+        return Arrays.stream(ignoreShapePlanNodes.split(",[\\s]*")).collect(ImmutableSet.toImmutableSet());
+    }
+
+    public void setIgnoreShapePlanNodes(String ignoreShapePlanNodes) {
+        this.ignoreShapePlanNodes = ignoreShapePlanNodes;
+    }
+
+    @VariableMgr.VarAttr(name = IGNORE_SHAPE_NODE,
+            description = {"'explain shape plan' 命令中忽略的PlanNode 类型",
+                    "the plan node type which is ignored in 'explain shape plan' command"})
+    public String ignoreShapePlanNodes = "";
+
+    @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = { "控制是否在计算过程中使用Decimal256类型",
+            "Set to true to enable Decimal256 type" })
+    public boolean enableDecimal256 = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1647,7 +1798,7 @@ public class SessionVariable implements Serializable, Writable {
             int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
             int autoInstance = (size + 1) / 2;
             return Math.min(autoInstance, maxInstanceNum);
-        } else if (enablePipelineEngine) {
+        } else if (getEnablePipelineEngine()) {
             return parallelPipelineTaskNum;
         } else {
             return parallelExecInstanceNum;
@@ -1872,6 +2023,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enablePipelineXEngine = enablePipelineXEngine;
     }
 
+    public void setEnableLocalShuffle(boolean enableLocalShuffle) {
+        this.enableLocalShuffle = enableLocalShuffle;
+    }
+
     public boolean enablePushDownNoGroupAgg() {
         return enablePushDownNoGroupAgg;
     }
@@ -1920,6 +2075,17 @@ public class SessionVariable implements Serializable, Writable {
         this.enableOrcLazyMat = enableOrcLazyMat;
     }
 
+    public String getSqlDialect() {
+        return sqlDialect;
+    }
+
+    public ParseDialect.Dialect getSqlParseDialect() {
+        return ParseDialect.Dialect.getByName(sqlDialect);
+    }
+
+    public void setSqlDialect(String sqlDialect) {
+        this.sqlDialect = sqlDialect == null ? null : sqlDialect.toLowerCase();
+    }
 
     /**
      * getInsertVisibleTimeoutMs.
@@ -2266,6 +2432,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
         tResult.setEnablePipelineXEngine(enablePipelineXEngine);
+        tResult.setEnableLocalShuffle(enableLocalShuffle);
         tResult.setParallelInstance(getParallelExecInstanceNum());
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
@@ -2311,9 +2478,9 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setRepeatMaxNum(repeatMaxNum);
 
-        tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
+        tResult.setExternalSortBytesThreshold(0); // disable for now
 
-        tResult.setExternalAggBytesThreshold(externalAggBytesThreshold);
+        tResult.setExternalAggBytesThreshold(0); // disable for now
 
         tResult.setExternalAggPartitionBits(externalAggPartitionBits);
 
@@ -2337,6 +2504,12 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
 
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
+
+        tResult.setFasterFloatConvert(fasterFloatConvert);
+
+        tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
+
+        tResult.setSkipMissingVersion(skipMissingVersion);
 
         return tResult;
     }
@@ -2614,6 +2787,14 @@ public class SessionVariable implements Serializable, Writable {
         VariableMgr.setVar(this, new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
     }
 
+    public void disableNereidsJoinReorderOnce() throws DdlException {
+        if (!enableNereidsPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this, new SetVar(SessionVariable.DISABLE_JOIN_REORDER, new StringLiteral("true")));
+    }
+
     // return number of variables by given variable annotation
     public int getVariableNumByVariableAnnotation(VariableAnnotation type) {
         int num = 0;
@@ -2659,6 +2840,10 @@ public class SessionVariable implements Serializable, Writable {
         return connectContext.getSessionVariable().enableAggState;
     }
 
+    public boolean enableDecimal256() {
+        return enableDecimal256;
+    }
+
     public void checkAnalyzeTimeFormat(String time) {
         try {
             DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
@@ -2669,7 +2854,23 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
-    public boolean getEnableSimplyProfile() {
-        return this.enableSimplyProfile;
+    public int getProfileLevel() {
+        return this.profileLevel;
+    }
+
+    public boolean fasterFloatConvert() {
+        return this.fasterFloatConvert;
+    }
+
+    public void checkSqlDialect(String sqlDialect) {
+        if (StringUtils.isEmpty(sqlDialect)) {
+            LOG.warn("sqlDialect value is empty");
+            throw new UnsupportedOperationException("sqlDialect value is empty");
+        }
+        if (Arrays.stream(Dialect.values())
+                .noneMatch(dialect -> dialect.getDialectName().equalsIgnoreCase(sqlDialect))) {
+            LOG.warn("sqlDialect value is invalid, the invalid value is {}", sqlDialect);
+            throw new UnsupportedOperationException("sqlDialect value is invalid, the invalid value is " + sqlDialect);
+        }
     }
 }

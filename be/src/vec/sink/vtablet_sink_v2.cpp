@@ -38,6 +38,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/object_pool.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/delta_writer_v2.h"
@@ -130,7 +131,8 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
                                      _tuple_desc_id);
     }
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
-
+    _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(),
+                                        _state->batch_size());
     // add all counter
     _input_rows_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
     _output_rows_counter = ADD_COUNTER(_profile, "RowsReturned", TUnit::UNIT);
@@ -147,6 +149,12 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
 
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+    if (config::share_delta_writers) {
+        _delta_writer_for_tablet =
+                ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(_load_id);
+    } else {
+        _delta_writer_for_tablet = std::make_shared<DeltaWriterV2Map>(_load_id);
+    }
     return Status::OK();
 }
 
@@ -156,13 +164,8 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    signal::set_signal_task_id(_load_id);
 
-    if (config::share_delta_writers) {
-        _delta_writer_for_tablet =
-                ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(_load_id);
-    } else {
-        _delta_writer_for_tablet = std::make_shared<DeltaWriterV2Map>(_load_id);
-    }
     _build_tablet_node_mapping();
     RETURN_IF_ERROR(_open_streams(state->backend_id()));
 
@@ -176,18 +179,8 @@ Status VOlapTableSinkV2::_open_streams(int64_t src_id) {
             return Status::InternalError("Unknown node {} in tablet location", dst_id);
         }
         std::shared_ptr<Streams> streams;
-        if (config::share_load_streams) {
-            streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                    _load_id, src_id, dst_id);
-        } else {
-            int32_t num_streams = std::max(1, config::num_streams_per_sink);
-            streams = std::make_shared<Streams>();
-            LoadStreamStub template_stub {_load_id, _sender_id};
-            for (int32_t i = 0; i < num_streams; i++) {
-                // copy construct, internal tablet schema map will be shared among all stubs
-                streams->emplace_back(new LoadStreamStub {template_stub});
-            }
-        }
+        streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(_load_id, src_id,
+                                                                                 dst_id);
         // get tablet schema from each backend only in the 1st stream
         for (auto& stream : *streams | std::ranges::views::take(1)) {
             const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
@@ -229,20 +222,32 @@ void VOlapTableSinkV2::_build_tablet_node_mapping() {
     }
 }
 
-void VOlapTableSinkV2::_generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
-                                                 const VOlapTablePartition* partition,
-                                                 uint32_t tablet_index, int row_idx) {
-    // Generate channel payload for sinking data to each tablet
-    for (const auto& index : partition->indexes) {
-        auto tablet_id = index.tablets[tablet_index];
-        if (rows_for_tablet.count(tablet_id) == 0) {
-            Rows rows;
-            rows.partition_id = partition->id;
-            rows.index_id = index.index_id;
-            rows_for_tablet.insert({tablet_id, rows});
+void VOlapTableSinkV2::_generate_rows_for_tablet(
+        RowsForTablet& rows_for_tablet, const std::vector<VOlapTablePartition*>& partitions,
+        const std::vector<uint32_t>& tablet_indexes, const std::vector<bool>& skip,
+        size_t row_cnt) {
+    for (int row_idx = 0; row_idx < row_cnt; row_idx++) {
+        if (skip[row_idx]) {
+            continue;
         }
-        rows_for_tablet[tablet_id].row_idxes.push_back(row_idx);
-        _number_output_rows++;
+
+        auto& partition = partitions[row_idx];
+        auto& tablet_index = tablet_indexes[row_idx];
+
+        for (const auto& index : partition->indexes) {
+            auto tablet_id = index.tablets[tablet_index];
+            auto it = rows_for_tablet.find(tablet_id);
+            if (it == rows_for_tablet.end()) {
+                Rows rows;
+                rows.partition_id = partition->id;
+                rows.index_id = index.index_id;
+                rows.row_idxes.reserve(row_cnt);
+                auto [tmp_it, _] = rows_for_tablet.insert({tablet_id, rows});
+                it = tmp_it;
+            }
+            it->second.row_idxes.push_back(row_idx);
+            _number_output_rows++;
+        }
     }
 }
 
@@ -254,7 +259,7 @@ Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, Streams& streams) {
     for (auto& node_id : location->node_ids) {
         streams.emplace_back(_streams_for_node[node_id]->at(_stream_index));
     }
-    _stream_index = (_stream_index + 1) % config::num_streams_per_sink;
+    _stream_index = (_stream_index + 1) % config::num_streams_per_load;
     return Status::OK();
 }
 
@@ -294,21 +299,24 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     RowsForTablet rows_for_tablet;
     _tablet_finder->clear_for_new_batch();
     _row_distribution_watch.start();
-    auto num_rows = block->rows();
-    for (int i = 0; i < num_rows; ++i) {
-        if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
-            continue;
+    const auto num_rows = input_rows;
+    const auto* __restrict filter_map = _block_convertor->filter_map();
+
+    //reuse vars
+    _partitions.assign(num_rows, nullptr);
+    _skip.assign(num_rows, false);
+    _tablet_indexes.assign(num_rows, 0);
+
+    RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block.get(), num_rows, _partitions,
+                                                 _tablet_indexes, stop_processing, _skip));
+
+    if (has_filtered_rows) {
+        for (int i = 0; i < num_rows; i++) {
+            _skip[i] = _skip[i] || filter_map[i];
         }
-        const VOlapTablePartition* partition = nullptr;
-        bool is_continue = false;
-        uint32_t tablet_index = 0;
-        RETURN_IF_ERROR(_tablet_finder->find_tablet(state, block.get(), i, &partition, tablet_index,
-                                                    stop_processing, is_continue));
-        if (is_continue) {
-            continue;
-        }
-        _generate_rows_for_tablet(rows_for_tablet, partition, tablet_index, i);
     }
+    _generate_rows_for_tablet(rows_for_tablet, _partitions, _tablet_indexes, _skip, num_rows);
+
     _row_distribution_watch.stop();
 
     // For each tablet, send its input_rows from block to delta writer
@@ -343,9 +351,7 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
                 break;
             }
         }
-        DeltaWriterV2* delta_writer = nullptr;
-        DeltaWriterV2::open(&req, streams, &delta_writer, _profile);
-        return delta_writer;
+        return DeltaWriterV2::open(&req, streams);
     });
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
@@ -388,7 +394,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            _delta_writer_for_tablet->close();
+            RETURN_IF_ERROR(_delta_writer_for_tablet->close(_profile));
             _delta_writer_for_tablet.reset();
         }
 
@@ -403,7 +409,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             SCOPED_TIMER(_close_load_timer);
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : *streams) {
-                    stream->close_wait();
+                    RETURN_IF_ERROR(stream->close_wait());
                 }
             }
         }
@@ -436,11 +442,11 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id;
     } else {
-        _cancel(status);
+        RETURN_IF_ERROR(_cancel(status));
     }
 
     _close_status = status;
-    DataSink::close(state, exec_status);
+    RETURN_IF_ERROR(DataSink::close(state, exec_status));
     return status;
 }
 

@@ -8,30 +8,32 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](customer.c_custkey = orders.o_custkey)(customer.c_nationkey = n2.n_nationkey)
+----------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey))otherCondition=((((n1.n_name = 'FRANCE') AND (n2.n_name = 'GERMANY')) OR ((n1.n_name = 'GERMANY') AND (n2.n_name = 'FRANCE'))))
 ------------------PhysicalProject
---------------------PhysicalOlapScan[customer]
+--------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey))otherCondition=()
+----------------------PhysicalProject
+------------------------filter((lineitem.l_shipdate <= '1996-12-31') and (lineitem.l_shipdate >= '1995-01-01'))
+--------------------------PhysicalOlapScan[lineitem]
+----------------------PhysicalDistribute
+------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = n1.n_nationkey))otherCondition=()
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[supplier]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter(((n1.n_name = 'FRANCE') OR (n1.n_name = 'GERMANY')))
+--------------------------------PhysicalOlapScan[nation]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](orders.o_orderkey = lineitem.l_orderkey)
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[orders]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](supplier.s_suppkey = lineitem.l_suppkey)
+----------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey))otherCondition=()
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[orders]
+------------------------PhysicalDistribute
+--------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = n2.n_nationkey))otherCondition=()
 ----------------------------PhysicalProject
-------------------------------filter((lineitem.l_shipdate <= 1996-12-31)(lineitem.l_shipdate >= 1995-01-01))
---------------------------------PhysicalOlapScan[lineitem]
+------------------------------PhysicalOlapScan[customer]
 ----------------------------PhysicalDistribute
-------------------------------hashJoin[INNER_JOIN](supplier.s_nationkey = n1.n_nationkey)
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[supplier]
---------------------------------PhysicalDistribute
-----------------------------------NestedLoopJoin[INNER_JOIN](((n1.n_name = 'FRANCE') AND (n2.n_name = 'GERMANY')) OR ((n1.n_name = 'GERMANY') AND (n2.n_name = 'FRANCE')))
-------------------------------------PhysicalProject
---------------------------------------filter(((n1.n_name = 'FRANCE') OR (n1.n_name = 'GERMANY')))
-----------------------------------------PhysicalOlapScan[nation]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------filter(((n2.n_name = 'GERMANY') OR (n2.n_name = 'FRANCE')))
-------------------------------------------PhysicalOlapScan[nation]
+------------------------------PhysicalProject
+--------------------------------filter(((n2.n_name = 'GERMANY') OR (n2.n_name = 'FRANCE')))
+----------------------------------PhysicalOlapScan[nation]
 

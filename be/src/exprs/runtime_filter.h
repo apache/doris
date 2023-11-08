@@ -27,7 +27,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
@@ -70,14 +69,38 @@ class VExprContext;
 struct SharedRuntimeFilterContext;
 } // namespace vectorized
 
+namespace pipeline {
+class RuntimeFilterTimer;
+} // namespace pipeline
+
 enum class RuntimeFilterType {
     UNKNOWN_FILTER = -1,
     IN_FILTER = 0,
     MINMAX_FILTER = 1,
     BLOOM_FILTER = 2,
     IN_OR_BLOOM_FILTER = 3,
-    BITMAP_FILTER = 4
+    BITMAP_FILTER = 4,
+    MIN_FILTER = 5, // only min
+    MAX_FILTER = 6  // only max
 };
+
+static RuntimeFilterType get_minmax_filter_type(TMinMaxRuntimeFilterType::type ttype) {
+    switch (ttype) {
+    case TMinMaxRuntimeFilterType::MIN: {
+        return RuntimeFilterType::MIN_FILTER;
+    }
+    case TMinMaxRuntimeFilterType::MAX: {
+        return RuntimeFilterType::MAX_FILTER;
+    }
+    case TMinMaxRuntimeFilterType::MIN_MAX: {
+        return RuntimeFilterType::MINMAX_FILTER;
+    }
+    default: {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Invalid minmax runtime filter type!");
+    }
+    }
+}
 
 static RuntimeFilterType get_runtime_filter_type(TRuntimeFilterType::type ttype) {
     switch (ttype) {
@@ -189,10 +212,15 @@ public:
               _is_ignored(false),
               registration_time_(MonotonicMillis()),
               _enable_pipeline_exec(_state->enable_pipeline_exec()),
-              _runtime_filter_type(get_runtime_filter_type(desc->type)),
-              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                                to_string(_runtime_filter_type))),
-              _profile(new RuntimeProfile(_name)) {}
+              _profile(new RuntimeProfile(_name)) {
+        if (desc->__isset.min_max_type && desc->type == TRuntimeFilterType::MIN_MAX) {
+            _runtime_filter_type = get_minmax_filter_type(desc->min_max_type);
+        } else {
+            _runtime_filter_type = get_runtime_filter_type(desc->type);
+        }
+        _name = fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
+                            to_string(_runtime_filter_type));
+    }
 
     IRuntimeFilter(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc)
             : _query_ctx(query_ctx),
@@ -209,10 +237,15 @@ public:
               _is_ignored(false),
               registration_time_(MonotonicMillis()),
               _enable_pipeline_exec(query_ctx->enable_pipeline_exec()),
-              _runtime_filter_type(get_runtime_filter_type(desc->type)),
-              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                                to_string(_runtime_filter_type))),
-              _profile(new RuntimeProfile(_name)) {}
+              _profile(new RuntimeProfile(_name)) {
+        if (desc->__isset.min_max_type && desc->type == TRuntimeFilterType::MIN_MAX) {
+            _runtime_filter_type = get_minmax_filter_type(desc->min_max_type);
+        } else {
+            _runtime_filter_type = get_runtime_filter_type(desc->type);
+        }
+        _name = fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
+                            to_string(_runtime_filter_type));
+    }
 
     ~IRuntimeFilter() = default;
 
@@ -335,6 +368,12 @@ public:
         case RuntimeFilterType::BLOOM_FILTER: {
             return std::string("bloomfilter");
         }
+        case RuntimeFilterType::MIN_FILTER: {
+            return std::string("only_min");
+        }
+        case RuntimeFilterType::MAX_FILTER: {
+            return std::string("only_max");
+        }
         case RuntimeFilterType::MINMAX_FILTER: {
             return std::string("minmax");
         }
@@ -348,6 +387,17 @@ public:
             return std::string("UNKNOWN");
         }
     }
+
+    int32_t wait_time_ms() {
+        auto runtime_filter_wait_time_ms = _state == nullptr
+                                                   ? _query_ctx->runtime_filter_wait_time_ms()
+                                                   : _state->runtime_filter_wait_time_ms();
+        return runtime_filter_wait_time_ms;
+    }
+
+    int64_t registration_time() const { return registration_time_; }
+
+    void set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer>);
 
 protected:
     // serialize _wrapper to protobuf
@@ -440,6 +490,8 @@ protected:
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
     bool _opt_remote_rf;
+
+    std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 };
 
 // avoid expose RuntimePredicateWrapper

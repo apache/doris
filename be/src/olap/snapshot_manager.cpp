@@ -125,7 +125,8 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 }
 
 Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t tablet_id,
-                                           int64_t replica_id, const int32_t& schema_hash) {
+                                           int64_t replica_id, int64_t partition_id,
+                                           const int32_t& schema_hash) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     Status res = Status::OK();
     // check clone dir existed
@@ -160,6 +161,9 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     new_tablet_meta_pb.set_tablet_id(tablet_id);
     *new_tablet_meta_pb.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
     new_tablet_meta_pb.set_replica_id(replica_id);
+    if (partition_id != -1) {
+        new_tablet_meta_pb.set_partition_id(partition_id);
+    }
     new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchemaSPtr tablet_schema;
     tablet_schema =
@@ -279,13 +283,12 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
                      << " id = " << org_rowset->rowset_id() << " to rowset " << rowset_id;
         return res;
     }
-    RowsetSharedPtr new_rowset = rs_writer->build();
-    if (new_rowset == nullptr) {
-        return Status::Error<MEM_ALLOC_FAILED>("failed to build rowset when rename rowset id");
-    }
+    RowsetSharedPtr new_rowset;
+    RETURN_NOT_OK_STATUS_WITH_WARN(rs_writer->build(new_rowset),
+                                   "failed to build rowset when rename rowset id");
     RETURN_IF_ERROR(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
-    org_rowset->remove();
+    RETURN_IF_ERROR(org_rowset->remove());
     return Status::OK();
 }
 
@@ -488,7 +491,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 const RowsetSharedPtr last_version = ref_tablet->rowset_with_max_version();
                 if (last_version == nullptr) {
                     res = Status::InternalError("tablet has not any version. path={}",
-                                                ref_tablet->full_name());
+                                                ref_tablet->tablet_id());
                     break;
                 }
                 // get snapshot version, use request.version if specified

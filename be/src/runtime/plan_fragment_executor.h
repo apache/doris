@@ -111,7 +111,7 @@ public:
 
     Status execute();
 
-    const vectorized::VecDateTimeValue& start_time() const { return _start_time; }
+    const VecDateTimeValue& start_time() const { return _start_time; }
 
     // Closes the underlying plan fragment and frees up all resources allocated
     // in open()/get_next().
@@ -146,7 +146,9 @@ public:
 
     TUniqueId query_id() const { return _query_ctx->query_id(); }
 
-    bool is_timeout(const vectorized::VecDateTimeValue& now) const;
+    int fragment_id() const { return _fragment_id; }
+
+    bool is_timeout(const VecDateTimeValue& now) const;
 
     bool is_canceled() { return _runtime_state->is_cancelled(); }
 
@@ -226,7 +228,7 @@ private:
     // Timeout of this instance, it is inited from query options
     int _timeout_second = -1;
 
-    vectorized::VecDateTimeValue _start_time;
+    VecDateTimeValue _start_time;
 
     // It is shared with BufferControlBlock and will be called in two different
     // threads. But their calls are all at different time, there is no problem of
@@ -241,6 +243,8 @@ private:
     OpentelemetrySpan _span;
 
     bool _group_commit = false;
+
+    DescriptorTbl* _desc_tbl;
 
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 

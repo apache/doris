@@ -51,7 +51,7 @@ public class JsonContains extends ScalarFunction
      * constructor with 2 arguments.
      */
     public JsonContains(Expression arg0, Expression arg1) {
-        super("json_contains", arg0, arg1, Literal.of(""));
+        super("json_contains", arg0, arg1, Literal.of("$"));
     }
 
     /**

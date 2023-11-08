@@ -99,7 +99,7 @@ protected:
 
 private:
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
-    Status _load_segment_to_cache();
+    void _load_segment_to_cache();
 
 protected:
     // the root tracker for this compaction

@@ -16,6 +16,21 @@
 // under the License.
 import java.util.Date
 import java.text.SimpleDateFormat
+import org.apache.http.HttpResponse
+import org.apache.http.client.methods.HttpPut
+import org.apache.http.impl.client.CloseableHttpClient
+import org.apache.http.impl.client.HttpClients
+import org.apache.http.entity.ContentType
+import org.apache.http.entity.StringEntity
+import org.apache.http.client.config.RequestConfig
+import org.apache.http.client.RedirectStrategy
+import org.apache.http.protocol.HttpContext
+import org.apache.http.HttpRequest
+import org.apache.http.impl.client.LaxRedirectStrategy
+import org.apache.http.client.methods.RequestBuilder
+import org.apache.http.entity.StringEntity
+import org.apache.http.client.methods.CloseableHttpResponse
+import org.apache.http.util.EntityUtils
 
 suite("test_stream_load", "p0") {
     sql "show tables"
@@ -191,6 +206,8 @@ suite("test_stream_load", "p0") {
     def tableName7 = "test_unique_key_with_delete"
     def tableName8 = "test_array"
     def tableName10 = "test_struct"
+    def tableName11 = "test_map"
+
     sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """ DROP TABLE IF EXISTS ${tableName4} """
     sql """ DROP TABLE IF EXISTS ${tableName5} """
@@ -198,6 +215,7 @@ suite("test_stream_load", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName7} """
     sql """ DROP TABLE IF EXISTS ${tableName8} """
     sql """ DROP TABLE IF EXISTS ${tableName10} """
+    sql """ DROP TABLE IF EXISTS ${tableName11} """
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName3} (
       `k1` int(11) NULL,
@@ -281,7 +299,7 @@ suite("test_stream_load", "p0") {
       `k4` ARRAY<BIGINT> NULL COMMENT "",
       `k5` ARRAY<CHAR> NULL COMMENT "",
       `k6` ARRAY<VARCHAR(20)> NULL COMMENT "",
-      `k7` ARRAY<DATE> NULL COMMENT "", 
+      `k7` ARRAY<DATE> NULL COMMENT "",
       `k8` ARRAY<DATETIME> NULL COMMENT "",
       `k9` ARRAY<FLOAT> NULL COMMENT "",
       `k10` ARRAY<DOUBLE> NULL COMMENT "",
@@ -315,6 +333,41 @@ suite("test_stream_load", "p0") {
     "replication_allocation" = "tag.location.default: 1"
     );
     """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName11} (
+      `k1` int(11) NULL,
+      `k2` map<int, char(7)> NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    // load map with specific-length char with non-specific-length data
+    streamLoad {
+        table "${tableName11}"
+
+        set 'column_separator', '\t'
+
+        file 'map_char_test.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(4, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+        }
+    }
+    sql "sync"
+    order_qt_map11 "SELECT * FROM ${tableName11} order by k1" 
 
     // load all columns
     streamLoad {
@@ -942,5 +995,174 @@ suite("test_stream_load", "p0") {
     // parse k1 default value
     assertEquals(res[0][0], 1)
     assertEquals(res[1][0], 1)
+
+    // test two phase commit
+    def tableName15 = "test_two_phase_commit"
+    InetSocketAddress address = context.config.feHttpInetSocketAddress
+    String user = context.config.feHttpUser
+    String password = context.config.feHttpPassword
+    String db = context.config.getDbNameByFile(context.file)
+
+    def do_streamload_2pc = { label, txn_operation ->
+        HttpClients.createDefault().withCloseable { client ->
+            RequestBuilder requestBuilder = RequestBuilder.put("http://${address.hostString}:${address.port}/api/${db}/${tableName15}/_stream_load_2pc")
+            String encoding = Base64.getEncoder()
+                .encodeToString((user + ":" + (password == null ? "" : password)).getBytes("UTF-8"))
+            requestBuilder.setHeader("Authorization", "Basic ${encoding}")
+            requestBuilder.setHeader("Expect", "100-Continue")
+            requestBuilder.setHeader("label", "${label}")
+            requestBuilder.setHeader("txn_operation", "${txn_operation}")
+
+            String backendStreamLoadUri = null
+            client.execute(requestBuilder.build()).withCloseable { resp ->
+                resp.withCloseable {
+                    String body = EntityUtils.toString(resp.getEntity())
+                    def respCode = resp.getStatusLine().getStatusCode()
+                    // should redirect to backend
+                    if (respCode != 307) {
+                        throw new IllegalStateException("Expect frontend stream load response code is 307, " +
+                                "but meet ${respCode}\nbody: ${body}")
+                    }
+                    backendStreamLoadUri = resp.getFirstHeader("location").getValue()
+                }
+            }
+
+            requestBuilder.setUri(backendStreamLoadUri)
+            try{
+                client.execute(requestBuilder.build()).withCloseable { resp ->
+                    resp.withCloseable {
+                        String body = EntityUtils.toString(resp.getEntity())
+                        def respCode = resp.getStatusLine().getStatusCode()
+                        if (respCode != 200) {
+                            throw new IllegalStateException("Expect backend stream load response code is 200, " +
+                                    "but meet ${respCode}\nbody: ${body}")
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                log.info("StreamLoad Exception: ", t)
+            }
+        }
+    }
+
+    try {
+        sql """ DROP TABLE IF EXISTS ${tableName15} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName15} (
+                `k1` bigint(20) NULL DEFAULT "1",
+                `k2` bigint(20) NULL ,
+                `v1` tinyint(4) NULL,
+                `v2` tinyint(4) NULL,
+                `v3` tinyint(4) NULL,
+                `v4` DATETIME NULL
+            ) ENGINE=OLAP
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+        """
+
+        def label = UUID.randomUUID().toString().replaceAll("-", "") 
+        streamLoad {
+            table "${tableName15}"
+
+            set 'label', "${label}"
+            set 'column_separator', '|'
+            set 'columns', 'k1, k2, v1, v2, v3'
+            set 'two_phase_commit', 'true'
+
+            file 'test_two_phase_commit.csv'
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(2, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
+
+        qt_sql_2pc "select * from ${tableName15} order by k1"
+
+        do_streamload_2pc.call(label, "abort")
+
+        qt_sql_2pc_abort "select * from ${tableName15} order by k1"
+
+        streamLoad {
+            table "${tableName15}"
+
+            set 'label', "${label}"
+            set 'column_separator', '|'
+            set 'columns', 'k1, k2, v1, v2, v3'
+            set 'two_phase_commit', 'true'
+
+            file 'test_two_phase_commit.csv'
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(2, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
+
+        do_streamload_2pc.call(label, "commit")
+        
+        def count = 0
+        while (true) {
+            res = sql "select count(*) from ${tableName15}"
+            if (res[0][0] > 0) {
+                break
+            }
+            if (count >= 60) {
+                log.error("stream load commit can not visible for long time")
+                assertEquals(2, res[0][0])
+                break
+            }
+            sleep(1000)
+            count++
+        }
+
+        qt_sql_2pc_commit "select * from ${tableName15} order by k1"
+    } finally {
+        sql """ DROP TABLE IF EXISTS ${tableName15} FORCE"""
+    }
+
+    // test chunked transfer
+    def tableName16 = "test_chunked_transfer"
+    try {
+        sql """ DROP TABLE IF EXISTS ${tableName16} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName16} (
+                `k1` bigint(20) NULL DEFAULT "1",
+                `k2` bigint(20) NULL ,
+                `v1` tinyint(4) NULL,
+                `v2` tinyint(4) NULL,
+                `v3` tinyint(4) NULL,
+                `v4` DATETIME NULL
+            ) ENGINE=OLAP
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+        """
+
+        def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H Transfer-Encoding:chunked -H columns:k1,k2,v1,v2,v3  -T ${context.dataPath}/test_chunked_transfer.csv http://${context.config.feHttpAddress}/api/${db}/${tableName16}/_stream_load"
+        log.info("test chunked transfer command: ${command}")
+        def process = command.execute()
+        code = process.waitFor()
+        out = process.text
+        json2pc = parseJson(out)
+        log.info("test chunked transfer result: ${out}".toString())
+
+        qt_sql_chunked_transfer "select * from ${tableName16} order by k1"
+    } finally {
+        sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
+    }
 }
 

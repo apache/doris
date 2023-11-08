@@ -29,6 +29,7 @@
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -64,10 +65,7 @@ Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, RuntimeProfile
 
 DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
                          const UniqueId& load_id)
-        : _req(*req),
-          _rowset_builder(*req, storage_engine, profile),
-          _memtable_writer(new MemTableWriter(*req)),
-          _storage_engine(storage_engine) {
+        : _req(*req), _rowset_builder(*req, profile), _memtable_writer(new MemTableWriter(*req)) {
     _init_profile(profile);
 }
 
@@ -83,7 +81,7 @@ DeltaWriter::~DeltaWriter() {
     }
 
     // cancel and wait all memtables in flush queue to be finished
-    _memtable_writer->cancel();
+    static_cast<void>(_memtable_writer->cancel());
 
     if (_rowset_builder.tablet() != nullptr) {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
@@ -99,6 +97,7 @@ Status DeltaWriter::init() {
     RETURN_IF_ERROR(_rowset_builder.init());
     RETURN_IF_ERROR(
             _memtable_writer->init(_rowset_builder.rowset_writer(), _rowset_builder.tablet_schema(),
+                                   _rowset_builder.get_partial_update_info(),
                                    _rowset_builder.tablet()->enable_unique_key_merge_on_write()));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
@@ -161,6 +160,9 @@ Status DeltaWriter::wait_calc_delete_bitmap() {
 
 Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes,
                                const bool write_single_replica) {
+    if (config::cloud_mode) {
+        return Status::OK();
+    }
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
     RETURN_IF_ERROR(_rowset_builder.commit_txn());
@@ -208,6 +210,9 @@ int64_t DeltaWriter::mem_consumption(MemType mem) {
 }
 
 void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
+    if (config::cloud_mode) [[unlikely]] {
+        return;
+    }
     std::shared_ptr<PBackendService_Stub> stub =
             ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                     node_info.host(), node_info.async_internal_port());
@@ -219,7 +224,8 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         return;
     }
 
-    _storage_engine->txn_manager()->add_txn_tablet_delta_writer(_req.txn_id, _req.tablet_id, this);
+    StorageEngine::instance()->txn_manager()->add_txn_tablet_delta_writer(_req.txn_id,
+                                                                          _req.tablet_id, this);
     {
         std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
         _unfinished_slave_node.insert(node_info.id());

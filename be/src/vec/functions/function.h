@@ -65,6 +65,11 @@ struct NullPresence {
     bool has_null_constant = false;
 };
 
+template <typename T>
+concept HasGetVariadicArgumentTypesImpl = requires(T t) {
+    { t.get_variadic_argument_types_impl() } -> std::same_as<DataTypes>;
+};
+
 NullPresence get_null_presence(const Block& block, const ColumnNumbers& args);
 [[maybe_unused]] NullPresence get_null_presence(const ColumnsWithTypeAndName& args);
 
@@ -106,7 +111,7 @@ protected:
 
     virtual Status execute_impl(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, size_t result,
-                                size_t input_rows_count) = 0;
+                                size_t input_rows_count) const = 0;
 
     /** Default implementation in presence of Nullable arguments or NULL constants as arguments is the following:
       *  if some of arguments are NULL constants then return NULL constant,
@@ -430,9 +435,9 @@ public:
 
     bool is_stateful() const override { return false; }
 
-    /// TODO: make const
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override = 0;
+    virtual Status execute_impl(FunctionContext* context, Block& block,
+                                const ColumnNumbers& arguments, size_t result,
+                                size_t input_rows_count) const override = 0;
 
     /// Override this functions to change default implementation behavior. See details in IMyFunction.
     bool use_default_implementation_for_nulls() const override { return true; }
@@ -497,7 +502,7 @@ public:
 
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) final {
+                        size_t result, size_t input_rows_count) const final {
         return function->execute_impl(context, block, arguments, result, input_rows_count);
     }
     Status execute_impl_dry_run(FunctionContext* context, Block& block,
@@ -677,11 +682,12 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(Float32, ColumnFloat32)          \
     M(Float64, ColumnFloat64)
 
-#define DECIMAL_TYPE_TO_COLUMN_TYPE(M)       \
-    M(Decimal32, ColumnDecimal<Decimal32>)   \
-    M(Decimal64, ColumnDecimal<Decimal64>)   \
-    M(Decimal128, ColumnDecimal<Decimal128>) \
-    M(Decimal128I, ColumnDecimal<Decimal128I>)
+#define DECIMAL_TYPE_TO_COLUMN_TYPE(M)         \
+    M(Decimal32, ColumnDecimal<Decimal32>)     \
+    M(Decimal64, ColumnDecimal<Decimal64>)     \
+    M(Decimal128, ColumnDecimal<Decimal128>)   \
+    M(Decimal128I, ColumnDecimal<Decimal128I>) \
+    M(Decimal256, ColumnDecimal<Decimal256>)
 
 #define STRING_TYPE_TO_COLUMN_TYPE(M) \
     M(String, ColumnString)           \
@@ -692,6 +698,10 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(DateTime, ColumnInt64)        \
     M(DateV2, ColumnUInt32)         \
     M(DateTimeV2, ColumnUInt64)
+
+#define IP_TYPE_TO_COLUMN_TYPE(M) \
+    M(IPv4, ColumnIPv4)           \
+    M(IPv6, ColumnIPv6)
 
 #define COMPLEX_TYPE_TO_COLUMN_TYPE(M) \
     M(Array, ColumnArray)              \
@@ -704,7 +714,8 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     NUMERIC_TYPE_TO_COLUMN_TYPE(M)   \
     DECIMAL_TYPE_TO_COLUMN_TYPE(M)   \
     STRING_TYPE_TO_COLUMN_TYPE(M)    \
-    TIME_TYPE_TO_COLUMN_TYPE(M)
+    TIME_TYPE_TO_COLUMN_TYPE(M)      \
+    IP_TYPE_TO_COLUMN_TYPE(M)
 
 #define TYPE_TO_COLUMN_TYPE(M)   \
     TYPE_TO_BASIC_COLUMN_TYPE(M) \

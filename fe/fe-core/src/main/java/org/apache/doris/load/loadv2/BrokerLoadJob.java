@@ -48,6 +48,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -229,6 +230,9 @@ public class BrokerLoadJob extends BulkLoadJob {
                     throw new UserException("txn does not exist: " + transactionId);
                 }
                 txnState.addTableIndexes(table);
+                if (isPartialUpdate()) {
+                    txnState.setSchemaForPartialUpdate(table);
+                }
             }
         } finally {
             MetaLockUtils.readUnlockTables(tableList);
@@ -321,7 +325,8 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (!enableProfile) {
             return;
         }
-        jobProfile.update(createTimestamp, getSummaryInfo(true), true);
+        jobProfile.update(createTimestamp, getSummaryInfo(true), true,
+                Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")), null, false);
     }
 
     private Map<String, String> getSummaryInfo(boolean isFinished) {

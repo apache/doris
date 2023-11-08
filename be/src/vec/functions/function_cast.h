@@ -51,6 +51,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
@@ -74,6 +75,8 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -817,6 +820,9 @@ struct NameToDecimal128 {
 struct NameToDecimal128I {
     static constexpr auto name = "toDecimal128I";
 };
+struct NameToDecimal256 {
+    static constexpr auto name = "toDecimal256";
+};
 struct NameToUInt8 {
     static constexpr auto name = "toUInt8";
 };
@@ -850,6 +856,12 @@ struct NameToFloat32 {
 struct NameToFloat64 {
     static constexpr auto name = "toFloat64";
 };
+struct NameToIPv4 {
+    static constexpr auto name = "toIPv4";
+};
+struct NameToIPv6 {
+    static constexpr auto name = "toIPv6";
+};
 struct NameToDate {
     static constexpr auto name = "toDate";
 };
@@ -876,6 +888,14 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
     if constexpr (IsDateTimeV2Type<DataType>) {
         UInt32 scale = additions;
         return try_read_datetime_v2_text(x, rb, local_time_zone, scale);
+    }
+
+    if constexpr (IsIPv4Type<DataType>) {
+        return try_read_ipv4_text(x, rb);
+    }
+
+    if constexpr (IsIPv6Type<DataType>) {
+        return try_read_ipv6_text(x, rb);
     }
 
     if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
@@ -929,6 +949,12 @@ StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x
         UInt32 scale = ((PrecisionScaleArg)additions).scale;
         UInt32 precision = ((PrecisionScaleArg)additions).precision;
         return try_read_decimal_text<TYPE_DECIMAL128I>(x, rb, precision, scale);
+    }
+
+    if constexpr (IsDataTypeDecimal256<DataType>) {
+        UInt32 scale = ((PrecisionScaleArg)additions).scale;
+        UInt32 precision = ((PrecisionScaleArg)additions).precision;
+        return try_read_decimal_text<TYPE_DECIMAL256>(x, rb, precision, scale);
     }
 }
 
@@ -1094,9 +1120,6 @@ public:
     using Monotonic = MonotonicityImpl;
 
     static constexpr auto name = Name::name;
-    static constexpr bool to_decimal =
-            std::is_same_v<Name, NameToDecimal32> || std::is_same_v<Name, NameToDecimal64> ||
-            std::is_same_v<Name, NameToDecimal128> || std::is_same_v<Name, NameToDecimal128I>;
 
     static FunctionPtr create() { return std::make_shared<FunctionConvert>(); }
 
@@ -1115,7 +1138,7 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         if (!arguments.size()) {
             return Status::RuntimeError("Function {} expects at least 1 arguments", get_name());
         }
@@ -1203,6 +1226,10 @@ using FunctionToDecimal128 =
         FunctionConvert<DataTypeDecimal<Decimal128>, NameToDecimal128, UnknownMonotonicity>;
 using FunctionToDecimal128I =
         FunctionConvert<DataTypeDecimal<Decimal128I>, NameToDecimal128I, UnknownMonotonicity>;
+using FunctionToDecimal256 =
+        FunctionConvert<DataTypeDecimal<Decimal256>, NameToDecimal256, UnknownMonotonicity>;
+using FunctionToIPv4 = FunctionConvert<DataTypeIPv4, NameToIPv4, UnknownMonotonicity>;
+using FunctionToIPv6 = FunctionConvert<DataTypeIPv6, NameToIPv6, UnknownMonotonicity>;
 using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
 using FunctionToDateTime = FunctionConvert<DataTypeDateTime, NameToDateTime, UnknownMonotonicity>;
 using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate, UnknownMonotonicity>;
@@ -1273,6 +1300,18 @@ struct FunctionTo<DataTypeDecimal<Decimal128I>> {
     using Type = FunctionToDecimal128I;
 };
 template <>
+struct FunctionTo<DataTypeDecimal<Decimal256>> {
+    using Type = FunctionToDecimal256;
+};
+template <>
+struct FunctionTo<DataTypeIPv4> {
+    using Type = FunctionToIPv4;
+};
+template <>
+struct FunctionTo<DataTypeIPv6> {
+    using Type = FunctionToIPv6;
+};
+template <>
 struct FunctionTo<DataTypeDate> {
     using Type = FunctionToDate;
 };
@@ -1304,7 +1343,7 @@ public:
 
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         /// drop second argument, pass others
         ColumnNumbers new_arguments {arguments.front()};
         if (arguments.size() > 2)
@@ -1430,6 +1469,15 @@ struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128>, Name>
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128I>, Name>
         : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128I>, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal256>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal256>, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeIPv4, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeIPv4, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeIPv6, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeIPv6, Name> {};
 
 template <typename ToDataType, typename Name>
 class FunctionConvertFromString : public IFunction {
@@ -1458,7 +1506,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
 
         if (check_and_get_data_type<DataTypeString>(from_type)) {
@@ -1494,7 +1542,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         Status ret_status = Status::OK();
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
         auto call = [&](const auto& types) -> bool {
@@ -1852,13 +1900,57 @@ private:
     }
 
     //TODO(Amory) . Need support more cast for key , value for map
-    WrapperType create_map_wrapper(const DataTypePtr& from_type, const DataTypeMap& to_type) const {
-        switch (from_type->get_type_id()) {
-        case TypeIndex::String:
+    WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+                                   const DataTypeMap& to_type) const {
+        if (from_type->get_type_id() == TypeIndex::String) {
             return &ConvertImplGenericFromString::execute;
-        default:
-            return create_unsupport_wrapper(from_type->get_name(), to_type.get_name());
         }
+        auto from = check_and_get_data_type<DataTypeMap>(from_type.get());
+        if (!from) {
+            return create_unsupport_wrapper(
+                    fmt::format("CAST AS Map can only be performed between Map types or from "
+                                "String. from type: {}, to type: {}",
+                                from_type->get_name(), to_type.get_name()));
+        }
+        DataTypes from_kv_types;
+        DataTypes to_kv_types;
+        from_kv_types.reserve(2);
+        to_kv_types.reserve(2);
+        from_kv_types.push_back(from->get_key_type());
+        from_kv_types.push_back(from->get_value_type());
+        to_kv_types.push_back(to_type.get_key_type());
+        to_kv_types.push_back(to_type.get_value_type());
+
+        auto kv_wrappers = get_element_wrappers(context, from_kv_types, to_kv_types);
+        return [kv_wrappers, from_kv_types, to_kv_types](
+                       FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                       const size_t result, size_t /*input_rows_count*/) -> Status {
+            auto& from_column = block.get_by_position(arguments.front()).column;
+            auto from_col_map = check_and_get_column<ColumnMap>(from_column.get());
+            if (!from_col_map) {
+                return Status::RuntimeError("Illegal column {} for function CAST AS MAP",
+                                            from_column->get_name());
+            }
+
+            Columns converted_columns(2);
+            ColumnsWithTypeAndName columnsWithTypeAndName(2);
+            columnsWithTypeAndName[0] = {from_col_map->get_keys_ptr(), from_kv_types[0], ""};
+            columnsWithTypeAndName[1] = {from_col_map->get_values_ptr(), from_kv_types[1], ""};
+
+            for (size_t i = 0; i < 2; ++i) {
+                ColumnNumbers element_arguments {block.columns()};
+                block.insert(columnsWithTypeAndName[i]);
+                size_t element_result = block.columns();
+                block.insert({to_kv_types[i], ""});
+                RETURN_IF_ERROR(kv_wrappers[i](context, block, element_arguments, element_result,
+                                               columnsWithTypeAndName[i].column->size()));
+                converted_columns[i] = block.get_by_position(element_result).column;
+            }
+
+            block.get_by_position(result).column = ColumnMap::create(
+                    converted_columns[0], converted_columns[1], from_col_map->get_offsets_ptr());
+            return Status::OK();
+        };
     }
 
     ElementWrappers get_element_wrappers(FunctionContext* context,
@@ -2084,7 +2176,10 @@ private:
                           std::is_same_v<ToDataType, DataTypeDateTime> ||
                           std::is_same_v<ToDataType, DataTypeDateV2> ||
                           std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
-                          std::is_same_v<ToDataType, DataTypeTimeV2>) {
+                          std::is_same_v<ToDataType, DataTypeTimeV2> ||
+                          std::is_same_v<ToDataType, DataTypeTime> ||
+                          std::is_same_v<ToDataType, DataTypeIPv4> ||
+                          std::is_same_v<ToDataType, DataTypeIPv6>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
                                      requested_result_is_nullable);
                 return true;
@@ -2093,7 +2188,8 @@ private:
             if constexpr (std::is_same_v<ToDataType, DataTypeDecimal<Decimal32>> ||
                           std::is_same_v<ToDataType, DataTypeDecimal<Decimal64>> ||
                           std::is_same_v<ToDataType, DataTypeDecimal<Decimal128>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128I>>) {
+                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128I>> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal256>>) {
                 ret = create_decimal_wrapper(from_type,
                                              check_and_get_data_type<ToDataType>(to_type.get()));
                 return true;
@@ -2115,7 +2211,8 @@ private:
             return create_struct_wrapper(context, from_type,
                                          static_cast<const DataTypeStruct&>(*to_type));
         case TypeIndex::Map:
-            return create_map_wrapper(from_type, static_cast<const DataTypeMap&>(*to_type));
+            return create_map_wrapper(context, from_type,
+                                      static_cast<const DataTypeMap&>(*to_type));
         case TypeIndex::HLL:
             return create_hll_wrapper(context, from_type,
                                       static_cast<const DataTypeHLL&>(*to_type));

@@ -195,7 +195,7 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
 
             min_wf->set_to_min();
             max_wf->set_to_max();
-            rand_wf->from_string(pair.second, 0, 0);
+            EXPECT_EQ(rand_wf->from_string(pair.second, 0, 0).ok(), true);
 
             string min_s = min_wf->to_string();
             string max_s = max_wf->to_string();
@@ -221,11 +221,14 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
             auto ser_col = ColumnString::create();
             ser_col->reserve(3);
             VectorBufferWriter buffer_writer(*ser_col.get());
-            serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+            st = serde->serialize_one_cell_to_json(*col, 0, buffer_writer, formatOptions);
+            EXPECT_EQ(st.ok(), true);
             buffer_writer.commit();
-            serde->serialize_one_cell_to_json(*col, 1, buffer_writer, formatOptions);
+            st = serde->serialize_one_cell_to_json(*col, 1, buffer_writer, formatOptions);
+            EXPECT_EQ(st.ok(), true);
             buffer_writer.commit();
-            serde->serialize_one_cell_to_json(*col, 2, buffer_writer, formatOptions);
+            st = serde->serialize_one_cell_to_json(*col, 2, buffer_writer, formatOptions);
+            EXPECT_EQ(st.ok(), true);
             buffer_writer.commit();
             rtrim(min_s);
             rtrim(max_s);
@@ -251,7 +254,7 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
         std::unique_ptr<WrapperField> rand_wf(
                 WrapperField::create_by_type(FieldType::OLAP_FIELD_TYPE_STRING));
         std::string test_str = generate(128);
-        rand_wf->from_string(test_str, 0, 0);
+        EXPECT_EQ(rand_wf->from_string(test_str, 0, 0).ok(), true);
         Field string_field(test_str);
         ColumnPtr col = nullable_ptr->create_column_const(0, string_field);
         DataTypeSerDe::FormatOptions default_format_option;
@@ -259,7 +262,9 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
         auto ser_col = ColumnString::create();
         ser_col->reserve(1);
         VectorBufferWriter buffer_writer(*ser_col.get());
-        serde->serialize_one_cell_to_json(*col, 0, buffer_writer, default_format_option);
+        Status st =
+                serde->serialize_one_cell_to_json(*col, 0, buffer_writer, default_format_option);
+        EXPECT_EQ(st.ok(), true);
         buffer_writer.commit();
         StringRef rand_s_d = ser_col->get_data_at(0);
         EXPECT_EQ(rand_wf->to_string(), rand_s_d.to_string());
@@ -273,8 +278,9 @@ TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
         formatOptions.map_key_delim = '\003';
 
         string str =
-                "10\003key10\005100\004abcd\0051\002100\003key100\005100\004abcd\0052\0021000\003ke"
-                "y1000\0051000\004abcd\0053";
+                "10\003\"key10\"\005100\004\"abcd\"\0051\002100\003\"key100\"\005100\004\"abcd\""
+                "\0052\0021000\003\"ke"
+                "y1000\"\0051000\004\"abcd\"\0053";
 
         DataTypePtr data_type_ptr = std::make_shared<DataTypeMap>(
                 make_nullable(std::make_shared<DataTypeInt32>()),
@@ -304,7 +310,7 @@ TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
         formatOptions.collection_delim = '\002';
         formatOptions.map_key_delim = '\003';
 
-        string str = "500\005true\00410\005true\004100\005true";
+        string str = "500\005\"true\"\00410\005\"true\"\004100\005\"true\"";
 
         DataTypePtr data_type_ptr = make_nullable(std::make_shared<DataTypeArray>(make_nullable(
                 std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeMap>(
@@ -332,7 +338,8 @@ TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
         formatOptions.map_key_delim = '\003';
 
         string str =
-                "5\0023\004value3\0034\004value4\0035\004value5\002true\003false\0037\0021\0032\003"
+                "5\0023\004\"value3\"\0034\004\"value4\"\0035\004\"value5\"\002\"true\"\003\"false"
+                "\"\0037\0021\0032\003"
                 "3";
         DataTypes substruct_dataTypes;
         substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
@@ -373,7 +380,7 @@ TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
         formatOptions.collection_delim = '\002';
         formatOptions.map_key_delim = '\003';
 
-        string str = "6\003false\004example";
+        string str = "6\003\"false\"\004\"example\"";
         DataTypes substruct_dataTypes;
         substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
         substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));

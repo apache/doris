@@ -68,6 +68,7 @@ Status VRepeatNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_TIMER(_exec_timer);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     if (_output_tuple_desc == nullptr) {
         return Status::InternalError("Failed to get tuple descriptor.");
@@ -91,6 +92,7 @@ Status VRepeatNode::open(RuntimeState* state) {
 }
 
 Status VRepeatNode::alloc_resource(RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(VExpr::open(_expr_ctxs, state));
@@ -172,6 +174,7 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
 }
 
 Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_CANCELLED(state);
     DCHECK(_repeat_id_idx >= 0);
     for (const std::vector<int64_t>& v : _grouping_list) {
@@ -200,6 +203,7 @@ Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_b
 }
 
 Status VRepeatNode::push(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     _child_eos = eos;
     DCHECK(!_intermediate_block || _intermediate_block->rows() == 0);
     DCHECK(!_expr_ctxs.empty());
@@ -247,7 +251,7 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
                           _children[0], std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3)));
 
-        push(state, &_child_block, _child_eos);
+        static_cast<void>(push(state, &_child_block, _child_eos));
     }
 
     return pull(state, block, eos);

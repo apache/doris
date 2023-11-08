@@ -18,6 +18,7 @@
 #include "vec/sink/delta_writer_v2_pool.h"
 
 #include "olap/delta_writer_v2.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 class TExpr;
@@ -28,15 +29,15 @@ DeltaWriterV2Map::DeltaWriterV2Map(UniqueId load_id) : _load_id(load_id), _use_c
 
 DeltaWriterV2Map::~DeltaWriterV2Map() = default;
 
-DeltaWriterV2* DeltaWriterV2Map::get_or_create(int64_t tablet_id,
-                                               std::function<DeltaWriterV2*()> creator) {
+DeltaWriterV2* DeltaWriterV2Map::get_or_create(
+        int64_t tablet_id, std::function<std::unique_ptr<DeltaWriterV2>()> creator) {
     _map.lazy_emplace(tablet_id, [&](const TabletToDeltaWriterV2Map::constructor& ctor) {
         ctor(tablet_id, creator());
     });
     return _map.at(tablet_id).get();
 }
 
-Status DeltaWriterV2Map::close() {
+Status DeltaWriterV2Map::close(RuntimeProfile* profile) {
     if (--_use_cnt > 0) {
         return Status::OK();
     }
@@ -49,16 +50,18 @@ Status DeltaWriterV2Map::close() {
     if (!status.ok()) {
         return status;
     }
-    _map.for_each([&status](auto& entry) {
+    _map.for_each([&status, profile](auto& entry) {
         if (status.ok()) {
-            status = entry.second->close_wait();
+            status = entry.second->close_wait(profile);
         }
     });
     return status;
 }
 
 void DeltaWriterV2Map::cancel(Status status) {
-    _map.for_each([&status](auto& entry) { entry.second->cancel_with_status(status); });
+    _map.for_each([&status](auto& entry) {
+        static_cast<void>(entry.second->cancel_with_status(status));
+    });
 }
 
 DeltaWriterV2Pool::DeltaWriterV2Pool() = default;

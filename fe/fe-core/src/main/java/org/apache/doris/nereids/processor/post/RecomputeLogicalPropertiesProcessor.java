@@ -18,10 +18,8 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.util.MutableState;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 
 /**
  * merge consecutive projects
@@ -29,11 +27,8 @@ import org.apache.doris.nereids.util.MutableState;
 public class RecomputeLogicalPropertiesProcessor extends PlanPostProcessor {
     @Override
     public Plan visit(Plan plan, CascadesContext ctx) {
-        PhysicalPlan physicalPlan = (PhysicalPlan) visitChildren(this, plan, ctx);
-        physicalPlan = physicalPlan.resetLogicalProperties();
-        physicalPlan = physicalPlan.withPhysicalPropertiesAndStats(physicalPlan.getPhysicalProperties(),
-                ((AbstractPlan) plan).getStats());
-        physicalPlan.setMutableState(MutableState.KEY_GROUP, plan.getGroupIdAsString());
-        return physicalPlan;
+        AbstractPhysicalPlan newPlan = (AbstractPhysicalPlan) visitChildren(this, plan, ctx);
+        return ((AbstractPhysicalPlan) newPlan.resetLogicalProperties())
+                .copyStatsAndGroupIdFrom((AbstractPhysicalPlan) plan);
     }
 }

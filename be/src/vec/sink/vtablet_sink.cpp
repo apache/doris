@@ -54,7 +54,6 @@
 #include <unordered_map>
 #include <utility>
 
-#include "runtime/datetime_value.h"
 #include "util/runtime_profile.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -134,7 +133,7 @@ VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
 
 Status VOlapTableSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(AsyncWriterSink::init(t_sink));
-    _writer->init_properties(_pool, _group_commit);
+    RETURN_IF_ERROR(_writer->init_properties(_pool, _group_commit));
     return Status::OK();
 }
 

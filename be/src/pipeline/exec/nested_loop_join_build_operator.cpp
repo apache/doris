@@ -32,12 +32,17 @@ NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOpe
 
 Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
+    _shared_state->join_op_variants = p._join_op_variants;
     _filter_src_expr_ctxs.resize(p._filter_src_expr_ctxs.size());
     for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
+    }
+    for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
+                p._runtime_filter_descs[i], state->query_options()));
     }
     return Status::OK();
 }
@@ -47,9 +52,11 @@ const std::vector<TRuntimeFilterDesc>& NestedLoopJoinBuildSinkLocalState::runtim
 }
 
 NestedLoopJoinBuildSinkOperatorX::NestedLoopJoinBuildSinkOperatorX(ObjectPool* pool,
+                                                                   int operator_id,
                                                                    const TPlanNode& tnode,
                                                                    const DescriptorTbl& descs)
-        : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, tnode, descs),
+        : JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>(pool, operator_id, tnode,
+                                                                    descs),
           _runtime_filter_descs(tnode.runtime_filters),
           _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
                                     tnode.nested_loop_join_node.is_output_left_side_only),
@@ -61,8 +68,6 @@ Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
     std::vector<TExpr> filter_src_exprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         filter_src_exprs.push_back(_runtime_filter_descs[i].src_expr);
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                _runtime_filter_descs[i], state->query_options()));
     }
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(filter_src_exprs, _filter_src_expr_ctxs));
     return Status::OK();
@@ -87,10 +92,9 @@ Status NestedLoopJoinBuildSinkOperatorX::open(RuntimeState* state) {
 
 Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* block,
                                               SourceState source_state) {
-    CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
-    SCOPED_TIMER(local_state._build_timer);
     auto rows = block->rows();
     auto mem_usage = block->allocated_bytes();
 

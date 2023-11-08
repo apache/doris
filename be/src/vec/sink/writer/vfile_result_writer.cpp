@@ -145,18 +145,19 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(
-                _file_writer_impl.get(), _vec_output_expr_ctxs, _output_object_data, _header_type,
-                _header, _file_opts->column_separator, _file_opts->line_delimiter));
+                _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _output_object_data,
+                _header_type, _header, _file_opts->column_separator, _file_opts->line_delimiter));
         break;
     case TFileFormatType::FORMAT_PARQUET:
         _vfile_writer.reset(new VParquetTransformer(
-                _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
+                _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
                 _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
                 _file_opts->parquet_version, _output_object_data));
         break;
     case TFileFormatType::FORMAT_ORC:
-        _vfile_writer.reset(new VOrcTransformer(_file_writer_impl.get(), _vec_output_expr_ctxs,
-                                                _file_opts->orc_schema, _output_object_data));
+        _vfile_writer.reset(new VOrcTransformer(_state, _file_writer_impl.get(),
+                                                _vec_output_expr_ctxs, _file_opts->orc_schema,
+                                                _output_object_data));
         break;
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
@@ -304,7 +305,7 @@ Status VFileResultWriter::_send_result() {
     row_buffer.push_bigint(_written_rows_counter->value()); // total rows
     row_buffer.push_bigint(_written_data_bytes->value());   // file size
     std::string file_url;
-    _get_file_url(&file_url);
+    static_cast<void>(_get_file_url(&file_url));
     row_buffer.push_string(file_url.c_str(), file_url.length()); // url
 
     std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
@@ -341,7 +342,7 @@ Status VFileResultWriter::_fill_result_block() {
         column->insert_data(reinterpret_cast<const char*>(&written_data_bytes), 0); \
     } else if (i == 3) {                                                            \
         std::string file_url;                                                       \
-        _get_file_url(&file_url);                                                   \
+        static_cast<void>(_get_file_url(&file_url));                                \
         column->insert_data(file_url.c_str(), file_url.size());                     \
     }                                                                               \
     _output_block->replace_by_position(i, std::move(column));

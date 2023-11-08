@@ -19,8 +19,13 @@
 
 #include <fmt/format.h>
 
+#include <cstdint>
 #include <memory>
 
+#include "pipeline/exec/es_scan_operator.h"
+#include "pipeline/exec/file_scan_operator.h"
+#include "pipeline/exec/jdbc_scan_operator.h"
+#include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
 #include "vec/exec/runtime_filter_consumer.h"
@@ -113,19 +118,18 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 template <typename Derived>
 Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
 
-    _source_dependency = OrDependency::create_shared(PipelineXLocalState<>::_parent->id());
+    _source_dependency = OrDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
 
-    _open_dependency = OpenDependency::create_shared(PipelineXLocalState<>::_parent->id());
+    _open_dependency = OpenDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
     _source_dependency->add_child(_open_dependency);
-    _eos_dependency = EosDependency::create_shared(PipelineXLocalState<>::_parent->id());
+    _eos_dependency = EosDependency::create_shared(PipelineXLocalState<>::_parent->operator_id());
     _source_dependency->add_child(_eos_dependency);
-
     auto& p = _parent->cast<typename Derived::Parent>();
-    set_scan_ranges(info.scan_ranges);
+    set_scan_ranges(state, info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
     for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); i++) {
         RETURN_IF_ERROR(
@@ -137,6 +141,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     }
     // init profile for runtime filter
     RuntimeFilterConsumer::_init_profile(profile());
+    init_runtime_filter_dependency(_filter_dependency.get());
 
     // 1: running at not pipeline mode will init profile.
     // 2: the scan node should create scanner at pipeline mode will init profile.
@@ -161,7 +166,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
 
 template <typename Derived>
 Status ScanLocalState<Derived>::open(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     if (_open_dependency == nullptr) {
         return Status::OK();
@@ -169,9 +174,8 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     RETURN_IF_ERROR(_acquire_runtime_filter());
     RETURN_IF_ERROR(_process_conjuncts());
 
-    auto status = _eos_dependency->read_blocked_by() == nullptr
-                          ? Status::OK()
-                          : _prepare_scanners(state->query_parallel_instance_num());
+    auto status =
+            _eos_dependency->read_blocked_by() == nullptr ? Status::OK() : _prepare_scanners();
     if (_scanner_ctx) {
         DCHECK(_eos_dependency->read_blocked_by() != nullptr && _num_scanners->value() > 0);
         RETURN_IF_ERROR(_scanner_ctx->init());
@@ -224,6 +228,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
     M(DECIMAL32)                    \
     M(DECIMAL64)                    \
     M(DECIMAL128I)                  \
+    M(DECIMAL256)                   \
     M(DECIMALV2)                    \
     M(BOOLEAN)
             APPLY_FOR_PRIMITIVE_TYPE(M)
@@ -243,7 +248,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
             RETURN_IF_ERROR(_normalize_predicate(conjunct->root(), conjunct.get(), new_root));
             if (new_root) {
                 conjunct->set_root(new_root);
-                if (_should_push_down_common_expr()) {
+                if (_should_push_down_common_expr() &&
+                    vectorized::VExpr::is_acting_on_a_slot(*(conjunct->root()))) {
                     _common_expr_ctxs_push_down.emplace_back(conjunct);
                     it = _conjuncts.erase(it);
                     continue;
@@ -350,9 +356,6 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                                 RETURN_IF_PUSH_DOWN(
                                         _normalize_bitmap_filter(cur_expr, context, slot, &pdt),
                                         status);
-                                RETURN_IF_PUSH_DOWN(
-                                        _normalize_bloom_filter(cur_expr, context, slot, &pdt),
-                                        status);
                                 if (state()->enable_function_pushdown()) {
                                     RETURN_IF_PUSH_DOWN(_normalize_function_filters(
                                                                 cur_expr, context, slot, &pdt),
@@ -366,8 +369,9 @@ Status ScanLocalState<Derived>::_normalize_predicate(
 
             if (pdt == vectorized::VScanNode::PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                _normalize_compound_predicate(cur_expr, context, &pdt, _is_runtime_filter_predicate,
-                                              in_predicate_checker, eq_predicate_checker);
+                static_cast<void>(_normalize_compound_predicate(
+                        cur_expr, context, &pdt, _is_runtime_filter_predicate, in_predicate_checker,
+                        eq_predicate_checker));
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
@@ -421,23 +425,6 @@ Status ScanLocalState<Derived>::_normalize_predicate(
         }
     }
     output_expr = conjunct_expr_root;
-    return Status::OK();
-}
-
-template <typename Derived>
-Status ScanLocalState<Derived>::_normalize_bloom_filter(vectorized::VExpr* expr,
-                                                        vectorized::VExprContext* expr_ctx,
-                                                        SlotDescriptor* slot,
-                                                        vectorized::VScanNode::PushDownType* pdt) {
-    if (TExprNodeType::BLOOM_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 1);
-        vectorized::VScanNode::PushDownType temp_pdt = _should_push_down_bloom_filter();
-        if (temp_pdt != vectorized::VScanNode::PushDownType::UNACCEPTABLE) {
-            _filter_predicates.bloom_filters.emplace_back(slot->col_name(),
-                                                          expr->get_bloom_filter_func());
-            *pdt = temp_pdt;
-        }
-    }
     return Status::OK();
 }
 
@@ -525,17 +512,11 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
 
 template <typename Derived>
 bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr) {
-    if (slot->type().is_date_type() && expr->type().is_date_type()) {
-        return true;
-    }
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
     }
     if (slot->type().is_array_type()) {
         if (slot->type().children[0].type == expr->type().type) {
-            return true;
-        }
-        if (slot->type().children[0].is_date_type() && expr->type().is_date_type()) {
             return true;
         }
         if (slot->type().children[0].is_string_type() && expr->type().is_string_type()) {
@@ -853,8 +834,8 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                                                     const std::string& fn_name,
                                                     int slot_ref_child) {
     if constexpr (PrimitiveType == TYPE_DATE) {
-        vectorized::VecDateTimeValue tmp_value;
-        memcpy(&tmp_value, value, sizeof(vectorized::VecDateTimeValue));
+        VecDateTimeValue tmp_value;
+        memcpy(&tmp_value, value, sizeof(VecDateTimeValue));
         if constexpr (IsFixed) {
             if (!tmp_value.check_loss_accuracy_cast_to_date()) {
                 func(temp_range,
@@ -886,7 +867,8 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                          (PrimitiveType == TYPE_SMALLINT) || (PrimitiveType == TYPE_INT) ||
                          (PrimitiveType == TYPE_BIGINT) || (PrimitiveType == TYPE_LARGEINT) ||
                          (PrimitiveType == TYPE_DECIMAL32) || (PrimitiveType == TYPE_DECIMAL64) ||
-                         (PrimitiveType == TYPE_DECIMAL128I) || (PrimitiveType == TYPE_STRING) ||
+                         (PrimitiveType == TYPE_DECIMAL128I) ||
+                         (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_STRING) ||
                          (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
         if constexpr (IsFixed) {
             func(temp_range,
@@ -1004,8 +986,8 @@ Status ScanLocalState<Derived>::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                _normalize_binary_in_compound_predicate(child_expr, expr_ctx, slot,
-                                                                        value_range, pdt);
+                                static_cast<void>(_normalize_binary_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);
 
@@ -1026,17 +1008,17 @@ Status ScanLocalState<Derived>::_normalize_compound_predicate(
                                     value_range.mark_runtime_filter_predicate(
                                             _is_runtime_filter_predicate);
                                 }};
-                                _normalize_match_in_compound_predicate(child_expr, expr_ctx, slot,
-                                                                       value_range, pdt);
+                                static_cast<void>(_normalize_match_in_compound_predicate(
+                                        child_expr, expr_ctx, slot, value_range, pdt));
                             },
                             active_range);
 
                     _compound_value_ranges.emplace_back(active_range);
                 }
             } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
-                _normalize_compound_predicate(child_expr, expr_ctx, pdt,
-                                              _is_runtime_filter_predicate, in_predicate_checker,
-                                              eq_predicate_checker);
+                static_cast<void>(_normalize_compound_predicate(
+                        child_expr, expr_ctx, pdt, _is_runtime_filter_predicate,
+                        in_predicate_checker, eq_predicate_checker));
             }
         }
     }
@@ -1160,31 +1142,34 @@ Status ScanLocalState<Derived>::_normalize_match_predicate(
 }
 
 template <typename Derived>
-Status ScanLocalState<Derived>::_prepare_scanners(const int query_parallel_instance_num) {
+Status ScanLocalState<Derived>::_prepare_scanners() {
     std::list<vectorized::VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
     if (scanners.empty()) {
         _eos_dependency->set_ready_for_read();
     } else {
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
-        RETURN_IF_ERROR(_start_scanners(scanners, query_parallel_instance_num));
+        RETURN_IF_ERROR(_start_scanners(scanners));
     }
     return Status::OK();
 }
 
 template <typename Derived>
-Status ScanLocalState<Derived>::_start_scanners(const std::list<vectorized::VScannerSPtr>& scanners,
-                                                const int query_parallel_instance_num) {
+Status ScanLocalState<Derived>::_start_scanners(
+        const std::list<vectorized::VScannerSPtr>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = PipScannerContext::create_shared(state(), this, p._output_tuple_desc, scanners,
                                                     p.limit(), state()->scan_queue_mem_limit(),
                                                     p._col_distribute_ids, 1);
-    _scanner_done_dependency = ScannerDoneDependency::create_shared(p.id(), _scanner_ctx.get());
+    _scanner_done_dependency =
+            ScannerDoneDependency::create_shared(p.operator_id(), _scanner_ctx.get());
     _source_dependency->add_child(_scanner_done_dependency);
-    _data_ready_dependency = DataReadyDependency::create_shared(p.id(), _scanner_ctx.get());
+    _data_ready_dependency =
+            DataReadyDependency::create_shared(p.operator_id(), _scanner_ctx.get());
     _source_dependency->add_child(_data_ready_dependency);
 
-    _scanner_ctx->set_dependency(_data_ready_dependency, _scanner_done_dependency);
+    _scanner_ctx->set_dependency(_data_ready_dependency, _scanner_done_dependency,
+                                 _finish_dependency);
     return Status::OK();
 }
 
@@ -1200,6 +1185,11 @@ const TupleDescriptor* ScanLocalState<Derived>::output_tuple_desc() const {
 template <typename Derived>
 TPushAggOp::type ScanLocalState<Derived>::get_push_down_agg_type() {
     return _parent->cast<typename Derived::Parent>()._push_down_agg_type;
+}
+
+template <typename Derived>
+int64_t ScanLocalState<Derived>::get_push_down_count() {
+    return _parent->cast<typename Derived::Parent>()._push_down_count;
 }
 
 template <typename Derived>
@@ -1260,8 +1250,8 @@ Status ScanLocalState<Derived>::_init_profile() {
 
 template <typename LocalStateType>
 ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                             const DescriptorTbl& descs)
-        : OperatorX<LocalStateType>(pool, tnode, descs),
+                                             int operator_id, const DescriptorTbl& descs)
+        : OperatorX<LocalStateType>(pool, tnode, operator_id, descs),
           _runtime_filter_descs(tnode.runtime_filters) {
     if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
         // Which means the request could be fullfilled in a single segment iterator request.
@@ -1269,18 +1259,9 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
             _should_run_serial = true;
         }
     }
-}
-
-template <typename LocalStateType>
-Dependency* ScanOperatorX<LocalStateType>::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._source_dependency->read_blocked_by();
-}
-
-template <typename LocalStateType>
-bool ScanOperatorX<LocalStateType>::is_pending_finish(RuntimeState* state) const {
-    auto& local_state = state->get_local_state(id())->template cast<LocalStateType>();
-    return local_state._scanner_ctx && !local_state._scanner_ctx->no_schedule();
+    if (tnode.__isset.push_down_count) {
+        _push_down_count = tnode.push_down_count;
+    }
 }
 
 template <typename LocalStateType>
@@ -1325,7 +1306,7 @@ Status ScanOperatorX<LocalStateType>::open(RuntimeState* state) {
 
 template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::try_close(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     if (local_state._scanner_ctx.get()) {
         // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
         // TODO: there is a lock in `set_should_stop` may cause some slight impact
@@ -1342,21 +1323,18 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     SCOPED_TIMER(_close_timer);
     if (_data_ready_dependency) {
         COUNTER_UPDATE(_wait_for_data_timer, _data_ready_dependency->read_watcher_elapse_time());
-        COUNTER_UPDATE(profile()->total_time_counter(),
-                       _data_ready_dependency->read_watcher_elapse_time());
+        COUNTER_UPDATE(exec_time_counter(), _data_ready_dependency->read_watcher_elapse_time());
     }
     if (_eos_dependency) {
         COUNTER_SET(_wait_for_eos_timer, _eos_dependency->read_watcher_elapse_time());
-        COUNTER_UPDATE(profile()->total_time_counter(),
-                       _eos_dependency->read_watcher_elapse_time());
+        COUNTER_UPDATE(exec_time_counter(), _eos_dependency->read_watcher_elapse_time());
     }
     if (_scanner_done_dependency) {
         COUNTER_SET(_wait_for_scanner_done_timer,
                     _scanner_done_dependency->read_watcher_elapse_time());
-        COUNTER_UPDATE(profile()->total_time_counter(),
-                       _scanner_done_dependency->read_watcher_elapse_time());
+        COUNTER_UPDATE(exec_time_counter(), _scanner_done_dependency->read_watcher_elapse_time());
     }
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     if (_scanner_ctx.get()) {
         _scanner_ctx->clear_and_join(reinterpret_cast<ScanLocalStateBase*>(this), state);
     }
@@ -1365,19 +1343,11 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
 }
 
 template <typename LocalStateType>
-bool ScanOperatorX<LocalStateType>::runtime_filters_are_ready_or_timeout(
-        RuntimeState* state) const {
-    return state->get_local_state(id())
-            ->template cast<LocalStateType>()
-            .runtime_filters_are_ready_or_timeout();
-}
-
-template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                 SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state._get_next_timer);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     // in inverted index apply logic, in order to optimize query performance,
     // we built some temporary columns into block, these columns only used in scan node level,
     // remove them when query leave scan node to avoid other nodes use block->columns() to make a wrong decision
@@ -1432,5 +1402,13 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
 
 template class ScanOperatorX<OlapScanLocalState>;
 template class ScanLocalState<OlapScanLocalState>;
+template class ScanOperatorX<JDBCScanLocalState>;
+template class ScanLocalState<JDBCScanLocalState>;
+template class ScanOperatorX<FileScanLocalState>;
+template class ScanLocalState<FileScanLocalState>;
+template class ScanOperatorX<EsScanLocalState>;
+template class ScanLocalState<EsScanLocalState>;
+template class ScanLocalState<MetaScanLocalState>;
+template class ScanOperatorX<MetaScanLocalState>;
 
 } // namespace doris::pipeline

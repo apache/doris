@@ -341,7 +341,7 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     OlapTableSchemaParam param;
 
@@ -363,7 +363,7 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
 
     DeltaWriter* delta_writer = nullptr;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    DeltaWriter::open(&write_req, &delta_writer, profile.get());
+    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer, profile.get()));
     ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;
@@ -384,7 +384,7 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
         int32_t c3 = 1;
         columns[2]->insert_data((const char*)&c3, sizeof(c2));
 
-        vectorized::VecDateTimeValue c4;
+        VecDateTimeValue c4;
         c4.from_date_str("2020-07-16 19:39:43", 19);
         int64_t c4_int = c4.to_int64();
         columns[3]->insert_data((const char*)&c4_int, sizeof(c4));

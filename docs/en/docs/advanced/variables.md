@@ -313,7 +313,6 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     The system view table names in information_schema are case-insensitive and behave as 2 when the value of `lower_case_table_names` is 0.
 
-Translated with www.DeepL.com/Translator (free version)
 
 * `max_allowed_packet`
 
@@ -576,6 +575,10 @@ Translated with www.DeepL.com/Translator (free version)
 
     For debugging purpose. In Unique Key MoW table, in case of problems of reading data, setting value to `true` will also read deleted data.
 
+* `skip_missing_version`
+
+    In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover. This config can control the behavior of query. When it is opened, the query will ignore the visible version recorded in FE partition, use the replica version. If the replica on be has missing versions, the query will directly skip this missing version, and only return the data of the existing version, In addition, the query will always try to select the one with the highest lastSuccessVersion among all surviving BE replicas, so as to recover as much data as possible. You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries. Note that, this variable conflicts with the a variable, when the a variable is not -1, this variable will not work.
+
 * `default_password_lifetime`
 
 	Default password expiration time. The default value is 0, which means no expiration. The unit is days. This parameter is only enabled if the user's password expiration property has a value of DEFAULT. like:
@@ -640,7 +643,7 @@ Translated with www.DeepL.com/Translator (free version)
 
     <version since="1.2.0"></version>
 
-    Use a fixed replica to query. If use_fix_replica is 1, the smallest one is used, if use_fix_replica is 2, the second smallest one is used, and so on. The default value is -1, which means it is not enabled.
+    Use a fixed replica to query. replica starts with 0 and if use_fix_replica is 0, the smallest is used, if use_fix_replica is 1, the second smallest is used, and so on. The default value is -1, indicating that the function is disabled.
 
 * `dry_run_query`
 
@@ -695,7 +698,7 @@ Translated with www.DeepL.com/Translator (free version)
 * `enable_unique_key_partial_update`
 
   <version since="2.0.2">
-  Whether to enable partial columns update semantics for native insert into statement, default is false.
+  Whether to enable partial columns update semantics for native insert into statement, default is false. Please note that the default value of the session variable `enable_insert_strict`, which controls whether the insert statement operates in strict mode, is true. In other words, the insert statement is in strict mode by default, and in this mode, updating non-existing keys in partial column updates is not allowed. Therefore, when using the insert statement for partial columns update and wishing to insert non-existing keys, you need to set `enable_unique_key_partial_update` to true and simultaneously set `enable_insert_strict` to false.
   </version>
 
 ***

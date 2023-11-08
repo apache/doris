@@ -77,7 +77,7 @@ public:
     /// Data type id. It's used for runtime type checks.
     virtual TypeIndex get_type_id() const = 0;
 
-    virtual PrimitiveType get_type_as_primitive_type() const = 0;
+    virtual TypeDescriptor get_type_as_type_descriptor() const = 0;
     virtual TPrimitiveType::type get_type_as_tprimitive_type() const = 0;
 
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
@@ -86,7 +86,7 @@ public:
     virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
 
     // get specific serializer or deserializer
-    virtual DataTypeSerDeSPtr get_serde() const = 0;
+    virtual DataTypeSerDeSPtr get_serde(int nesting_level = 1) const = 0;
 
 protected:
     virtual String do_get_name() const;
@@ -286,8 +286,10 @@ struct WhichDataType {
     bool is_decimal64() const { return idx == TypeIndex::Decimal64; }
     bool is_decimal128() const { return idx == TypeIndex::Decimal128; }
     bool is_decimal128i() const { return idx == TypeIndex::Decimal128I; }
+    bool is_decimal256() const { return idx == TypeIndex::Decimal256; }
     bool is_decimal() const {
-        return is_decimal32() || is_decimal64() || is_decimal128() || is_decimal128i();
+        return is_decimal32() || is_decimal64() || is_decimal128() || is_decimal128i() ||
+               is_decimal256();
     }
 
     bool is_float32() const { return idx == TypeIndex::Float32; }

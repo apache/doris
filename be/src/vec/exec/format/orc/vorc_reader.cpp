@@ -149,7 +149,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     VecDateTimeValue t;
     t.from_unixtime(0, ctz);
-    _offset_days = t.day() == 31 ? 0 : 1;
+    _offset_days = t.day() == 31 ? -1 : 0; // If 1969-12-31, then returns -1.
     _init_profile();
     _init_system_properties();
     _init_file_description();
@@ -198,20 +198,25 @@ int64_t OrcReader::size() const {
 void OrcReader::_init_profile() {
     if (_profile != nullptr) {
         static const char* orc_profile = "OrcReader";
-        ADD_TIMER(_profile, orc_profile);
-        _orc_profile.read_time = ADD_TIMER(_profile, "FileReadTime");
-        _orc_profile.read_calls = ADD_COUNTER(_profile, "FileReadCalls", TUnit::UNIT);
-        _orc_profile.read_bytes = ADD_COUNTER(_profile, "FileReadBytes", TUnit::BYTES);
-        _orc_profile.column_read_time = ADD_CHILD_TIMER(_profile, "ColumnReadTime", orc_profile);
-        _orc_profile.get_batch_time = ADD_CHILD_TIMER(_profile, "GetBatchTime", orc_profile);
+        ADD_TIMER_WITH_LEVEL(_profile, orc_profile, 1);
+        _orc_profile.read_time = ADD_TIMER_WITH_LEVEL(_profile, "FileReadTime", 1);
+        _orc_profile.read_calls = ADD_COUNTER_WITH_LEVEL(_profile, "FileReadCalls", TUnit::UNIT, 1);
+        _orc_profile.read_bytes =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileReadBytes", TUnit::BYTES, 1);
+        _orc_profile.column_read_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ColumnReadTime", orc_profile, 1);
+        _orc_profile.get_batch_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "GetBatchTime", orc_profile, 1);
         _orc_profile.create_reader_time =
-                ADD_CHILD_TIMER(_profile, "CreateReaderTime", orc_profile);
-        _orc_profile.init_column_time = ADD_CHILD_TIMER(_profile, "InitColumnTime", orc_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "CreateReaderTime", orc_profile, 1);
+        _orc_profile.init_column_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "InitColumnTime", orc_profile, 1);
         _orc_profile.set_fill_column_time =
-                ADD_CHILD_TIMER(_profile, "SetFillColumnTime", orc_profile);
-        _orc_profile.decode_value_time = ADD_CHILD_TIMER(_profile, "DecodeValueTime", orc_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "SetFillColumnTime", orc_profile, 1);
+        _orc_profile.decode_value_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeValueTime", orc_profile, 1);
         _orc_profile.decode_null_map_time =
-                ADD_CHILD_TIMER(_profile, "DecodeNullMapTime", orc_profile);
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", orc_profile, 1);
     }
 }
 
@@ -267,7 +272,6 @@ Status OrcReader::init_reader(
                                                  not_single_slot_filter_conjuncts->end());
     }
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
-    _text_converter.reset(new TextConverter('\\'));
     _obj_pool = std::make_shared<ObjectPool>();
     {
         SCOPED_RAW_TIMER(&_statistics.create_reader_time);
@@ -786,7 +790,7 @@ Status OrcReader::set_fill_columns(
         _batch = _row_reader->createRowBatch(_batch_size);
         auto& selected_type = _row_reader->getSelectedType();
         int idx = 0;
-        _init_select_types(selected_type, idx);
+        static_cast<void>(_init_select_types(selected_type, idx));
 
         _remaining_rows = _row_reader->getNumberOfRows();
 
@@ -826,7 +830,7 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
         const orc::Type* sub_type = type.getSubtype(i);
         _col_orc_type.push_back(sub_type);
         if (_is_acid && sub_type->getKind() == orc::TypeKind::STRUCT) {
-            _init_select_types(*sub_type, idx);
+            static_cast<void>(_init_select_types(*sub_type, idx));
         }
     }
     return Status::OK();
@@ -836,14 +840,29 @@ Status OrcReader::_fill_partition_columns(
         Block* block, size_t rows,
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns) {
+    DataTypeSerDe::FormatOptions _text_formatOptions;
     for (auto& kv : partition_columns) {
         auto doris_column = block->get_by_name(kv.first).column;
         IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
         auto& [value, slot_desc] = kv.second;
-        if (!_text_converter->write_vec_column(slot_desc, col_ptr, const_cast<char*>(value.c_str()),
-                                               value.size(), true, false, rows)) {
+        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
+        Slice slice(value.data(), value.size());
+        vector<Slice> slices(rows);
+        for (int i = 0; i < rows; i++) {
+            slices[i] = {value.data(), value.size()};
+        }
+        int num_deserialized = 0;
+        if (_text_serde->deserialize_column_from_json_vector(*col_ptr, slices, &num_deserialized,
+                                                             _text_formatOptions) != Status::OK()) {
             return Status::InternalError("Failed to fill partition column: {}={}",
                                          slot_desc->col_name(), value);
+        }
+        if (num_deserialized != rows) {
+            return Status::InternalError(
+                    "Failed to fill partition column: {}={} ."
+                    "Number of rows expected to be written : {}, number of rows actually written : "
+                    "{}",
+                    slot_desc->col_name(), value, num_deserialized, rows);
         }
     }
     return Status::OK();
@@ -970,16 +989,6 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     default:
         return TypeDescriptor(PrimitiveType::INVALID_TYPE);
     }
-}
-
-std::unordered_map<std::string, TypeDescriptor> OrcReader::get_name_to_type() {
-    std::unordered_map<std::string, TypeDescriptor> map;
-    auto& root_type = _reader->getType();
-    for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        map.emplace(_get_field_name_lower_case(&root_type, i),
-                    _convert_to_doris_type(root_type.getSubtype(i)));
-    }
-    return map;
 }
 
 Status OrcReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
@@ -1509,7 +1518,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
-            _convert_dict_cols_to_string_cols(block, nullptr);
+            static_cast<void>(_convert_dict_cols_to_string_cols(block, nullptr));
             *eof = true;
             return Status::OK();
         }
@@ -1545,11 +1554,11 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                     std::move(*block->get_by_position(col).column).assume_mutable()->clear();
                 }
                 Block::erase_useless_column(block, column_to_keep);
-                _convert_dict_cols_to_string_cols(block, &batch_vec);
+                static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
                 return Status::OK();
             }
             if (!_not_single_slot_filter_conjuncts.empty()) {
-                _convert_dict_cols_to_string_cols(block, &batch_vec);
+                static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
                 std::vector<IColumn::Filter*> merged_filters;
                 merged_filters.push_back(&result_filter);
                 RETURN_IF_CATCH_EXCEPTION(
@@ -1560,7 +1569,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 RETURN_IF_CATCH_EXCEPTION(
                         Block::filter_block_internal(block, columns_to_filter, result_filter));
                 Block::erase_useless_column(block, column_to_keep);
-                _convert_dict_cols_to_string_cols(block, &batch_vec);
+                static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
             }
         } else {
             if (_delete_rows_filter_ptr) {
@@ -1568,7 +1577,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                                                                        (*_delete_rows_filter_ptr)));
             }
             Block::erase_useless_column(block, column_to_keep);
-            _convert_dict_cols_to_string_cols(block, &batch_vec);
+            static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
         }
     }
     return Status::OK();
@@ -1710,9 +1719,9 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     }
     data.numElements = new_size;
     if (data.numElements > 0) {
-        _convert_dict_cols_to_string_cols(block, &batch_vec);
+        static_cast<void>(_convert_dict_cols_to_string_cols(block, &batch_vec));
     } else {
-        _convert_dict_cols_to_string_cols(block, nullptr);
+        static_cast<void>(_convert_dict_cols_to_string_cols(block, nullptr));
     }
     return Status::OK();
 }
@@ -1936,7 +1945,7 @@ Status OrcReader::on_string_dicts_loaded(
         }
 
         // 4. Rewrite conjuncts.
-        _rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable());
+        static_cast<void>(_rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable()));
         ++it;
     }
     return Status::OK();

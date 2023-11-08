@@ -101,6 +101,7 @@ bool VTableFunctionNode::_is_inner_and_empty() {
 Status VTableFunctionNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_TIMER(_exec_timer);
 
     _num_rows_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsFiltered", TUnit::UNIT);
     for (auto fn : _fns) {
@@ -204,7 +205,7 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
                     _fns[i]->get_value(columns[i + _child_slots.size()]);
                 }
                 _current_row_insert_times++;
-                _fns[_fn_num - 1]->forward();
+                static_cast<void>(_fns[_fn_num - 1]->forward());
             }
         }
     }
@@ -284,7 +285,7 @@ int VTableFunctionNode::_find_last_fn_eos_idx() {
 bool VTableFunctionNode::_roll_table_functions(int last_eos_idx) {
     int i = last_eos_idx - 1;
     for (; i >= 0; --i) {
-        _fns[i]->forward();
+        static_cast<void>(_fns[i]->forward());
         if (!_fns[i]->eos()) {
             break;
         }
@@ -296,7 +297,7 @@ bool VTableFunctionNode::_roll_table_functions(int last_eos_idx) {
     }
 
     for (int j = i + 1; j < _fn_num; ++j) {
-        _fns[j]->reset();
+        static_cast<void>(_fns[j]->reset());
     }
 
     return true;

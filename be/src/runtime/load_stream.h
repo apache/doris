@@ -103,10 +103,10 @@ using IndexStreamSharedPtr = std::shared_ptr<IndexStream>;
 using StreamId = brpc::StreamId;
 class LoadStream : public brpc::StreamInputHandler {
 public:
-    LoadStream(PUniqueId id, LoadStreamMgr* load_stream_mgr, bool enable_profile);
+    LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile);
     ~LoadStream();
 
-    Status init(const POpenStreamSinkRequest* request);
+    Status init(const POpenLoadStreamRequest* request);
 
     void add_source(int64_t src_id) {
         std::lock_guard lock_guard(_lock);
@@ -134,7 +134,7 @@ private:
                         std::vector<int64_t>* failed_tablet_ids);
 
 private:
-    PUniqueId _id;
+    PUniqueId _load_id;
     std::unordered_map<int64_t, IndexStreamSharedPtr> _index_streams_map;
     std::atomic<uint32_t> _num_rpc_streams;
     bthread::Mutex _lock;

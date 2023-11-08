@@ -50,6 +50,7 @@
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
@@ -63,28 +64,27 @@
 namespace doris {
 using namespace ErrorCode;
 
-Status DeltaWriterV2::open(WriteRequest* req,
-                           const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                           DeltaWriterV2** writer, RuntimeProfile* profile) {
-    *writer = new DeltaWriterV2(req, streams, StorageEngine::instance(), profile);
-    return Status::OK();
+std::unique_ptr<DeltaWriterV2> DeltaWriterV2::open(
+        WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams) {
+    std::unique_ptr<DeltaWriterV2> writer(
+            new DeltaWriterV2(req, streams, StorageEngine::instance()));
+    return writer;
 }
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
                              const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                             StorageEngine* storage_engine, RuntimeProfile* profile)
+                             StorageEngine* storage_engine)
         : _req(*req),
           _tablet_schema(new TabletSchema),
-          _profile(profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true,
-                                         true)),
           _memtable_writer(new MemTableWriter(*req)),
-          _streams(streams) {
-    _init_profile(profile);
-}
+          _streams(streams) {}
 
-void DeltaWriterV2::_init_profile(RuntimeProfile* profile) {
-    _write_memtable_timer = ADD_TIMER(_profile, "WriteMemTableTime");
-    _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
+void DeltaWriterV2::_update_profile(RuntimeProfile* profile) {
+    auto child = profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true, true);
+    auto write_memtable_timer = ADD_TIMER(child, "WriteMemTableTime");
+    auto close_wait_timer = ADD_TIMER(child, "CloseWaitTime");
+    COUNTER_SET(write_memtable_timer, _write_memtable_time);
+    COUNTER_SET(close_wait_timer, _close_wait_time);
 }
 
 DeltaWriterV2::~DeltaWriterV2() {
@@ -93,7 +93,7 @@ DeltaWriterV2::~DeltaWriterV2() {
     }
 
     // cancel and wait all memtables in flush queue to be finished
-    _memtable_writer->cancel();
+    static_cast<void>(_memtable_writer->cancel());
 }
 
 Status DeltaWriterV2::init() {
@@ -121,11 +121,12 @@ Status DeltaWriterV2::init() {
     context.rowset_type = RowsetTypePB::BETA_ROWSET;
     context.rowset_id = StorageEngine::instance()->next_rowset_id();
     context.data_dir = nullptr;
+    context.partial_update_info = _partial_update_info;
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
-    _rowset_writer->init(context);
-    _memtable_writer->init(_rowset_writer, _tablet_schema,
-                           _streams[0]->enable_unique_mow(_req.index_id));
+    RETURN_IF_ERROR(_rowset_writer->init(context));
+    RETURN_IF_ERROR(_memtable_writer->init(_rowset_writer, _tablet_schema, _partial_update_info,
+                                           _streams[0]->enable_unique_mow(_req.index_id)));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     _streams.clear();
@@ -147,7 +148,7 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<in
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
-    SCOPED_TIMER(_write_memtable_timer);
+    SCOPED_RAW_TIMER(&_write_memtable_time);
     return _memtable_writer->write(block, row_idxs, is_append);
 }
 
@@ -166,13 +167,16 @@ Status DeltaWriterV2::close() {
     return _memtable_writer->close();
 }
 
-Status DeltaWriterV2::close_wait() {
-    SCOPED_TIMER(_close_wait_timer);
+Status DeltaWriterV2::close_wait(RuntimeProfile* profile) {
+    SCOPED_RAW_TIMER(&_close_wait_time);
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
 
-    RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
+    if (profile != nullptr) {
+        _update_profile(profile);
+    }
+    RETURN_IF_ERROR(_memtable_writer->close_wait(profile));
 
     _delta_written_success = true;
     return Status::OK();
@@ -194,10 +198,6 @@ Status DeltaWriterV2::cancel_with_status(const Status& st) {
 
 int64_t DeltaWriterV2::mem_consumption(MemType mem) {
     return _memtable_writer->mem_consumption(mem);
-}
-
-int64_t DeltaWriterV2::active_memtable_mem_consumption() {
-    return _memtable_writer->active_memtable_mem_consumption();
 }
 
 int64_t DeltaWriterV2::partition_id() const {
@@ -225,8 +225,10 @@ void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
 
     _tablet_schema->set_table_id(table_schema_param->table_id());
     // set partial update columns info
-    _tablet_schema->set_partial_update_info(table_schema_param->is_partial_update(),
-                                            table_schema_param->partial_update_input_columns());
+    _partial_update_info = std::make_shared<PartialUpdateInfo>();
+    _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
+                               table_schema_param->partial_update_input_columns(),
+                               table_schema_param->is_strict_mode());
 }
 
 } // namespace doris

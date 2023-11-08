@@ -50,11 +50,12 @@ public:
 
 class AggSourceOperatorX;
 
-class AggLocalState : public PipelineXLocalState<AggDependency> {
+class AggLocalState final : public PipelineXLocalState<AggDependency> {
 public:
     using Base = PipelineXLocalState<AggDependency>;
     ENABLE_FACTORY_CREATOR(AggLocalState);
     AggLocalState(RuntimeState* state, OperatorXBase* parent);
+    ~AggLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status close(RuntimeState* state) override;
@@ -115,9 +116,9 @@ protected:
 class AggSourceOperatorX : public OperatorX<AggLocalState> {
 public:
     using Base = OperatorX<AggLocalState>;
-    AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                       const DescriptorTbl& descs);
     ~AggSourceOperatorX() = default;
-    Dependency* wait_for_dependency(RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;

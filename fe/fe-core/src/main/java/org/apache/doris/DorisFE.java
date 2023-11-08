@@ -40,8 +40,8 @@ import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
-import io.grpc.netty.shaded.io.netty.util.internal.logging.InternalLoggerFactory;
-import io.grpc.netty.shaded.io.netty.util.internal.logging.Log4JLoggerFactory;
+import io.netty.util.internal.logging.InternalLoggerFactory;
+import io.netty.util.internal.logging.Log4JLoggerFactory;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
@@ -101,6 +101,11 @@ public class DorisFE {
         CommandLineOptions cmdLineOpts = parseArgs(args);
 
         try {
+            if (cmdLineOpts.isVersion()) {
+                printVersion();
+                System.exit(0);
+            }
+
             // pid file
             if (!createAndLockPidFile(pidDir + "/fe.pid")) {
                 throw new IOException("pid file is already locked.");
@@ -371,13 +376,17 @@ public class DorisFE {
         return new CommandLineOptions(false, null, null, "");
     }
 
+    private static void printVersion() {
+        System.out.println("Build version: " + Version.DORIS_BUILD_VERSION);
+        System.out.println("Build time: " + Version.DORIS_BUILD_TIME);
+        System.out.println("Build info: " + Version.DORIS_BUILD_INFO);
+        System.out.println("Build hash: " + Version.DORIS_BUILD_HASH);
+        System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
+    }
+
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {
         if (cmdLineOpts.isVersion()) {
-            System.out.println("Build version: " + Version.DORIS_BUILD_VERSION);
-            System.out.println("Build time: " + Version.DORIS_BUILD_TIME);
-            System.out.println("Build info: " + Version.DORIS_BUILD_INFO);
-            System.out.println("Build hash: " + Version.DORIS_BUILD_HASH);
-            System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
+            printVersion();
             System.exit(0);
         } else if (cmdLineOpts.runBdbTools()) {
             BDBTool bdbTool = new BDBTool(Env.getCurrentEnv().getBdbDir(), cmdLineOpts.getBdbToolOpts());

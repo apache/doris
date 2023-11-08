@@ -19,18 +19,35 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.UnaryNode;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * Eliminate limit = 0.
  */
-public class EliminateLimit extends OneRewriteRuleFactory {
+public class EliminateLimit implements RewriteRuleFactory {
+
     @Override
-    public Rule build() {
-        return logicalLimit()
-                .when(limit -> limit.getLimit() == 0)
-                .thenApply(ctx -> new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(),
-                        ctx.root.getOutput()))
-                .toRule(RuleType.ELIMINATE_LIMIT);
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                logicalLimit()
+                        .when(limit -> limit.getLimit() == 0)
+                        .thenApply(ctx -> new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(),
+                                ctx.root.getOutput()))
+                        .toRule(RuleType.ELIMINATE_LIMIT),
+                logicalLimit(logicalOneRowRelation())
+                        .then(limit -> limit.getLimit() > 0 && limit.getOffset() == 0
+                                ? limit.child() : new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(),
+                                limit.child().getOutput()))
+                        .toRule(RuleType.ELIMINATE_LIMIT_ON_ONE_ROW_RELATION),
+                logicalLimit(logicalEmptyRelation())
+                        .then(UnaryNode::child)
+                        .toRule(RuleType.ELIMINATE_LIMIT_ON_EMPTY_RELATION)
+        );
     }
 }

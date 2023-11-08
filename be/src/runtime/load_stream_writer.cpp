@@ -69,9 +69,7 @@ namespace doris {
 using namespace ErrorCode;
 
 LoadStreamWriter::LoadStreamWriter(WriteRequest* req, RuntimeProfile* profile)
-        : _req(*req),
-          _rowset_builder(*req, StorageEngine::instance(), profile),
-          _rowset_writer(nullptr) {}
+        : _req(*req), _rowset_builder(*req, profile), _rowset_writer(nullptr) {}
 
 LoadStreamWriter::~LoadStreamWriter() = default;
 
@@ -123,9 +121,16 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
     return Status::OK();
 }
 
-Status LoadStreamWriter::add_segment(uint32_t segid, SegmentStatistics& stat) {
-    _rowset_writer->add_segment(segid, stat);
-    return Status::OK();
+Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat) {
+    if (_segment_file_writers[segid]->bytes_appended() != stat.data_size) {
+        LOG(WARNING) << _segment_file_writers[segid]->path() << " is incomplete, actual size: "
+                     << _segment_file_writers[segid]->bytes_appended()
+                     << ", expected size: " << stat.data_size;
+        return Status::Corruption("segment {} is incomplete, actual size: {}, expected size: {}",
+                                  _segment_file_writers[segid]->path().native(),
+                                  _segment_file_writers[segid]->bytes_appended(), stat.data_size);
+    }
+    return _rowset_writer->add_segment(segid, stat);
 }
 
 Status LoadStreamWriter::close() {
@@ -146,16 +151,16 @@ Status LoadStreamWriter::close() {
         return Status::Error<ErrorCode::INTERNAL_ERROR>("flush segment failed");
     }
 
-    for (size_t i = 0; i < _segment_file_writers.size(); i++) {
-        if (!_segment_file_writers[i]->is_closed()) {
-            return Status::Corruption("segment {} is not eos", i);
+    for (const auto& writer : _segment_file_writers) {
+        if (!writer->is_closed()) {
+            return Status::Corruption("segment {} is not closed", writer->path().native());
         }
     }
 
-    _rowset_builder.build_rowset();
-    _rowset_builder.submit_calc_delete_bitmap_task();
-    _rowset_builder.wait_calc_delete_bitmap();
-    _rowset_builder.commit_txn();
+    RETURN_IF_ERROR(_rowset_builder.build_rowset());
+    RETURN_IF_ERROR(_rowset_builder.submit_calc_delete_bitmap_task());
+    RETURN_IF_ERROR(_rowset_builder.wait_calc_delete_bitmap());
+    RETURN_IF_ERROR(_rowset_builder.commit_txn());
 
     return Status::OK();
 }

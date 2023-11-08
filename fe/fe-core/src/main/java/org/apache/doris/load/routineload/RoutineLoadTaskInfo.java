@@ -54,7 +54,8 @@ public abstract class RoutineLoadTaskInfo {
     private RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
 
     protected UUID id;
-    protected long txnId = -1L;
+    protected static final long INIT_TXN_ID = -1L;
+    protected long txnId = INIT_TXN_ID;
     protected long jobId;
     protected String clusterName;
 
@@ -198,7 +199,11 @@ public abstract class RoutineLoadTaskInfo {
         List<String> row = Lists.newArrayList();
         row.add(DebugUtil.printId(id));
         row.add(String.valueOf(txnId));
-        row.add(txnStatus.name());
+        if (INIT_TXN_ID != txnId) {
+            row.add(txnStatus.name());
+        } else {
+            row.add(null);
+        }
         row.add(String.valueOf(jobId));
         row.add(String.valueOf(TimeUtils.longToTimeString(createTimeMs)));
         row.add(String.valueOf(TimeUtils.longToTimeString(executeStartTimeMs)));

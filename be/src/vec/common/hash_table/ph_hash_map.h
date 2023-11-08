@@ -23,9 +23,7 @@
 #include <span>
 
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/common/arena.h"
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_table_utils.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 template <typename Key, typename Mapped>
@@ -130,12 +128,10 @@ public:
 
     template <typename KeyHolder>
     void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, bool& inserted) {
-        const auto& key = key_holder_get_key(key_holder);
         inserted = false;
-        it = &*_hash_map.lazy_emplace(key, [&](const auto& ctor) {
+        it = &*_hash_map.lazy_emplace(key_holder, [&](const auto& ctor) {
             inserted = true;
-            key_holder_persist_key(key_holder);
-            ctor(key_holder_get_key(key_holder), nullptr);
+            ctor(key_holder, nullptr);
         });
 
         if constexpr (PartitionedHashTable) {
@@ -145,46 +141,19 @@ public:
 
     template <typename KeyHolder, typename Func>
     void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
-        const auto& key = key_holder_get_key(key_holder);
-        it = &*_hash_map.lazy_emplace(key, [&](const auto& ctor) {
-            key_holder_persist_key(key_holder);
-            f(ctor, key);
-        });
+        it = &*_hash_map.lazy_emplace(key_holder, [&](const auto& ctor) { f(ctor, key_holder); });
 
         if constexpr (PartitionedHashTable) {
             _check_if_need_partition();
         }
     }
 
-    template <typename KeyHolder, typename Func>
-    void lazy_emplace_keys(const std::span<KeyHolder>& keys, const std::vector<size_t>& hash_values,
-                           doris::vectorized::AggregateDataPtr* places, Func&& f) {
-        for (size_t i = 0; i < keys.size(); i++) {
-            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < keys.size())) {
-                prefetch_by_hash(hash_values[i + HASH_MAP_PREFETCH_DIST]);
-            }
-            places[i] = _hash_map
-                                .lazy_emplace_with_hash(keys[i], hash_values[i],
-                                                        [&](const auto& ctor) {
-                                                            key_holder_persist_key_with_arena(
-                                                                    keys[i], _arena);
-                                                            f(ctor, keys[i]);
-                                                        })
-                                ->second;
-            if constexpr (PartitionedHashTable) {
-                _check_if_need_partition();
-            }
-        }
-    }
-
     template <typename KeyHolder>
-    void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, bool& inserted,
+    void ALWAYS_INLINE emplace(KeyHolder&& key, LookupResult& it, bool& inserted,
                                size_t hash_value) {
-        const auto& key = key_holder_get_key(key_holder);
         inserted = false;
         it = &*_hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
             inserted = true;
-            key_holder_persist_key(key_holder);
             if constexpr (std::is_pointer_v<std::remove_reference_t<mapped_type>>) {
                 ctor(key, nullptr);
             } else {
@@ -198,14 +167,10 @@ public:
     }
 
     template <typename KeyHolder, typename Func>
-    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key, LookupResult& it, size_t hash_value,
                                     Func&& f) {
-        const auto& key = key_holder_get_key(key_holder);
-
-        it = &*_hash_map.lazy_emplace_with_hash(key, hash_value, [&](const auto& ctor) {
-            key_holder_persist_key(key_holder);
-            f(ctor, key);
-        });
+        it = &*_hash_map.lazy_emplace_with_hash(key, hash_value,
+                                                [&](const auto& ctor) { f(ctor, key, key); });
 
         if constexpr (PartitionedHashTable) {
             _check_if_need_partition();
@@ -219,29 +184,22 @@ public:
     }
 
     template <typename KeyHolder>
-    LookupResult ALWAYS_INLINE find(KeyHolder&& key_holder) {
-        const auto& key = key_holder_get_key(key_holder);
+    LookupResult ALWAYS_INLINE find(KeyHolder&& key) {
         auto it = _hash_map.find(key);
         return it != _hash_map.end() ? &*it : nullptr;
     }
 
     template <typename KeyHolder>
-    LookupResult ALWAYS_INLINE find(KeyHolder&& key_holder, size_t hash_value) {
-        const auto& key = key_holder_get_key(key_holder);
+    LookupResult ALWAYS_INLINE find(KeyHolder&& key, size_t hash_value) {
         auto it = _hash_map.find(key, hash_value);
         return it != _hash_map.end() ? &*it : nullptr;
     }
 
     size_t hash(const Key& x) const { return _hash_map.hash(x); }
 
-    template <bool read = true>
-    void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {
+    template <bool read>
+    void ALWAYS_INLINE prefetch(const Key& key, size_t hash_value) {
         _hash_map.prefetch_hash(hash_value);
-    }
-
-    template <bool read = true>
-    void ALWAYS_INLINE prefetch_by_key(Key key) {
-        _hash_map.prefetch(key);
     }
 
     /// Call func(const Key &, Mapped &) for each hash map element.
@@ -270,8 +228,10 @@ public:
     }
 
     size_t size() const { return _hash_map.size(); }
-
-    char* get_null_key_data() { return nullptr; }
+    template <typename MappedType>
+    char* get_null_key_data() {
+        return nullptr;
+    }
     bool has_null_key_data() const { return false; }
 
     bool need_partition() { return _need_partition; }
@@ -308,12 +268,4 @@ private:
     // this flag is set to true, and resize does not actually happen,
     // PartitionedHashTable will convert this hash table to partitioned hash table
     bool _need_partition;
-    doris::vectorized::Arena _arena;
-};
-
-template <typename Key, typename Mapped, typename Hash, bool PartitionedHashTable>
-struct HashTableTraits<PHHashMap<Key, Mapped, Hash, PartitionedHashTable>> {
-    static constexpr bool is_phmap = true;
-    static constexpr bool is_string_hash_table = false;
-    static constexpr bool is_partitioned_table = false;
 };

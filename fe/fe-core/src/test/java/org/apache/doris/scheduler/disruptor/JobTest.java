@@ -19,6 +19,7 @@ package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.scheduler.common.IntervalUnit;
 import org.apache.doris.scheduler.constants.JobCategory;
+import org.apache.doris.scheduler.constants.JobType;
 import org.apache.doris.scheduler.executor.SqlJobExecutor;
 import org.apache.doris.scheduler.job.Job;
 
@@ -42,7 +43,7 @@ public class JobTest {
     public static void init() {
         SqlJobExecutor sqlJobExecutor = new SqlJobExecutor("insert into test values(1);");
         job = new Job("insertTest", 1000L, System.currentTimeMillis(), System.currentTimeMillis() + 100000, sqlJobExecutor);
-        job.setCycleJob(true);
+        job.setJobType(JobType.RECURRING);
         job.setComment("test");
         job.setOriginInterval(10L);
         job.setIntervalUnit(IntervalUnit.SECOND);

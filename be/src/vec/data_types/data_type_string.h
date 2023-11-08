@@ -56,7 +56,9 @@ public:
 
     TypeIndex get_type_id() const override { return TypeIndex::String; }
 
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_STRING; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_STRING);
+    }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::STRING;
     }
@@ -89,8 +91,8 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeStringSerDe>();
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeStringSerDe>(nesting_level);
     };
 };
 

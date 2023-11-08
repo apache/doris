@@ -17,6 +17,10 @@
 
 #include "dependency.h"
 
+#include <memory>
+#include <mutex>
+
+#include "common/logging.h"
 #include "runtime/memory/mem_tracker.h"
 
 namespace doris::pipeline {
@@ -68,18 +72,14 @@ std::string OrDependency::debug_string(int indentation_level) {
 Status AggDependency::reset_hash_table() {
     return std::visit(
             [&](auto&& agg_method) {
-                auto& hash_table = agg_method.data;
-                using HashMethodType = std::decay_t<decltype(agg_method)>;
+                auto& hash_table = *agg_method.hash_table;
                 using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                if constexpr (vectorized::ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                      HashMethodType>::value) {
-                    agg_method.reset();
-                }
+                agg_method.reset();
 
                 hash_table.for_each_mapped([&](auto& mapped) {
                     if (mapped) {
-                        destroy_agg_status(mapped);
+                        static_cast<void>(destroy_agg_status(mapped));
                         mapped = nullptr;
                     }
                 });
@@ -125,7 +125,7 @@ Status AggDependency::merge_spilt_data() {
         CHECK_LT(_agg_state.spill_context.read_cursor, reader->block_count());
         reader->seek(_agg_state.spill_context.read_cursor);
         vectorized::Block block;
-        bool eos;
+        bool eos = false;
         RETURN_IF_ERROR(reader->read(&block, &eos));
 
         // TODO
@@ -328,6 +328,115 @@ Status HashJoinDependency::extract_join_column(vectorized::Block& block,
         }
     }
     return Status::OK();
+}
+
+bool RuntimeFilterTimer::has_ready() {
+    std::unique_lock<std::mutex> lc(_lock);
+    return _runtime_filter->is_ready();
+}
+
+void RuntimeFilterTimer::call_timeout() {
+    std::unique_lock<std::mutex> lc(_lock);
+    if (_call_ready) {
+        return;
+    }
+    _call_timeout = true;
+    if (_parent) {
+        _parent->sub_filters();
+    }
+}
+
+void RuntimeFilterTimer::call_ready() {
+    std::unique_lock<std::mutex> lc(_lock);
+    if (_call_timeout) {
+        return;
+    }
+    _call_ready = true;
+    if (_parent) {
+        _parent->sub_filters();
+    }
+}
+
+void RuntimeFilterTimer::call_has_ready() {
+    std::unique_lock<std::mutex> lc(_lock);
+    DCHECK(!_call_timeout);
+    if (!_call_ready) {
+        _parent->sub_filters();
+    }
+}
+
+void RuntimeFilterTimer::call_has_release() {
+    // When the use count is equal to 1, only the timer queue still holds ownership,
+    // so there is no need to take any action.
+}
+
+struct RuntimeFilterTimerQueue {
+    constexpr static int64_t interval = 50;
+    void start() {
+        while (true) {
+            std::unique_lock<std::mutex> lk(cv_m);
+
+            cv.wait(lk, [this] { return !_que.empty(); });
+            {
+                std::unique_lock<std::mutex> lc(_que_lock);
+                std::list<std::shared_ptr<RuntimeFilterTimer>> new_que;
+                for (auto& it : _que) {
+                    if (it.use_count() == 1) {
+                        it->call_has_release();
+                    } else if (it->has_ready()) {
+                        it->call_has_ready();
+                    } else {
+                        int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
+                        if (ms_since_registration > it->wait_time_ms()) {
+                            it->call_timeout();
+                        } else {
+                            new_que.push_back(std::move(it));
+                        }
+                    }
+                }
+                new_que.swap(_que);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
+        }
+    }
+    ~RuntimeFilterTimerQueue() { _thread.detach(); }
+    RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
+    static void push_filter_timer(std::shared_ptr<RuntimeFilterTimer> filter) {
+        static RuntimeFilterTimerQueue timer_que;
+
+        timer_que.push(filter);
+    }
+
+    void push(std::shared_ptr<RuntimeFilterTimer> filter) {
+        std::unique_lock<std::mutex> lc(_que_lock);
+        _que.push_back(filter);
+        cv.notify_all();
+    }
+
+    std::thread _thread;
+    std::condition_variable cv;
+    std::mutex cv_m;
+    std::mutex _que_lock;
+
+    std::list<std::shared_ptr<RuntimeFilterTimer>> _que;
+};
+
+void RuntimeFilterDependency::add_filters(IRuntimeFilter* runtime_filter) {
+    _filters++;
+    int64_t registration_time = runtime_filter->registration_time();
+    int32 wait_time_ms = runtime_filter->wait_time_ms();
+    auto filter_timer = std::make_shared<RuntimeFilterTimer>(
+            registration_time, wait_time_ms,
+            std::dynamic_pointer_cast<RuntimeFilterDependency>(shared_from_this()), runtime_filter);
+    runtime_filter->set_filter_timer(filter_timer);
+    RuntimeFilterTimerQueue::push_filter_timer(filter_timer);
+}
+
+void RuntimeFilterDependency::sub_filters() {
+    _filters--;
+    if (_filters == 0) {
+        *_blocked_by_rf = false;
+    }
 }
 
 } // namespace doris::pipeline

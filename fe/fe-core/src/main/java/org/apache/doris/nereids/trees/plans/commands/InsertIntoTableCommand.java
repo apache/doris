@@ -29,9 +29,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -81,8 +83,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     private final LogicalPlan logicalQuery;
     private final Optional<String> labelName;
+    private final boolean isOverwrite;
     private NereidsPlanner planner;
-    private boolean isOverwrite;
     private boolean isTxnBegin = false;
 
     /**
@@ -129,10 +131,20 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         }
         String label = this.labelName.orElse(String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
-        Optional<TreeNode> plan = ((Set<TreeNode>) planner.getPhysicalPlan()
-                .collect(node -> node instanceof PhysicalOlapTableSink)).stream().findAny();
+        Optional<TreeNode<?>> plan = (planner.getPhysicalPlan()
+                .<Set<TreeNode<?>>>collect(node -> node instanceof PhysicalOlapTableSink)).stream().findAny();
         Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
-        PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink) plan.get());
+        PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink<?>) plan.get());
+
+        OlapTable targetTable = physicalOlapTableSink.getTargetTable();
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), targetTable.getQualifiedDbName(), targetTable.getName(),
+                        PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    targetTable.getQualifiedDbName() + ": " + targetTable.getName());
+        }
 
         if (isOverwrite) {
             dealOverwrite(ctx, executor, physicalOlapTableSink);
@@ -164,6 +176,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             throw new DdlException("txn does not exist: " + txn.getTxnId());
         }
         state.addTableIndexes(physicalOlapTableSink.getTargetTable());
+        if (physicalOlapTableSink.isFromNativeInsertStmt() && physicalOlapTableSink.isPartialUpdate()) {
+            state.setSchemaForPartialUpdate(physicalOlapTableSink.getTargetTable());
+        }
 
         executor.setProfileType(ProfileType.LOAD);
 
@@ -191,21 +206,27 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * @param physicalOlapTableSink physicalOlapTableSink
      * @throws Exception Exception
      */
-    public void dealOverwrite(ConnectContext ctx, StmtExecutor executor, PhysicalOlapTableSink<?> physicalOlapTableSink)
-            throws Exception {
+    public void dealOverwrite(ConnectContext ctx, StmtExecutor executor,
+            PhysicalOlapTableSink<?> physicalOlapTableSink) throws Exception {
         OlapTable targetTable = physicalOlapTableSink.getTargetTable();
         TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, targetTable.getQualifiedDbName(),
                 targetTable.getName());
-        List partitionNames = ((UnboundOlapTableSink) logicalQuery).getPartitions();
-        if (CollectionUtils.isEmpty(partitionNames)) {
-            partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
+        ConnectContext.get().setSkipAuth(true);
+        try {
+            List<String> partitionNames = ((UnboundOlapTableSink<?>) logicalQuery).getPartitions();
+            if (CollectionUtils.isEmpty(partitionNames)) {
+                partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
+            }
+            List<String> tempPartitionNames = addTempPartition(ctx, tableName, partitionNames);
+            boolean insertRes = insertInto(ctx, executor, tempPartitionNames, tableName);
+            if (!insertRes) {
+                return;
+            }
+            replacePartition(ctx, tableName, partitionNames, tempPartitionNames);
+        } finally {
+            ConnectContext.get().setSkipAuth(false);
         }
-        List<String> tempPartitionNames = addTempPartition(ctx, tableName, partitionNames);
-        boolean insertRes = insertInto(ctx, executor, tempPartitionNames, tableName);
-        if (!insertRes) {
-            return;
-        }
-        replacePartition(ctx, tableName, partitionNames, tempPartitionNames);
+
     }
 
     /**
@@ -243,12 +264,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * @param executor executor
      * @param tempPartitionNames tempPartitionNames
      * @param tableName tableName
-     * @throws Exception Exception
      */
     private boolean insertInto(ConnectContext ctx, StmtExecutor executor, List<String> tempPartitionNames,
             TableName tableName) {
         try {
-            UnboundOlapTableSink sink = (UnboundOlapTableSink) logicalQuery;
+            UnboundOlapTableSink<?> sink = (UnboundOlapTableSink<?>) logicalQuery;
             UnboundOlapTableSink<?> copySink = new UnboundOlapTableSink<>(
                     sink.getNameParts(),
                     sink.getColNames(),

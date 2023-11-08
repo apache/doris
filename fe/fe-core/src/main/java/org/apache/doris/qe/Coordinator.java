@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -68,6 +67,7 @@ import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PUniqueId;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -210,11 +210,6 @@ public class Coordinator implements CoordInterface {
     private final List<BackendExecState> needCheckBackendExecStates = Lists.newArrayList();
     private final List<PipelineExecContext> needCheckPipelineExecContexts = Lists.newArrayList();
     private ResultReceiver receiver;
-    private TNetworkAddress resultFlightServerAddr;
-    private TNetworkAddress resultInternalServiceAddr;
-    private ArrayList<Expr> resultOutputExprs;
-
-    private TUniqueId finstId;
     private final List<ScanNode> scanNodes;
     private int scanRangeNum = 0;
     // number of instances of this query, equals to
@@ -253,6 +248,7 @@ public class Coordinator implements CoordInterface {
 
     private boolean enablePipelineEngine = false;
     private boolean enablePipelineXEngine = false;
+    private boolean fasterFloatConvert = false;
 
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
@@ -282,22 +278,6 @@ public class Coordinator implements CoordInterface {
         return executionProfile;
     }
 
-    public TNetworkAddress getResultFlightServerAddr() {
-        return resultFlightServerAddr;
-    }
-
-    public TNetworkAddress getResultInternalServiceAddr() {
-        return resultInternalServiceAddr;
-    }
-
-    public ArrayList<Expr> getResultOutputExprs() {
-        return resultOutputExprs;
-    }
-
-    public TUniqueId getFinstId() {
-        return finstId;
-    }
-
     // True if all scan node are ExternalScanNode.
     private boolean isAllExternalScan = true;
 
@@ -321,9 +301,10 @@ public class Coordinator implements CoordInterface {
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
         // Only enable pipeline query engine in query, not load
         this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
-                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+                && (fragments.size() > 0);
         this.enablePipelineXEngine = context.getSessionVariable().getEnablePipelineXEngine()
-                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+                && (fragments.size() > 0);
+        this.fasterFloatConvert = context.getSessionVariable().fasterFloatConvert();
 
         initQueryOptions(context);
 
@@ -380,7 +361,9 @@ public class Coordinator implements CoordInterface {
             this.queryOptions.setResourceLimit(resourceLimit);
         }
         // set exec mem limit
-        long memLimit = Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
+        long maxExecMemByte = connectContext.getSessionVariable().getMaxExecMemByte();
+        long memLimit = maxExecMemByte > 0 ? maxExecMemByte :
+                Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             this.queryOptions.setMemLimit(memLimit);
@@ -526,13 +509,18 @@ public class Coordinator implements CoordInterface {
 
         this.idToBackend = Env.getCurrentSystemInfo().getIdToBackend();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("Query {} idToBackend size={}", DebugUtil.printId(queryId), idToBackend.size());
+            int backendNum = idToBackend.size();
+            StringBuilder backendInfos = new StringBuilder("backends info:");
             for (Map.Entry<Long, Backend> entry : idToBackend.entrySet()) {
                 Long backendID = entry.getKey();
                 Backend backend = entry.getValue();
-                LOG.debug("Query {}, backend: {}-{}-{}-{}", DebugUtil.printId(queryId),
-                                    backendID, backend.getHost(), backend.getBePort(), backend.getProcessEpoch());
+                backendInfos.append(' ').append(backendID).append("-")
+                            .append(backend.getHost()).append("-")
+                            .append(backend.getBePort()).append("-")
+                            .append(backend.getProcessEpoch());
             }
+            LOG.debug("query {}, backend size: {}, {}",
+                    DebugUtil.printId(queryId), backendNum, backendInfos.toString());
         }
     }
 
@@ -622,12 +610,16 @@ public class Coordinator implements CoordInterface {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
                     addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline);
-            finstId = topParams.instanceExecParams.get(0).instanceId;
-            resultFlightServerAddr = toArrowFlightHost(execBeAddr);
-            resultInternalServiceAddr = toBrpcHost(execBeAddr);
-            resultOutputExprs = fragments.get(0).getOutputExprs();
+
+            if (!context.isReturnResultFromLocal()) {
+                Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
+                context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
+                context.setResultFlightServerAddr(toArrowFlightHost(execBeAddr));
+                context.setResultInternalServiceAddr(toBrpcHost(execBeAddr));
+                context.setResultOutputExprs(fragments.get(0).getOutputExprs());
+            }
             if (LOG.isDebugEnabled()) {
-                LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId),
+                LOG.debug("dispatch result sink of query {} to {}", DebugUtil.printId(queryId),
                         topParams.instanceExecParams.get(0).host);
             }
 
@@ -701,8 +693,9 @@ public class Coordinator implements CoordInterface {
             // else use exec_plan_fragments directly.
             // we choose #fragments >=2 because in some cases
             // we need ensure that A fragment is already prepared to receive data before B fragment sends data.
-            // For example: select * from numbers("10","w") will generate ExchangeNode and TableValuedFunctionScanNode,
-            // we should ensure TableValuedFunctionScanNode does not send data until ExchangeNode is ready to receive.
+            // For example: select * from numbers("number"="10") will generate ExchangeNode and
+            // TableValuedFunctionScanNode, we should ensure TableValuedFunctionScanNode does
+            // not send data until ExchangeNode is ready to receive.
             boolean twoPhaseExecution = fragments.size() >= 2;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
@@ -823,8 +816,9 @@ public class Coordinator implements CoordInterface {
             // else use exec_plan_fragments directly.
             // we choose #fragments >=2 because in some cases
             // we need ensure that A fragment is already prepared to receive data before B fragment sends data.
-            // For example: select * from numbers("10","w") will generate ExchangeNode and TableValuedFunctionScanNode,
-            // we should ensure TableValuedFunctionScanNode does not send data until ExchangeNode is ready to receive.
+            // For example: select * from numbers("number"="10") will generate ExchangeNode and
+            // TableValuedFunctionScanNode, we should ensure TableValuedFunctionScanNode does not
+            // send data until ExchangeNode is ready to receive.
             boolean twoPhaseExecution = fragments.size() >= 2;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
@@ -851,7 +845,8 @@ public class Coordinator implements CoordInterface {
                     }
                 }
 
-                // 3. group BackendExecState by BE. So that we can use one RPC to send all fragment instances of a BE.
+                // 3. group PipelineExecContext by BE.
+                // So that we can use one RPC to send all fragment instances of a BE.
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     Long backendId = this.addressToBackendID.get(entry.getKey());
                     PipelineExecContext pipelineExecContext = new PipelineExecContext(fragment.getFragmentId(),
@@ -899,6 +894,16 @@ public class Coordinator implements CoordInterface {
                     span = ConnectContext.get().getTracer().spanBuilder("execRemoteFragmentsAsync")
                             .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
                 }
+
+                if (LOG.isDebugEnabled()) {
+                    String infos = "";
+                    for (PipelineExecContext pec : ctxs.ctxs) {
+                        infos += pec.fragmentId + " ";
+                    }
+                    LOG.debug("query {}, sending pipeline fragments: {} to be {} bprc address {}",
+                            DebugUtil.printId(queryId), infos, ctxs.beId, ctxs.brpcAddr.toString());
+                }
+
                 ctxs.scopedSpan = new ScopedSpan(span);
                 ctxs.unsetFields();
                 BackendServiceProxy proxy = BackendServiceProxy.getInstance();
@@ -1247,7 +1252,10 @@ public class Coordinator implements CoordInterface {
                 String errMsg = copyStatus.getErrorMsg();
                 LOG.warn("query failed: {}", errMsg);
 
-                // hide host info
+                // hide host info exclude localhost
+                if (errMsg.contains("localhost")) {
+                    throw new UserException(errMsg);
+                }
                 int hostIndex = errMsg.indexOf("host");
                 if (hostIndex != -1) {
                     errMsg = errMsg.substring(0, hostIndex);
@@ -1919,6 +1927,7 @@ public class Coordinator implements CoordInterface {
                         if (!enablePipelineEngine || perNodeScanRanges.size() > parallelExecInstanceNum
                                 || (node.isPresent() && node.get().getShouldColoScan())
                                 || (node.isPresent() && node.get() instanceof FileScanNode)
+                                || (node.isPresent() && node.get().isKeySearch())
                                 || Config.disable_shared_scan || enablePipelineXEngine) {
                             int expectedInstanceNum = 1;
                             if (parallelExecInstanceNum > 1) {
@@ -2309,6 +2318,11 @@ public class Coordinator implements CoordInterface {
             FragmentScanRangeAssignment assignment,
             Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+        // Type of locations is List, it could have elements that have same "location"
+        // and we do have this situation for some scan node.
+        // The duplicate "location" will NOT be filtered by FragmentScanRangeAssignment,
+        // since FragmentScanRangeAssignment use List<TScanRangeParams> as its value type,
+        // duplicate "locations" will be converted to list.
         for (TScanRangeLocations scanRangeLocations : locations) {
             Reference<Long> backendIdRef = new Reference<Long>();
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,
@@ -2400,9 +2414,12 @@ public class Coordinator implements CoordInterface {
             if (params.isSetErrorTabletInfos()) {
                 updateErrorTabletInfos(params.getErrorTabletInfos());
             }
+
             Preconditions.checkArgument(params.isSetDetailedReport());
             for (TDetailedReportParams param : params.detailed_report) {
                 if (ctx.fragmentInstancesMap.get(param.fragment_instance_id).getIsDone()) {
+                    LOG.debug("Query {} instance {} is marked done",
+                            DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
                     executionProfile.markOneInstanceDone(param.getFragmentInstanceId());
                 }
             }
@@ -2427,9 +2444,11 @@ public class Coordinator implements CoordInterface {
             // and returned_all_results_ is true.
             // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
             if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
-                LOG.warn("one instance report fail, query_id={} instance_id={}, error message: {}",
-                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
-                        status.getErrorMsg());
+                LOG.warn("one instance report fail, query_id={} fragment_id={} instance_id={}, be={},"
+                                  + " error message: {}",
+                        DebugUtil.printId(queryId), params.getFragmentId(),
+                        DebugUtil.printId(params.getFragmentInstanceId()),
+                        params.getBackendId(), status.getErrorMsg());
                 updateStatus(status, params.getFragmentInstanceId());
             }
             if (ctx.fragmentInstancesMap.get(params.fragment_instance_id).getIsDone()) {
@@ -2451,11 +2470,17 @@ public class Coordinator implements CoordInterface {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
+                LOG.debug("Query {} instance {} is marked done",
+                         DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
+            } else {
+                LOG.debug("Query {} instance {} is not marked done",
+                         DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
             }
         } else {
             if (params.backend_num >= backendExecStates.size()) {
-                LOG.warn("unknown backend number: {}, expected less than: {}",
+                LOG.warn("Query {} instance {} unknown backend number: {}, expected less than: {}",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
                         params.backend_num, backendExecStates.size());
                 return;
             }
@@ -2503,7 +2528,12 @@ public class Coordinator implements CoordInterface {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
+                LOG.info("Query {} instance {} is marked done",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
+            } else {
+                LOG.info("Query {} instance {} is not marked done",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
             }
         }
 
@@ -3106,9 +3136,10 @@ public class Coordinator implements CoordInterface {
             for (TPipelineInstanceParams localParam : rpcParams.local_params) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("cancelRemoteFragments initiated={} done={} hasCanceled={} backend: {},"
-                                    + " fragment instance id={}, reason: {}",
+                                    + " fragment instance id={} query={}, reason: {}",
                             this.initiated, this.done, this.hasCanceled, backend.getId(),
-                            DebugUtil.printId(localParam.fragment_instance_id), cancelReason.name());
+                            DebugUtil.printId(localParam.fragment_instance_id),
+                            DebugUtil.printId(queryId), cancelReason.name());
                 }
 
                 RuntimeProfile profile = fragmentInstancesMap.get(localParam.fragment_instance_id);

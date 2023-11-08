@@ -24,6 +24,7 @@
 #include <olap/tablet_manager.h>
 #include <runtime/exec_env.h>
 
+#include "common/signal_handler.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
 #include "runtime/load_channel.h"
@@ -128,7 +129,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
             LOG(INFO) << "write data failed " << *this;
         }
     };
-    return _flush_tokens[segid % _flush_tokens.size()]->submit_func(flush_func);
+    return _flush_tokens[new_segid % _flush_tokens.size()]->submit_func(flush_func);
 }
 
 Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data) {
@@ -150,7 +151,14 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     }
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
 
-    return _load_stream_writer->add_segment(new_segid, stat);
+    auto add_segment_func = [this, new_segid, stat]() {
+        auto st = _load_stream_writer->add_segment(new_segid, stat);
+        if (!st.ok() && _failed_st->ok()) {
+            _failed_st = std::make_shared<Status>(st);
+            LOG(INFO) << "add segment failed " << *this;
+        }
+    };
+    return _flush_tokens[new_segid % _flush_tokens.size()]->submit_func(add_segment_func);
 }
 
 Status TabletStream::close() {
@@ -230,8 +238,8 @@ Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
     return Status::OK();
 }
 
-LoadStream::LoadStream(PUniqueId id, LoadStreamMgr* load_stream_mgr, bool enable_profile)
-        : _id(id), _enable_profile(enable_profile), _load_stream_mgr(load_stream_mgr) {
+LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile)
+        : _load_id(load_id), _enable_profile(enable_profile), _load_stream_mgr(load_stream_mgr) {
     _profile = std::make_unique<RuntimeProfile>("LoadStream");
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
@@ -241,14 +249,14 @@ LoadStream::~LoadStream() {
     LOG(INFO) << "load stream is deconstructed " << *this;
 }
 
-Status LoadStream::init(const POpenStreamSinkRequest* request) {
+Status LoadStream::init(const POpenLoadStreamRequest* request) {
     _txn_id = request->txn_id();
 
     _schema = std::make_shared<OlapTableSchemaParam>();
     RETURN_IF_ERROR(_schema->init(request->schema()));
     for (auto& index : request->schema().indexes()) {
         _index_streams_map[index.id()] = std::make_shared<IndexStream>(
-                _id, index.id(), _txn_id, _schema, _load_stream_mgr, _profile.get());
+                _load_id, index.id(), _txn_id, _schema, _load_stream_mgr, _profile.get());
     }
     LOG(INFO) << "succeed to init load stream " << *this;
     return Status::OK();
@@ -277,6 +285,7 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
                                                                    &failed_tablet_ids,
                                                                    &tablets_to_commit, &mutex,
                                                                    &cond, &st]() {
+            signal::set_signal_task_id(_load_id);
             for (auto& it : _index_streams_map) {
                 st = it.second->close(tablets_to_commit, success_tablet_ids, failed_tablet_ids);
                 if (!st.ok()) {
@@ -367,7 +376,8 @@ Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data)
         std::unique_lock<bthread::Mutex> lock(mutex);
         bthread::ConditionVariable cond;
         bool ret = _load_stream_mgr->heavy_work_pool()->try_offer(
-                [&index_stream, &header, &data, &mutex, &cond, &st] {
+                [this, &index_stream, &header, &data, &mutex, &cond, &st] {
+                    signal::set_signal_task_id(_load_id);
                     st = index_stream->append_data(header, data);
                     std::unique_lock<bthread::Mutex> lock(mutex);
                     cond.notify_one();
@@ -461,12 +471,12 @@ void LoadStream::on_closed(StreamId id) {
     auto remaining_rpc_stream = remove_rpc_stream();
     LOG(INFO) << "stream closed " << id << ", remaining_rpc_stream=" << remaining_rpc_stream;
     if (remaining_rpc_stream == 0) {
-        _load_stream_mgr->clear_load(_id);
+        _load_stream_mgr->clear_load(_load_id);
     }
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const LoadStream& load_stream) {
-    ostr << "load_id=" << UniqueId(load_stream._id) << ", txn_id=" << load_stream._txn_id;
+    ostr << "load_id=" << UniqueId(load_stream._load_id) << ", txn_id=" << load_stream._txn_id;
     return ostr;
 }
 

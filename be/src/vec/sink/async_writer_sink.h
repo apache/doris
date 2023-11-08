@@ -90,11 +90,16 @@ public:
     bool can_write() override { return _writer->can_write(); }
 
     Status close(RuntimeState* state, Status exec_status) override {
-        if (_writer->need_normal_close()) {
-            if (exec_status.ok() && !state->is_cancelled()) {
-                RETURN_IF_ERROR(_writer->commit_trans());
+        // if the init failed, the _writer may be nullptr. so here need check
+        if (_writer) {
+            if (_writer->need_normal_close()) {
+                if (exec_status.ok() && !state->is_cancelled()) {
+                    RETURN_IF_ERROR(_writer->commit_trans());
+                }
+                RETURN_IF_ERROR(_writer->close(exec_status));
+            } else {
+                RETURN_IF_ERROR(_writer->get_writer_status());
             }
-            RETURN_IF_ERROR(_writer->close(exec_status));
         }
         return DataSink::close(state, exec_status);
     }

@@ -61,7 +61,7 @@ suite("test_distinct_streaming_agg_operator") {
         select k6 from baseall group by k6 order by k6;
     """
     
-    sql"""set experimental_enable_pipeline_x_engine=false;    """
+    sql"""set experimental_enable_pipeline_x_engine=true;    """
 
     qt_pipelineX_1 """
         select * from ( select k1,k2,k3 from baseall union select k1,k2,k3 from baseall) as t  ORDER BY 1, 2,3;

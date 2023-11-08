@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_multi_partition_key", "p0") {
+
+    // TODO: remove it after we add implicit cast check in Nereids
+    sql "set enable_nereids_dml=false"
+
     def random = new Random()
     sql "set enable_insert_strict=true"
     def createTable = { String tableName, String partitionInfo /* param */  ->
@@ -217,7 +221,7 @@ suite("test_multi_partition_key", "p0") {
     test {
         sql "ALTER TABLE test_multi_col_test_partition_add ADD PARTITION partition_add VALUES LESS THAN ('30', '1000') " +
                 "DISTRIBUTED BY hash(k1) BUCKETS 5"
-        exception "Cannot assign hash distribution with different distribution cols. new is: [`k1` tinyint(4) NOT NULL] default is: [`k1` tinyint(4) NOT NULL]"
+        exception "Cannot assign hash distribution with different distribution cols. new is: [`k1` TINYINT NOT NULL] default is: [`k1` TINYINT NOT NULL]"
     }
 
     sql "ALTER TABLE test_multi_col_test_partition_add ADD PARTITION partition_add VALUES LESS THAN ('30', '1000') "

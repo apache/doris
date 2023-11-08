@@ -35,56 +35,28 @@
 #include "io/fs/broker_file_system.h"
 #include "util/doris_metrics.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 struct IOContext;
 
-BrokerFileReader::BrokerFileReader(const TNetworkAddress& broker_addr, const Path& path,
-                                   size_t file_size, TBrokerFD fd,
-                                   std::shared_ptr<BrokerFileSystem> fs)
-        : _path(path),
+BrokerFileReader::BrokerFileReader(const TNetworkAddress& broker_addr, Path path, size_t file_size,
+                                   TBrokerFD fd, std::shared_ptr<BrokerFileSystem> fs)
+        : _path(std::move(path)),
           _file_size(file_size),
           _broker_addr(broker_addr),
           _fd(fd),
           _fs(std::move(fs)) {
-    _fs->get_client(&_client);
     DorisMetrics::instance()->broker_file_open_reading->increment(1);
     DorisMetrics::instance()->broker_file_reader_total->increment(1);
 }
 
 BrokerFileReader::~BrokerFileReader() {
-    BrokerFileReader::close();
+    static_cast<void>(BrokerFileReader::close());
 }
 
 Status BrokerFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-        TBrokerCloseReaderRequest request;
-        request.__set_version(TBrokerVersion::VERSION_ONE);
-        request.__set_fd(_fd);
-
-        TBrokerOperationStatus response;
-        try {
-            try {
-                (*_client)->closeReader(response, request);
-            } catch (apache::thrift::transport::TTransportException&) {
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-                RETURN_IF_ERROR((*_client).reopen());
-                (*_client)->closeReader(response, request);
-            }
-        } catch (apache::thrift::TException& e) {
-            std::stringstream ss;
-            ss << "Close broker reader failed, broker:" << _broker_addr << " failed:" << e.what();
-            return Status::RpcError(ss.str());
-        }
-
-        if (response.statusCode != TBrokerOperationStatusCode::OK) {
-            std::stringstream ss;
-            ss << "close broker reader failed, broker:" << _broker_addr
-               << " failed:" << response.message;
-            return Status::InternalError(ss.str());
-        }
-
+        RETURN_IF_ERROR(_fs->close_file(_fd));
         DorisMetrics::instance()->broker_file_open_reading->increment(-1);
     }
     return Status::OK();
@@ -100,45 +72,12 @@ Status BrokerFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes
         return Status::OK();
     }
 
-    TBrokerPReadRequest request;
-    request.__set_version(TBrokerVersion::VERSION_ONE);
-    request.__set_fd(_fd);
-    request.__set_offset(offset);
-    request.__set_length(bytes_req);
+    std::string data;
+    RETURN_IF_ERROR(_fs->read_file(_fd, offset, bytes_req, &data));
 
-    TBrokerReadResponse response;
-    try {
-        VLOG_RPC << "send pread request to broker:" << _broker_addr << " position:" << offset
-                 << ", read bytes length:" << bytes_req;
-        try {
-            (*_client)->pread(response, request);
-        } catch (apache::thrift::transport::TTransportException& e) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            RETURN_IF_ERROR((*_client).reopen());
-            LOG(INFO) << "retry reading from broker: " << _broker_addr << ". reason: " << e.what();
-            (*_client)->pread(response, request);
-        }
-    } catch (apache::thrift::TException& e) {
-        std::stringstream ss;
-        ss << "Open broker reader failed, broker:" << _broker_addr << " failed:" << e.what();
-        return Status::RpcError(ss.str());
-    }
-
-    if (response.opStatus.statusCode == TBrokerOperationStatusCode::END_OF_FILE) {
-        // read the end of broker's file
-        *bytes_read = 0;
-        return Status::OK();
-    } else if (response.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
-        std::stringstream ss;
-        ss << "Open broker reader failed, broker:" << _broker_addr
-           << " failed:" << response.opStatus.message;
-        return Status::InternalError(ss.str());
-    }
-
-    *bytes_read = response.data.size();
-    memcpy(to, response.data.data(), *bytes_read);
+    *bytes_read = data.size();
+    memcpy(to, data.data(), *bytes_read);
     return Status::OK();
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

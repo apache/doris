@@ -156,6 +156,10 @@ separated by commas.
 
 28. comment: <version since="1.2.3" type="inline"> String type, the default value is "". </version>
 
+29. enclose: <version since="dev" type="inline"> When the csv data field contains row delimiters or column delimiters, to prevent accidental truncation, single-byte characters can be specified as brackets for protection. For example, the column separator is ",", the bracket is "'", and the data is "a,'b,c'", then "b,c" will be parsed as a field. </version>
+  
+30. escape <version since="dev" type="inline"> Used to escape characters that appear in a csv field identical to the enclosing characters. For example, if the data is "a,'b,'c'", enclose is "'", and you want "b,'c to be parsed as a field, you need to specify a single-byte escape character, such as "\", and then modify the data to "a,' b,\'c'". </version>
+
 ### Example
 
 1. Import the data in the local file 'testData' into the table 'testTbl' in the database 'testDb', and use Label for deduplication. Specify a timeout of 100 seconds
@@ -213,12 +217,12 @@ separated by commas.
 
 10. Simple mode, import json data
     Table Structure:
-
+    ```
     `category` varchar(512) NULL COMMENT "",
     `author` varchar(512) NULL COMMENT "",
     `title` varchar(512) NULL COMMENT "",
     `price` double NULL COMMENT ""
-
+    ```
     json data format:
     ````
     {"category":"C++","author":"avc","title":"C++ primer","price":895}

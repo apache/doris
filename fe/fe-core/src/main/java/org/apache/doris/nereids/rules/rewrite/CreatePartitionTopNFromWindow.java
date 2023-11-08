@@ -82,7 +82,10 @@ public class CreatePartitionTopNFromWindow extends OneRewriteRuleFactory {
             LogicalWindow<Plan> window = filter.child();
 
             // We have already done such optimization rule, so just ignore it.
-            if (window.child(0) instanceof LogicalPartitionTopN) {
+            if (window.child(0) instanceof LogicalPartitionTopN
+                    || (window.child(0) instanceof LogicalFilter
+                    && window.child(0).child(0) != null
+                    && window.child(0).child(0) instanceof LogicalPartitionTopN)) {
                 return filter;
             }
 
@@ -137,7 +140,7 @@ public class CreatePartitionTopNFromWindow extends OneRewriteRuleFactory {
                 return filter;
             }
             return filter.withChildren(newWindow.get());
-        }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_WINDOW);
+        }).toRule(RuleType.CREATE_PARTITION_TOPN_FOR_WINDOW);
     }
 
     private Set<Expression> extractRelatedConjuncts(Set<Expression> conjuncts, ExprId slotRefID) {

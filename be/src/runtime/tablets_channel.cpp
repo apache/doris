@@ -84,6 +84,7 @@ void TabletsChannel::_init_profile(RuntimeProfile* profile) {
     _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
     _add_batch_timer = ADD_TIMER(_profile, "AddBatchTime");
     _write_block_timer = ADD_TIMER(_profile, "WriteBlockTime");
+    _incremental_open_timer = ADD_TIMER(_profile, "IncrementalOpenTabletTime");
     _memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Total", TUnit::BYTES);
     _write_memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Write", TUnit::BYTES);
     _flush_memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Flush", TUnit::BYTES);
@@ -120,13 +121,14 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
 }
 
 Status TabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) {
+    SCOPED_TIMER(_incremental_open_timer);
     if (_state == kInitialized) { // haven't opened
         return open(params);
     }
     std::lock_guard<std::mutex> l(_lock);
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
-    for (auto& index : _schema->indexes()) {
+    for (const auto& index : _schema->indexes()) {
         if (index->index_id == _index_id) {
             index_slots = &index->slots;
             schema_hash = index->schema_hash;
@@ -134,17 +136,15 @@ Status TabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) 
         }
     }
     if (index_slots == nullptr) {
-        Status::InternalError("unknown index id, key={}", _key.to_string());
+        return Status::InternalError("unknown index id, key={}", _key.to_string());
     }
     // update tablets
-    std::vector<int64_t> tablet_ids;
-    tablet_ids.reserve(params.tablets_size());
     size_t incremental_tablet_num = 0;
     std::stringstream ss;
     ss << "LocalTabletsChannel txn_id: " << _txn_id << " load_id: " << print_id(params.id())
        << " incremental open delta writer: ";
 
-    for (auto& tablet : params.tablets()) {
+    for (const auto& tablet : params.tablets()) {
         if (_tablet_writers.find(tablet.tablet_id()) != _tablet_writers.end()) {
             continue;
         }
@@ -257,7 +257,7 @@ Status TabletsChannel::close(
 
         // 2. wait all writer finished flush.
         for (auto writer : need_wait_writers) {
-            writer->wait_flush();
+            static_cast<void>(writer->wait_flush());
         }
 
         // 3. build rowset
@@ -399,7 +399,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         }
     }
     if (index_slots == nullptr) {
-        Status::InternalError("unknown index id, key={}", _key.to_string());
+        return Status::InternalError("unknown index id, key={}", _key.to_string());
     }
 
 #ifdef DEBUG
@@ -460,7 +460,7 @@ Status TabletsChannel::cancel() {
         return _close_status;
     }
     for (auto& it : _tablet_writers) {
-        it.second->cancel();
+        static_cast<void>(it.second->cancel());
     }
     _state = kFinished;
     if (_write_single_replica) {
@@ -539,7 +539,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
             PTabletError* error = tablet_errors->Add();
             error->set_tablet_id(tablet_id);
             error->set_msg(err_msg);
-            tablet_writer_it->second->cancel_with_status(st);
+            static_cast<void>(tablet_writer_it->second->cancel_with_status(st));
             _add_broken_tablet(tablet_id);
             // continue write to other tablet.
             // the error will return back to sender.

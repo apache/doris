@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -53,9 +54,17 @@ class TRuntimeProfileTree;
 
 #define ADD_LABEL_COUNTER(profile, name) (profile)->add_counter(name, TUnit::NONE)
 #define ADD_COUNTER(profile, name, type) (profile)->add_counter(name, type)
+#define ADD_COUNTER_WITH_LEVEL(profile, name, type, level) \
+    (profile)->add_counter_with_level(name, type, level)
 #define ADD_TIMER(profile, name) (profile)->add_counter(name, TUnit::TIME_NS)
+#define ADD_TIMER_WITH_LEVEL(profile, name, level) \
+    (profile)->add_counter_with_level(name, TUnit::TIME_NS, level)
 #define ADD_CHILD_COUNTER(profile, name, type, parent) (profile)->add_counter(name, type, parent)
+#define ADD_CHILD_COUNTER_WITH_LEVEL(profile, name, type, parent, level) \
+    (profile)->add_counter(name, type, parent, level)
 #define ADD_CHILD_TIMER(profile, name, parent) (profile)->add_counter(name, TUnit::TIME_NS, parent)
+#define ADD_CHILD_TIMER_WITH_LEVEL(profile, name, parent, level) \
+    (profile)->add_counter(name, TUnit::TIME_NS, parent, level)
 #define SCOPED_TIMER(c) ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
 #define SCOPED_TIMER_ATOMIC(c) \
     ScopedTimer<MonotonicStopWatch, std::atomic_bool> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
@@ -86,7 +95,8 @@ class RuntimeProfile {
 public:
     class Counter {
     public:
-        Counter(TUnit::type type, int64_t value = 0) : _value(value), _type(type) {}
+        Counter(TUnit::type type, int64_t value = 0, int64_t level = 3)
+                : _value(value), _type(type), _level(level) {}
         virtual ~Counter() = default;
 
         virtual void update(int64_t delta) { _value.fetch_add(delta, std::memory_order_relaxed); }
@@ -108,11 +118,14 @@ public:
 
         TUnit::type type() const { return _type; }
 
+        virtual int64_t level() { return _level; }
+
     private:
         friend class RuntimeProfile;
 
         std::atomic<int64_t> _value;
         TUnit::type _type;
+        int64_t _level;
     };
 
     /// A counter that keeps track of the highest value seen (reporting that
@@ -276,9 +289,13 @@ public:
     // parent_counter_name.
     // If the counter already exists, the existing counter object is returned.
     Counter* add_counter(const std::string& name, TUnit::type type,
-                         const std::string& parent_counter_name);
+                         const std::string& parent_counter_name, int64_t level = 2);
     Counter* add_counter(const std::string& name, TUnit::type type) {
         return add_counter(name, type, "");
+    }
+
+    Counter* add_counter_with_level(const std::string& name, TUnit::type type, int64_t level) {
+        return add_counter(name, type, "", level);
     }
 
     // Add a derived counter with 'name'/'type'. The counter is owned by the
@@ -348,7 +365,21 @@ public:
     void set_name(const std::string& name) { _name = name; }
 
     int64_t metadata() const { return _metadata; }
-    void set_metadata(int64_t md) { _metadata = md; }
+    void set_metadata(int64_t md) {
+        _is_set_metadata = true;
+        _metadata = md;
+    }
+
+    bool is_set_metadata() const { return _is_set_metadata; }
+
+    void set_is_sink(bool is_sink) {
+        _is_set_sink = true;
+        _is_sink = is_sink;
+    }
+
+    bool is_sink() const { return _is_sink; }
+
+    bool is_set_sink() const { return _is_set_sink; }
 
     time_t timestamp() const { return _timestamp; }
     void set_timestamp(time_t ss) { _timestamp = ss; }
@@ -410,6 +441,10 @@ private:
 
     // user-supplied, uninterpreted metadata.
     int64_t _metadata;
+    bool _is_set_metadata = false;
+
+    bool _is_sink = false;
+    bool _is_set_sink = false;
 
     // The timestamp when the profile was modified, make sure the update is up to date.
     time_t _timestamp;

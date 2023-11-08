@@ -50,6 +50,8 @@ public class HyperGraph {
     private final List<Node> nodes = new ArrayList<>();
     private final HashSet<Group> nodeSet = new HashSet<>();
     private final HashMap<Slot, Long> slotToNodeMap = new HashMap<>();
+    // record all edges that can be placed on the subgraph
+    private final Map<Long, BitSet> treeEdgesCache = new HashMap<>();
 
     // Record the complex project expression for some subgraph
     // e.g. project (a + b)
@@ -227,19 +229,20 @@ public class HyperGraph {
         edgeB.setRightExtendedNodes(rightRequired);
     }
 
-    private BitSet subTreeEdges(Edge edge) {
-        BitSet bitSet = new BitSet();
-        bitSet.or(subTreeEdges(edge.getLeftChildEdges()));
-        bitSet.or(subTreeEdges(edge.getRightChildEdges()));
-        bitSet.set(edge.getIndex());
-        return bitSet;
+    private BitSet subTreeEdge(Edge edge) {
+        long subTreeNodes = edge.getSubTreeNodes();
+        BitSet subEdges = new BitSet();
+        edges.stream()
+                .filter(e -> LongBitmap.isSubset(subTreeNodes, e.getReferenceNodes()))
+                .forEach(e -> subEdges.set(e.getIndex()));
+        return subEdges;
     }
 
     private BitSet subTreeEdges(BitSet edgeSet) {
         BitSet bitSet = new BitSet();
         edgeSet.stream()
-                .mapToObj(i -> subTreeEdges(edges.get(i)))
-                .forEach(b -> bitSet.or(b));
+                .mapToObj(i -> subTreeEdge(edges.get(i)))
+                .forEach(bitSet::or);
         return bitSet;
     }
 
@@ -267,6 +270,30 @@ public class HyperGraph {
         return Pair.of(left, right);
     }
 
+    public BitSet getEdgesInOperator(long left, long right) {
+        BitSet operatorEdgesMap = new BitSet();
+        operatorEdgesMap.or(getEdgesInTree(LongBitmap.or(left, right)));
+        operatorEdgesMap.andNot(getEdgesInTree(left));
+        operatorEdgesMap.andNot(getEdgesInTree(right));
+        return operatorEdgesMap;
+    }
+
+    /**
+     * Returns all edges in the tree
+     */
+    public BitSet getEdgesInTree(long treeNodesMap) {
+        if (!treeEdgesCache.containsKey(treeNodesMap)) {
+            BitSet edgesMap = new BitSet();
+            for (Edge edge : edges) {
+                if (LongBitmap.isSubset(edge.getReferenceNodes(), treeNodesMap)) {
+                    edgesMap.set(edge.getIndex());
+                }
+            }
+            treeEdgesCache.put(treeNodesMap, edgesMap);
+        }
+        return treeEdgesCache.get(treeNodesMap);
+    }
+
     private long calNodeMap(Set<Slot> slots) {
         Preconditions.checkArgument(slots.size() != 0);
         long bitmap = LongBitmap.newBitmap();
@@ -289,10 +316,16 @@ public class HyperGraph {
         // For these nodes that are only in the old edge, we need remove the edge from them
         // For these nodes that are only in the new edge, we need to add the edge to them
         Edge edge = edges.get(edgeIndex);
+        if (treeEdgesCache.containsKey(edge.getReferenceNodes())) {
+            treeEdgesCache.get(edge.getReferenceNodes()).set(edgeIndex, false);
+        }
         updateEdges(edge, edge.getLeftExtendedNodes(), newLeft);
         updateEdges(edge, edge.getRightExtendedNodes(), newRight);
         edges.get(edgeIndex).setLeftExtendedNodes(newLeft);
         edges.get(edgeIndex).setRightExtendedNodes(newRight);
+        if (treeEdgesCache.containsKey(edge.getReferenceNodes())) {
+            treeEdgesCache.get(edge.getReferenceNodes()).set(edgeIndex, true);
+        }
     }
 
     private void updateEdges(Edge edge, long oldNodes, long newNodes) {

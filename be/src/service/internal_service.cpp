@@ -86,7 +86,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/group_commit_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/result_buffer_mgr.h"
@@ -355,16 +354,17 @@ void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcControl
     }
 }
 
-void PInternalServiceImpl::open_stream_sink(google::protobuf::RpcController* controller,
-                                            const POpenStreamSinkRequest* request,
-                                            POpenStreamSinkResponse* response,
+void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* controller,
+                                            const POpenLoadStreamRequest* request,
+                                            POpenLoadStreamResponse* response,
                                             google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        signal::set_signal_task_id(request->load_id());
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         brpc::StreamOptions stream_options;
 
-        LOG(INFO) << "open stream sink, load_id = " << request->load_id()
+        LOG(INFO) << "open load stream, load_id = " << request->load_id()
                   << ", src_id = " << request->src_id();
 
         for (const auto& req : request->tablets()) {
@@ -497,9 +497,9 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     }
 }
 
-Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_request,
-                                                      PFragmentRequestVersion version,
-                                                      bool compact) {
+Status PInternalServiceImpl::_exec_plan_fragment_impl(
+        const std::string& ser_request, PFragmentRequestVersion version, bool compact,
+        const std::function<void(RuntimeState*, Status*)>& cb) {
     // Sometimes the BE do not receive the first heartbeat message and it receives request from FE
     // If BE execute this fragment, it will core when it wants to get some property from master info.
     if (ExecEnv::GetInstance()->master_info() == nullptr) {
@@ -515,7 +515,11 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_req
             uint32_t len = ser_request.size();
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
-        return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
+        if (cb) {
+            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request, cb);
+        } else {
+            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
+        }
     } else if (version == PFragmentRequestVersion::VERSION_2) {
         TExecPlanFragmentParamsList t_request;
         {
@@ -525,7 +529,11 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_req
         }
 
         for (const TExecPlanFragmentParams& params : t_request.paramsList) {
-            RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+            if (cb) {
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params, cb));
+            } else {
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+            }
         }
         return Status::OK();
     } else if (version == PFragmentRequestVersion::VERSION_3) {
@@ -537,7 +545,11 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_req
         }
 
         for (const TPipelineFragmentParams& params : t_request.params_list) {
-            RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+            if (cb) {
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params, cb));
+            } else {
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+            }
         }
         return Status::OK();
     } else {
@@ -556,17 +568,19 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         TUniqueId tid;
         tid.__set_hi(request->finst_id().hi());
         tid.__set_lo(request->finst_id().lo());
-
+        signal::set_signal_task_id(tid);
         Status st = Status::OK();
-        if (request->has_cancel_reason()) {
-            LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
-                      << ", reason: " << PPlanFragmentCancelReason_Name(request->cancel_reason());
-            _exec_env->fragment_mgr()->cancel_instance(tid, request->cancel_reason());
-        } else {
-            LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
-            _exec_env->fragment_mgr()->cancel_instance(tid,
-                                                       PPlanFragmentCancelReason::INTERNAL_ERROR);
-        }
+
+        const bool has_cancel_reason = request->has_cancel_reason();
+        LOG(INFO) << fmt::format("Cancel instance {}, reason: {}", print_id(tid),
+                                 has_cancel_reason
+                                         ? PPlanFragmentCancelReason_Name(request->cancel_reason())
+                                         : "INTERNAL_ERROR");
+
+        _exec_env->fragment_mgr()->cancel_instance(
+                tid, has_cancel_reason ? request->cancel_reason()
+                                       : PPlanFragmentCancelReason::INTERNAL_ERROR);
+
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
     });
@@ -664,7 +678,8 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
-            ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
+            static_cast<void>(
+                    ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader());
             break;
         }
         default:
@@ -680,14 +695,6 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
-        }
-        if (params.file_type == TFileType::FILE_STREAM) {
-            auto stream_load_ctx =
-                    ExecEnv::GetInstance()->new_load_stream_mgr()->get(params.load_id);
-            if (!stream_load_ctx) {
-                st = Status::InternalError("unknown stream load id: {}",
-                                           UniqueId(params.load_id).to_string());
-            }
         }
         result->set_column_nums(col_names.size());
         for (size_t idx = 0; idx < col_names.size(); ++idx) {
@@ -711,23 +718,19 @@ void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcContro
                                                      google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
-        RowDescriptor row_desc = ExecEnv::GetInstance()->result_mgr()->find_row_descriptor(
-                UniqueId(request->finst_id()).to_thrift());
-        if (row_desc.equals(RowDescriptor())) {
-            auto st = Status::NotFound("not found row descriptor");
-            st.to_protobuf(result->mutable_status());
-            return;
-        }
-
-        std::shared_ptr<arrow::Schema> schema;
-        auto st = convert_to_arrow_schema(row_desc, &schema);
-        if (UNLIKELY(!st.ok())) {
+        std::shared_ptr<arrow::Schema> schema =
+                ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
+                        UniqueId(request->finst_id()).to_thrift());
+        if (schema == nullptr) {
+            LOG(INFO) << "not found arrow flight schema, maybe query has been canceled";
+            auto st = Status::NotFound(
+                    "not found arrow flight schema, maybe query has been canceled");
             st.to_protobuf(result->mutable_status());
             return;
         }
 
         std::string schema_str;
-        st = serialize_arrow_schema(row_desc, &schema, &schema_str);
+        auto st = serialize_arrow_schema(&schema, &schema_str);
         if (st.ok()) {
             result->set_schema(std::move(schema_str));
         }
@@ -1065,7 +1068,7 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
             response->mutable_status()->set_status_code(1);
             response->mutable_status()->add_error_msgs("could not find stream load context");
         } else {
-            stream_load_ctx->pipe->finish();
+            static_cast<void>(stream_load_ctx->pipe->finish());
             response->mutable_status()->set_status_code(0);
         }
     });
@@ -1181,10 +1184,13 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cont
     st.to_protobuf(response->mutable_status());
     if (extract_st.ok()) {
         st = _exec_env->vstream_mgr()->transmit_block(request, &done);
-        if (!st.ok()) {
+        if (!st.ok() && !st.is<END_OF_FILE>()) {
             LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
-                         << ", node=" << request->node_id();
+                         << ", node=" << request->node_id()
+                         << ", from sender_id: " << request->sender_id()
+                         << ", be_number: " << request->be_number()
+                         << ", packet_seq: " << request->packet_seq();
         }
     } else {
         st = extract_st;
@@ -1498,7 +1504,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                                     rowset_meta->tablet_id(), node_id, true);
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, closure_guard.release(), _heavy_work_pool);
         return;
     }
     Status::OK().to_protobuf(response->mutable_status());
@@ -1700,7 +1706,7 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                     .stats = &stats,
                     .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
             };
-            column_iterator->init(opt);
+            static_cast<void>(column_iterator->init(opt));
             std::vector<segment_v2::rowid_t> single_row_loc {
                     static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
             RETURN_IF_ERROR(column_iterator->read_by_rowids(single_row_loc.data(), 1, column));
@@ -1735,7 +1741,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
                                          const PMultiGetRequest* request,
                                          PMultiGetResponse* response,
                                          google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, response, done, this]() {
+    bool ret = _light_work_pool.try_offer([request, response, done, this]() {
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();
@@ -1786,53 +1792,65 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
                                                const PGroupCommitInsertRequest* request,
                                                PGroupCommitInsertResponse* response,
                                                google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    TUniqueId load_id;
+    load_id.__set_hi(request->load_id().hi());
+    load_id.__set_lo(request->load_id().lo());
+    bool ret = _light_work_pool.try_offer([this, request, response, done, load_id]() {
         brpc::ClosureGuard closure_guard(done);
-        auto table_id = request->table_id();
-        Status st = Status::OK();
-        TPlan plan;
-        {
-            auto& plan_node = request->plan_node();
-            const uint8_t* buf = (const uint8_t*)plan_node.data();
-            uint32_t len = plan_node.size();
-            st = deserialize_thrift_msg(buf, &len, false, &plan);
-            if (UNLIKELY(!st.ok())) {
-                LOG(WARNING) << "deserialize plan failed, msg=" << st;
-                response->mutable_status()->set_status_code(st.code());
-                response->mutable_status()->set_error_msgs(0, st.to_string());
-                return;
+        std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+        auto pipe = std::make_shared<io::StreamLoadPipe>(
+                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+                -1 /* total_length */, true /* use_proto */);
+        ctx->pipe = pipe;
+        Status st = _exec_env->new_load_stream_mgr()->put(load_id, ctx);
+        if (st.ok()) {
+            doris::Mutex mutex;
+            doris::ConditionVariable cv;
+            bool handled = false;
+            try {
+                st = _exec_plan_fragment_impl(
+                        request->exec_plan_fragment_request().request(),
+                        request->exec_plan_fragment_request().version(),
+                        request->exec_plan_fragment_request().compact(),
+                        [&](RuntimeState* state, Status* status) {
+                            response->set_label(state->import_label());
+                            response->set_txn_id(state->wal_id());
+                            response->set_loaded_rows(state->num_rows_load_success());
+                            response->set_filtered_rows(state->num_rows_load_filtered());
+                            st = *status;
+                            std::unique_lock l(mutex);
+                            handled = true;
+                            cv.notify_one();
+                        });
+            } catch (const Exception& e) {
+                st = e.to_status();
+            } catch (...) {
+                st = Status::Error(ErrorCode::INTERNAL_ERROR,
+                                   "_exec_plan_fragment_impl meet unknown error");
+            }
+            if (!st.ok()) {
+                LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
+            } else {
+                for (int i = 0; i < request->data().size(); ++i) {
+                    std::unique_ptr<PDataRow> row(new PDataRow());
+                    row->CopyFrom(request->data(i));
+                    st = pipe->append(std::move(row));
+                    if (!st.ok()) {
+                        break;
+                    }
+                }
+                if (st.ok()) {
+                    static_cast<void>(pipe->finish());
+                    std::unique_lock l(mutex);
+                    if (!handled) {
+                        cv.wait(l);
+                    }
+                }
             }
         }
-        TDescriptorTable tdesc_tbl;
-        {
-            auto& desc_tbl = request->desc_tbl();
-            const uint8_t* buf = (const uint8_t*)desc_tbl.data();
-            uint32_t len = desc_tbl.size();
-            st = deserialize_thrift_msg(buf, &len, false, &tdesc_tbl);
-            if (UNLIKELY(!st.ok())) {
-                LOG(WARNING) << "deserialize desc tbl failed, msg=" << st;
-                response->mutable_status()->set_status_code(st.code());
-                response->mutable_status()->set_error_msgs(0, st.to_string());
-                return;
-            }
-        }
-        TScanRangeParams tscan_range_params;
-        {
-            auto& bytes = request->scan_range_params();
-            const uint8_t* buf = (const uint8_t*)bytes.data();
-            uint32_t len = bytes.size();
-            st = deserialize_thrift_msg(buf, &len, false, &tscan_range_params);
-            if (UNLIKELY(!st.ok())) {
-                LOG(WARNING) << "deserialize scan range failed, msg=" << st;
-                response->mutable_status()->set_status_code(st.code());
-                response->mutable_status()->set_error_msgs(0, st.to_string());
-                return;
-            }
-        }
-        st = _exec_env->group_commit_mgr()->group_commit_insert(
-                table_id, plan, tdesc_tbl, tscan_range_params, request, response);
         st.to_protobuf(response->mutable_status());
     });
+    _exec_env->new_load_stream_mgr()->remove(load_id);
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
         return;

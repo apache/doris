@@ -369,9 +369,9 @@ CREATE CATALOG hive PROPERTIES (
 | char| char | |
 | varchar| varchar| |
 | decimal| decimal | |
-| `array<type>` | `array<type>`| 支持array嵌套，如 `array<array<int>>` |
-| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | 暂不支持嵌套，KeyType 和 ValueType 需要为基础类型 |
-| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | 暂不支持嵌套，Type1, Type2, ... 需要为基础类型 |
+| `array<type>` | `array<type>`| 支持嵌套，如 `array<map<string, int>>` |
+| `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | 支持嵌套，如 `map<string, array<int>>` |
+| `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | 支持嵌套，如 `struct<col1: array<int>, col2: map<int, date>>` |
 | other | unsupported | |
 
 ## 是否按照 hive 表的 schema 来截断 char 或者 varchar 列
@@ -379,6 +379,14 @@ CREATE CATALOG hive PROPERTIES (
 如果变量 `truncate_char_or_varchar_columns` 开启，则当 hive 表的 schema 中 char 或者 varchar 列的最大长度和底层 parquet 或者 orc 文件中的 schema 不一致时会按照 hive 表列的最大长度进行截断。
 
 该变量默认为 false。
+
+## 使用 broker 访问 HMS
+
+创建 HMS Catalog 时增加如下配置，Hive 外表文件分片和文件扫描将会由名为 `test_broker` 的 broker 完成
+
+```sql
+"broker.name" = "test_broker"
+```
 
 ## 使用 Ranger 进行权限校验
 
