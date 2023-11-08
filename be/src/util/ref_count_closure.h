@@ -59,7 +59,7 @@ class DummyBrpcCallback {
     ENABLE_FACTORY_CREATOR(DummyBrpcCallback);
 
 public:
-    void call(std::shared_ptr<Response> rep) {}
+    void call(std::shared_ptr<Response> rep, std::shared_ptr<brpc::Controller> cntl) {}
 };
 
 // The closure will be deleted after callback.
