@@ -365,7 +365,7 @@ public class NativeInsertStmt extends InsertStmt {
         analyzeTargetTable(analyzer);
         db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
 
-        analyzeGroupCommit();
+        analyzeGroupCommit(analyzer);
         if (isGroupCommit()) {
             return;
         }
@@ -1067,14 +1067,24 @@ public class NativeInsertStmt extends InsertStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        if (isExplain()) {
+        if (isExplain() || isGroupCommit()) {
             return RedirectStatus.NO_FORWARD;
         } else {
             return RedirectStatus.FORWARD_WITH_SYNC;
         }
     }
 
-    private void analyzeGroupCommit() {
+    public void analyzeGroupCommit(Analyzer analyzer) {
+        if (isGroupCommit) {
+            return;
+        }
+        try {
+            tblName.analyze(analyzer);
+            initTargetTable(analyzer);
+        } catch (Throwable e) {
+            LOG.warn("analyze group commit failed", e);
+            return;
+        }
         if (ConnectContext.get().getSessionVariable().enableInsertGroupCommit
                 && targetTable instanceof OlapTable
                 && !ConnectContext.get().isTxnModel()

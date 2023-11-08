@@ -1152,3 +1152,8 @@ VALUES ('2023-06-17 10:00:00', '2023-06-17 10:00:01.1', '2023-06-17 10:00:02.22'
 SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'STRICT_TRANS_TABLES',''));
 INSERT INTO doris_test.dt_null
 VALUES ('2023-06-17 10:00:00'),('0000-00-00 00:00:00');
+
+SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE',''));
+SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE',''));
+
+insert into doris_test.test_zd (id,d_z) VALUES (1,'0000-00-00'),(2,'2022-01-01');

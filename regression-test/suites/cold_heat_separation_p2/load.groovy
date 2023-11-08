@@ -14,40 +14,39 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import groovy.json.JsonSlurper
+import org.codehaus.groovy.runtime.IOGroovyMethods
 
-package org.apache.doris.nereids.types;
+suite("cold_heat_separation", "p2") {
+    try_sql """
+        drop database regression_test_cold_heat_separation_p2 force;
+    """
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.CharacterType;
+    try_sql """
+        create database regression_test_cold_heat_separation_p2;
+    """
 
-/**
- * String data type in Nereids.
- */
-public class StringType extends CharacterType {
+    def polices = sql """
+        show storage policy;
+    """
 
-    public static final StringType INSTANCE = new StringType();
-
-    private StringType() {
-        super(-1);
+    for (policy in polices) {
+        if (policy[3].equals("STORAGE")) {
+            try_sql """
+                drop storage policy if exists ${policy[0]}
+            """
+        }
     }
 
-    @Override
-    public int width() {
-        return len;
-    }
+    def resources = sql """
+        show resources;
+    """
 
-    @Override
-    public Type toCatalogDataType() {
-        return Type.STRING;
-    }
-
-    @Override
-    public String simpleString() {
-        return "text";
-    }
-
-    @Override
-    public DataType defaultConcreteType() {
-        return this;
+    for (resource in resources) {
+        if (resource[1].equals("s3")) {
+            try_sql """
+                drop resource if exists ${resource[0]}
+            """
+        }
     }
 }
