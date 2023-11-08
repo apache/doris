@@ -238,6 +238,10 @@ VIEWS
 \N
 2023-06-17T10:00
 
+-- !test_dz --
+1	\N
+2	2022-01-01
+
 -- !test_insert1 --
 doris1	18
 
