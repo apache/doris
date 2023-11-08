@@ -134,6 +134,7 @@ jobs:
             if [ "_""${same_build_sign}" == "_false" ];then
               sleep 10s
               echo "there is no running build or queue build, so trigger a new !"
+              echo "repeat_times: ${repeat_times}"
               if [[ -n "${repeat_times}" ]]; then
                 execute_command="curl -s -X POST ${teamcity_url}/httpAuth/action.html\?add2Queue\=${pipeline}\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}\&name=env.latest_commit_id\&value=${latest_commit_id}\&name=env.repeat_times\&value=${repeat_times}"
               else
