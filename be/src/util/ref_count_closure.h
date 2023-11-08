@@ -56,7 +56,7 @@ private:
 
 template <typename Response>
 class DummyBrpcCallback {
-    ENABLE_FACTORY_CREATOR(DummyCallback);
+    ENABLE_FACTORY_CREATOR(DummyBrpcCallback);
 
 public:
     void call(std::shared_ptr<Response> rep) {}
