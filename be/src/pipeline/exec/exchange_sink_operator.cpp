@@ -205,6 +205,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 dep_id++;
             }
         }
+        _exchange_sink_dependency->add_child(deps_for_channels);
     }
     if (p._part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = channels.size();
