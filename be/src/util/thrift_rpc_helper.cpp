@@ -32,8 +32,13 @@
 #include "runtime/exec_env.h" // IWYU pragma: keep
 #include "util/network_util.h"
 
-namespace apache {
-namespace thrift {
+#if defined(__clang__) || defined(__GNUC__)
+#define ATTRIBUTE_NO_SANITIZE_ADDRESS __attribute__((no_sanitize_address))
+#else
+#define ATTRIBUTE_NO_SANITIZE_ADDRESS
+#endif
+
+namespace apache::thrift {
 namespace protocol {
 class TProtocol;
 } // namespace protocol
@@ -42,8 +47,7 @@ class TBufferedTransport;
 class TSocket;
 class TTransport;
 } // namespace transport
-} // namespace thrift
-} // namespace apache
+} // namespace apache::thrift
 
 namespace doris {
 
@@ -60,8 +64,9 @@ void ThriftRpcHelper::setup(ExecEnv* exec_env) {
 }
 
 template <typename T>
-Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
-                            std::function<void(ClientConnection<T>&)> callback, int timeout_ms) {
+ATTRIBUTE_NO_SANITIZE_ADDRESS Status
+ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
+                     std::function<void(ClientConnection<T>&)> callback, int timeout_ms) {
     TNetworkAddress address = make_network_address(ip, port);
     Status status;
     ClientConnection<T> client(_s_exec_env->get_client_cache<T>(), address, timeout_ms, &status);
