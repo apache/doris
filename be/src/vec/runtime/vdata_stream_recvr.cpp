@@ -358,23 +358,12 @@ VDataStreamRecvr::VDataStreamRecvr(
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;
-    if (state->enable_pipeline_x_exec()) {
-        _sender_to_local_channel_dependency.resize(num_queues);
-        for (size_t i = 0; i < num_queues; i++) {
-            _sender_to_local_channel_dependency[i] =
-                    pipeline::LocalExchangeChannelDependency::create_shared(_dest_node_id,
-                                                                            _mem_available);
-        }
-    }
     _sender_queues.reserve(num_queues);
     int num_sender_per_queue = is_merging ? 1 : num_senders;
     for (int i = 0; i < num_queues; ++i) {
         SenderQueue* queue = nullptr;
         if (_enable_pipeline) {
             queue = _sender_queue_pool.add(new PipSenderQueue(this, num_sender_per_queue, profile));
-            if (state->enable_pipeline_x_exec()) {
-                queue->set_local_channel_dependency(_sender_to_local_channel_dependency[i]);
-            }
         } else {
             queue = _sender_queue_pool.add(new SenderQueue(this, num_sender_per_queue, profile));
         }
