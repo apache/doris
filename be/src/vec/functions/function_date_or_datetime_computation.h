@@ -405,7 +405,8 @@ struct DateTimeOp {
 
             if (UNLIKELY(invalid)) {
                 throw Exception(ErrorCode::OUT_OF_BOUND,
-                                fmt::format("Operation {} out of range", Transform::name));
+                                fmt::format("Operation {} {} {} out of range, ", Transform::name,
+                                            vec_from0[i], vec_from1[i]));
             }
         }
     }
@@ -434,7 +435,8 @@ struct DateTimeOp {
 
             if (UNLIKELY(invalid)) {
                 throw Exception(ErrorCode::OUT_OF_BOUND,
-                                fmt::format("Operation {} out of range", Transform::name));
+                                fmt::format("Operation {} {} {} out of range, ", Transform::name,
+                                            vec_from0[i], vec_from1[i]));
             }
         }
     }
@@ -462,7 +464,8 @@ struct DateTimeOp {
 
             if (UNLIKELY(invalid)) {
                 throw Exception(ErrorCode::OUT_OF_BOUND,
-                                fmt::format("Operation {} out of range", Transform::name));
+                                fmt::format("Operation {} {} {} out of range, ", Transform::name,
+                                            vec_from[i], delta));
             }
         }
     }
@@ -490,7 +493,8 @@ struct DateTimeOp {
 
             if (UNLIKELY(invalid)) {
                 throw Exception(ErrorCode::OUT_OF_BOUND,
-                                fmt::format("Operation {} out of range", Transform::name));
+                                fmt::format("Operation {} {} {} out of range, ", Transform::name,
+                                            vec_from[i], delta));
             }
         }
     }
@@ -518,7 +522,8 @@ struct DateTimeOp {
 
             if (UNLIKELY(invalid)) {
                 throw Exception(ErrorCode::OUT_OF_BOUND,
-                                fmt::format("Operation {} out of range", Transform::name));
+                                fmt::format("Operation {} {} {} out of range, ", Transform::name,
+                                            from, delta.get_int(i)));
             }
         }
     }
@@ -545,7 +550,8 @@ struct DateTimeOp {
 
             if (UNLIKELY(invalid)) {
                 throw Exception(ErrorCode::OUT_OF_BOUND,
-                                fmt::format("Operation {} out of range", Transform::name));
+                                fmt::format("Operation {} {} {} out of range, ", Transform::name,
+                                            from, delta.get_int(i)));
             }
         }
     }
