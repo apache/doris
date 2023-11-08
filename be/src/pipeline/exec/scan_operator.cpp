@@ -248,7 +248,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts() {
             RETURN_IF_ERROR(_normalize_predicate(conjunct->root(), conjunct.get(), new_root));
             if (new_root) {
                 conjunct->set_root(new_root);
-                if (_should_push_down_common_expr() &&
+                if (_should_push_down_common_expr(*(conjunct->root())) &&
                     vectorized::VExpr::is_acting_on_a_slot(*(conjunct->root()))) {
                     _common_expr_ctxs_push_down.emplace_back(conjunct);
                     it = _conjuncts.erase(it);

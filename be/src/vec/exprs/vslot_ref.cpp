@@ -38,12 +38,19 @@ class VExprContext;
 namespace doris::vectorized {
 
 VSlotRef::VSlotRef(const doris::TExprNode& node)
-        : VExpr(node), _slot_id(node.slot_ref.slot_id), _column_id(-1), _column_name(nullptr) {}
+        : VExpr(node),
+          _slot_id(node.slot_ref.slot_id),
+          _column_id(-1),
+          _col_unique_id(-1),
+          _push_down_column_id(-1),
+          _column_name(nullptr) {}
 
 VSlotRef::VSlotRef(const SlotDescriptor* desc)
         : VExpr(desc->type(), true, desc->is_nullable()),
           _slot_id(desc->id()),
           _column_id(-1),
+          _col_unique_id(-1),
+          _push_down_column_id(-1),
           _column_name(nullptr) {}
 
 Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
@@ -60,9 +67,18 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
                 state->desc_tbl().debug_string());
     }
     _column_name = &slot_desc->col_name();
+    _col_unique_id = slot_desc->col_unique_id();
+    if (_col_unique_id < 0 && !_column_name->empty()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "VSlotRef {} have invalid column unique id, slot id: {}, desc: {}, slot_desc: {}, "
+                "desc_tbl: {}",
+                *_column_name, _slot_id, desc.debug_string(), slot_desc->debug_string(),
+                state->desc_tbl().debug_string());
+    }
     if (!context->force_materialize_slot() && !slot_desc->need_materialize()) {
         // slot should be ignored manually
         _column_id = -1;
+        _col_unique_id = -1;
         return Status::OK();
     }
     _column_id = desc.get_column_id(_slot_id, context->force_materialize_slot());
@@ -76,12 +92,21 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
 }
 
 Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
-    if (_column_id >= 0 && _column_id >= block->columns()) {
-        return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                "input block not contain slot column {}, column_id={}, block={}", *_column_name,
-                _column_id, block->dump_structure());
+    if (_push_down_column_id == -1) {
+        if (_column_id >= 0 && _column_id >= block->columns()) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "input block not contain slot column {}, column_id={}, block={}", *_column_name,
+                    _column_id, block->dump_structure());
+        }
+        *result_column_id = _column_id;
+    } else {
+        if (_push_down_column_id >= 0 && _push_down_column_id >= block->columns()) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "input block not contain slot column {}, push_down_column_id={}, block={}",
+                    *_column_name, _push_down_column_id, block->dump_structure());
+        }
+        *result_column_id = _push_down_column_id;
     }
-    *result_column_id = _column_id;
     return Status::OK();
 }
 

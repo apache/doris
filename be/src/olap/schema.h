@@ -176,6 +176,14 @@ public:
     const std::vector<int32_t>& unique_ids() const { return _unique_ids; }
     ColumnId column_id(size_t index) const { return _col_ids[index]; }
     int32_t unique_id(size_t index) const { return _unique_ids[index]; }
+    size_t unique_id_to_index(int32_t unique_id) const {
+        for (int index = 0; index < _unique_ids.size(); index++) {
+            if (unique_id == _unique_ids[index]) {
+                return index;
+            }
+        }
+        return -1;
+    }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     bool has_sequence_col() const { return _has_sequence_col; }
     int32_t rowid_col_idx() const { return _rowid_col_idx; }

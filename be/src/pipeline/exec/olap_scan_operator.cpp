@@ -201,8 +201,21 @@ Status OlapScanLocalState::_should_push_down_function_filter(
     return Status::OK();
 }
 
-bool OlapScanLocalState::_should_push_down_common_expr() {
-    return state()->enable_common_expr_pushdown() && _storage_no_merge();
+bool OlapScanLocalState::_all_slots_is_key_column(const vectorized::VExpr& expr) {
+    const auto& children = expr.children();
+    auto all_slot_is_key = std::all_of(children.begin(), children.end(), [this](const auto& child) {
+        return _all_slots_is_key_column(*child);
+    });
+
+    return all_slot_is_key ? (expr.node_type() != TExprNodeType::SLOT_REF ||
+                              _is_key_column(expr.expr_name()))
+                           : false;
+}
+
+bool OlapScanLocalState::_should_push_down_common_expr(const vectorized::VExpr& expr) {
+    // dup key table, unique key MoW table, unique key MoR table and agg key table must satisfy all expr slot is key column.
+    return state()->enable_common_expr_pushdown() &&
+           (_storage_no_merge() || _all_slots_is_key_column(expr));
 }
 
 bool OlapScanLocalState::_storage_no_merge() {

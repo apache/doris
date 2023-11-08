@@ -48,9 +48,16 @@ public:
 
     int slot_id() const { return _slot_id; }
 
+    int col_unique_id() const { return _col_unique_id; }
+    void set_push_down_column_id(int push_down_column_id) {
+        _push_down_column_id = push_down_column_id;
+    }
+
 private:
     int _slot_id;
     int _column_id;
+    int32_t _col_unique_id;
+    int _push_down_column_id;
     const std::string* _column_name;
 };
 } // namespace vectorized

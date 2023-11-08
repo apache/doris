@@ -587,8 +587,11 @@ Status SegmentIterator::_extract_common_expr_columns(const vectorized::VExprSPtr
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
         auto slot_expr = std::dynamic_pointer_cast<doris::vectorized::VSlotRef>(expr);
-        _is_common_expr_column[_schema->column_id(slot_expr->column_id())] = true;
-        _common_expr_columns.insert(_schema->column_id(slot_expr->column_id()));
+        DCHECK(_schema->unique_id_to_index(slot_expr->col_unique_id()) != -1);
+        auto cid = _schema->column_id(_schema->unique_id_to_index(slot_expr->col_unique_id()));
+        slot_expr->set_push_down_column_id(cid);
+        _is_common_expr_column[cid] = true;
+        _common_expr_columns.insert(cid);
     }
 
     return Status::OK();
@@ -1472,6 +1475,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             for (auto cid : _common_expr_columns) {
                 _first_read_column_ids.push_back(cid);
             }
+            _second_read_column_ids.clear();
         }
     }
     return Status::OK();
