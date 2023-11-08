@@ -39,4 +39,12 @@ public class MTMVCache {
     public Set<BaseTableInfo> getBaseViews() {
         return baseViews;
     }
+
+    @Override
+    public String toString() {
+        return "MTMVCache{"
+                + "baseTables=" + baseTables
+                + ", baseViews=" + baseViews
+                + '}';
+    }
 }

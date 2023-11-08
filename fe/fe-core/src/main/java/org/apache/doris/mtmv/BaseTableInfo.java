@@ -24,9 +24,7 @@ import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.base.Objects;
 import com.google.gson.annotations.SerializedName;
-import lombok.Data;
 
-@Data
 public class BaseTableInfo {
     @SerializedName("ti")
     private Long tableId;
@@ -51,6 +49,18 @@ public class BaseTableInfo {
         this.ctlId = catalog.getId();
     }
 
+    public Long getTableId() {
+        return tableId;
+    }
+
+    public Long getDbId() {
+        return dbId;
+    }
+
+    public Long getCtlId() {
+        return ctlId;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -68,5 +78,14 @@ public class BaseTableInfo {
     @Override
     public int hashCode() {
         return Objects.hashCode(tableId, dbId, ctlId);
+    }
+
+    @Override
+    public String toString() {
+        return "BaseTableInfo{"
+                + "tableId=" + tableId
+                + ", dbId=" + dbId
+                + ", ctlId=" + ctlId
+                + '}';
     }
 }

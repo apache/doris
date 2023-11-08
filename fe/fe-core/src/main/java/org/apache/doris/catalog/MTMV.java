@@ -31,6 +31,7 @@ import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVTaskResult;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -111,19 +112,21 @@ public class MTMV extends OlapTable {
         return refreshInfo.updateNotNull(newRefreshInfo);
     }
 
-    public MTMVStatus alterStatus(MTMVStatus status) {
-        return status.updateNotNull(status);
+    public MTMVStatus alterStatus(MTMVStatus newStatus) {
+        return this.status.updateNotNull(newStatus);
     }
 
     public void alterTaskResult(MTMVTaskResult taskResult, MTMVCache cache) {
         if (taskResult.isSuccess()) {
-            status.setState(MTMVState.NORMAL);
-            status.setRefreshState(MTMVRefreshState.SUCCESS);
+            this.status.setState(MTMVState.NORMAL);
+            this.status.setSchemaChangeDetail(null);
+            this.status.setRefreshState(MTMVRefreshState.SUCCESS);
+            this.cache = cache;
             Env.getCurrentEnv().getMtmvService().getCacheManager().refreshMTMVCache(cache, new BaseTableInfo(this));
         } else {
-            status.setRefreshState(MTMVRefreshState.FAIL);
+            this.status.setRefreshState(MTMVRefreshState.FAIL);
         }
-        jobInfo.setLastTaskResult(taskResult);
+        this.jobInfo.setLastTaskResult(taskResult);
     }
 
     public Map<String, String> alterMvProperties(Map<String, String> mvProperties) {
@@ -149,6 +152,19 @@ public class MTMV extends OlapTable {
         builder.append(mvProperties.toString().replace("{", "(").replace("}", ")"));
         builder.append(" AS ");
         builder.append(querySql);
+        builder.append("=======status======");
+        builder.append(status);
+        builder.append("=======jobInfo======");
+        builder.append(jobInfo);
+        builder.append("=======cache======");
+        builder.append(cache);
+        builder.append("======= isAvailableMTMV ======");
+        try {
+            builder.append(
+                    Env.getCurrentEnv().getMtmvService().getCacheManager().isAvailableMTMV(this, ConnectContext.get()));
+        } catch (Exception e) {
+            LOG.warn(e.getMessage());
+        }
         return builder.toString();
     }
 

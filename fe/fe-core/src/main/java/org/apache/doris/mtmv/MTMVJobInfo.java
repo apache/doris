@@ -44,4 +44,12 @@ public class MTMVJobInfo {
     public void setLastTaskResult(MTMVTaskResult lastTaskResult) {
         this.lastTaskResult = lastTaskResult;
     }
+
+    @Override
+    public String toString() {
+        return "MTMVJobInfo{"
+                + "jobName='" + jobName + '\''
+                + ", lastTaskResult=" + lastTaskResult
+                + '}';
+    }
 }

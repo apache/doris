@@ -75,4 +75,16 @@ public class MTMVTaskResult {
     public String getRefreshTaskId() {
         return refreshTaskId;
     }
+
+    @Override
+    public String toString() {
+        return "MTMVTaskResult{"
+                + "refreshErrorMsg='" + refreshErrorMsg + '\''
+                + ", executorSql='" + executorSql + '\''
+                + ", success=" + success
+                + ", refreshFinishedTime=" + refreshFinishedTime
+                + ", refreshStartTime=" + refreshStartTime
+                + ", refreshTaskId='" + refreshTaskId + '\''
+                + '}';
+    }
 }

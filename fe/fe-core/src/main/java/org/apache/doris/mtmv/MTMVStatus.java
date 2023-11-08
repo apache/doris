@@ -21,7 +21,6 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.Objects;
 
@@ -73,15 +72,26 @@ public class MTMVStatus {
 
     public MTMVStatus updateNotNull(MTMVStatus status) {
         Objects.requireNonNull(status);
-        if (status.getRefreshState() != null) {
+        if (status.getState() != null) {
             this.state = status.getState();
-        }
-        if (!StringUtils.isEmpty(status.getSchemaChangeDetail())) {
-            this.schemaChangeDetail = status.getSchemaChangeDetail();
+            if (this.state == MTMVState.SCHEMA_CHANGE) {
+                this.schemaChangeDetail = status.getSchemaChangeDetail();
+            } else {
+                this.schemaChangeDetail = null;
+            }
         }
         if (status.getRefreshState() != null) {
             this.refreshState = status.getRefreshState();
         }
         return this;
+    }
+
+    @Override
+    public String toString() {
+        return "MTMVStatus{"
+                + "state=" + state
+                + ", schemaChangeDetail='" + schemaChangeDetail + '\''
+                + ", refreshState=" + refreshState
+                + '}';
     }
 }
