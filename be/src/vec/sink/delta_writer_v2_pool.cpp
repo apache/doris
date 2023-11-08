@@ -29,8 +29,8 @@ DeltaWriterV2Map::DeltaWriterV2Map(UniqueId load_id) : _load_id(load_id), _use_c
 
 DeltaWriterV2Map::~DeltaWriterV2Map() = default;
 
-DeltaWriterV2* DeltaWriterV2Map::get_or_create(int64_t tablet_id,
-                                               std::function<DeltaWriterV2*()> creator) {
+DeltaWriterV2* DeltaWriterV2Map::get_or_create(
+        int64_t tablet_id, std::function<std::unique_ptr<DeltaWriterV2>()> creator) {
     _map.lazy_emplace(tablet_id, [&](const TabletToDeltaWriterV2Map::constructor& ctor) {
         ctor(tablet_id, creator());
     });
