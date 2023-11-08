@@ -41,16 +41,16 @@ Doris-Operator 是按照 Kubernetes 原则构建的在 Kubernetes 平台之上�
 
 ### 部署Doris-Operator
 **1. 添加 DorisCluster [资源定义](https://kubernetes.io/zh-cn/docs/concepts/extend-kubernetes/api-extension/custom-resources/)**
-    ```shell
-    kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/config/crd/bases/doris.selectdb.com_dorisclusters.yaml
-    ```
+```shell
+kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/config/crd/bases/doris.selectdb.com_dorisclusters.yaml    
+```
 **2. 部署 Doris-Operator**  
-   __方式一：默认部署模式__  
+   **方式一：默认部署模式**  
    直接通过仓库中 operator 的定义进行部署   
    ```shell
    kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/config/operator/operator.yaml
    ```
-   __方式二：自定义部署__  
+   **方式二：自定义部署**  
    [operator.yaml](https://github.com/selectdb/doris-operator/blob/master/config/operator/operator.yaml)中各个配置是部署 Operator 服务的最低要求。为提高管理效率或者有定制化的需求，下载 operator.yaml 进行自定义部署。  
    - 下载 operator 的部署范例[operator.yaml](https://raw.githubusercontent.com/selectdb/doris-operator/master/config/operator/operator.yaml)，可直接通过 wget 进行下载。
    - 按期望更新 operator.yaml 中各种配置信息。
@@ -60,19 +60,19 @@ Doris-Operator 是按照 Kubernetes 原则构建的在 Kubernetes 平台之上�
    ```
 **3. 检查 Doris-Operator 服务部署状态**   
 Operator 服务部署后，可通过如下命令查看服务的状态。当`STATUS`为`Running`状态，且Pod中所有容器都为`Ready`状态时服务部署成功。
-    ```
-     kubectl -n doris get pods
-     NAME                              READY   STATUS    RESTARTS        AGE
-     doris-operator-5b9f7f57bf-tsvjz   1/1     Running   66 (164m ago)   6d22h
-    ```
-    operator.yaml中namespace 默认为 Doris，如果更改了 namespace，在查询服务状态的时候请替换正确的 namespace 名称。
+```
+ kubectl -n doris get pods
+ NAME                              READY   STATUS    RESTARTS        AGE
+ doris-operator-5b9f7f57bf-tsvjz   1/1     Running   66 (164m ago)   6d22h
+```
+operator.yaml中namespace 默认为 Doris，如果更改了 namespace，在查询服务状态的时候请替换正确的 namespace 名称。
 ### 部署 Doris 集群
 **1. 部署集群**   
-`Doris-Operator`仓库的 [doc/examples] (https://github.com/selectdb/doris-operator/tree/master/doc/examples)目录提供众多场景的使用范例,可直接使用范例进行部署。以最基础的范例为例：
-    ```
-    kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/doc/examples/doriscluster-sample.yaml
-    ```
-    在 Doris-Operator 仓库中，[how_to_use.md](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md)梳理了 Operator 管理运维 Doris 集群的主要能力，[DorisCluster](https://github.com/selectdb/doris-operator/blob/master/api/doris/v1/types.go)展示了资源定义和从属结构，[api.md](https://github.com/selectdb/doris-operator/tree/master/doc/api.md)可读性展示了资源定义和从属结构。可根据相关文档规划部署 Doris 集群。  
+`Doris-Operator`仓库的 [doc/examples ](https://github.com/selectdb/doris-operator/tree/master/doc/examples)目录提供众多场景的使用范例,可直接使用范例进行部署。以最基础的范例为例：  
+```
+kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/doc/examples/doriscluster-sample.yaml
+```
+在 Doris-Operator 仓库中，[how_to_use.md](https://github.com/selectdb/doris-operator/tree/master/doc/how_to_use.md)梳理了 Operator 管理运维 Doris 集群的主要能力，[DorisCluster](https://github.com/selectdb/doris-operator/blob/master/api/doris/v1/types.go)展示了资源定义和从属结构，[api.md](https://github.com/selectdb/doris-operator/tree/master/doc/api.md)可读性展示了资源定义和从属结构。可根据相关文档规划部署 Doris 集群。  
 
 **2. 检测集群状态**
 - 检查所有 pod 的状态  
