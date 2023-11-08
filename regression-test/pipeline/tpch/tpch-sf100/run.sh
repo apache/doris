@@ -75,12 +75,12 @@ exit_flag=0
             for table_name in ${!table_file_count[*]}; do
                 if [[ ${table_file_count[${table_name}]} -eq 1 ]]; then
                     url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpch/sf${SF}/${table_name}.tbl"
-                    if ! wget --continue -t3 -q "${url}"; then echo "ERROR: wget --continue ${url}" && return 1; fi
+                    if ! wget --continue -t3 -q "${url}"; then echo "ERROR: wget --continue ${url}" && exit 1; fi
                 elif [[ ${table_file_count[${table_name}]} -eq 10 ]]; then
                     (
                         for i in {1..10}; do
                             url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpch/sf${SF}/${table_name}.tbl.${i}"
-                            if ! wget --continue -t3 -q "${url}"; then echo "ERROR: wget --continue ${url}" && return 1; fi
+                            if ! wget --continue -t3 -q "${url}"; then echo "ERROR: wget --continue ${url}" && exit 1; fi
                         done
                     ) &
                     wait
@@ -96,6 +96,8 @@ exit_flag=0
         if ! check_tpch_table_rows "${db_name}" "${SF}"; then
             exit 1
         fi
+        echo "INFO: sleep 10min to wait compaction done" && sleep 10m
+        data_reload="true"
     fi
 
     echo "#### 2. run tpch-sf${SF} query"
@@ -105,7 +107,7 @@ exit_flag=0
     if ! grep '^Total hot run time' "${teamcity_build_checkoutDir}"/run-tpch-queries.log >/dev/null; then exit 1; fi
     line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpch-queries.log)
     line_begin=$((line_end - 23))
-    comment_body="Tpch sf${SF} test result on commit ${commit_id:-}
+    comment_body="Tpch sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
 
 run tpch-sf${SF} query with default conf and session variables
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-queries.log)"
