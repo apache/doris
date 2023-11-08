@@ -47,10 +47,10 @@ public class MTMVJobManager implements MTMVHookService {
         if (materializedView.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger()
                 .equals(RefreshTrigger.SCHEDULE)) {
             createCycleJob(materializedView);
-        } else if (materializedView.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
+        } else if (materializedView.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger()
+                .equals(RefreshTrigger.MANUAL)) {
             createManualJob(materializedView);
         }
-
     }
 
     private void createManualJob(MTMV mtmv) throws DdlException {

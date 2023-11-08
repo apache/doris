@@ -54,6 +54,7 @@ public class MTMVJobExecutor extends AbstractJobExecutor<String, MTMVTaskParams>
 
     private MTMV mtmv;
     private String sql;
+    private MTMVCache cache;
 
     public MTMVJobExecutor(String dbName, long mtmvId) {
         this.dbName = dbName;
@@ -69,6 +70,7 @@ public class MTMVJobExecutor extends AbstractJobExecutor<String, MTMVTaskParams>
         TUniqueId queryId = generateQueryId(taskIdString);
         ExecutorResult executorResult;
         try {
+            cache = MTMVCacheManager.generateMTMVCache(mtmv);
             StmtExecutor executor = new StmtExecutor(ctx, sql);
             executor.execute(queryId);
             String result = convertExecuteResult(ctx, taskIdString, sql);
@@ -102,7 +104,8 @@ public class MTMVJobExecutor extends AbstractJobExecutor<String, MTMVTaskParams>
                     result.isSuccess(),
                     taskStartTime, taskEndTime, taskId);
             Env.getCurrentEnv()
-                    .alterMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), taskResult);
+                    .alterMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), taskResult,
+                            cache);
         } catch (Exception e) {
             e.printStackTrace();
             LOG.warn("afterExecute failed: {} ", e.getMessage());
@@ -113,6 +116,7 @@ public class MTMVJobExecutor extends AbstractJobExecutor<String, MTMVTaskParams>
         ConnectContext context = super.createContext(job);
         context.changeDefaultCatalog(mtmv.getEnvInfo().getCtlName());
         context.setDatabase(mtmv.getEnvInfo().getDbName());
+        context.getSessionVariable().enableFallbackToOriginalPlanner = false;
         return context;
     }
 

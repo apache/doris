@@ -145,6 +145,10 @@ public class Alter {
         AlterOperations currentAlterOps = new AlterOperations();
         currentAlterOps.checkConflict(alterClauses);
 
+        if (olapTable instanceof MTMV) {
+            currentAlterOps.checkMTMVAllow(alterClauses);
+        }
+
         // check cluster capacity and db quota, only need to check once.
         if (currentAlterOps.needCheckCapacity()) {
             Env.getCurrentSystemInfo().checkAvailableCapacity();
@@ -885,7 +889,7 @@ public class Alter {
             } else if (alterMTMV.getMvProperties() != null) {
                 mtmv.alterMvProperties(alterMTMV.getMvProperties());
             } else if (alterMTMV.getTaskResult() != null) {
-                mtmv.alterTaskResult(alterMTMV.getTaskResult());
+                mtmv.alterTaskResult(alterMTMV.getTaskResult(), alterMTMV.getCache());
             }
             // 4. log it and replay it in the follower
             if (!isReplay) {

@@ -23,7 +23,6 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVCache;
-import org.apache.doris.mtmv.MTMVCacheManager;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
@@ -116,11 +115,10 @@ public class MTMV extends OlapTable {
         return status.updateNotNull(status);
     }
 
-    public void alterTaskResult(MTMVTaskResult taskResult) {
+    public void alterTaskResult(MTMVTaskResult taskResult, MTMVCache cache) {
         if (taskResult.isSuccess()) {
             status.setState(MTMVState.NORMAL);
             status.setRefreshState(MTMVRefreshState.SUCCESS);
-            cache = MTMVCacheManager.generateMTMVCache(this);
             Env.getCurrentEnv().getMtmvService().getCacheManager().refreshMTMVCache(cache, new BaseTableInfo(this));
         } else {
             status.setRefreshState(MTMVRefreshState.FAIL);

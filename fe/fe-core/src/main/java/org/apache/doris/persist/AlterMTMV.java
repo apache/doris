@@ -19,6 +19,7 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVTaskResult;
@@ -46,6 +47,8 @@ public class AlterMTMV implements Writable {
     private Map<String, String> mvProperties;
     @SerializedName("tr")
     private MTMVTaskResult taskResult;
+    @SerializedName("c")
+    private MTMVCache cache;
 
     public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
@@ -103,6 +106,14 @@ public class AlterMTMV implements Writable {
 
     public void setTaskResult(MTMVTaskResult taskResult) {
         this.taskResult = taskResult;
+    }
+
+    public MTMVCache getCache() {
+        return cache;
+    }
+
+    public void setCache(MTMVCache cache) {
+        this.cache = cache;
     }
 
     @Override

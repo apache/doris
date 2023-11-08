@@ -891,6 +891,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
 
+            if (!stmt.isMaterializedView() && table instanceof MTMV) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "TABLE");
+            } else if (stmt.isMaterializedView() && !(table instanceof MTMV)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_WRONG_OBJECT, dbName, tableName, "MTMV");
+            }
+
             if (!stmt.isForceDrop()) {
                 if (Env.getCurrentEnv().getGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
                     throw new DdlException(

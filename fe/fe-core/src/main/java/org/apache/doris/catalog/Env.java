@@ -172,6 +172,7 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVTaskResult;
@@ -5821,9 +5822,11 @@ public class Env {
         this.alter.processAlterMTMV(alter, false);
     }
 
-    public void alterMTMVTaskResult(TableNameInfo mvName, MTMVTaskResult taskResult) throws UserException {
+    public void alterMTMVTaskResult(TableNameInfo mvName, MTMVTaskResult taskResult, MTMVCache cache)
+            throws UserException {
         AlterMTMV alter = new AlterMTMV(mvName);
         alter.setTaskResult(taskResult);
+        alter.setCache(cache);
         this.alter.processAlterMTMV(alter, false);
     }
 }
