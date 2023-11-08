@@ -101,15 +101,18 @@ struct TabletTxnInfo {
 
 struct CommitTabletTxnInfo {
     CommitTabletTxnInfo(TPartitionId partition_id, TTransactionId transaction_id,
-                        DeleteBitmapPtr delete_bitmap, RowsetIdUnorderedSet rowset_ids)
+                        DeleteBitmapPtr delete_bitmap, RowsetIdUnorderedSet rowset_ids,
+                        std::shared_ptr<PartialUpdateInfo> partial_update_info)
             : transaction_id(transaction_id),
               partition_id(partition_id),
               delete_bitmap(delete_bitmap),
-              rowset_ids(rowset_ids) {}
+              rowset_ids(rowset_ids),
+              partial_update_info(partial_update_info) {}
     TTransactionId transaction_id;
     TPartitionId partition_id;
     DeleteBitmapPtr delete_bitmap;
     RowsetIdUnorderedSet rowset_ids;
+    std::shared_ptr<PartialUpdateInfo> partial_update_info;
 };
 
 using CommitTabletTxnInfoVec = std::vector<CommitTabletTxnInfo>;
