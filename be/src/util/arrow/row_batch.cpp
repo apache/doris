@@ -41,9 +41,9 @@
 #include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
 #include "runtime/row_batch.h"
-#include "vec/runtime/vdatetime_value.h"
 #include "util/arrow/utils.h"
 #include "util/types.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
@@ -235,14 +235,16 @@ public:
                 break;
             }
             case TYPE_DATEV2: {
-                const vectorized::DateV2Value<vectorized::DateV2ValueType>* date_val = (const vectorized::DateV2Value<vectorized::DateV2ValueType>*)(cell_ptr);
+                const vectorized::DateV2Value<vectorized::DateV2ValueType>* date_val =
+                        (const vectorized::DateV2Value<vectorized::DateV2ValueType>*)(cell_ptr);
                 char buf[64];
                 int len = date_val->to_buffer(buf);
                 ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
             }
             case TYPE_DATETIMEV2: {
-                const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>* datetime_val = (const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*)(cell_ptr);
+                const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>* datetime_val =
+                        (const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*)(cell_ptr);
                 char buf[64];
                 int len = datetime_val->to_buffer(buf);
                 ARROW_RETURN_NOT_OK(builder.Append(buf, len));
