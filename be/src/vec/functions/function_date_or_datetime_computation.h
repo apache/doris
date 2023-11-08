@@ -551,7 +551,7 @@ struct DateTimeOp {
             if (UNLIKELY(invalid)) {
                 throw Exception(ErrorCode::OUT_OF_BOUND,
                                 fmt::format("Operation {} {} {} out of range, ", Transform::name,
-                                            from, delta.get_int(i)));
+                                            from, delta[i]));
             }
         }
     }
