@@ -33,7 +33,8 @@ suite("test_unique_backup_restore", "backup_restore") {
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES
         (
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
         )
         """
 
@@ -57,7 +58,7 @@ suite("test_unique_backup_restore", "backup_restore") {
         Thread.sleep(3000)
     }
 
-    snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
+    def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
     sql "TRUNCATE TABLE ${dbName}.${tableName}"
@@ -78,7 +79,44 @@ suite("test_unique_backup_restore", "backup_restore") {
 
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), 2)
+    
+    sql "DROP REPOSITORY `${repoName}`"
 
+    sql "DELETE FROM ${dbName}.${tableName} WHERE id = 1"
+    result = sql "SELECT * FROM ${dbName}.${tableName}"
+    assertEquals(result.size(), 1)
+    repoName = "test_unique_delete_backup_restore_repo"
+    syncer.createS3Repository(repoName)
+    snapshotName = "test_unique_delete_backup_restore_snapshot"
+    sql """
+        BACKUP SNAPSHOT ${dbName}.${snapshotName}
+        TO `${repoName}`
+        ON (${tableName})
+        PROPERTIES ("type" = "full")
+        """
+    
+    while (!syncer.checkSnapshotFinish(dbName)) {
+        Thread.sleep(3000)
+    }
+
+    snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
+    assertTrue(snapshot != null)
+    sql "TRUNCATE TABLE ${dbName}.${tableName}"
+    sql """
+        RESTORE SNAPSHOT ${dbName}.${snapshotName}
+        FROM `${repoName}`
+        ON ( `${tableName}`)
+        PROPERTIES
+        (
+            "backup_timestamp" = "${snapshot}",
+            "replication_num" = "1"
+        )
+        """
+    while (!syncer.checkAllRestoreFinish(dbName)) {
+        Thread.sleep(3000)
+    }
+    result = sql "SELECT * FROM ${dbName}.${tableName}"
+    assertEquals(result.size(), 1)
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
     sql "DROP REPOSITORY `${repoName}`"
