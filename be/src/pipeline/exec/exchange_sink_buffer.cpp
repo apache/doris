@@ -62,7 +62,8 @@ namespace pipeline {
 template <typename Parent>
 ExchangeSinkBuffer<Parent>::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
                                                int send_id, int be_number, QueryContext* context)
-        : _is_finishing(false),
+        : _queue_capacity(0),
+          _is_finishing(false),
           _query_id(query_id),
           _dest_node_id(dest_node_id),
           _sender_id(send_id),

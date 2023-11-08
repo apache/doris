@@ -103,8 +103,8 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
         if (!_is_cancelled && _num_remaining_senders > 0) {
             _dependency->block_reading();
         }
-        for (auto& it : _local_channel_dependency) {
-            it->set_ready_for_write();
+        if (_local_channel_dependency) {
+            _local_channel_dependency->set_ready_for_write();
         }
     }
 
@@ -349,22 +349,23 @@ VDataStreamRecvr::VDataStreamRecvr(
           _profile(profile),
           _peak_memory_usage_counter(nullptr),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr),
-          _enable_pipeline(state->enable_pipeline_exec()) {
+          _enable_pipeline(state->enable_pipeline_exec()),
+          _mem_available(std::make_shared<bool>(true)) {
     // DataStreamRecvr may be destructed after the instance execution thread ends.
     _mem_tracker =
             std::make_unique<MemTracker>("VDataStreamRecvr:" + print_id(_fragment_instance_id));
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
-    if (state->enable_pipeline_x_exec()) {
-        _sender_to_local_channel_dependency.resize(num_senders);
-        for (size_t i = 0; i < num_senders; i++) {
-            _sender_to_local_channel_dependency[i] =
-                    pipeline::LocalExchangeChannelDependency::create_shared(_dest_node_id);
-        }
-    }
-
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;
+    if (state->enable_pipeline_x_exec()) {
+        _sender_to_local_channel_dependency.resize(num_queues);
+        for (size_t i = 0; i < num_queues; i++) {
+            _sender_to_local_channel_dependency[i] =
+                    pipeline::LocalExchangeChannelDependency::create_shared(_dest_node_id,
+                                                                            _mem_available);
+        }
+    }
     _sender_queues.reserve(num_queues);
     int num_sender_per_queue = is_merging ? 1 : num_senders;
     for (int i = 0; i < num_queues; ++i) {
@@ -372,14 +373,7 @@ VDataStreamRecvr::VDataStreamRecvr(
         if (_enable_pipeline) {
             queue = _sender_queue_pool.add(new PipSenderQueue(this, num_sender_per_queue, profile));
             if (state->enable_pipeline_x_exec()) {
-                auto dependencies =
-                        is_merging
-                                ? std::vector<std::shared_ptr<
-                                          pipeline::
-                                                  LocalExchangeChannelDependency>> {_sender_to_local_channel_dependency
-                                                                                            [i]}
-                                : _sender_to_local_channel_dependency;
-                queue->set_local_channel_dependency(dependencies);
+                queue->set_local_channel_dependency(_sender_to_local_channel_dependency[i]);
             }
         } else {
             queue = _sender_queue_pool.add(new SenderQueue(this, num_sender_per_queue, profile));
@@ -449,9 +443,8 @@ bool VDataStreamRecvr::sender_queue_empty(int sender_id) {
 
 std::shared_ptr<pipeline::LocalExchangeChannelDependency>
 VDataStreamRecvr::get_local_channel_dependency(int sender_id) {
-    DCHECK_GT(_sender_to_local_channel_dependency.size(), sender_id);
-    DCHECK(_sender_to_local_channel_dependency[sender_id] != nullptr);
-    return _sender_to_local_channel_dependency[sender_id];
+    DCHECK(_sender_to_local_channel_dependency[_is_merging ? sender_id : 0] != nullptr);
+    return _sender_to_local_channel_dependency[_is_merging ? sender_id : 0];
 }
 
 bool VDataStreamRecvr::ready_to_read() {
@@ -504,7 +497,12 @@ void VDataStreamRecvr::cancel_stream(Status exec_status) {
 
 void VDataStreamRecvr::update_blocks_memory_usage(int64_t size) {
     _blocks_memory_usage->add(size);
-    _blocks_memory_usage_current_value = _blocks_memory_usage->current_value();
+    auto val = _blocks_memory_usage_current_value.fetch_add(size);
+    if (val + size > config::exchg_node_buffer_size_bytes) {
+        *_mem_available = false;
+    } else {
+        *_mem_available = true;
+    }
 }
 
 void VDataStreamRecvr::close() {

@@ -134,11 +134,25 @@ private:
 class LocalExchangeChannelDependency final : public WriteDependency {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeChannelDependency);
-    LocalExchangeChannelDependency(int id)
-            : WriteDependency(id, "LocalExchangeChannelDependency") {}
+    LocalExchangeChannelDependency(int id, std::shared_ptr<bool> mem_available)
+            : WriteDependency(id, "LocalExchangeChannelDependency"),
+              _mem_available(mem_available) {}
     ~LocalExchangeChannelDependency() override = default;
 
+    WriteDependency* write_blocked_by() override {
+        if (config::enable_fuzzy_mode && !_is_runnable() &&
+            _should_log(_write_dependency_watcher.elapsed_time())) {
+            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                         << id();
+        }
+        return _is_runnable() ? nullptr : this;
+    }
+
     void* shared_state() override { return nullptr; }
+
+private:
+    bool _is_runnable() const { return _ready_for_write || *_mem_available; }
+    std::shared_ptr<bool> _mem_available;
 };
 
 class ExchangeSinkLocalState final : public PipelineXSinkLocalState<> {

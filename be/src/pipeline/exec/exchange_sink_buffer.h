@@ -199,6 +199,7 @@ private:
     phmap::flat_hash_map<InstanceLoId,
                          std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>>
             _instance_to_package_queue;
+    size_t _queue_capacity;
     // store data in broadcast shuffle
     phmap::flat_hash_map<InstanceLoId, std::queue<BroadcastTransmitInfo<Parent>,
                                                   std::list<BroadcastTransmitInfo<Parent>>>>
@@ -237,7 +238,6 @@ private:
 
     std::atomic<int> _total_queue_size = 0;
     static constexpr int QUEUE_CAPACITY_FACTOR = 64;
-    int _queue_capacity = 0;
     std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
     std::shared_ptr<FinishDependency> _finish_dependency = nullptr;
     QueryStatistics* _statistics = nullptr;
