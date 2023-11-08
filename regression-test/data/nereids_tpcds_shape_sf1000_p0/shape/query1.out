@@ -33,10 +33,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalProject
 --------------------------filter((store.s_state = 'TN'))
 ----------------------------PhysicalOlapScan[store]
-------------------hashAgg[GLOBAL]
---------------------PhysicalDistribute
-----------------------hashAgg[LOCAL]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------PhysicalDistribute
+--------------------hashAgg[GLOBAL]
+----------------------PhysicalDistribute
+------------------------hashAgg[LOCAL]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
