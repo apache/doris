@@ -569,6 +569,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().internalSession) {
+            return ColumnStatistic.UNKNOWN;
+        }
         long catalogId;
         long dbId;
         try {

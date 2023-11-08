@@ -20,25 +20,17 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.QueryState;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.text.StringSubstitutor;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class JdbcAnalysisTask extends BaseAnalysisTask {
-    private static final Logger LOG = LogManager.getLogger(JdbcAnalysisTask.class);
 
-    private static final String ANALYZE_SQL_TABLE_TEMPLATE = "INSERT INTO "
-            + "${internalDB}.${columnStatTbl}"
-            + " SELECT "
+    private static final String ANALYZE_SQL_TABLE_TEMPLATE = " SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
             + "${catalogId} AS catalog_id, "
             + "${dbId} AS db_id, "
@@ -49,8 +41,8 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
             + "COUNT(1) AS row_count, "
             + "NDV(`${colName}`) AS ndv, "
             + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) AS null_count, "
-            + "to_base64(MIN(`${colName}`)) AS min, "
-            + "to_base64(MAX(`${colName}`)) AS max, "
+            + "MIN(`${colName}`) AS min, "
+            + "MAX(`${colName}`) AS max, "
             + "${dataSizeFunction} AS data_size, "
             + "NOW() "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
@@ -117,25 +109,7 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
         params.put("dataSizeFunction", getDataSizeFunction(col));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(sb.toString());
-        executeInsertSql(sql);
-    }
-
-    private void executeInsertSql(String sql) throws Exception {
-        long startTime = System.currentTimeMillis();
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-            this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
-            this.stmtExecutor.execute();
-            QueryState queryState = r.connectContext.getState();
-            if (queryState.getStateType().equals(QueryState.MysqlStateType.ERR)) {
-                LOG.warn(String.format("Failed to analyze %s.%s.%s, sql: [%s], error: [%s]",
-                        catalog.getName(), db.getFullName(), info.colName, sql, queryState.getErrorMessage()));
-                throw new RuntimeException(queryState.getErrorMessage());
-            }
-            LOG.debug(String.format("Analyze %s.%s.%s done. SQL: [%s]. Cost %d ms.",
-                    catalog.getName(), db.getFullName(), info.colName, sql, (System.currentTimeMillis() - startTime)));
-        }
+        runQuery(sql);
     }
 
     private Map<String, String> buildTableStatsParams(String partId) {

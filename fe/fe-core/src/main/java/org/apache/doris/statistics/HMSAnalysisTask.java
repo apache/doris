@@ -23,26 +23,19 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.external.hive.util.HiveUtil;
-import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.QueryState;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
-import java.util.StringJoiner;
 import java.util.stream.Collectors;
 
 public class HMSAnalysisTask extends BaseAnalysisTask {
@@ -51,9 +44,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
     // While doing sample analysis, the sampled ndv result will multiply a factor (total size/sample size)
     // if ndv(col)/count(col) is greater than this threshold.
 
-    private static final String ANALYZE_TABLE_TEMPLATE = "INSERT INTO "
-            + "${internalDB}.${columnStatTbl}"
-            + " SELECT "
+    private static final String ANALYZE_TABLE_TEMPLATE = " SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
             + "${catalogId} AS catalog_id, "
             + "${dbId} AS db_id, "
@@ -70,27 +61,8 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "NOW() "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleExpr}";
 
-    private static final String ANALYZE_PARTITION_TEMPLATE = " SELECT "
-            + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}', '-', ${partId}) AS id, "
-            + "${catalogId} AS catalog_id, "
-            + "${dbId} AS db_id, "
-            + "${tblId} AS tbl_id, "
-            + "${idxId} AS idx_id, "
-            + "'${colId}' AS col_id, "
-            + "${partId} AS part_id, "
-            + "COUNT(1) AS row_count, "
-            + "NDV(`${colName}`) AS ndv, "
-            + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) AS null_count, "
-            + "to_base64(MIN(`${colName}`)) AS min, "
-            + "to_base64(MAX(`${colName}`)) AS max, "
-            + "${dataSizeFunction} AS data_size, "
-            + "NOW() FROM `${catalogName}`.`${dbName}`.`${tblName}` where ";
-
     private static final String ANALYZE_TABLE_COUNT_TEMPLATE = "SELECT ROUND(COUNT(1) * ${scaleFactor}) as rowCount "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleExpr}";
-
-    // cache stats for each partition, it would be inserted into column_statistics in a batch.
-    private final List<List<ColStatsData>> buf = new ArrayList<>();
 
     private final boolean isTableLevelTask;
     private final boolean isPartitionOnly;
@@ -131,25 +103,16 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
      * Get column statistics and insert the result to __internal_schema.column_statistics
      */
     private void getTableColumnStats() throws Exception {
-        if (isPartitionOnly) {
-            getPartitionNames();
-            List<String> partitionAnalysisSQLs = new ArrayList<>();
-            for (String partId : this.partitionNames) {
-                partitionAnalysisSQLs.add(generateSqlForPartition(partId));
-            }
-            execSQLs(partitionAnalysisSQLs);
-        } else {
-            if (!info.usingSqlForPartitionColumn && isPartitionColumn()) {
-                try {
-                    getPartitionColumnStats();
-                } catch (Exception e) {
-                    LOG.warn("Failed to collect stats for partition col {} using metadata, "
-                            + "fallback to normal collection", col.getName(), e);
-                    getOrdinaryColumnStats();
-                }
-            } else {
+        if (!info.usingSqlForPartitionColumn && isPartitionColumn()) {
+            try {
+                getPartitionColumnStats();
+            } catch (Exception e) {
+                LOG.warn("Failed to collect stats for partition col {} using metadata, "
+                        + "fallback to normal collection", col.getName(), e);
                 getOrdinaryColumnStats();
             }
+        } else {
+            getOrdinaryColumnStats();
         }
     }
 
@@ -182,7 +145,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         params.put("maxFunction", getMaxFunction());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(sb.toString());
-        executeInsertSql(sql);
+        runQuery(sql);
     }
 
     private void getPartitionColumnStats() throws Exception {
@@ -227,7 +190,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         params.put("data_size", String.valueOf(dataSize));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_PARTITION_COLUMN_TEMPLATE);
-        executeInsertSql(sql);
+        runQuery(sql);
     }
 
     private String updateMinValue(String currentMin, String value) {
@@ -278,85 +241,11 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
                 partitionNames = table.getPartitionNames();
             } else if (info.partitionCount > 0) {
                 partitionNames = table.getPartitionNames().stream()
-                    .limit(info.partitionCount).collect(Collectors.toSet());
+                        .limit(info.partitionCount).collect(Collectors.toSet());
             }
             if (partitionNames == null || partitionNames.isEmpty()) {
                 throw new RuntimeException("Not a partition table or no partition specified.");
             }
-        }
-    }
-
-    private String generateSqlForPartition(String partId) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(ANALYZE_PARTITION_TEMPLATE);
-        String[] splits = partId.split("/");
-        for (int i = 0; i < splits.length; i++) {
-            String[] kv = splits[i].split("=");
-            sb.append(kv[0]);
-            sb.append("='");
-            sb.append(kv[1]);
-            sb.append("'");
-            if (i < splits.length - 1) {
-                sb.append(" and ");
-            }
-        }
-        Map<String, String> params = buildStatsParams(partId);
-        params.put("dataSizeFunction", getDataSizeFunction(col));
-        return new StringSubstitutor(params).replace(sb.toString());
-    }
-
-    public void execSQLs(List<String> partitionAnalysisSQLs) throws Exception {
-        long startTime = System.currentTimeMillis();
-        LOG.debug("analyze task {} start at {}", info.toString(), new Date());
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-            List<List<String>> sqlGroups = Lists.partition(partitionAnalysisSQLs, StatisticConstants.UNION_ALL_LIMIT);
-            for (List<String> group : sqlGroups) {
-                if (killed) {
-                    return;
-                }
-                StringJoiner partitionCollectSQL = new StringJoiner("UNION ALL");
-                group.forEach(partitionCollectSQL::add);
-                stmtExecutor = new StmtExecutor(r.connectContext, partitionCollectSQL.toString());
-                buf.add(stmtExecutor.executeInternalQuery()
-                        .stream().map(ColStatsData::new).collect(Collectors.toList()));
-                QueryState queryState = r.connectContext.getState();
-                if (queryState.getStateType().equals(QueryState.MysqlStateType.ERR)) {
-                    throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
-                        catalog.getName(), db.getFullName(), info.colName, partitionCollectSQL,
-                        queryState.getErrorMessage()));
-                }
-            }
-            for (List<ColStatsData> colStatsDataList : buf) {
-                StringBuilder batchInsertSQL =
-                        new StringBuilder("INSERT INTO " + StatisticConstants.FULL_QUALIFIED_STATS_TBL_NAME
-                        + " VALUES ");
-                StringJoiner sj = new StringJoiner(",");
-                colStatsDataList.forEach(c -> sj.add(c.toSQL(true)));
-                batchInsertSQL.append(sj);
-                stmtExecutor = new StmtExecutor(r.connectContext, batchInsertSQL.toString());
-                executeWithExceptionOnFail(stmtExecutor);
-            }
-        } finally {
-            LOG.debug("analyze task {} end. cost {}ms", info, System.currentTimeMillis() - startTime);
-        }
-
-    }
-
-    private void executeInsertSql(String sql) throws Exception {
-        long startTime = System.currentTimeMillis();
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-            this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
-            this.stmtExecutor.execute();
-            QueryState queryState = r.connectContext.getState();
-            if (queryState.getStateType().equals(QueryState.MysqlStateType.ERR)) {
-                LOG.warn(String.format("Failed to analyze %s.%s.%s, sql: [%s], error: [%s]",
-                        catalog.getName(), db.getFullName(), info.colName, sql, queryState.getErrorMessage()));
-                throw new RuntimeException(queryState.getErrorMessage());
-            }
-            LOG.debug(String.format("Analyze %s.%s.%s done. SQL: [%s]. Cost %d ms.",
-                    catalog.getName(), db.getFullName(), info.colName, sql, (System.currentTimeMillis() - startTime)));
         }
     }
 

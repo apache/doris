@@ -22,8 +22,10 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
@@ -34,22 +36,21 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
+import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-public class AnalysisTaskExecutorTest extends TestWithFeService {
-
+public class AnalyzeTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -58,25 +59,53 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
             createDatabase("analysis_job_test");
             connectContext.setDatabase("default_cluster:analysis_job_test");
             createTable("CREATE TABLE t1 (col1 int not null, col2 int not null, col3 int not null)\n"
-
                     + "DISTRIBUTED BY HASH(col3)\n" + "BUCKETS 1\n"
                     + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n"
                     + ");");
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+        FeConstants.runningUnitTest = true;
     }
 
     @Test
-    public void testExpiredJobCancellation(@Mocked InternalCatalog catalog, @Mocked Database database,
-            @Mocked OlapTable olapTable) throws Exception {
+    public void testCreateAnalysisJob() throws Exception {
+
         new MockUp<StatisticsUtil>() {
 
             @Mock
-            public DBObjects convertIdToObjects(long catalogId, long dbId, long tblId) {
-                return new DBObjects(catalog, database, olapTable);
+            public AutoCloseConnectContext buildConnectContext() {
+                return new AutoCloseConnectContext(connectContext);
+            }
+
+            @Mock
+            public void execUpdate(String sql) throws Exception {
             }
         };
+
+        new MockUp<StmtExecutor>() {
+            @Mock
+            public List<ResultRow> executeInternalQuery() {
+                return Collections.emptyList();
+            }
+        };
+
+        new MockUp<ConnectContext>() {
+
+            @Mock
+            public ConnectContext get() {
+                return connectContext;
+            }
+        };
+        String sql = "ANALYZE TABLE t1";
+        Assertions.assertNotNull(getSqlStmtExecutor(sql));
+    }
+
+    @Test
+    public void testJobExecution(@Mocked StmtExecutor stmtExecutor, @Mocked InternalCatalog catalog, @Mocked
+            Database database,
+            @Mocked OlapTable olapTable)
+            throws Exception {
         new MockUp<OlapTable>() {
 
             @Mock
@@ -84,15 +113,55 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                 return new Column("col1", PrimitiveType.INT);
             }
         };
-        final AtomicBoolean cancelled = new AtomicBoolean();
-        new MockUp<AnalysisTaskWrapper>() {
+
+        new MockUp<StatisticsUtil>() {
 
             @Mock
-            public boolean cancel(String msg) {
-                cancelled.set(true);
-                return true;
+            public ConnectContext buildConnectContext() {
+                return connectContext;
+            }
+
+            @Mock
+            public void execUpdate(String sql) throws Exception {
+            }
+
+            @Mock
+            public DBObjects convertIdToObjects(long catalogId, long dbId, long tblId) {
+                return new DBObjects(catalog, database, olapTable);
             }
         };
+        new MockUp<StatisticsCache>() {
+
+            @Mock
+            public void syncLoadColStats(long tableId, long idxId, String colName) {
+            }
+        };
+        new MockUp<StmtExecutor>() {
+
+            @Mock
+            public void execute() throws Exception {
+
+            }
+
+            @Mock
+            public List<ResultRow> executeInternalQuery() {
+                return new ArrayList<>();
+            }
+        };
+
+        new MockUp<OlapAnalysisTask>() {
+
+            @Mock
+            public void execSQLs(List<String> partitionAnalysisSQLs, Map<String, String> params) throws Exception {}
+        };
+
+        new MockUp<BaseAnalysisTask>() {
+
+            @Mock
+            protected void runQuery(String sql) {}
+        };
+        HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
+        colToPartitions.put("col1", Collections.singleton("t1"));
         AnalysisInfo analysisJobInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
                 .setCatalogId(0)
                 .setDBId(0)
@@ -101,81 +170,16 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                 .setAnalysisMode(AnalysisMode.FULL)
                 .setAnalysisMethod(AnalysisMethod.FULL)
                 .setAnalysisType(AnalysisType.FUNDAMENTALS)
-                .build();
-        OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisJobInfo);
-
-        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
-        BlockingQueue<AnalysisTaskWrapper> b = Deencapsulation.getField(analysisTaskExecutor, "taskQueue");
-        AnalysisTaskWrapper analysisTaskWrapper = new AnalysisTaskWrapper(analysisTaskExecutor, analysisJob);
-        Deencapsulation.setField(analysisTaskWrapper, "startTime", 5);
-        b.put(analysisTaskWrapper);
-        analysisTaskExecutor.tryToCancel();
-        Assertions.assertTrue(cancelled.get());
-        Assertions.assertTrue(b.isEmpty());
-
-    }
-
-    @Test
-    public void testTaskExecution(@Mocked InternalCatalog catalog, @Mocked Database database,
-            @Mocked OlapTable olapTable) throws Exception {
-        new MockUp<StatisticsUtil>() {
-
-            @Mock
-            public DBObjects convertIdToObjects(long catalogId, long dbId, long tblId) {
-                return new DBObjects(catalog, database, olapTable);
-            }
-        };
-        new MockUp<OlapTable>() {
-
-            @Mock
-            public Column getColumn(String name) {
-                return new Column("col1", PrimitiveType.INT);
-            }
-        };
-        new MockUp<StmtExecutor>() {
-            @Mock
-            public List<ResultRow> executeInternalQuery() {
-                return Collections.emptyList();
-            }
-        };
-
-        new MockUp<OlapAnalysisTask>() {
-            @Mock
-            public void execSQLs(List<String> partitionAnalysisSQLs, Map<String, String> params) throws Exception {
-            }
-
-            @Mock
-            protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
-                // DO NOTHING
-            }
-        };
-
-        new MockUp<StatisticsCache>() {
-
-            @Mock
-            public void syncLoadColStats(long tableId, long idxId, String colName) {
-            }
-        };
-
-        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
-        HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
-        colToPartitions.put("col1", Collections.singleton("t1"));
-        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
-                .setCatalogId(0).setDBId(0).setTblId(0)
-                .setColName("col1").setJobType(JobType.MANUAL)
-                .setAnalysisMode(AnalysisMode.FULL)
-                .setAnalysisMethod(AnalysisMethod.FULL)
-                .setAnalysisType(AnalysisType.FUNDAMENTALS)
-                .setState(AnalysisState.RUNNING)
                 .setColToPartitions(colToPartitions)
+                .setState(AnalysisState.RUNNING)
                 .build();
-        OlapAnalysisTask task = new OlapAnalysisTask(analysisInfo);
-
-        new MockUp<AnalysisManager>() {
-            @Mock
-            public void updateTaskStatus(AnalysisInfo info, AnalysisState jobState, String message, long time) {}
+        new OlapAnalysisTask(analysisJobInfo).doExecute();
+        new Expectations() {
+            {
+                stmtExecutor.execute();
+                times = 1;
+            }
         };
-
-        Deencapsulation.invoke(analysisTaskExecutor, "submitTask", task);
     }
+
 }
