@@ -124,9 +124,7 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
         desc.type == TRuntimeFilterType::BLOOM) {
         // if this runtime filter has remote target (e.g. need merge), we reuse the runtime filter between all instances
         DCHECK(_query_ctx != nullptr);
-
         {
-
             iter = _consumer_map.find(key);
             if (iter != _consumer_map.end()) {
                 for (auto holder : iter->second) {
