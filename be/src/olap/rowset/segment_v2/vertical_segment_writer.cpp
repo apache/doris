@@ -302,7 +302,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     auto tablet = static_cast<Tablet*>(_tablet.get());
     // create full block and fill with input columns
     auto full_block = _tablet_schema->create_block();
-    std::vector<uint32_t> including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
+    const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
     size_t input_id = 0;
     for (auto i : including_cids) {
         full_block.replace_by_position(i, data.block->get_by_position(input_id++).column);
@@ -455,7 +455,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     }
 
     // convert missing columns and send to column writer
-    std::vector<uint32_t> missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
+    const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
     _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, data.row_pos,
                                                                    data.num_rows, missing_cids);
     for (auto cid : missing_cids) {
@@ -512,9 +512,9 @@ Status VerticalSegmentWriter::_fill_missing_columns(
     }
     auto tablet = static_cast<Tablet*>(_tablet.get());
     // create old value columns
-    std::vector<uint32_t> cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
-    auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
-    CHECK(cids_missing.size() == old_value_block.columns());
+    const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
+    auto old_value_block = _tablet_schema->create_block_by_cids(missing_cids);
+    CHECK(missing_cids.size() == old_value_block.columns());
     auto mutable_old_columns = old_value_block.mutate_columns();
     bool has_row_column = _tablet_schema->store_row_column();
     // record real pos, key is input line num, value is old_block line num
@@ -531,7 +531,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
             }
             if (has_row_column) {
                 auto st = tablet->fetch_value_through_row_column(rowset, seg_it.first, rids,
-                                                                 cids_missing, old_value_block);
+                                                                 missing_cids, old_value_block);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value through row column";
                     return st;
@@ -539,7 +539,7 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                 continue;
             }
             for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
-                TabletColumn tablet_column = _tablet_schema->column(cids_missing[cid]);
+                TabletColumn tablet_column = _tablet_schema->column(missing_cids[cid]);
                 auto st = tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
                                                         mutable_old_columns[cid]);
                 // set read value to output block
@@ -564,10 +564,10 @@ Status VerticalSegmentWriter::_fill_missing_columns(
     }
 
     if (has_default_or_nullable || delete_sign_column_data != nullptr) {
-        for (auto i = 0; i < cids_missing.size(); ++i) {
-            const auto& column = _tablet_schema->column(cids_missing[i]);
+        for (auto i = 0; i < missing_cids.size(); ++i) {
+            const auto& column = _tablet_schema->column(missing_cids[i]);
             if (column.has_default_value()) {
-                auto default_value = _tablet_schema->column(cids_missing[i]).default_value();
+                auto default_value = _tablet_schema->column(missing_cids[i]).default_value();
                 vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
                                           default_value.size());
                 RETURN_IF_ERROR(old_value_block.get_by_position(i).type->from_string(
@@ -587,29 +587,29 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         if (use_default_or_null_flag[idx] ||
             (delete_sign_column_data != nullptr &&
              delete_sign_column_data[read_index[idx + segment_start_pos]] != 0)) {
-            for (auto i = 0; i < cids_missing.size(); ++i) {
+            for (auto i = 0; i < missing_cids.size(); ++i) {
                 // if the column has default value, fiil it with default value
                 // otherwise, if the column is nullable, fill it with null value
-                const auto& tablet_column = _tablet_schema->column(cids_missing[i]);
+                const auto& tablet_column = _tablet_schema->column(missing_cids[i]);
                 if (tablet_column.has_default_value()) {
-                    mutable_full_columns[cids_missing[i]]->insert_from(
+                    mutable_full_columns[missing_cids[i]]->insert_from(
                             *mutable_default_value_columns[i].get(), 0);
                 } else if (tablet_column.is_nullable()) {
                     auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
-                            mutable_full_columns[cids_missing[i]].get());
+                            mutable_full_columns[missing_cids[i]].get());
                     nullable_column->insert_null_elements(1);
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value
                     // columns are useless and won't be read. So we can just put arbitary values in the cells
-                    mutable_full_columns[cids_missing[i]]->insert_default();
+                    mutable_full_columns[missing_cids[i]]->insert_default();
                 }
             }
             continue;
         }
         auto pos_in_old_block = read_index[idx + segment_start_pos];
-        for (auto i = 0; i < cids_missing.size(); ++i) {
-            mutable_full_columns[cids_missing[i]]->insert_from(
+        for (auto i = 0; i < missing_cids.size(); ++i) {
+            mutable_full_columns[missing_cids[i]]->insert_from(
                     *old_value_block.get_columns_with_type_and_name()[i].column.get(),
                     pos_in_old_block);
         }
