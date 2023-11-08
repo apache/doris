@@ -69,6 +69,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -296,7 +297,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Flag to indicate whether to wrap this expr's toSql() in parenthesis. Set by parser.
     // Needed for properly capturing expr precedences in the SQL string.
     protected boolean printSqlInParens = false;
-    protected final String exprName = Utils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME);
+    protected Optional<String> exprName = Optional.empty();
 
     protected Expr() {
         super();
@@ -340,8 +341,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     // Name of expr, this is used by generating column name automatically when there is no
     // alias or is not slotRef
-    protected String getExprName() {
-        return this.exprName;
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME));
+        }
+        return this.exprName.get();
     }
 
     public Type getType() {

@@ -30,6 +30,7 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * AggregateExpression.
@@ -120,7 +121,10 @@ public class AggregateExpression extends Expression implements UnaryExpression {
 
     @Override
     public String getExpressionName() {
-        return Utils.normalizeName(function.getName(), DEFAULT_EXPRESSION_NAME);
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(function.getName(), DEFAULT_EXPRESSION_NAME));
+        }
+        return this.exprName.get();
     }
 
     @Override

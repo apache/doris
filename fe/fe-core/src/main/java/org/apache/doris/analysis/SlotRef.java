@@ -45,6 +45,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -307,8 +308,11 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    protected String getExprName() {
-        return toColumnLabel();
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(toColumnLabel());
+        }
+        return this.exprName.get();
     }
 
     @Override
