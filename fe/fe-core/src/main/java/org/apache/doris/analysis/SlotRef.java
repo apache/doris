@@ -308,7 +308,7 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    protected String getExprName() {
+    public String getExprName() {
         if (!this.exprName.isPresent()) {
             this.exprName = Optional.of(toColumnLabel());
         }

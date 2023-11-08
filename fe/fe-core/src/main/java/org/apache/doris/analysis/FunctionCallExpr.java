@@ -312,7 +312,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     @Override
-    protected String getExprName() {
+    public String getExprName() {
         if (!this.exprName.isPresent()) {
             this.exprName = Optional.of(Utils.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME));
         }

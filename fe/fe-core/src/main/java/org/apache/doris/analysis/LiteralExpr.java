@@ -366,7 +366,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     }
 
     @Override
-    protected String getExprName() {
+    public String getExprName() {
         if (!this.exprName.isPresent()) {
             this.exprName = Optional.of("literal");
         }

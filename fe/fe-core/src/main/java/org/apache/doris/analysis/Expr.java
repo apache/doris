@@ -340,7 +340,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     // Name of expr, this is used by generating column name automatically when there is no
     // alias or is not slotRef
-    protected String getExprName() {
+    public String getExprName() {
         if (!this.exprName.isPresent()) {
             this.exprName = Optional.of(Utils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME));
         }

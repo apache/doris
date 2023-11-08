@@ -123,7 +123,7 @@ public class VirtualSlotRef extends SlotRef {
     }
 
     @Override
-    protected String getExprName() {
+    public String getExprName() {
         return super.getExprName();
     }
 }

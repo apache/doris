@@ -147,7 +147,7 @@ public class AnalyticExpr extends Expr {
     }
 
     @Override
-    protected String getExprName() {
+    public String getExprName() {
         if (!this.exprName.isPresent()) {
             this.exprName = Optional.of(Utils.normalizeName(getFnCall().getExprName(), DEFAULT_EXPR_NAME));
         }

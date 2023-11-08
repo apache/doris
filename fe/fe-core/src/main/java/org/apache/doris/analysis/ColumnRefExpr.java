@@ -57,7 +57,7 @@ public class ColumnRefExpr extends Expr {
     }
 
     @Override
-    protected String getExprName() {
+    public String getExprName() {
         if (!this.exprName.isPresent()) {
             this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPR_NAME));
         }
