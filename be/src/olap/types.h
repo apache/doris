@@ -693,7 +693,7 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I> {
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256> {
-    using CppType = Int256;
+    using CppType = wide::Int256;
     using UnsignedCppType = wide::UInt256;
 };
 template <>
@@ -1210,17 +1210,12 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256>
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL256>::from_string meet PARSE_FAILURE");
         }
-        *reinterpret_cast<Int256*>(buf) = value;
+        *reinterpret_cast<wide::Int256*>(buf) = value;
         return Status::OK();
     }
     static std::string to_string(const void* src) {
-        // TODO: support decimal256
-        DCHECK(false);
-        return "";
-        // auto value = reinterpret_cast<const wide::Int256*>(src);
-        // fmt::memory_buffer buffer;
-        // fmt::format_to(buffer, "{}", *value);
-        // return std::string(buffer.data(), buffer.size());
+        const auto* value = reinterpret_cast<const wide::Int256*>(src);
+        return wide::to_string(*value);
     }
 };
 

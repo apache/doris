@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Joiner;
@@ -361,7 +362,8 @@ public class AnalyticExpr extends Expr {
         Expr rangeExpr = boundary.getExpr();
 
         if (!Type.isImplicitlyCastable(
-                    rangeExpr.getType(), orderByElements.get(0).getExpr().getType(), false)) {
+                    rangeExpr.getType(), orderByElements.get(0).getExpr().getType(), false,
+                    SessionVariable.getEnableDecimal256())) {
             throw new AnalysisException(
                 "The value expression of a PRECEDING/FOLLOWING clause of a RANGE window must "
                 + "be implicitly convertible to the ORDER BY expression's type: "

@@ -23,60 +23,48 @@
 
 #include "wide_integer.h"
 
-using Int256 = wide::integer<256, signed>;
-using UInt256 = wide::integer<256, unsigned>;
-
-static_assert(sizeof(Int256) == 32);
-static_assert(sizeof(UInt256) == 32);
+static_assert(sizeof(wide::Int256) == 32);
+static_assert(sizeof(wide::UInt256) == 32);
 
 /// The standard library type traits, such as std::is_arithmetic, with one exception
 /// (std::common_type), are "set in stone". Attempting to specialize them causes undefined behavior.
 /// So instead of using the std type_traits, we use our own version which allows extension.
 namespace wide {
-template <typename T>
-struct is_signed // NOLINT(readability-identifier-naming)
-{
-    static constexpr bool value = std::is_signed_v<T>;
-};
-
+template <class T>
+concept is_integer = std::is_integral_v<T> || std::is_same_v<T, wide::Int256> ||
+                     std::is_same_v<T, wide::UInt256>;
+}
 template <>
-struct is_signed<Int256> {
+struct std::is_signed<wide::Int256> {
     static constexpr bool value = true;
 };
-
-template <typename T>
-inline constexpr bool is_signed_v = is_signed<T>::value;
-
-template <typename T>
-struct is_unsigned // NOLINT(readability-identifier-naming)
-{
-    static constexpr bool value = std::is_unsigned_v<T>;
-};
-
-template <typename T>
-inline constexpr bool is_unsigned_v = is_unsigned<T>::value;
-
-template <class T>
-concept is_integer =
-        std::is_integral_v<T> || std::is_same_v<T, Int256> || std::is_same_v<T, UInt256>;
-} // namespace wide
-
-namespace std {
 template <>
-struct make_unsigned<Int256> {
-    using type = UInt256;
-};
-template <>
-struct make_unsigned<UInt256> {
-    using type = UInt256;
+struct std::is_signed<wide::UInt256> {
+    static constexpr bool value = false;
 };
 
 template <>
-struct make_signed<Int256> {
-    using type = Int256;
+struct std::is_unsigned<wide::Int256> {
+    static constexpr bool value = false;
 };
 template <>
-struct make_signed<UInt256> {
-    using type = Int256;
+struct std::is_unsigned<wide::UInt256> {
+    static constexpr bool value = true;
 };
-} // namespace std
+template <>
+struct std::make_unsigned<wide::Int256> {
+    using type = wide::UInt256;
+};
+template <>
+struct std::make_unsigned<wide::UInt256> {
+    using type = wide::UInt256;
+};
+
+template <>
+struct std::make_signed<wide::Int256> {
+    using type = wide::Int256;
+};
+template <>
+struct std::make_signed<wide::UInt256> {
+    using type = wide::Int256;
+};

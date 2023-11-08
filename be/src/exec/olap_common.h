@@ -55,7 +55,7 @@ std::string cast_to_string(T value, int scale) {
     } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
         return ((vectorized::Decimal<int128_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_DECIMAL256) {
-        return ((vectorized::Decimal<Int256>)value).to_string(scale);
+        return ((vectorized::Decimal<wide::Int256>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_TINYINT) {
         return std::to_string(static_cast<int>(value));
     } else if constexpr (primitive_type == TYPE_LARGEINT) {

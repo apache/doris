@@ -61,7 +61,8 @@ inline unsigned __int128 gbswap_128(unsigned __int128 host_int) {
 }
 
 inline wide::UInt256 gbswap_256(wide::UInt256 host_int) {
-    wide::UInt256 result{gbswap_64(host_int.items[0]), gbswap_64(host_int.items[1]), gbswap_64(host_int.items[2]), gbswap_64(host_int.items[3])};
+    wide::UInt256 result{gbswap_64(host_int.items[3]), gbswap_64(host_int.items[2]),
+                         gbswap_64(host_int.items[1]), gbswap_64(host_int.items[0])};
     return result;
 }
 
