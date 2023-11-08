@@ -88,6 +88,15 @@ public:
         _schema = ctx->schema;
     }
 
+    Status open(RowDescriptor* output_row_desc) {
+        if (_vpartition->is_auto_partition()) {
+            auto [part_ctx, part_func] = _get_partition_function();
+            RETURN_IF_ERROR(part_ctx->prepare(_state, *output_row_desc));
+            RETURN_IF_ERROR(part_ctx->open(_state));
+        }
+        return Status::OK();
+    }
+
     // auto partition
     // mv where clause
     // v1 needs index->node->row_ids - tabletids
