@@ -55,7 +55,6 @@ void DataTypeStringSerDe::serialize_one_cell_to_json(const IColumn& column, int 
     if (nesting_level > 1) {
         bw.write('"');
     }
-    return Status::OK();
 }
 
 Status DataTypeStringSerDe::deserialize_column_from_json_vector(IColumn& column,
