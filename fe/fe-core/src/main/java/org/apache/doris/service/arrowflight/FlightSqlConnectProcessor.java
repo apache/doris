@@ -14,18 +14,19 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/arrow/blob/main/java/flight/flight-sql/src/test/java/org/apache/arrow/flight/sql/example/StatementContext.java
-// and modified by Doris
 
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -33,112 +34,84 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Scope;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public final class FlightStatementExecutor implements AutoCloseable {
-    private ConnectContext connectContext;
-    private final String query;
-    private TUniqueId queryId;
-    private TUniqueId finstId;
-    private TNetworkAddress resultFlightServerAddr;
-    private TNetworkAddress resultInternalServiceAddr;
-    private ArrayList<Expr> resultOutputExprs;
+/**
+ * Process one flgiht sql connection.
+ */
+public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoCloseable {
+    private static final Logger LOG = LogManager.getLogger(FlightSqlConnectProcessor.class);
 
-    public FlightStatementExecutor(final String query, ConnectContext connectContext) {
-        this.query = query;
-        this.connectContext = connectContext;
-        connectContext.setThreadLocalInfo();
+    public FlightSqlConnectProcessor(ConnectContext context) {
+        super(context);
+        connectType = ConnectType.ARROW_FLIGHT_SQL;
+        context.setThreadLocalInfo();
+        context.setReturnResultFromLocal(true);
     }
 
-    public void setQueryId(TUniqueId queryId) {
-        this.queryId = queryId;
-    }
+    public void prepare(MysqlCommand command) {
+        // set status of query to OK.
+        ctx.getState().reset();
+        executor = null;
 
-    public void setFinstId(TUniqueId finstId) {
-        this.finstId = finstId;
-    }
-
-    public void setResultFlightServerAddr(TNetworkAddress resultFlightServerAddr) {
-        this.resultFlightServerAddr = resultFlightServerAddr;
-    }
-
-    public void setResultInternalServiceAddr(TNetworkAddress resultInternalServiceAddr) {
-        this.resultInternalServiceAddr = resultInternalServiceAddr;
-    }
-
-    public void setResultOutputExprs(ArrayList<Expr> resultOutputExprs) {
-        this.resultOutputExprs = resultOutputExprs;
-    }
-
-    public String getQuery() {
-        return query;
-    }
-
-    public TUniqueId getQueryId() {
-        return queryId;
-    }
-
-    public TUniqueId getFinstId() {
-        return finstId;
-    }
-
-    public TNetworkAddress getResultFlightServerAddr() {
-        return resultFlightServerAddr;
-    }
-
-    public TNetworkAddress getResultInternalServiceAddr() {
-        return resultInternalServiceAddr;
-    }
-
-    public ArrayList<Expr> getResultOutputExprs() {
-        return resultOutputExprs;
-    }
-
-    @Override
-    public boolean equals(final Object other) {
-        if (!(other instanceof FlightStatementExecutor)) {
-            return false;
+        if (command == null) {
+            ErrorReport.report(ErrorCode.ERR_UNKNOWN_COM_ERROR);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unknown command(" + command.toString() + ")");
+            LOG.warn("Unknown command(" + command + ")");
+            return;
         }
-        return this == other;
+        LOG.debug("arrow flight sql handle command {}", command);
+        ctx.setCommand(command);
+        ctx.setStartTime();
     }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(this);
-    }
+    public void handleQuery(String query) {
+        MysqlCommand command = MysqlCommand.COM_QUERY;
+        prepare(command);
 
-    public void executeQuery() {
-        try {
-            UUID uuid = UUID.randomUUID();
-            TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-            setQueryId(queryId);
-            connectContext.setQueryId(queryId);
-            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, getQuery());
-            connectContext.setExecutor(stmtExecutor);
-            stmtExecutor.executeArrowFlightQuery(this);
+        ctx.setRunningQuery(query);
+        ctx.initTracer("trace");
+        Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").setNoParent().startSpan();
+        try (Scope scope = rootSpan.makeCurrent()) {
+            handleQuery(command, query);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to coord exec", e);
+            rootSpan.recordException(e);
+            throw e;
+        } finally {
+            rootSpan.end();
         }
     }
+
+    // TODO
+    // private void handleInitDb() {
+    //     handleInitDb(fullDbName);
+    // }
+
+    // TODO
+    // private void handleFieldList() {
+    //     handleFieldList(tableName);
+    // }
 
     public Schema fetchArrowFlightSchema(int timeoutMs) {
-        TNetworkAddress address = getResultInternalServiceAddr();
-        TUniqueId tid = getFinstId();
-        ArrayList<Expr> resultOutputExprs = getResultOutputExprs();
+        TNetworkAddress address = ctx.getResultInternalServiceAddr();
+        TUniqueId tid = ctx.getFinstId();
+        ArrayList<Expr> resultOutputExprs = ctx.getResultOutputExprs();
         Types.PUniqueId finstId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
         try {
             InternalService.PFetchArrowFlightSchemaRequest request =
@@ -156,7 +129,7 @@ public final class FlightStatementExecutor implements AutoCloseable {
             }
             TStatusCode code = TStatusCode.findByValue(pResult.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
-                Status status = null;
+                Status status = new Status();
                 status.setPstatus(pResult.getStatus());
                 throw new RuntimeException(String.format("fetch arrow flight schema failed, finstId: %s, errmsg: %s",
                         DebugUtil.printId(tid), status));
@@ -204,6 +177,14 @@ public final class FlightStatementExecutor implements AutoCloseable {
 
     @Override
     public void close() throws Exception {
+        ctx.setCommand(MysqlCommand.COM_SLEEP);
+        // TODO support query profile
+        for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
+            asynExecutor.finalizeQuery();
+        }
+        returnResultFromRemoteExecutor.clear();
         ConnectContext.remove();
     }
 }
+
+

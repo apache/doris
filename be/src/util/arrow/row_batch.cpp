@@ -39,6 +39,8 @@
 #include "runtime/types.h"
 #include "util/arrow/block_convertor.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -163,6 +165,22 @@ Status convert_to_arrow_schema(const RowDescriptor& row_desc,
     return Status::OK();
 }
 
+Status convert_expr_ctxs_arrow_schema(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
+                                      std::shared_ptr<arrow::Schema>* result) {
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    for (auto expr_ctx : output_vexpr_ctxs) {
+        std::shared_ptr<arrow::DataType> arrow_type;
+        auto root_expr = expr_ctx->root();
+        RETURN_IF_ERROR(convert_to_arrow_type(root_expr->type(), &arrow_type));
+        auto field_name = root_expr->is_slot_ref() ? root_expr->expr_name()
+                                                   : root_expr->data_type()->get_name();
+        fields.push_back(
+                std::make_shared<arrow::Field>(field_name, arrow_type, root_expr->is_nullable()));
+    }
+    *result = arrow::schema(std::move(fields));
+    return Status::OK();
+}
+
 Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::string* result) {
     // create sink memory buffer outputstream with the computed capacity
     int64_t capacity;
@@ -206,15 +224,13 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
     return Status::OK();
 }
 
-Status serialize_arrow_schema(RowDescriptor row_desc, std::shared_ptr<arrow::Schema>* schema,
-                              std::string* result) {
-    std::vector<SlotDescriptor*> slots;
-    for (auto tuple_desc : row_desc.tuple_descriptors()) {
-        slots.insert(slots.end(), tuple_desc->slots().begin(), tuple_desc->slots().end());
+Status serialize_arrow_schema(std::shared_ptr<arrow::Schema>* schema, std::string* result) {
+    auto make_empty_result = arrow::RecordBatch::MakeEmpty(*schema);
+    if (!make_empty_result.ok()) {
+        return Status::InternalError("serialize_arrow_schema failed, reason: {}",
+                                     make_empty_result.status().ToString());
     }
-    auto block = vectorized::Block(slots, 0);
-    std::shared_ptr<arrow::RecordBatch> batch;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, *schema, arrow::default_memory_pool(), &batch));
+    auto batch = make_empty_result.ValueOrDie();
     return serialize_record_batch(*batch, result);
 }
 

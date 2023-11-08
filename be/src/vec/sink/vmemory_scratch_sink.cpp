@@ -56,8 +56,6 @@ Status MemoryScratchSink::_prepare_vexpr(RuntimeState* state) {
     RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
-    // generate the arrow schema
-    RETURN_IF_ERROR(convert_to_arrow_schema(_row_desc, &_arrow_schema));
     return Status::OK();
 }
 
