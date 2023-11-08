@@ -127,6 +127,8 @@ private:
 
     Status _open_streams(int64_t src_id);
 
+    Status _open_streams_to_backend(int64_t dst_id, ::doris::stream_load::LoadStreams& streams);
+
     void _build_tablet_node_mapping();
 
     void _generate_rows_for_tablet(std::vector<RowPartTabletIds>& row_part_tablet_ids,
@@ -160,6 +162,7 @@ private:
     // To support multiple senders, we maintain a channel for each sender.
     int _sender_id = -1;
     int _num_senders = -1;
+    int64_t _backend_id = -1;
     int _stream_per_node = -1;
     int _total_streams = -1;
     int _num_local_sink = -1;
