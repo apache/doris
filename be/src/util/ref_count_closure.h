@@ -56,10 +56,10 @@ private:
 
 template <typename Response>
 class DummyBrpcCallback {
-    using ResponseType = Response;
     ENABLE_FACTORY_CREATOR(DummyBrpcCallback);
 
 public:
+    using ResponseType = Response;
     DummyBrpcCallback() {
         cntl_ = std::make_shared<brpc::Controller>();
         response_ = std::make_shared<Response>();
