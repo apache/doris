@@ -113,9 +113,6 @@ public:
         _open_streams[src_id]++;
     }
 
-    uint32_t add_rpc_stream() { return ++_num_rpc_streams; }
-    uint32_t remove_rpc_stream() { return --_num_rpc_streams; }
-
     Status close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
                  std::vector<int64_t>* success_tablet_ids, std::vector<int64_t>* failed_tablet_ids);
 
@@ -130,16 +127,31 @@ private:
     void _parse_header(butil::IOBuf* const message, PStreamHeader& hdr);
     void _dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data);
     Status _append_data(const PStreamHeader& header, butil::IOBuf* data);
-    void _report_result(StreamId stream, Status& st, std::vector<int64_t>* success_tablet_ids,
-                        std::vector<int64_t>* failed_tablet_ids);
+
+    void _report_result(StreamId stream, const Status& st,
+                        const std::vector<int64_t>& success_tablet_ids,
+                        const std::vector<int64_t>& failed_tablet_ids);
+
+    // report failure for one message
+    void _report_failure(StreamId stream, const Status& status, const PStreamHeader& header) {
+        std::vector<int64_t> success; // empty
+        std::vector<int64_t> failure;
+        if (header.has_tablet_id()) {
+            failure.push_back(header.tablet_id());
+        }
+        _report_result(stream, status, success, failure);
+    }
 
 private:
     PUniqueId _load_id;
     std::unordered_map<int64_t, IndexStreamSharedPtr> _index_streams_map;
-    std::atomic<uint32_t> _num_rpc_streams;
+    int32_t _total_streams = 0;
+    int32_t _close_load_cnt = 0;
+    std::atomic<int32_t> _close_rpc_cnt = 0;
+    std::vector<PTabletID> _tablets_to_commit;
     bthread::Mutex _lock;
     std::unordered_map<int64_t, int32_t> _open_streams;
-    int64_t _txn_id;
+    int64_t _txn_id = 0;
     std::shared_ptr<OlapTableSchemaParam> _schema;
     bool _enable_profile = false;
     std::unique_ptr<RuntimeProfile> _profile;

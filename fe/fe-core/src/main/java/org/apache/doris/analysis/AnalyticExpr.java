@@ -44,6 +44,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Representation of an analytic function call with OVER clause.
@@ -147,8 +148,11 @@ public class AnalyticExpr extends Expr {
     }
 
     @Override
-    protected String getExprName() {
-        return Utils.normalizeName(getFnCall().getExprName(), DEFAULT_EXPR_NAME);
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(getFnCall().getExprName(), DEFAULT_EXPR_NAME));
+        }
+        return this.exprName.get();
     }
 
     @Override

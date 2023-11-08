@@ -214,6 +214,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PIPELINE_X_ENGINE = "enable_pipeline_x_engine";
 
+    public static final String ENABLE_SHARED_SCAN = "enable_shared_scan";
+
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
 
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
@@ -410,6 +412,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
             "enable_memtable_on_sink_node";
+
+    public static final String LOAD_STREAM_PER_NODE = "load_stream_per_node";
 
     public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
 
@@ -736,6 +740,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     private boolean enablePipelineXEngine = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            needForward = true)
+    private boolean enableSharedScan = false;
+
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     private boolean enableLocalShuffle = false;
 
@@ -1235,6 +1244,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
     public boolean enableMemtableOnSinkNode = false;
+
+    @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
+    public int loadStreamPerNode = 20;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_GROUP_COMMIT)
     public boolean enableInsertGroupCommit = false;
@@ -2405,6 +2417,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableUniqueKeyPartialUpdate = enableUniqueKeyPartialUpdate;
     }
 
+    public int getLoadStreamPerNode() {
+        return loadStreamPerNode;
+    }
+
+    public void setLoadStreamPerNode(int loadStreamPerNode) {
+        this.loadStreamPerNode = loadStreamPerNode;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -2817,6 +2837,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnablePipelineEngine() {
         return enablePipelineEngine || enablePipelineXEngine;
+    }
+
+    public boolean getEnableSharedScan() {
+        return enableSharedScan;
     }
 
     public boolean getEnablePipelineXEngine() {

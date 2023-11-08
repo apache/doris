@@ -78,7 +78,8 @@ public:
 
     ~LoadStreamStubPool();
 
-    std::shared_ptr<Streams> get_or_create(PUniqueId load_id, int64_t src_id, int64_t dst_id);
+    std::shared_ptr<Streams> get_or_create(PUniqueId load_id, int64_t src_id, int64_t dst_id,
+                                           int num_streams);
 
     size_t size() {
         std::lock_guard<std::mutex> lock(_mutex);

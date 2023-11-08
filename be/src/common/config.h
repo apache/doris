@@ -110,7 +110,7 @@ DECLARE_Int32(brpc_num_threads);
 // If no ip match this rule, will choose one randomly.
 DECLARE_String(priority_networks);
 
-// performance moderate or or compact, only tcmalloc compile
+// performance moderate or compact, only tcmalloc compile
 DECLARE_String(memory_mode);
 
 // process memory limit specified as number of bytes
@@ -799,8 +799,6 @@ DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
 // share delta writers when memtable_on_sink_node = true
 DECLARE_Bool(share_delta_writers);
-// number of brpc stream per load
-DECLARE_Int32(num_streams_per_load);
 // timeout for open load stream rpc in ms
 DECLARE_Int64(open_load_stream_timeout_ms);
 
@@ -1183,6 +1181,8 @@ DECLARE_mBool(exit_on_exception);
 
 // cgroup
 DECLARE_String(doris_cgroup_cpu_path);
+DECLARE_Bool(enable_cgroup_cpu_soft_limit);
+
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
 

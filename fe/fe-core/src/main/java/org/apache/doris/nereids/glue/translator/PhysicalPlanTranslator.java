@@ -85,6 +85,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
@@ -1546,8 +1547,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         addPlanRoot(inputFragment, partitionSortNode, partitionTopN);
         // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
         // we need turn of parallel scan to ensure to get correct result.
-        // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
-        if (findOlapScanNodesByPassExchangeAndJoinNode(inputFragment.getPlanRoot())) {
+        if (partitionTopN.getPhase() == PartitionTopnPhase.ONE_PHASE_GLOBAL_PTOPN
+                && findOlapScanNodesByPassExchangeAndJoinNode(inputFragment.getPlanRoot())) {
             inputFragment.setHasColocatePlanNode(true);
         }
         return inputFragment;

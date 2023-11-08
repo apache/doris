@@ -675,11 +675,14 @@ void TxnManager::get_all_commit_tablet_txn_info_by_tablet(
                 const RowsetSharedPtr& rowset = tablet_load_it->second.rowset;
                 const DeleteBitmapPtr& delete_bitmap = tablet_load_it->second.delete_bitmap;
                 const RowsetIdUnorderedSet& rowset_ids = tablet_load_it->second.rowset_ids;
+                const std::shared_ptr<PartialUpdateInfo> partial_update_info =
+                        tablet_load_it->second.partial_update_info;
                 if (!rowset || !delete_bitmap) {
                     continue;
                 }
-                commit_tablet_txn_info_vec->push_back(CommitTabletTxnInfo(
-                        partition_id, transaction_id, delete_bitmap, rowset_ids));
+                commit_tablet_txn_info_vec->push_back(
+                        CommitTabletTxnInfo(partition_id, transaction_id, delete_bitmap, rowset_ids,
+                                            partial_update_info));
             }
         }
     }
