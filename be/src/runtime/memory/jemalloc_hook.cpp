@@ -19,7 +19,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "jemalloc/jemalloc.h"
 #include "runtime/thread_context.h"

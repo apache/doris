@@ -228,11 +228,6 @@ public class AuditEvent {
             return this;
         }
 
-        public AuditEventBuilder setTraceId(String traceId) {
-            auditEvent.traceId = traceId;
-            return this;
-        }
-
         public AuditEventBuilder setFuzzyVariables(String variables) {
             auditEvent.fuzzyVariables = variables;
             return this;

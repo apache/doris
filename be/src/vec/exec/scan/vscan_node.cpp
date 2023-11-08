@@ -22,7 +22,6 @@
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <string.h>
 
 #include <algorithm>
@@ -46,7 +45,6 @@
 #include "udf/udf.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"

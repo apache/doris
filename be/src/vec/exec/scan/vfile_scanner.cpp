@@ -31,10 +31,6 @@
 #include <tuple>
 #include <utility>
 
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/exec/format/wal/wal_reader.h"
-
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -53,6 +49,7 @@
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -66,6 +63,7 @@
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
+#include "vec/exec/format/wal/wal_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"

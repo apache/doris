@@ -819,9 +819,6 @@ DEFINE_String(rpc_load_balancer, "rr");
 // If this configuration is enabled, you should also specify the trace_export_url.
 DEFINE_Bool(enable_tracing, "false");
 
-// Enable opentelemtry collector
-DEFINE_Bool(enable_otel_collector, "false");
-
 // Current support for exporting traces:
 // zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
 // collector: The collector can be used to receive and process traces and support export to a variety of
