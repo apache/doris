@@ -2840,7 +2840,16 @@ public class SessionVariable implements Serializable, Writable {
         return connectContext.getSessionVariable().enableAggState;
     }
 
-    public boolean enableDecimal256() {
+    public static boolean getEnableDecimal256() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return false;
+        }
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        return sessionVariable.isEnableNereidsPlanner() && sessionVariable.isEnableDecimal256();
+    }
+
+    public boolean isEnableDecimal256() {
         return enableDecimal256;
     }
 
