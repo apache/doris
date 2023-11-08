@@ -63,6 +63,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
     ctx_id = UniqueId::gen_uid().to_string();
     if (_scanners.empty()) {
         _is_finished = true;
+        _set_scanner_done();
     }
     if (limit < 0) {
         limit = -1;
@@ -294,6 +295,7 @@ void ScannerContext::set_should_stop() {
     }
     std::lock_guard l(_transfer_lock);
     _should_stop = true;
+    _set_scanner_done();
     _blocks_queue_added_cv.notify_one();
 }
 
@@ -325,6 +327,7 @@ bool ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
             _scanner_done_dependency->set_ready_for_read();
         }
         _should_stop = true;
+        _set_scanner_done();
         return true;
     }
     return false;
@@ -416,6 +419,12 @@ bool ScannerContext::no_schedule() {
     return _num_running_scanners == 0 && _num_scheduling_ctx == 0;
 }
 
+void ScannerContext::_set_scanner_done() {
+    if (_scanner_done_dependency) {
+        _scanner_done_dependency->set_ready_for_read();
+    }
+}
+
 std::string ScannerContext::debug_string() {
     return fmt::format(
             "id: {}, sacnners: {}, blocks in queue: {},"
@@ -478,6 +487,7 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
         (--_num_unfinished_scanners) == 0) {
         _dispose_coloate_blocks_not_in_queue();
         _is_finished = true;
+        _set_scanner_done();
         if (_scanner_done_dependency) {
             _scanner_done_dependency->set_ready_for_read();
         }
