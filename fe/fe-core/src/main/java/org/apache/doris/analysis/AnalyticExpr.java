@@ -567,6 +567,15 @@ public class AnalyticExpr extends Expr {
         standardize(analyzer);
 
         setChildren();
+
+        String functionName = fn.functionName();
+        if (functionName.equalsIgnoreCase("sum") || functionName.equalsIgnoreCase("max")
+                || functionName.equalsIgnoreCase("min") || functionName.equalsIgnoreCase("avg")) {
+            // sum, max, min and avg in window function should be always nullable
+            Function function = fnCall.fn.clone();
+            function.setNullableMode(Function.NullableMode.ALWAYS_NULLABLE);
+            fnCall.setFn(function);
+        }
     }
 
     /**
