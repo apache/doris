@@ -369,12 +369,24 @@ void ExchangeSinkBuffer<Parent>::_construct_request(InstanceLoId id, PUniqueId f
 
 template <typename Parent>
 void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
-    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
-    if (!_rpc_channel_is_idle[id]) {
-        _busy_channels--;
-        _rpc_channel_is_idle[id] = true;
-        if (_finish_dependency && _busy_channels == 0) {
-            _finish_dependency->set_ready_to_finish();
+    if (!_instance_to_package_queue_mutex.template contains(id)) {
+        std::stringstream ss;
+        ss << "failed find the instance id:" << id
+           << " now mutex map size:" << _instance_to_package_queue_mutex.size();
+        for (const auto& p : _instance_to_package_queue_mutex) {
+            ss << " key:" << p.first << " value:" << p.second << "\n";
+        }
+        LOG(INFO) << ss.str();
+
+        LOG(FATAL) << "not find the instance id";
+    } else {
+        std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+        if (!_rpc_channel_is_idle[id]) {
+            _busy_channels--;
+            _rpc_channel_is_idle[id] = true;
+            if (_finish_dependency && _busy_channels == 0) {
+                _finish_dependency->set_ready_to_finish();
+            }
         }
     }
 }
