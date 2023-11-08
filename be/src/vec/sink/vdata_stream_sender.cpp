@@ -464,10 +464,10 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(_partitioner->prepare(state, _row_desc));
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             _profile->add_info_string("Partitioner",
-                                      fmt::format("XXHashPartitioner{}", _partition_count));
+                                      fmt::format("XXHashPartitioner({})", _partition_count));
         } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
             _profile->add_info_string("Partitioner",
-                                      fmt::format("Crc32HashPartitioner{}", _partition_count));
+                                      fmt::format("Crc32HashPartitioner({})", _partition_count));
         }
     }
 
