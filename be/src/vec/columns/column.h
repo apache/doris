@@ -144,6 +144,9 @@ public:
         return nullptr;
     }
 
+    /// Some columns may require finalization before using of other operations.
+    virtual void finalize() {}
+
     // Only used on ColumnDictionary
     virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
 
@@ -590,6 +593,8 @@ public:
 
     virtual bool is_hll() const { return false; }
 
+    virtual bool is_variant() const { return false; }
+
     virtual bool is_quantile_state() const { return false; }
 
     // true if column has null element
@@ -641,6 +646,18 @@ public:
         return 0;
     }
 
+    /// Returns ratio of values in column, that are equal to default value of column.
+    /// Checks only @sample_ratio ratio of rows.
+    virtual double get_ratio_of_default_rows(double sample_ratio = 1.0) const {
+        LOG(FATAL) << fmt::format("get_ratio_of_default_rows of column {} are not implemented.",
+                                  get_name());
+        return 0.0;
+    }
+
+    /// Template is to devirtualize calls to 'isDefaultAt' method.
+    template <typename Derived>
+    double get_ratio_of_default_rows_impl(double sample_ratio) const;
+
     /// Column is ColumnVector of numbers or ColumnConst of it. Note that Nullable columns are not numeric.
     /// Implies is_fixed_and_contiguous.
     virtual bool is_numeric() const { return false; }
@@ -648,8 +665,6 @@ public:
     virtual bool is_column_string() const { return false; }
 
     virtual bool is_column_decimal() const { return false; }
-
-    virtual bool is_predicate_column() const { return false; }
 
     virtual bool is_column_dictionary() const { return false; }
 
@@ -661,9 +676,6 @@ public:
 
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
-
-    /// Can be inside ColumnNullable.
-    virtual bool can_be_inside_nullable() const { return false; }
 
     virtual bool low_cardinality() const { return false; }
 

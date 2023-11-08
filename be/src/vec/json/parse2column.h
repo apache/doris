@@ -28,19 +28,18 @@ namespace vectorized {
 class ColumnString;
 class SimdJSONParser;
 enum class ExtractType;
-template <typename ParserImpl>
+template <typename ParserImpl, bool>
 class JSONDataParser;
 } // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
-
+using JsonParser = JSONDataParser<SimdJSONParser, false>;
 // parse a batch of json strings into column object, throws doris::Execption when failed
-void parse_json_to_variant(IColumn& column, const std::vector<StringRef>& jsons);
+void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column);
 
 // parse a single json, throws doris::Execption when failed
-void parse_json_to_variant(IColumn& column, const StringRef& jsons,
-                           JSONDataParser<SimdJSONParser>* parser);
+void parse_json_to_variant(IColumn& column, const StringRef& jsons, JsonParser* parser);
 
 // extract keys columns from json strings into columns
 bool extract_key(MutableColumns& columns, const std::vector<StringRef>& jsons,

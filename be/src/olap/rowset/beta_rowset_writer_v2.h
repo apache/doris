@@ -104,6 +104,8 @@ public:
 
     PUniqueId load_id() override { return _context.load_id; }
 
+    const RowsetWriterContext& context() const override { return _context; }
+
     Version version() override { return _context.version; }
 
     int64_t num_rows() const override { return _segment_creator.num_rows_written(); }

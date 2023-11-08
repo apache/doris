@@ -60,6 +60,10 @@ public:
         return TPrimitiveType::JSONB;
     }
 
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_JSONB;
+    }
+
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int data_version) const override;
     char* serialize(const IColumn& column, char* buf, int data_version) const override;
@@ -88,7 +92,6 @@ public:
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;
     }
-    bool can_be_inside_nullable() const override { return true; }
     bool can_be_inside_low_cardinality() const override { return true; }
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;

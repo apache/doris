@@ -364,7 +364,8 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     }
     for (size_t i = 0; i < tcolumn.children_column.size(); i++) {
         ColumnPB* children_column = column->add_children_columns();
-        init_column_from_tcolumn(i, tcolumn.children_column[i], children_column);
+        init_column_from_tcolumn(tcolumn.children_column[i].col_unique_id,
+                                 tcolumn.children_column[i], children_column);
     }
 }
 

@@ -48,7 +48,8 @@ struct RowsetWriterContext {
               version(Version(0, 0)),
               txn_id(0),
               tablet_uid(0, 0),
-              segments_overlap(OVERLAP_UNKNOWN) {
+              segments_overlap(OVERLAP_UNKNOWN),
+              schema_lock(new std::mutex) {
         load_id.set_hi(0);
         load_id.set_lo(0);
     }
@@ -90,9 +91,6 @@ struct RowsetWriterContext {
     std::set<int32_t> skip_inverted_index;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     BaseTabletSPtr tablet = nullptr;
-    // for tracing local schema change record
-    std::shared_ptr<vectorized::schema_util::LocalSchemaChangeRecorder> schema_change_recorder =
-            nullptr;
 
     std::shared_ptr<MowContext> mow_context;
     std::shared_ptr<FileWriterCreator> file_writer_creator;
@@ -110,6 +108,9 @@ struct RowsetWriterContext {
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
 
     bool is_transient_rowset_writer = false;
+    // In semi-structure senario tablet_schema will be updated concurrently,
+    // this lock need to be held when update.Use shared_ptr to avoid delete copy contructor
+    std::shared_ptr<std::mutex> schema_lock;
 };
 
 } // namespace doris
