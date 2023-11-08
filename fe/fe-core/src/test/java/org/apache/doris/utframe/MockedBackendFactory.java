@@ -18,7 +18,17 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
@@ -27,6 +37,7 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.FrontendService.Client;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TAgentPublishRequest;
 import org.apache.doris.thrift.TAgentResult;
@@ -64,6 +75,7 @@ import org.apache.doris.thrift.TScanOpenResult;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageMediumMigrateReq;
 import org.apache.doris.thrift.TStreamLoadRecordResult;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletStatResult;
@@ -171,7 +183,7 @@ public class MockedBackendFactory {
                 public void run() {
                     while (true) {
                         boolean ok = false;
-                        FrontendService.Client client = null;
+                        Client client = null;
                         TNetworkAddress address = null;
                         try {
                             address = backend.getFeAddress();
@@ -192,6 +204,9 @@ public class MockedBackendFactory {
                                     break;
                                 case CLONE:
                                     handleCloneTablet(request, finishTaskRequest);
+                                    break;
+                                case STORAGE_MEDIUM_MIGRATE:
+                                    handleStorageMediumMigrate(request, finishTaskRequest);
                                     break;
                                 default:
                                     break;
@@ -246,6 +261,62 @@ public class MockedBackendFactory {
                     tabletInfo.setUsed(true);
                     tabletInfos.add(tabletInfo);
                     finishTaskRequest.setFinishTabletInfos(tabletInfos);
+                }
+
+                private void handleStorageMediumMigrate(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
+                    TStorageMediumMigrateReq req = request.getStorageMediumMigrateReq();
+                    long tabletId = req.getTabletId();
+                    String data_dir = req.data_dir;
+                    Env env = Env.getCurrentEnv();
+                    TabletInvertedIndex invertedIndex = env.getTabletInvertedIndex();
+                    TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+                    if (tabletMeta == null) {
+                        return;
+                    }
+                    long dbId = tabletMeta.getDbId();
+                    long tableId = tabletMeta.getTableId();
+                    long partitionId = tabletMeta.getPartitionId();
+                    long indexId = tabletMeta.getIndexId();
+                    Database db = env.getInternalCatalog().getDbNullable(dbId);
+                    if (db == null) {
+                        return;
+                    }
+                    Table table = db.getTableNullable(tableId);
+                    if (table == null) {
+                        return;
+                    }
+                    if (table.getType() != TableType.OLAP) {
+                        return;
+                    }
+                    OlapTable olapTable = (OlapTable) table;
+                    olapTable.readLock();
+                    try {
+                        Partition partition = olapTable.getPartition(partitionId);
+                        if (partition == null) {
+                            return;
+                        }
+                        MaterializedIndex materializedIndex = partition.getIndex(indexId);
+                        if (materializedIndex == null) {
+                            return;
+                        }
+                        Tablet tablet = materializedIndex.getTablet(tabletId);
+                        if (tablet == null) {
+                            return;
+                        }
+                        tablet.getReplicas().forEach(replica -> {
+                            DiskInfo info = getDisk(data_dir);
+                            System.out.println("before="+replica.getPathHash());
+                            replica.setPathHash(info.getPathHash());
+                            System.out.println("after="+replica.getPathHash());
+                        });
+                    } finally {
+                        olapTable.readUnlock();
+                    }
+
+                }
+
+                private DiskInfo getDisk(String data_dir) {
+                    return backendInFe.getDisks().get(data_dir);
                 }
 
                 private DiskInfo getDisk(long pathHash) {

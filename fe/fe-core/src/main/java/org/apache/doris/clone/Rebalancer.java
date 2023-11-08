@@ -63,6 +63,11 @@ public abstract class Rebalancer {
     // tag -> (medium, timestamp)
     private Table<Tag, TStorageMedium, Long> lastPickTimeTable = HashBasedTable.create();
 
+    // for ut
+    public Table<Tag, TStorageMedium, Long> getLastPickTimeTable() {
+        return lastPickTimeTable;
+    }
+
     public Rebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
             Map<Long, PathSlot> backendsWorkingSlots) {
         this.infoService = infoService;

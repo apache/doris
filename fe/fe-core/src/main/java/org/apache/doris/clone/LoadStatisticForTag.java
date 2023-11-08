@@ -389,6 +389,16 @@ public class LoadStatisticForTag {
 
         for (BackendLoadStatistic beStat : beLoadStatistics) {
             Classification clazz = beStat.getClazz(medium);
+            long debugHighBeId = DebugPointUtil.getDebugParamOrDefault("FE.HIGH_LOAD_BE_ID", -1L);
+            if (debugHighBeId > 0) {
+                final long targetBeId = debugHighBeId; // debugHighBeId can not put in lambda cause it's updated later
+                if (!beLoadStatistics.stream().anyMatch(it -> it.getBeId() == targetBeId)) {
+                    debugHighBeId = -1L;
+                }
+            }
+            if (debugHighBeId > 0 && beStat.getBeId() == debugHighBeId) {
+                clazz = Classification.HIGH;
+            }
             switch (clazz) {
                 case LOW:
                     low.add(beStat);
