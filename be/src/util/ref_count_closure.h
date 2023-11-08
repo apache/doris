@@ -110,7 +110,7 @@ public:
         }
     }
 
-    void join() { brpc::Join(cntl_.call_id()); }
+    void join() { brpc::Join(cntl_->call_id()); }
 
 public:
     // controller has to be the same lifecycle with the closure, because brpc may use
