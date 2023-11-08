@@ -65,7 +65,7 @@ Operator 服务部署后，可通过如下命令查看服务的状态。当`STAT
  NAME                              READY   STATUS    RESTARTS        AGE
  doris-operator-5b9f7f57bf-tsvjz   1/1     Running   66 (164m ago)   6d22h
 ```
-operator.yaml中namespace 默认为 Doris，如果更改了 namespace，在查询服务状态的时候请替换正确的 namespace 名称。
+operator.yaml 中 namespace 默认为 Doris，如果更改了 namespace，在查询服务状态的时候请替换正确的 namespace 名称。
 ### 部署 Doris 集群
 **1. 部署集群**   
 `Doris-Operator`仓库的 [doc/examples ](https://github.com/selectdb/doris-operator/tree/master/doc/examples)目录提供众多场景的使用范例,可直接使用范例进行部署。以最基础的范例为例：  
@@ -100,7 +100,7 @@ doriscluster-sample-fe-service    ClusterIP   10.152.183.37    a7509284bf3784983
 doriscluster-sample-be-internal   ClusterIP   None             <none>                                                9050/TCP                              29m
 doriscluster-sample-be-service    ClusterIP   10.152.183.141   <none>                                                9060/TCP,8040/TCP,9050/TCP,8060/TCP   29m
 ```
-Doris-Operator 部署的 Service 分为两类，后缀`-internal`为集群内部组件通信使用的 Service，后缀`-service`为用户可使用的 service。 
+Doris-Operator 部署的 Service 分为两类，后缀`-internal`为集群内部组件通信使用的 Service，后缀`-service`为用户可使用的 Service。 
 #### 集群内部访问  
 在 K8S 内部可通过 Service 的`CLUSTER-IP`访问对应的组件。如上图可使用访问 FE 的 Service`doriscluster-sample-fe-service`对应的 CLUSTER-IP 为`10.152.183.37`，使用如下命令连接 FE 服务。
 ```shell
