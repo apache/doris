@@ -62,6 +62,7 @@ jobs:
           fi
           if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ " p0" && ! "${comment_message}" =~ "Thanks for your contribution" ]]; then
             trigger_pipelines="Doris_DorisRegression_P0Regression  ${trigger_pipelines}"
+            if [[ "${comment_message}" = *"10" ]]; then repeat_times="10"; fi
           fi
           if [[ "${comment_message}" =~ "run" && "${comment_message}" =~ " pipelinex_p0" && ! "${comment_message}" =~ "Thanks for your contribution" ]]; then
             trigger_pipelines="Doris_DorisRegression_P0RegressionPipelineX  ${trigger_pipelines}"
@@ -133,7 +134,12 @@ jobs:
             if [ "_""${same_build_sign}" == "_false" ];then
               sleep 10s
               echo "there is no running build or queue build, so trigger a new !"
-              execute_command="curl -s -X POST ${teamcity_url}/httpAuth/action.html\?add2Queue\=${pipeline}\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}\&name=env.latest_commit_id\&value=${latest_commit_id}"
+              echo "repeat_times: ${repeat_times}"
+              if [[ -n "${repeat_times}" ]]; then
+                execute_command="curl -s -X POST ${teamcity_url}/httpAuth/action.html\?add2Queue\=${pipeline}\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}\&name=env.latest_commit_id\&value=${latest_commit_id}\&name=env.repeat_times\&value=${repeat_times}"
+              else
+                execute_command="curl -s -X POST ${teamcity_url}/httpAuth/action.html\?add2Queue\=${pipeline}\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}\&name=env.latest_commit_id\&value=${latest_commit_id}"
+              fi
               echo "${execute_command}"
               eval "${execute_command}"
               echo "-----------------------------------------------------------------"
