@@ -27,6 +27,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Number of rows returned by inspection in subquery.
@@ -89,7 +90,10 @@ public class AssertNumRowsElement extends Expression implements LeafExpression, 
 
     @Override
     public String getExpressionName() {
-        return assertion.name().toLowerCase();
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(assertion.name().toLowerCase(), DEFAULT_EXPRESSION_NAME));
+        }
+        return this.exprName.get();
     }
 
     @Override
