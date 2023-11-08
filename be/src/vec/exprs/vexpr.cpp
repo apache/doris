@@ -41,7 +41,6 @@
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
-#include "vec/exprs/vinfo_func.h"
 #include "vec/exprs/vlambda_function_call_expr.h"
 #include "vec/exprs/vlambda_function_expr.h"
 #include "vec/exprs/vliteral.h"
@@ -301,10 +300,6 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
                 return Status::InternalError("Case expression not set in thrift node");
             }
             expr = VCaseExpr::create_shared(expr_node);
-            break;
-        }
-        case TExprNodeType::INFO_FUNC: {
-            expr = VInfoFunc::create_shared(expr_node);
             break;
         }
         case TExprNodeType::TUPLE_IS_NULL_PRED: {
