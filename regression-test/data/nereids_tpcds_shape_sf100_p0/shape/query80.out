@@ -62,7 +62,8 @@ PhysicalResultSink
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
 ------------------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number))otherCondition=()
---------------------------------PhysicalOlapScan[web_returns]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalOlapScan[web_returns]
 --------------------------------PhysicalDistribute
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_web_site_sk = web_site.web_site_sk))otherCondition=()
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk))otherCondition=()
