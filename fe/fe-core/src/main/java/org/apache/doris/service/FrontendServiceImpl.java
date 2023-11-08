@@ -83,15 +83,18 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.MasterCatalogExecutor;
+import org.apache.doris.qe.MysqlConnectProcessor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsCacheKey;
@@ -1104,7 +1107,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ConnectContext context = new ConnectContext();
         // Set current connected FE to the client address, so that we can know where this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
-        ConnectProcessor processor = new ConnectProcessor(context);
+
+        ConnectProcessor processor = null;
+        if (context.getConnectType().equals(ConnectType.MYSQL)) {
+            processor = new MysqlConnectProcessor(context);
+        } else if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
+            processor = new FlightSqlConnectProcessor(context);
+        } else {
+            throw new TException("unknown ConnectType: " + context.getConnectType());
+        }
+
         TMasterOpResult result = processor.proxyExecute(params);
         if (QueryState.MysqlStateType.ERR.name().equalsIgnoreCase(result.getStatus())) {
             context.getState().setError(result.getStatus());
@@ -2221,6 +2233,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     throw new UserException("txn does not exist: " + request.getTxnId());
                 }
                 txnState.addTableIndexes(table);
+                if (request.isPartialUpdate()) {
+                    txnState.setSchemaForPartialUpdate(table);
+                }
             }
             plan.setTableName(table.getName());
             plan.query_options.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
@@ -2284,6 +2299,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     throw new UserException("txn does not exist: " + request.getTxnId());
                 }
                 txnState.addTableIndexes(table);
+                if (request.isPartialUpdate()) {
+                    txnState.setSchemaForPartialUpdate(table);
+                }
             }
             return plan;
         } finally {
@@ -3273,6 +3291,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     partitionValues, partitionInfo);
         } catch (AnalysisException ex) {
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+            result.setStatus(errorStatus);
+            return result;
+        }
+
+        // check partition's number limit.
+        int partitionNum = olapTable.getPartitionNum() + addPartitionClauseMap.size();
+        if (partitionNum > Config.max_auto_partition_num) {
+            olapTable.writeUnlock();
+            String errorMessage = String.format(
+                    "create partition failed. partition numbers %d will exceed limit variable max_auto_partition_num%d",
+                    partitionNum, Config.max_auto_partition_num);
+            LOG.warn(errorMessage);
+            errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
             result.setStatus(errorStatus);
             return result;
         }

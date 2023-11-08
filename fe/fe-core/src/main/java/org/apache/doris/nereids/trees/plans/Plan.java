@@ -65,6 +65,12 @@ public interface Plan extends TreeNode<Plan> {
         return getExpressions().stream().anyMatch(Expression::hasUnbound);
     }
 
+    default boolean containsSlots(ImmutableSet<Slot> slots) {
+        return getExpressions().stream().anyMatch(
+                expression -> !Sets.intersection(slots, expression.getInputSlots()).isEmpty()
+                        || children().stream().anyMatch(plan -> plan.containsSlots(slots)));
+    }
+
     default LogicalProperties computeLogicalProperties() {
         throw new IllegalStateException("Not support compute logical properties for " + getClass().getName());
     }

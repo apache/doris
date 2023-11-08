@@ -54,7 +54,6 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
-import org.apache.doris.statistics.MVAnalysisTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -965,6 +964,10 @@ public class OlapTable extends Table {
         return partition;
     }
 
+    public int getPartitionNum() {
+        return idToPartition.size();
+    }
+
     // get all partitions except temp partitions
     public Collection<Partition> getPartitions() {
         return idToPartition.values();
@@ -1122,11 +1125,9 @@ public class OlapTable extends Table {
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         if (info.analysisType.equals(AnalysisType.HISTOGRAM)) {
             return new HistogramTask(info);
-        }
-        if (info.analysisType.equals(AnalysisType.FUNDAMENTALS)) {
+        } else {
             return new OlapAnalysisTask(info);
         }
-        return new MVAnalysisTask(info);
     }
 
     public boolean needReAnalyzeTable(TableStatsMeta tblStats) {
@@ -1146,7 +1147,7 @@ public class OlapTable extends Table {
         }
         long updateRows = tblStats.updatedRows.get();
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
-        return tblHealth < Config.table_stats_health_threshold;
+        return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
     }
 
     @Override

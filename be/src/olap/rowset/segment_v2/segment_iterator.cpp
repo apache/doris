@@ -38,7 +38,6 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "io/io_common.h"
-#include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/field.h"
 #include "olap/iterators.h"
@@ -2059,7 +2058,9 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts_and_filter_block(
             _common_expr_ctxs_push_down, block, _columns_to_filter, prev_columns, filter));
 
+    const auto origin_size = selected_size;
     selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
+    _opts.stats->rows_common_expr_filtered += (origin_size - selected_size);
     return Status::OK();
 }
 

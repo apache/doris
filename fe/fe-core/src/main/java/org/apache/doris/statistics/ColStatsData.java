@@ -19,6 +19,8 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.StringJoiner;
@@ -53,6 +55,18 @@ public class ColStatsData {
     public final long dataSizeInBytes;
 
     public final String updateTime;
+
+    @VisibleForTesting
+    public ColStatsData() {
+        statsId = new StatsId();
+        count = 0;
+        ndv = 0;
+        nullCount = 0;
+        minLit = null;
+        maxLit = null;
+        dataSizeInBytes = 0;
+        updateTime = null;
+    }
 
     public ColStatsData(ResultRow row) {
         this.statsId = new StatsId(row);

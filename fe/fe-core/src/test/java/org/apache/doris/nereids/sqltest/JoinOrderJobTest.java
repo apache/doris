@@ -19,13 +19,16 @@ package org.apache.doris.nereids.sqltest;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class JoinOrderJobTest extends SqlTestBase {
@@ -139,6 +142,21 @@ public class JoinOrderJobTest extends SqlTestBase {
         hyperGraphBuilder.initStats(cascadesContext);
         PlanChecker.from(cascadesContext)
                 .optimize()
+                .getBestPlanTree();
+    }
+
+    @Disabled
+    @Test
+    void test64CliqueJoin() {
+        HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN));
+        Plan plan = hyperGraphBuilder
+                .randomBuildPlanWith(64, 64 * 63 / 2);
+        plan = new LogicalProject(plan.getOutput(), plan);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        hyperGraphBuilder.initStats(cascadesContext);
+        PlanChecker.from(cascadesContext)
+                .rewrite()
+                .dpHypOptimize()
                 .getBestPlanTree();
     }
 }

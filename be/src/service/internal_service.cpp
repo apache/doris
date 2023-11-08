@@ -355,8 +355,8 @@ void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcControl
 }
 
 void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* controller,
-                                            const POpenStreamSinkRequest* request,
-                                            POpenStreamSinkResponse* response,
+                                            const POpenLoadStreamRequest* request,
+                                            POpenLoadStreamResponse* response,
                                             google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         signal::set_signal_task_id(request->load_id());
@@ -718,23 +718,19 @@ void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcContro
                                                      google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
-        RowDescriptor row_desc = ExecEnv::GetInstance()->result_mgr()->find_row_descriptor(
-                UniqueId(request->finst_id()).to_thrift());
-        if (row_desc.equals(RowDescriptor())) {
-            auto st = Status::NotFound("not found row descriptor");
-            st.to_protobuf(result->mutable_status());
-            return;
-        }
-
-        std::shared_ptr<arrow::Schema> schema;
-        auto st = convert_to_arrow_schema(row_desc, &schema);
-        if (UNLIKELY(!st.ok())) {
+        std::shared_ptr<arrow::Schema> schema =
+                ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
+                        UniqueId(request->finst_id()).to_thrift());
+        if (schema == nullptr) {
+            LOG(INFO) << "not found arrow flight schema, maybe query has been canceled";
+            auto st = Status::NotFound(
+                    "not found arrow flight schema, maybe query has been canceled");
             st.to_protobuf(result->mutable_status());
             return;
         }
 
         std::string schema_str;
-        st = serialize_arrow_schema(row_desc, &schema, &schema_str);
+        auto st = serialize_arrow_schema(&schema, &schema_str);
         if (st.ok()) {
             result->set_schema(std::move(schema_str));
         }
@@ -1853,9 +1849,10 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
             }
         }
         st.to_protobuf(response->mutable_status());
+        _exec_env->new_load_stream_mgr()->remove(load_id);
     });
-    _exec_env->new_load_stream_mgr()->remove(load_id);
     if (!ret) {
+        _exec_env->new_load_stream_mgr()->remove(load_id);
         offer_failed(response, done, _light_work_pool);
         return;
     }

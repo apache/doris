@@ -348,8 +348,8 @@ public:
                 : _sd(brpc::INVALID_STREAM_ID), _load_stream_mgr(load_stream_mgr) {}
         virtual ~StreamService() { brpc::StreamClose(_sd); };
         virtual void open_load_stream(google::protobuf::RpcController* controller,
-                                      const POpenStreamSinkRequest* request,
-                                      POpenStreamSinkResponse* response,
+                                      const POpenLoadStreamRequest* request,
+                                      POpenLoadStreamResponse* response,
                                       google::protobuf::Closure* done) {
             brpc::ClosureGuard done_guard(done);
             std::unique_ptr<PStatus> status = std::make_unique<PStatus>();
@@ -438,8 +438,8 @@ public:
                 return Status::InternalError("Fail to create stream");
             }
 
-            POpenStreamSinkRequest request;
-            POpenStreamSinkResponse response;
+            POpenLoadStreamRequest request;
+            POpenLoadStreamResponse response;
             PUniqueId id;
             id.set_hi(1);
             id.set_lo(1);
@@ -613,12 +613,11 @@ public:
     }
 
     void TearDown() override {
-        ExecEnv::GetInstance()->set_storage_engine(nullptr);
-        k_engine.reset();
         _server->Stop(1000);
-        _load_stream_mgr.reset();
         CHECK_EQ(0, _server->Join());
         SAFE_DELETE(_server);
+        k_engine.reset();
+        doris::ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
     std::string read_data(int64_t txn_id, int64_t partition_id, int64_t tablet_id, uint32_t segid) {
