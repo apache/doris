@@ -290,8 +290,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
                     stub, node_info.host(), node_info.async_internal_port())) {
             ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                    closure->cntl_.remote_side());
-            return error;
+                    closure->cntl_->remote_side());
         }
         LOG(WARNING) << "failed to send pull rowset request to slave replica, error="
                      << berror(closure->cntl_->ErrorCode())
