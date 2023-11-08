@@ -96,8 +96,8 @@ public:
     //  Will delete itself
     void Run() override {
         SCOPED_TRACK_MEMORY_TO_UNKNOWN();
-        Defer defer {[auto_release = auto_release_]() {
-            if (auto_release) {
+        Defer defer {[&]() {
+            if (this->auto_release_) {
                 delete this;
             }
         }};
