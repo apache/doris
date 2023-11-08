@@ -46,6 +46,30 @@ void Dependency::try_to_wake_up_task() {
     }
 }
 
+void WriteDependency::add_block_task(PipelineXTask* task) {
+    if (task->get_state() == PipelineTaskState::BLOCKED_FOR_SOURCE) {
+        Dependency::add_block_task(task);
+        return;
+    }
+    std::unique_lock<std::mutex> lc(_task_lock);
+    DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
+    DCHECK(avoid_using_blocked_queue(task->get_state()));
+    _write_block_task.push_back(task);
+}
+
+void WriteDependency::try_to_wake_up_task() {
+    std::vector<PipelineXTask*> local_block_task {};
+    {
+        std::unique_lock<std::mutex> lc(_task_lock);
+        local_block_task.swap(_write_block_task);
+    }
+    for (auto* task : local_block_task) {
+        DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
+        DCHECK(task->get_state() == PipelineTaskState::BLOCKED_FOR_SINK);
+        task->try_wake_up(this);
+    }
+}
+
 Dependency* Dependency::read_blocked_by() {
     if (is_write_dependency()) {
         auto* dep = static_cast<WriteDependency*>(this);

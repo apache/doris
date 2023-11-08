@@ -53,7 +53,7 @@ class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
     Dependency(int id, std::string name) : _id(id), _name(name), _ready_for_read(false) {}
     virtual ~Dependency() = default;
-
+    virtual bool avoid_using_blocked_queue_dependency() { return false; }
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
     virtual void* shared_state() = 0;
@@ -78,10 +78,12 @@ public:
     // Notify downstream pipeline tasks this dependency is ready.
     virtual void set_ready_for_read() {
         if (_ready_for_read) {
+            Dependency::try_to_wake_up_task();
             return;
         }
         _read_dependency_watcher.stop();
         _ready_for_read = true;
+        Dependency::try_to_wake_up_task();
     }
 
     // Notify downstream pipeline tasks this dependency is blocked.
@@ -93,9 +95,9 @@ public:
 
     void remove_first_child() { _children.erase(_children.begin()); }
 
-    void add_block_task(PipelineXTask* task);
+    virtual void add_block_task(PipelineXTask* task);
 
-    void try_to_wake_up_task();
+    virtual void try_to_wake_up_task();
 
 protected:
     bool _should_log(uint64_t cur_time) {
@@ -129,7 +131,6 @@ public:
     ~WriteDependency() override = default;
 
     bool is_write_dependency() override { return true; }
-
     void start_write_watcher() {
         for (auto& child : _children) {
             CHECK(child->is_write_dependency());
@@ -152,6 +153,8 @@ public:
         return _ready_for_write ? nullptr : this;
     }
 
+    void set_ready_for_read() override { Dependency::set_ready_for_read(); }
+
     virtual void set_ready_for_write() {
         if (_ready_for_write) {
             try_to_wake_up_task();
@@ -164,10 +167,15 @@ public:
 
     virtual void block_writing() { _ready_for_write = false; }
 
+    void add_block_task(PipelineXTask* task) override;
+
+    void try_to_wake_up_task() override;
+
 protected:
     friend class Dependency;
     std::atomic<bool> _ready_for_write;
     MonotonicStopWatch _write_dependency_watcher;
+    std::vector<PipelineXTask*> _write_block_task;
 };
 
 class FinishDependency final : public Dependency {
@@ -175,7 +183,6 @@ public:
     FinishDependency(int id, int node_id, std::string name)
             : Dependency(id, name), _ready_to_finish(true), _node_id(node_id) {}
     ~FinishDependency() override = default;
-
     void start_finish_watcher() {
         for (auto& child : _children) {
             ((FinishDependency*)child.get())->start_finish_watcher();
@@ -252,7 +259,6 @@ class RuntimeFilterDependency final : public Dependency {
 public:
     RuntimeFilterDependency(int id, int node_id, std::string name)
             : Dependency(id, name), _node_id(node_id) {}
-
     RuntimeFilterDependency* filter_blocked_by() {
         if (!_blocked_by_rf) {
             return nullptr;
@@ -529,6 +535,7 @@ public:
     using SharedState = UnionSharedState;
     UnionDependency(int id) : WriteDependency(id, "UnionDependency") {}
     ~UnionDependency() override = default;
+    bool avoid_using_blocked_queue_dependency() override { return true; }
     void* shared_state() override { return (void*)_union_state.get(); }
     void set_shared_state(std::shared_ptr<UnionSharedState> union_state) {
         _union_state = union_state;
@@ -540,8 +547,7 @@ public:
         if (_ready_for_read) {
             return;
         }
-        _read_dependency_watcher.stop();
-        _ready_for_read = true;
+        Dependency::set_ready_for_read();
     }
     [[nodiscard]] Dependency* read_blocked_by() override {
         if (_union_state->child_count() == 0) {
