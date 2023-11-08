@@ -351,9 +351,7 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
                 break;
             }
         }
-        DeltaWriterV2* delta_writer = nullptr;
-        static_cast<void>(DeltaWriterV2::open(&req, streams, &delta_writer));
-        return delta_writer;
+        return DeltaWriterV2::open(&req, streams);
     });
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
@@ -396,7 +394,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            static_cast<void>(_delta_writer_for_tablet->close(_profile));
+            RETURN_IF_ERROR(_delta_writer_for_tablet->close(_profile));
             _delta_writer_for_tablet.reset();
         }
 
@@ -444,11 +442,11 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id;
     } else {
-        static_cast<void>(_cancel(status));
+        RETURN_IF_ERROR(_cancel(status));
     }
 
     _close_status = status;
-    static_cast<void>(DataSink::close(state, exec_status));
+    RETURN_IF_ERROR(DataSink::close(state, exec_status));
     return status;
 }
 
