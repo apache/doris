@@ -36,8 +36,8 @@ public class LeadingJoin extends DefaultPlanRewriter<LeadingContext> implements 
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        if (jobContext.getCascadesContext().getStatementContext().isLeadingJoin()) {
-            Hint leadingHint = jobContext.getCascadesContext().getStatementContext().getHintMap().get("Leading");
+        if (jobContext.getCascadesContext().isLeadingJoin()) {
+            Hint leadingHint = jobContext.getCascadesContext().getHintMap().get("Leading");
             Plan leadingPlan = plan.accept(this, new LeadingContext(
                     (LeadingHint) leadingHint, ((LeadingHint) leadingHint)
                         .getLeadingTableBitmap(jobContext.getCascadesContext().getTables())));

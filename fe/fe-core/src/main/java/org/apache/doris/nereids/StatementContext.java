@@ -20,7 +20,6 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -72,8 +71,6 @@ public class StatementContext {
     private boolean isDpHyp = false;
     private boolean isOtherJoinReorder = false;
 
-    private boolean isLeadingJoin = false;
-
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
@@ -87,7 +84,6 @@ public class StatementContext {
     private final Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
-    private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
 
     public StatementContext() {
@@ -147,14 +143,6 @@ public class StatementContext {
         isDpHyp = dpHyp;
     }
 
-    public boolean isLeadingJoin() {
-        return isLeadingJoin;
-    }
-
-    public void setLeadingJoin(boolean leadingJoin) {
-        isLeadingJoin = leadingJoin;
-    }
-
     public boolean isOtherJoinReorder() {
         return isOtherJoinReorder;
     }
@@ -191,10 +179,6 @@ public class StatementContext {
             supplier = cacheSupplier;
         }
         return supplier.get();
-    }
-
-    public Map<String, Hint> getHintMap() {
-        return hintMap;
     }
 
     public ColumnAliasGenerator getColumnAliasGenerator() {

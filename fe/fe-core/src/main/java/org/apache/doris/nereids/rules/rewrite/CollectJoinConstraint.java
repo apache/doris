@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -48,25 +49,22 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             logicalRelation().thenApply(ctx -> {
-                if (!ctx.cascadesContext.getStatementContext().isLeadingJoin()) {
+                if (!ctx.cascadesContext.isLeadingJoin()) {
                     return ctx.root;
                 }
-                LeadingHint leading = (LeadingHint) ctx.cascadesContext
-                        .getStatementContext().getHintMap().get("Leading");
-                if (leading == null) {
-                    return ctx.root;
-                } else if (leading.isSyntaxError()) {
-                    return ctx.root;
-                }
+                LogicalRelation logicalRelation = (LogicalRelation) ctx.root;
+                LeadingHint leading = (LeadingHint) ctx.cascadesContext.getHintMap().get("Leading");
+                leading.putRelationIdAndTableName(Pair.of(logicalRelation.getRelationId(), ""));
+                leading.getRelationIdToScanMap().put(logicalRelation.getRelationId(), logicalRelation);
                 return ctx.root;
             }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
 
             logicalJoin().thenApply(ctx -> {
-                if (!ctx.cascadesContext.getStatementContext().isLeadingJoin()) {
+                if (!ctx.cascadesContext.isLeadingJoin()) {
                     return ctx.root;
                 }
                 LeadingHint leading = (LeadingHint) ctx.cascadesContext
-                            .getStatementContext().getHintMap().get("Leading");
+                            .getHintMap().get("Leading");
                 LogicalJoin join = ctx.root;
                 List<Expression> expressions = join.getHashJoinConjuncts();
                 Long totalFilterBitMap = 0L;
@@ -95,11 +93,11 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
             }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
 
             logicalFilter().thenApply(ctx -> {
-                if (!ctx.cascadesContext.getStatementContext().isLeadingJoin()) {
+                if (!ctx.cascadesContext.isLeadingJoin()) {
                     return ctx.root;
                 }
                 LeadingHint leading = (LeadingHint) ctx.cascadesContext
-                        .getStatementContext().getHintMap().get("Leading");
+                        .getHintMap().get("Leading");
                 LogicalFilter filter = ctx.root;
                 Set<Expression> expressions = filter.getConjuncts();
                 for (Expression expression : expressions) {
@@ -111,11 +109,11 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
 
             logicalProject(logicalOlapScan()).thenApply(
                 ctx -> {
-                    if (!ctx.cascadesContext.getStatementContext().isLeadingJoin()) {
+                    if (!ctx.cascadesContext.isLeadingJoin()) {
                         return ctx.root;
                     }
                     LeadingHint leading = (LeadingHint) ctx.cascadesContext
-                            .getStatementContext().getHintMap().get("Leading");
+                            .getHintMap().get("Leading");
                     LogicalProject<LogicalOlapScan> project = ctx.root;
                     LogicalOlapScan scan = project.child();
                     leading.getRelationIdToScanMap().put(scan.getRelationId(), project);
