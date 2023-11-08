@@ -163,6 +163,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         logBuffer.append(longToTimeString(event.timestamp)).append("\t");
         logBuffer.append(event.clientIp).append("\t");
         logBuffer.append(event.user).append("\t");
+        logBuffer.append(event.catalog).append("\t");
         logBuffer.append(event.db).append("\t");
         logBuffer.append(event.state).append("\t");
         logBuffer.append(event.errorCode).append("\t");
