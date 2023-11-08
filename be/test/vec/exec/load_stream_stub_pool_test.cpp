@@ -36,9 +36,9 @@ TEST_F(LoadStreamStubPoolTest, test) {
     PUniqueId load_id;
     load_id.set_hi(1);
     load_id.set_hi(2);
-    auto streams1 = pool.get_or_create(load_id, src_id, 101);
-    auto streams2 = pool.get_or_create(load_id, src_id, 102);
-    auto streams3 = pool.get_or_create(load_id, src_id, 101);
+    auto streams1 = pool.get_or_create(load_id, src_id, 101, 5);
+    auto streams2 = pool.get_or_create(load_id, src_id, 102, 5);
+    auto streams3 = pool.get_or_create(load_id, src_id, 101, 5);
     EXPECT_EQ(2, pool.size());
     EXPECT_EQ(1, pool.templates_size());
     EXPECT_EQ(streams1, streams3);
