@@ -99,6 +99,7 @@ exit_flag=0
     fi
 
     echo "#### 2. run tpch-sf${SF} query"
+    set_session_variable runtime_filter_mode global
     sed -i "s|^SCALE_FACTOR=[0-9]\+$|SCALE_FACTOR=${SF}|g" "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh
     bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
     if ! grep '^Total hot run time' "${teamcity_build_checkoutDir}"/run-tpch-queries.log >/dev/null; then exit 1; fi
