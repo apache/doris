@@ -65,7 +65,6 @@ public:
         response_ = std::make_shared<Response>();
     }
 
-public:
     void call() {}
 
     void join() { brpc::Join(cntl_->call_id()); }
