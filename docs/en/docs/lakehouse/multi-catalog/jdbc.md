@@ -695,60 +695,59 @@ DROP CATALOG <catalog_name>;
    SET NAMES utf8mb4
    ```
 
-3. Why does the error message "CAUSED BY: DataReadException: Zero date value prohibited" pop up when DateTime="0000:00:00 00:00:00" while reading MySQL external tables?
+3. Exception occurs when reading MySQL date/datetime type
 
-   This error occurs because of an illegal DateTime. It can be fixed by modifying the  `zeroDateTimeBehavior` parameter.
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[INTERNAL_ERROR]UdfRuntimeException: get next block failed:
+    CAUSED BY: SQLException: Zero date value prohibited
+    CAUSED BY: DataReadException: Zero date value prohibited
+    ```
 
-   The options for this parameter include: `EXCEPTION`,`CONVERT_TO_NULL`,`ROUND`. Respectively, they mean to report error, convert to null, and round the DateTime to "0001-01-01 00:00:00" when encountering an illegal DateTime.
+    This is because the default handling of illegal Date/DateTime in JDBC is to throw an exception, and this behavior can be controlled through the parameter `zeroDateTimeBehavior`.
 
-   You can add `"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?zeroDateTimeBehavior=convertToNull"` to the URL.
+    The optional parameters are: `EXCEPTION`, `CONVERT_TO_NULL`, `ROUND`, respectively: exception error reporting, converted to NULL value, converted to "0001-01-01 00:00:00";
 
-4. Why do loading failures happen when reading MySQL or other external tables?
+    You need to add `zeroDateTimeBehavior=convertToNull` to the end of the JDBC connection string when creating the Catalog `jdbc_url`, such as `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull"`
+    In this case, JDBC will convert 0000-00-00 or 0000-00-00 00:00:00 into null, and then Doris will process all Date/DateTime type columns in the current Catalog as nullable types, so that It can be read normally.
 
-   For example:
+4. When reading the MySQL table or other tables, a class loading failure occurs.
 
-   ```
-   failed to load driver class com.mysql.jdbc.driver in either of hikariconfig class loader
-   ```
+    Such as the following exception:
 
-   Such errors occur because the `driver_class` has been wrongly put when creating the catalog. The problem with the above example is the letter case. It should be corrected as `"driver_class" = "com.mysql.jdbc.Driver"`.
+    ```
+    failed to load driver class com.mysql.jdbc.driver in either of hikariconfig class loader
+    ```
 
-5. There is a communication link exception in reading MySQL
+    This is because when creating the catalog, the driver_class filled in is incorrect and needs to be filled in correctly. For example, the above example has a case problem and should be filled in as `"driver_class" = "com.mysql.jdbc.Driver"`
 
-   If you run into the following errors:
+5. Communication link abnormality occurs when reading MySQL
 
-   ```
-   ERROR 1105 (HY000): errCode = 2, detailMessage = PoolInitializationException: Failed to initialize pool: Communications link failure
-   
-   The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 4 milliseconds ago.
-   CAUSED BY: CommunicationsException: Communications link failure
-       
-   The last packet successfully received from the server was 7 milliseconds ago.  The last packet sent successfully to the server was 4 milliseconds ago.
-   CAUSED BY: SSLHandshakeExcepti
-   ```
+    If the following error occurs:
 
-   Please check the be.out log of BE.
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = PoolInitializationException: Failed to initialize pool: Communications link failure
+    
+    The last packet successfully received from the server was 7 milliseconds ago. The last packet sent successfully to the server was 4 milliseconds ago.
+    CAUSED BY: CommunicationsException: Communications link failure
+        
+    The last packet successfully received from the server was 7 milliseconds ago. The last packet sent successfully to the server was 4 milliseconds ago.
+    CAUSED BY: SSLHandshakeExcepti
+    ```
 
-   If it contains the following message:
+    You can view be’s be.out log
 
-   ```
-   WARN: Establishing SSL connection without server's identity verification is not recommended. 
-   According to MySQL 5.5.45+, 5.6.26+ and 5.7.6+ requirements SSL connection must be established by default if explicit option isn't set. 
-   For compliance with existing applications not using SSL the verifyServerCertificate property is set to 'false'. 
-   You need either to explicitly disable SSL by setting useSSL=false, or set useSSL=true and provide truststore for server certificate verification.
-   ```
+    If the following information is included:
 
-   You can add `?useSSL=false` to the end of the JDBC connection string when creating Catalog. For example,  `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?useSSL=false"`.
+    ```
+    WARN: Establishing SSL connection without server's identity verification is not recommended.
+    According to MySQL 5.5.45+, 5.6.26+ and 5.7.6+ requirements SSL connection must be established by default if explicit option isn't set.
+    For compliance with existing applications not using SSL the verifyServerCertificate property is set to 'false'.
+    You need either to explicitly disable SSL by setting useSSL=false, or set useSSL=true and provide truststore for server certificate verification.
+    ```
 
-6. What to do with the `OutOfMemoryError` when querying MySQL databases?
+   You can add `?useSSL=false` to the end of the JDBC connection string when creating the Catalog, such as `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?useSSL=false"`
 
-   To reduce memory usage, Doris obtains one batch of query results at a time, and has a size limit for each batch. However, MySQL conducts one-off loading of all query results by default, which means the "loading in batches" method won't work. To solve this, you need to specify "jdbc_url"="jdbc:mysql://IP:PORT/doris_test?useCursorFetch=true" in the URL.
-
-7. What to do with errors such as "CAUSED BY: SQLException OutOfMemoryError" when performing JDBC queries?
-
-   If you have set `useCursorFetch`  for MySQL, you can increase the JVM memory limit by modifying the value of `jvm_max_heap_size` in be.conf. The current default value is 1024M.
-
-8. When using JDBC to query MySQL large data volume, if the query can occasionally succeed, occasionally report the following errors, and all the MySQL connections are completely disconnected when the error occurs:
+6. When using JDBC to query large amounts of MYSQL data, if the query is occasionally successful, the following error will occasionally be reported. When this error occurs, all MYSQL connections are disconnected and cannot be connected to MYSQL SERVER. After a while, mysql returns to normal. , but the previous connections are gone:
 
     ```
     ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]UdfRuntimeException: JDBC executor sql has error:
@@ -756,35 +755,28 @@ DROP CATALOG <catalog_name>;
     The last packet successfully received from the server was 4,446 milliseconds ago. The last packet sent successfully to the server was 4,446 milliseconds ago.
     ```
 
-    When the above phenomenon appears, it may be that mysql server's own memory or CPU resources are exhausted and the MySQL service is unavailable. You can try to increase the memory or CPU resources of MySQL Server.
+    When the above phenomenon occurs, it may be that Mysql Server's own memory or CPU resources are exhausted, causing the Mysql service to be unavailable. You can try to increase the memory or CPU configuration of Mysql Server.
 
-9.  If the results are inconsistent with those in the MYSQL database when you query the MYSQL database using JDBC
+7. During the process of using JDBC to query MYSQL, if it is found that the query results are inconsistent with the query results in the MYSQL library
 
-    First check whether the string in the query field is case-sensitive. For example, there is a field c_1 in the Table with two 
-    
-    data "aaa" and "AAA". If the MYSQL database is not case-sensitive when initializing the MYSQL database, mysql is 
-    
-    case-insensitive by default, but Doris is strictly case-sensitive, so the following situations will occur：
+    First, check whether the string in the query field is case-sensitive. For example, there is a field c_1 in Table that contains two pieces of data: "aaa" and "AAA". If no distinguishing string is specified when initializing the MYSQL database,
+    Case, then MYSQL is not case-sensitive in strings by default, but in Doris it is strictly case-sensitive, so the following situations will occur:
 
     ```
-    Mysql behavior：
-    select count(c_1) from table where c_1 = "aaa"; The string size is not distinguished, so the result is : 2
+    Mysql behavior:
+    select count(c_1) from table where c_1 = "aaa"; The string size is not distinguished, so the result is: 2
 
-    Doris behavior：
-    select count(c_1) from table where c_1 = "aaa"; Strictly delimit the string size, so the result is : 1
+    Doris behavior:
+    select count(c_1) from table where c_1 = "aaa"; strictly distinguishes the string size, so the result is: 1
     ```
 
-    If the above phenomenon occurs, it needs to be adjusted according to demand, as follows：
+   If the above phenomenon occurs, it needs to be adjusted according to needs, as follows:
 
-    Add the "BINARY" keyword when querying in MYSQL to force case sensitivity : select count(c_1) from table where BINARY c_1 = 
-    
-    "aaa"; Or specify it when creating a table in MYSQL : CREATE TABLE table ( c_1 VARCHAR(255) CHARACTER SET binary ); 
-    
-    Or specify collation rules to be case sensitive when initializing the MYSQL database : character-set-server=UTF-8 and 
-    
-    collation-server=utf8_bin.
+   Add the "BINARY" keyword to force case sensitivity when querying in MYSQL: select count(c_1) from table where BINARY c_1 = "aaa"; or specify when creating a table in MYSQL:
+   CREATE TABLE table ( c_1 VARCHAR(255) CHARACTER SET binary ); Or specify collation rules to make case sensitive when initializing the MYSQL database:
+   character-set-server=UTF-8 and collation-server=utf8_bin.
 
-10. There is a communication link exception in reading SQLServer
+8. Communication link abnormality occurs when reading SQL Server
 
     ```
     ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[CANCELLED][INTERNAL_ERROR]UdfRuntimeException: Initialize datasource failed:
@@ -793,26 +785,16 @@ DROP CATALOG <catalog_name>;
     unable to find valid certification path to requested target". ClientConnectionId:a92f3817-e8e6-4311-bc21-7c66
     ```
 
-    In the create Catalog `jdbc_url` the JDBC connection string finally increase `encrypt=false`, such as `"jdbc_url" = "jdbc:sqlserver://127.0.0.1:1433;DataBaseName=doris_test;encrypt=false"`
+   You can add `encrypt=false` to the end of the JDBC connection string when creating the Catalog, such as `"jdbc_url" = "jdbc:sqlserver://127.0.0.1:1433;DataBaseName=doris_test;encrypt=false"`
 
-11. Error encountered when reading MySQL datetime type
+9. `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` exception occurs when reading Oracle
 
-    ```
-    ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[INTERNAL_ERROR]UdfRuntimeException: get next block failed:
-    CAUSED BY: SQLException: Zero date value prohibited
-    CAUSED BY: DataReadException: Zero date value prohibited
-    ```
+    Download [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it in the lib directory of Doris FE and the lib/java_extensions directory of BE (versions before Doris 2.0 It needs to be placed in the lib directory of BE).
 
-    This happens because JDBC can't handle the datetime format 0000-00-00 00:00:00. 
-    To address this, append zeroDateTimeBehavior=convertToNull to the jdbc_url when creating the Catalog, e.g., "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull". 
-    In this case, JDBC will convert 0000-00-00 00:00:00 to null, and then Doris will handle the DateTime column as a nullable type, allowing for successful reading.
+    Starting from version 2.0.2, this file can be placed in the `custom_lib/` directory of FE and BE (if it does not exist, just create it manually) to prevent the file from being lost when the lib directory is replaced when upgrading the cluster.
 
-12. `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` exception occurs when reading Oracle
+10. `NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` error message appears when reading Clickhouse data through jdbc catalog
 
-    Download [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it in the lib directory of Doris FE and the `lib/java_extensions/` directory of BE (Doris versions before 2.0 need to be placed in the lib directory of BE).
+    You can download the [lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar) package first, and then put it in DorisFE lib directory and BE's `lib/lib/java_extensions` directory (versions before Doris 2.0 need to be placed in BE's lib directory).
 
-    Starting from version 2.0.2, this file can be placed in BE's `custom_lib/` directory (if it does not exist, just create it manually) to prevent the file from being lost due to the replacement of the lib directory when upgrading the cluster.
-
-13. `NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` exception occurs when reading Clickhouse data via jdbc catalog.
-
-    You can download the [lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar) package and put it into the DorisFE `lib` directory and the `lib/java_extensions` directory of BE (the version before Doris 2.0 should be put into the `lib` directory of BE).
+    Starting from version 2.0.2, this file can be placed in the `custom_lib/` directory of FE and BE (if it does not exist, just create it manually) to prevent the file from being lost due to the replacement of the lib directory when upgrading the cluster.

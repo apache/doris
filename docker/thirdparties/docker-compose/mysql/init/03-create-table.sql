@@ -321,3 +321,8 @@ CREATE TABLE show_test_do_not_modify.ex_tb2 (
   id int,
   count_value varchar(20)
 );
+
+CREATE TABLE doris_test.test_zd (
+`id` int(10) unsigned NOT NULL,
+`d_z` date NOT NULL
+);
