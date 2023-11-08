@@ -133,7 +133,7 @@ private:
     std::shared_mutex _slave_node_lock;
 
     // total rows num written by DeltaWriter
-    int64_t _total_received_rows = 0;
+    std::atomic<int64_t> _total_received_rows = 0;
 
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;

@@ -716,7 +716,7 @@ Status BetaRowsetWriter::_check_segment_number_limit() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::add_segment(uint32_t segment_id, SegmentStatistics& segstat) {
+Status BetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
     uint32_t segid_offset = segment_id - _segment_start_id;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
