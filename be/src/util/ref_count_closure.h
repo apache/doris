@@ -105,8 +105,8 @@ class AutoReleaseClosure : public google::protobuf::Closure {
 public:
     AutoReleaseClosure(std::shared_ptr<Request> req, std::shared_ptr<Callback> callback)
             : callback_(callback) {
-        this->cntl_ = callback_->cntl_;
-        this->response_ = callback_->response_;
+        this->cntl_ = callback->cntl_;
+        this->response_ = callback->response_;
     }
 
     ~AutoReleaseClosure() override = default;
