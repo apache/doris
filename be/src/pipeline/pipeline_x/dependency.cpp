@@ -17,13 +17,196 @@
 
 #include "dependency.h"
 
+#include <glog/logging.h>
+
 #include <memory>
 #include <mutex>
 
 #include "common/logging.h"
+#include "pipeline/pipeline_task.h"
+#include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "runtime/memory/mem_tracker.h"
 
 namespace doris::pipeline {
+
+void Dependency::add_block_task(PipelineXTask* task) {
+    {
+        std::unique_lock lc(_task_lock);
+        DCHECK(task->get_state() != PipelineTaskState::RUNNABLE) << "dep:" << name();
+        DCHECK(task->get_state() == PipelineTaskState::BLOCKED_FOR_SOURCE) << "dep:" << name();
+        _block_task.push_back(task);
+        LOG_WARNING("yxc test")
+                .tag("add blocked dep ", name())
+                .tag("state", get_state_name(task->get_state()))
+                .tag("task ", task)
+                .tag("task info", task->debug_string());
+    }
+
+    if (read_blocked_by() == nullptr) {
+        Dependency::try_to_wake_up_task();
+    }
+}
+
+void FinishDependency::add_block_task(PipelineXTask* task) {
+    {
+        std::unique_lock lc(_task_lock);
+        DCHECK(task->get_state() != PipelineTaskState::RUNNABLE) << "dep:" << name();
+        DCHECK(task->get_state() == PipelineTaskState::PENDING_FINISH) << "dep:" << name();
+        _block_task.push_back(task);
+        LOG_WARNING("yxc test")
+                .tag("add blocked dep ", name())
+                .tag("state", get_state_name(task->get_state()))
+                .tag("task ", task)
+                .tag("task info", task->debug_string());
+    }
+
+    if (finish_blocked_by() == nullptr) {
+        Dependency::try_to_wake_up_task();
+    }
+}
+
+void RuntimeFilterDependency::add_block_task(PipelineXTask* task) {
+    {
+        std::unique_lock lc(_task_lock);
+        DCHECK(task->get_state() != PipelineTaskState::RUNNABLE) << "dep:" << name();
+        DCHECK(task->get_state() == PipelineTaskState::BLOCKED_FOR_RF) << "dep:" << name();
+        _block_task.push_back(task);
+        LOG_WARNING("yxc test")
+                .tag("add blocked dep ", name())
+                .tag("state", get_state_name(task->get_state()))
+                .tag("task ", task)
+                .tag("task info", task->debug_string());
+    }
+
+    if (filter_blocked_by() == nullptr) {
+        Dependency::try_to_wake_up_task();
+    }
+}
+
+void WriteDependency::add_block_task(PipelineXTask* task) {
+    if (task->get_state() == PipelineTaskState::BLOCKED_FOR_SOURCE) {
+        Dependency::add_block_task(task);
+        return;
+    }
+    {
+        std::unique_lock lc(_task_lock);
+        DCHECK(task->get_state() != PipelineTaskState::RUNNABLE) << "dep:" << name();
+        DCHECK(task->get_state() == PipelineTaskState::BLOCKED_FOR_SINK) << "dep:" << name();
+        _write_block_task.push_back(task);
+        LOG_WARNING("yxc test")
+                .tag("add blocked dep ", name())
+                .tag("state", get_state_name(task->get_state()))
+                .tag("task ", task)
+                .tag("task info", task->debug_string());
+    }
+
+    if (write_blocked_by() == nullptr) {
+        WriteDependency::try_to_wake_up_task();
+    }
+}
+
+void Dependency::try_to_wake_up_task() {
+    if (_block_task.empty()) {
+        return;
+    }
+    std::vector<PipelineXTask*> local_block_task {};
+    {
+        std::unique_lock lc(_task_lock);
+        local_block_task.swap(_block_task);
+    }
+    for (auto* task : local_block_task) {
+        LOG_WARNING("yxc test")
+                .tag("try to wake", name())
+                .tag("task ", task)
+                .tag("task info", task->debug_string());
+        DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
+        DCHECK(avoid_using_blocked_queue(task->get_state()));
+        task->try_wake_up(this);
+    }
+}
+
+void WriteDependency::try_to_wake_up_task() {
+    if (_block_task.empty()) {
+        return;
+    }
+    std::vector<PipelineXTask*> local_block_task {};
+    {
+        std::unique_lock lc(_task_lock);
+        local_block_task.swap(_write_block_task);
+    }
+    for (auto* task : local_block_task) {
+        LOG_WARNING("yxc test")
+                .tag("try to wake", name())
+                .tag("task ", task)
+                .tag("task info", task->debug_string());
+        DCHECK(task->get_state() != PipelineTaskState::RUNNABLE);
+        DCHECK(avoid_using_blocked_queue(task->get_state()));
+        task->try_wake_up(this);
+    }
+    if (read_blocked_by() == nullptr) {
+        Dependency::try_to_wake_up_task();
+    }
+}
+
+Dependency* Dependency::read_blocked_by() {
+    std::unique_lock lc(_set_ready_lock);
+    if (is_write_dependency()) {
+        auto* dep = static_cast<WriteDependency*>(this);
+        if (dep->write_blocked_by() == nullptr) {
+            dep->try_to_wake_up_task();
+        }
+    }
+    if (config::enable_fuzzy_mode && !_ready_for_read &&
+        _should_log(_read_dependency_watcher.elapsed_time())) {
+        LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                     << id() << " block tasks: " << _block_task.size();
+    }
+    return _ready_for_read ? nullptr : this;
+}
+
+WriteDependency* WriteDependency::write_blocked_by() {
+    std::unique_lock lc(_set_ready_lock);
+    if (config::enable_fuzzy_mode && !_ready_for_write &&
+        _should_log(_write_dependency_watcher.elapsed_time())) {
+        LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
+                     << id() << " block tasks: " << _write_block_task.size()
+                     << "read :" << _ready_for_read << " write :" << _ready_for_write;
+    }
+    return _ready_for_write ? nullptr : this;
+}
+
+void Dependency::set_ready_for_read() {
+    std::unique_lock lc(_set_ready_lock);
+    if (_ready_for_read) {
+        Dependency::try_to_wake_up_task();
+        return;
+    }
+    _read_dependency_watcher.stop();
+    _ready_for_read = true;
+    Dependency::try_to_wake_up_task();
+}
+
+void WriteDependency::set_ready_for_read() {
+    std::unique_lock lc(_set_ready_lock);
+    if (_ready_for_read) {
+        Dependency::try_to_wake_up_task();
+        return;
+    }
+    _read_dependency_watcher.stop();
+    _ready_for_read = true;
+    Dependency::try_to_wake_up_task();
+}
+
+void WriteDependency::set_ready_for_write() {
+    std::unique_lock lc(_set_ready_lock);
+    if (_ready_for_write) {
+        WriteDependency::try_to_wake_up_task();
+        return;
+    }
+    _write_dependency_watcher.stop();
+    _ready_for_write = true;
+    WriteDependency::try_to_wake_up_task();
+}
 
 template Status HashJoinDependency::extract_join_column<true>(
         vectorized::Block&,
@@ -294,6 +477,22 @@ std::vector<uint16_t> HashJoinDependency::convert_block_to_null(vectorized::Bloc
     return results;
 }
 
+void SetSharedState::set_probe_finished_children(int child_id) {
+    {
+        std::unique_lock<std::mutex> lc(child_lock);
+        probe_finished_children_index[child_id] = true;
+    }
+    wake_up_dep();
+}
+
+void SetSharedState::wake_up_dep() {
+    for (SetDependency* dep : probe_finished_children_dependency) {
+        if (dep->write_blocked_by() == nullptr) {
+            dep->set_ready_for_write();
+        }
+    }
+}
+
 template <bool BuildSide>
 Status HashJoinDependency::extract_join_column(vectorized::Block& block,
                                                vectorized::ColumnUInt8::MutablePtr& null_map,
@@ -436,6 +635,7 @@ void RuntimeFilterDependency::sub_filters() {
     _filters--;
     if (_filters == 0) {
         *_blocked_by_rf = false;
+        try_to_wake_up_task();
     }
 }
 

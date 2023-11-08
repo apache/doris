@@ -18,7 +18,9 @@
 #pragma once
 
 #include <stdint.h>
+#include <mutex>
 
+#include "common/logging.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vexchange_node.h"
@@ -58,19 +60,31 @@ public:
     void* shared_state() override { return nullptr; }
 
     void set_always_done() {
-        _always_done = true;
-        if (_ready_for_read) {
-            return;
+        {
+            std::unique_lock lc(_set_ready_lock);
+            _always_done = true;
+            LOG_WARNING("yxc test DataDependency set_always_done");
         }
-        _read_dependency_watcher.stop();
-        _ready_for_read = true;
+        Dependency::set_ready_for_read();
+    }
+
+    void set_ready_for_read() override {
+        {
+            std::unique_lock lc(_set_ready_lock);
+            LOG_WARNING("yxc test DataDependency set_ready_for_read");
+        }
+        Dependency::set_ready_for_read();
     }
 
     void block_reading() override {
-        if (_always_done) {
-            return;
+        {
+            std::unique_lock lc(_set_ready_lock);
+            if (_always_done) {
+                return;
+            }
         }
-        _ready_for_read = false;
+        LOG_WARNING("yxc test DataDependency block_reading");
+        Dependency::block_reading();
     }
 
 private:

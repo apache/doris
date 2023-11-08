@@ -25,10 +25,12 @@
 #include <ostream>
 #include <vector>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/pipeline.h"
+#include "pipeline/pipeline_task.h"
 #include "pipeline/task_queue.h"
 #include "pipeline_x_fragment_context.h"
 #include "runtime/descriptors.h"
@@ -179,7 +181,16 @@ Status PipelineXTask::_open() {
     SCOPED_TIMER(_open_timer);
     _dry_run = _sink->should_dry_run(_state);
     for (auto& o : _operators) {
-        RETURN_IF_ERROR(_state->get_local_state(o->operator_id())->open(_state));
+        auto* local_state = _state->get_local_state(o->operator_id());
+        auto st = local_state->open(_state);
+        if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
+            _blocked_dep = local_state->filterdependency();
+            set_state(PipelineTaskState::BLOCKED_FOR_RF);
+        } else if (st.is<ErrorCode::PIP_WAIT_FOR_SC>()) {
+            _blocked_dep = local_state->dependency();
+            set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
+        }
+        RETURN_IF_ERROR(st);
     }
     RETURN_IF_ERROR(_state->get_sink_local_state(_sink->operator_id())->open(_state));
     _opened = true;
@@ -196,7 +207,11 @@ Status PipelineXTask::execute(bool* eos) {
         if (_task_queue) {
             _task_queue->update_statistics(this, time_spent);
         }
+        LOG_WARNING("yxc test task execute end ")
+                .tag("info", debug_string())
+                .tag("state", get_state_name(get_state()));
     }};
+    LOG_WARNING("yxc test task execute").tag("info", debug_string());
     // The status must be runnable
     *eos = false;
     if (!_opened) {
@@ -320,32 +335,76 @@ Status PipelineXTask::close(Status exec_status) {
 }
 
 std::string PipelineXTask::debug_string() {
-    fmt::memory_buffer debug_string_buffer;
+    // fmt::memory_buffer debug_string_buffer;
 
-    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
-    fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
-                   print_id(_state->fragment_instance_id()));
+    // fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
+    // fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
+    //                print_id(_state->fragment_instance_id()));
 
-    fmt::format_to(debug_string_buffer, "RuntimeUsage: {}\n",
-                   PrettyPrinter::print(get_runtime_ns(), TUnit::TIME_NS));
-    {
-        std::stringstream profile_ss;
-        _fresh_profile_counter();
-        _task_profile->pretty_print(&profile_ss, "");
-        fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
+    // fmt::format_to(debug_string_buffer, "RuntimeUsage: {}\n",
+    //                PrettyPrinter::print(get_runtime_ns(), TUnit::TIME_NS));
+    // {
+    //     std::stringstream profile_ss;
+    //     _fresh_profile_counter();
+    //     _task_profile->pretty_print(&profile_ss, "");
+    //     fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
+    // }
+    // fmt::format_to(debug_string_buffer,
+    //                "PipelineTask[this = {}, state = {}]\noperators: ", (void*)this,
+    //                get_state_name(_cur_state));
+    // for (size_t i = 0; i < _operators.size(); i++) {
+    //     fmt::format_to(
+    //             debug_string_buffer, "\n{}",
+    //             _opened ? _operators[i]->debug_string(_state, i) : _operators[i]->debug_string(i));
+    // }
+    // fmt::format_to(debug_string_buffer, "\n{}",
+    //                _opened ? _sink->debug_string(_state, _operators.size())
+    //                        : _sink->debug_string(_operators.size()));
+    // return fmt::to_string(debug_string_buffer);
+
+    std::string name;
+    name = _sink->get_name() + " ";
+    for (auto o : _operators) {
+        name += o->get_name() + " ";
     }
-    fmt::format_to(debug_string_buffer,
-                   "PipelineTask[this = {}, state = {}]\noperators: ", (void*)this,
-                   get_state_name(_cur_state));
-    for (size_t i = 0; i < _operators.size(); i++) {
-        fmt::format_to(
-                debug_string_buffer, "\n{}",
-                _opened ? _operators[i]->debug_string(_state, i) : _operators[i]->debug_string(i));
-    }
-    fmt::format_to(debug_string_buffer, "\n{}",
-                   _opened ? _sink->debug_string(_state, _operators.size())
-                           : _sink->debug_string(_operators.size()));
-    return fmt::to_string(debug_string_buffer);
+    return name;
 }
 
+void PipelineXTask::push_blocked_task_to_dep() {
+    DCHECK(_blocked_dep) << "state :" << get_state_name(get_state());
+    DCHECK(avoid_using_blocked_queue(get_state()));
+    _blocked_dep->add_block_task(this);
+    _blocked_dep = nullptr;
+}
+
+void PipelineXTask::try_wake_up(Dependency* wake_up_dep) {
+    // call by dependency
+    auto state = get_state();
+    VecDateTimeValue now = VecDateTimeValue::local_time();
+    DCHECK(avoid_using_blocked_queue(state));
+    if (state == PipelineTaskState::PENDING_FINISH) {
+        Dependency* block_dep = finish_blocked_dependency();
+        if (block_dep == nullptr) {
+            _make_run(PipelineTaskState::PENDING_FINISH);
+        } else {
+            push_blocked_task_to_dep();
+        }
+        return;
+    }
+    if (query_context()->is_cancelled()) {
+        _make_run();
+        return;
+    }
+    if (query_context()->is_timeout(now)) {
+        query_context()->cancel(true, "", Status::Cancelled(""));
+        return;
+    }
+    DCHECK(avoid_using_blocked_queue(state));
+    _make_run();
+}
+
+void PipelineXTask::_make_run(PipelineTaskState t_state) {
+    set_state(t_state);
+    static_cast<void>(get_task_queue()->push_back(this));
+}
 } // namespace doris::pipeline
