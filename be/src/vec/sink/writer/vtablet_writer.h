@@ -74,6 +74,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/runtime/vfile_format_transformer.h"
+#include "vec/sink/vrow_distribution.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
 #include "vec/sink/writer/async_result_writer.h"
@@ -204,9 +205,6 @@ private:
 class IndexChannel;
 class VTabletWriter;
 
-// pair<row_id,tablet_id>
-using Payload = std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>;
-
 class VNodeChannelStat {
 public:
     VNodeChannelStat& operator+=(const VNodeChannelStat& stat) {
@@ -220,6 +218,9 @@ public:
     int64_t where_clause_ns = 0;
     int64_t append_node_channel_ns = 0;
 };
+
+// pair<row_id,tablet_id>
+using Payload = std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>;
 
 // every NodeChannel keeps a data transmission channel with one BE. for multiple times open, it has a dozen of requests and corresponding closures.
 class VNodeChannel {
@@ -485,6 +486,7 @@ public:
 private:
     friend class VNodeChannel;
     friend class VTabletWriter;
+    friend class VRowDistribution;
 
     VTabletWriter* _parent;
     int64_t _index_id;
@@ -546,31 +548,33 @@ public:
 
     bool is_close_done();
 
+    Status on_partitions_created(TCreatePartitionResult* result);
+
 private:
     friend class VNodeChannel;
     friend class IndexChannel;
 
-    using ChannelDistributionPayload = std::vector<std::unordered_map<VNodeChannel*, Payload>>;
+    using ChannelDistributionPayload = std::unordered_map<VNodeChannel*, Payload>;
+    using ChannelDistributionPayloadVec = std::vector<std::unordered_map<VNodeChannel*, Payload>>;
+
+    void _init_row_distribution();
 
     Status _init(RuntimeState* state, RuntimeProfile* profile);
 
-    // payload for every row
-    void _generate_row_distribution_payload(ChannelDistributionPayload& channel_to_payload,
-                                            const std::vector<VOlapTablePartition*>& partitions,
-                                            const std::vector<uint32_t>& tablet_indexes,
-                                            const std::vector<bool>& skip, size_t row_cnt);
+    void _generate_one_index_channel_payload(RowPartTabletIds& row_part_tablet_tuple,
+                                             int32_t index_idx,
+                                             ChannelDistributionPayload& channel_payload);
 
-    Status _single_partition_generate(RuntimeState* state, vectorized::Block* block,
-                                      ChannelDistributionPayload& channel_to_payload,
-                                      size_t num_rows, bool has_filtered_rows);
+    void _generate_index_channels_payloads(std::vector<RowPartTabletIds>& row_part_tablet_ids,
+                                           ChannelDistributionPayloadVec& payload);
 
     Status _cancel_channel_and_check_intolerable_failure(Status status, const std::string& err_msg,
                                                          const std::shared_ptr<IndexChannel> ich,
                                                          const std::shared_ptr<VNodeChannel> nch);
 
-    void _cancel_all_channel(Status status);
-
     std::pair<vectorized::VExprContextSPtr, vectorized::VExprSPtr> _get_partition_function();
+
+    void _cancel_all_channel(Status status);
 
     void _save_missing_values(vectorized::ColumnPtr col, vectorized::DataTypePtr value_type,
                               std::vector<int64_t> filter);
@@ -689,6 +693,11 @@ private:
     RuntimeProfile* _profile = nullptr; // not owned, set when open
     bool _group_commit = false;
     std::shared_ptr<WalWriter> _wal_writer = nullptr;
+
+    VRowDistribution _row_distribution;
+    // reuse to avoid frequent memory allocation and release.
+    std::vector<RowPartTabletIds> _row_part_tablet_ids;
+
     int64_t _tb_id;
     int64_t _db_id;
     int64_t _wal_id;

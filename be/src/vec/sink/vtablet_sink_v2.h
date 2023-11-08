@@ -64,6 +64,7 @@
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
+#include "vec/sink/vrow_distribution.h"
 
 namespace doris {
 class DeltaWriterV2;
@@ -112,17 +113,20 @@ public:
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state, Status close_status) override;
+
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
+    Status on_partitions_created(TCreatePartitionResult* result);
+
 private:
+    void _init_row_distribution();
+
     Status _open_streams(int64_t src_id);
 
     void _build_tablet_node_mapping();
 
-    void _generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
-                                   const std::vector<VOlapTablePartition*>& partitions,
-                                   const std::vector<uint32_t>& tablet_indexes,
-                                   const std::vector<bool>& skip, size_t row_cnt);
+    void _generate_rows_for_tablet(std::vector<RowPartTabletIds>& row_part_tablet_ids,
+                                   RowsForTablet& rows_for_tablet);
 
     Status _write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
                            const Rows& rows, const Streams& streams);
@@ -168,11 +172,6 @@ private:
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
 
-    // reuse for find_tablet
-    std::vector<VOlapTablePartition*> _partitions;
-    std::vector<bool> _skip;
-    std::vector<uint32_t> _tablet_indexes;
-
     MonotonicStopWatch _row_distribution_watch;
 
     RuntimeProfile::Counter* _input_rows_counter = nullptr;
@@ -187,6 +186,7 @@ private:
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _close_writer_timer = nullptr;
     RuntimeProfile::Counter* _close_load_timer = nullptr;
+    RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
 
     // Save the status of close() method
     Status _close_status;
@@ -204,6 +204,10 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<Streams>> _streams_for_node;
     size_t _stream_index = 0;
     std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;
+
+    VRowDistribution _row_distribution;
+    // reuse to avoid frequent memory allocation and release.
+    std::vector<RowPartTabletIds> _row_part_tablet_ids;
 };
 
 } // namespace vectorized
