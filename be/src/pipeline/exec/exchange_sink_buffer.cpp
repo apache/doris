@@ -91,6 +91,13 @@ bool ExchangeSinkBuffer<Parent>::can_write() const {
 }
 
 template <typename Parent>
+void ExchangeSinkBuffer<Parent>::_set_ready_to_finish() {
+    if (_finish_dependency && _busy_channels == 0) {
+        _finish_dependency->set_ready_to_finish();
+    }
+}
+
+template <typename Parent>
 bool ExchangeSinkBuffer<Parent>::is_pending_finish() {
     //note(wb) angly implementation here, because operator couples the scheduling logic
     // graceful implementation maybe as follows:
@@ -223,9 +230,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
     if (_is_finishing) {
         _rpc_channel_is_idle[id] = true;
         _busy_channels--;
-        if (_finish_dependency && _busy_channels == 0) {
-            _finish_dependency->set_ready_to_finish();
-        }
+        _set_ready_to_finish();
         return Status::OK();
     }
 
@@ -273,6 +278,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
                 static_cast<void>(_send_rpc(id));
             }
         });
+        closure->set_finish_dependency(_finish_dependency);
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             if (enable_http_send_block(*brpc_request)) {
@@ -333,6 +339,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
                 static_cast<void>(_send_rpc(id));
             }
         });
+        closure->set_finish_dependency(_finish_dependency);
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             if (enable_http_send_block(*brpc_request)) {
@@ -349,9 +356,7 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
     } else {
         _rpc_channel_is_idle[id] = true;
         _busy_channels--;
-        if (_finish_dependency && _busy_channels == 0) {
-            _finish_dependency->set_ready_to_finish();
-        }
+        _set_ready_to_finish();
     }
 
     return Status::OK();
@@ -370,6 +375,7 @@ void ExchangeSinkBuffer<Parent>::_construct_request(InstanceLoId id, PUniqueId f
 
 template <typename Parent>
 void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
+    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     if (!_instance_to_package_queue_mutex.template contains(id)) {
         std::stringstream ss;
         ss << "failed find the instance id:" << id
@@ -385,9 +391,7 @@ void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
         if (!_rpc_channel_is_idle[id]) {
             _busy_channels--;
             _rpc_channel_is_idle[id] = true;
-            if (_finish_dependency && _busy_channels == 0) {
-                _finish_dependency->set_ready_to_finish();
-            }
+            _set_ready_to_finish();
         }
     }
 }
@@ -406,9 +410,7 @@ void ExchangeSinkBuffer<Parent>::_set_receiver_eof(InstanceLoId id) {
     if (!_rpc_channel_is_idle[id]) {
         _busy_channels--;
         _rpc_channel_is_idle[id] = true;
-        if (_finish_dependency && _busy_channels == 0) {
-            _finish_dependency->set_ready_to_finish();
-        }
+        _set_ready_to_finish();
     }
 }
 
