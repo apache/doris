@@ -70,7 +70,6 @@ public:
 
     void join() { brpc::Join(cntl_->call_id()); }
 
-public:
     // controller has to be the same lifecycle with the closure, because brpc may use
     // it in any stage of the rpc.
     std::shared_ptr<brpc::Controller> cntl_;
