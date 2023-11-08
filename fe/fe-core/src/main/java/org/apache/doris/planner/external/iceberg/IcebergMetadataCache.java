@@ -58,24 +58,6 @@ public class IcebergMetadataCache {
             .build();
     }
 
-    /**
-    public List<Snapshot> getSnapshotList(TIcebergMetadataParams params) throws UserException {
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(params.getCatalog());
-        IcebergMetadataCacheKey key =
-                IcebergMetadataCacheKey.of(catalog.getId(), params.getDatabase(), params.getTable());
-        List<Snapshot> ifPresent = snapshotListCache.getIfPresent(key);
-        if (ifPresent != null) {
-            return ifPresent;
-        }
-
-        Table icebergTable = getIcebergTable(key, catalog, params.getDatabase(), params.getTable());
-        List<Snapshot> snaps = Lists.newArrayList();
-        Iterables.addAll(snaps, icebergTable.snapshots());
-        snapshotListCache.put(key, snaps);
-        return snaps;
-    }
-     */
-
     public Table getIcebergTable(IcebergMetadataCacheKey key, CatalogIf catalog, String dbName, String tbName)
             throws UserException {
         Table cacheTable = tableCache.getIfPresent(key);
