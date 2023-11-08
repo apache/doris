@@ -94,8 +94,6 @@ public:
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
-    bool can_be_inside_nullable() const override { return true; }
-
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     StringRef get_data_at(size_t n) const override;
