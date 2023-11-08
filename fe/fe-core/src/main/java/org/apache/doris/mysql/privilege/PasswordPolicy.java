@@ -410,7 +410,7 @@ public class PasswordPolicy implements Writable {
             }
             if (lockTime.get() > 0 && passwordLockSeconds == UNBOUNDED) {
                 // unbounded lock
-                return 0;
+                return 9999;
             }
             return Math.max(0, passwordLockSeconds - ((System.currentTimeMillis() - lockTime.get()) / 1000));
         }
