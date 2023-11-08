@@ -72,9 +72,9 @@ public:
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
 
-    RuntimeState(const TPipelineInstanceParams& pipeline_params, const TUniqueId& query_id,
-                 int32 fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
+                 const TQueryOptions& query_options, const TQueryGlobals& query_globals,
+                 ExecEnv* exec_env);
 
     // Used by pipelineX. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
@@ -92,6 +92,8 @@ public:
     // Set per-query state.
     Status init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+
+    void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params) const;
 
     // for ut and non-query.
     void set_exec_env(ExecEnv* exec_env) { _exec_env = exec_env; }
@@ -329,6 +331,10 @@ public:
         return _query_options.__isset.enable_pipeline_engine &&
                _query_options.enable_pipeline_engine;
     }
+    bool enable_pipeline_x_exec() const {
+        return _query_options.__isset.enable_pipeline_x_engine &&
+               _query_options.enable_pipeline_x_engine;
+    }
     bool enable_local_shuffle() const {
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
     }
@@ -365,6 +371,10 @@ public:
 
     bool skip_delete_bitmap() const {
         return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
+    }
+
+    bool skip_missing_version() const {
+        return _query_options.__isset.skip_missing_version && _query_options.skip_missing_version;
     }
 
     bool enable_page_cache() const;

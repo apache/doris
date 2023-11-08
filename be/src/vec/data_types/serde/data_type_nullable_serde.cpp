@@ -60,9 +60,10 @@ Status DataTypeNullableSerDe::serialize_one_cell_to_json(const IColumn& column, 
          * for null values in nested types, we use null to represent them, just like the json format.
          */
         if (_nesting_level >= 2) {
-            bw.write(NULL_IN_CSV_FOR_NESTED_TYPE.c_str(), 4);
+            bw.write(NULL_IN_COMPLEX_TYPE.c_str(), strlen(NULL_IN_COMPLEX_TYPE.c_str()));
         } else {
-            bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(), 2);
+            bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
+                     strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
         }
     } else {
         RETURN_IF_ERROR(nested_serde->serialize_one_cell_to_json(col_null.get_nested_column(),
@@ -334,8 +335,30 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
-const std::string DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
-const std::string DataTypeNullableSerDe::NULL_IN_CSV_FOR_NESTED_TYPE = "null";
+void DataTypeNullableSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                                   rapidjson::Document::AllocatorType& allocator,
+                                                   int row_num) const {
+    auto& col = static_cast<const ColumnNullable&>(column);
+    auto& nested_col = col.get_nested_column();
+    if (col.is_null_at(row_num)) {
+        result.SetNull();
+    } else {
+        nested_serde->write_one_cell_to_json(nested_col, result, allocator, row_num);
+    }
+}
+
+void DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
+                                                    const rapidjson::Value& result) const {
+    auto& col = static_cast<ColumnNullable&>(column);
+    auto& nested_col = col.get_nested_column();
+    if (result.IsNull()) {
+        col.insert_default();
+    } else {
+        // TODO sanitize data
+        nested_serde->read_one_cell_from_json(nested_col, result);
+        col.get_null_map_column().get_data().push_back(0);
+    }
+}
 
 } // namespace vectorized
 } // namespace doris

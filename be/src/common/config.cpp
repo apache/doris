@@ -969,6 +969,9 @@ DEFINE_Bool(enable_workload_group_for_scan, "false");
 // Will remove after fully test.
 DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
+DEFINE_mBool(enable_flatten_nested_for_variant, "false");
+DEFINE_mDouble(ratio_of_defaults_as_sparse_column, "0.95");
+
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
@@ -1013,8 +1016,6 @@ DEFINE_Int32(max_depth_in_bkd_tree, "32");
 DEFINE_Bool(inverted_index_compaction_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
-// semi-structure configs
-DEFINE_Bool(enable_parse_multi_dimession_array, "false");
 
 // max depth of expression tree allowed.
 DEFINE_Int32(max_depth_of_expr_tree, "600");
@@ -1120,6 +1121,12 @@ DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 
 // Max size(bytes) of group commit queues, used for mem back pressure.
 DEFINE_Int32(group_commit_max_queue_size, "65536");
+
+// Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
+DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
+
+// Download binlog rate limit, unit is KB/s, 0 means no limit
+DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
 // clang-format off
 #ifdef BE_TEST

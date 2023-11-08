@@ -127,7 +127,6 @@ public:
     std::string get_name() const override;
     const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
     void resize(size_t n) override;
@@ -265,6 +264,8 @@ public:
     }
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
+
+    double get_ratio_of_default_rows(double sample_ratio) const override;
 
 private:
     // [[2,1,5,9,1], [1,2,4]] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8

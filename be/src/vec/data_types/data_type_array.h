@@ -68,11 +68,13 @@ public:
         return TPrimitiveType::ARRAY;
     }
 
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_ARRAY;
+    }
+
     std::string do_get_name() const override { return "Array(" + nested->get_name() + ")"; }
 
     const char* get_family_name() const override { return "Array"; }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     MutableColumnPtr create_column() const override;
 

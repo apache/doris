@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -33,9 +34,14 @@ import java.util.Optional;
  */
 public abstract class LogicalLeaf extends AbstractLogicalPlan implements LeafPlan, OutputSavePoint {
 
-    public LogicalLeaf(PlanType nodeType, Optional<GroupExpression> groupExpression,
-                           Optional<LogicalProperties> logicalProperties) {
+    protected LogicalLeaf(PlanType nodeType, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties) {
         super(nodeType, groupExpression, logicalProperties, ImmutableList.of());
+    }
+
+    protected LogicalLeaf(PlanType nodeType, Optional<GroupExpression> groupExpression,
+            Supplier<LogicalProperties> logicalPropertiesSupplier, boolean useZeroId) {
+        super(nodeType, groupExpression, logicalPropertiesSupplier, ImmutableList.of(), useZeroId);
     }
 
     public abstract List<Slot> computeOutput();

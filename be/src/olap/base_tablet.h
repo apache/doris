@@ -65,6 +65,8 @@ public:
 
     void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
 
+    void update_by_least_common_schema(const TabletSchemaSPtr& update_schema);
+
     TabletSchemaSPtr tablet_schema() const {
         std::shared_lock rlock(_meta_lock);
         return _max_version_schema;
@@ -76,7 +78,8 @@ public:
                                         std::unique_ptr<RowsetWriter>* rowset_writer) = 0;
 
     virtual Status capture_rs_readers(const Version& spec_version,
-                                      std::vector<RowSetSplits>* rs_splits) const = 0;
+                                      std::vector<RowSetSplits>* rs_splits,
+                                      bool skip_missing_version) const = 0;
 
     virtual size_t tablet_footprint() = 0;
 

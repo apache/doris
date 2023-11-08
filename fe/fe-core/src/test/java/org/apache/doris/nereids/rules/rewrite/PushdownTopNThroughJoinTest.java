@@ -132,6 +132,32 @@ class PushdownTopNThroughJoinTest extends TestWithFeService implements MemoPatte
     }
 
     @Test
+    void testTwoJoinSql() {
+        PlanChecker.from(connectContext)
+                .analyze(
+                        "SELECT\n"
+                                + "  V.*\n"
+                                + "FROM\n"
+                                + "  (\n"
+                                + "    SELECT t1.*\n"
+                                + "    FROM t1 LEFT JOIN t1 t2 ON t1.k1 = t2.k1\n"
+                                + "    WHERE t1.k2 >= 20221001 AND t2.k2 = 1\n"
+                                + "    ORDER BY t1.k2 ASC LIMIT 10\n"
+                                + "  ) V\n"
+                                + "  LEFT JOIN t1 O ON V.k1 = O.k1\n"
+                                + "ORDER BY k2 ASC LIMIT 10;")
+                .rewrite()
+                .matches(
+                        logicalJoin(
+                                logicalTopN(
+                                        logicalProject(logicalJoin())
+                                ),
+                                logicalProject(logicalOlapScan())
+                        )
+                );
+    }
+
+    @Test
     void testProjectSql() {
         PlanChecker.from(connectContext)
                 .analyze(
