@@ -124,8 +124,9 @@ echo "#### 6. check if need backup doris logs"
 if ${need_backup_doris_logs}; then
     print_doris_fe_log
     print_doris_be_log
-    archive_doris_logs "${pull_request_id}_${commit_id}_doris_logs.tar.gz"
-    upload_doris_log_to_oss "${pull_request_id}_${commit_id}_doris_logs.tar.gz"
+    if archive_doris_logs "${DORIS_HOME}/${pull_request_id}_${commit_id}_doris_logs.tar.gz"; then
+        upload_doris_log_to_oss "${DORIS_HOME}/${pull_request_id}_${commit_id}_doris_logs.tar.gz"
+    fi
 fi
 
 exit "${exit_flag}"

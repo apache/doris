@@ -1,4 +1,20 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 
 # Build Step: Command Line
 : <<EOF
@@ -116,8 +132,8 @@ echo "#### 5. check if need backup doris logs"
 if [[ ${exit_flag} != "0" ]]; then
     print_doris_fe_log
     print_doris_be_log
-    if archive_doris_logs "${pull_request_id}_${commit_id}_doris_logs.tar.gz"; then
-        upload_doris_log_to_oss "${pull_request_id}_${commit_id}_doris_logs.tar.gz"
+    if archive_doris_logs "${DORIS_HOME}/${pull_request_id}_${commit_id}_doris_logs.tar.gz"; then
+        upload_doris_log_to_oss "${DORIS_HOME}/${pull_request_id}_${commit_id}_doris_logs.tar.gz"
     fi
 fi
 

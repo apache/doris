@@ -17,7 +17,7 @@
 # under the License.
 
 function install_ossutil() {
-    if command -v ossutil >/dev/null; then return; fi
+    if command -v ossutil >/dev/null; then return 0; fi
     if [[ -z ${OSS_accessKeyID} || -z ${OSS_accessKeySecret} ]]; then
         echo "ERROR: env OSS_accessKeyID or OSS_accessKeySecret not set."
         return 1
@@ -71,26 +71,34 @@ function upload_file_to_oss() {
         echo "ERROR: env ACCESS_KEY_ID and ACCESS_KEY_SECRET not set"
         return 1
     fi
+    if [[ ! -f "$1" ]] || [[ "$1" != "/"* ]]; then
+        echo "ERROR: '$1' is not an absolute path"
+        return 1
+    fi
     # file_name like ${pull_request_id}_${commit_id}.tar.gz
-    local file_name="$1"
+    local file_name
+    local dir_name
+    dir_name="$(dirname "${1}")"
+    file_name="$(basename "${1}")"
     OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile-release"}"
     OSS_URL_PREFIX="${OSS_URL_PREFIX:-"http://opensource-pipeline.oss-cn-hongkong.aliyuncs.com/compile-release"}"
     install_ossutil
+    cd "${dir_name}" || return 1
     if ossutil cp -f \
         -i "${ACCESS_KEY_ID}" \
         -k "${ACCESS_KEY_SECRET}" \
         "${file_name}" \
-        "${OSS_DIR}/${file_name}" \
-        --force; then
+        "${OSS_DIR}/${file_name}"; then
         if ! check_oss_file_exist "${file_name}"; then return 1; fi
+        cd - || return 1
         echo "INFO: success to upload ${file_name} to ${OSS_URL_PREFIX}/${file_name}" && return 0
     else
+        cd - || return 1
         echo "ERROR: upload ${file_name} fail" && return 1
     fi
 }
 
 function upload_doris_log_to_oss() {
-    if [[ -f "$1" ]]; then return 1; fi
     OSS_DIR="oss://opensource-pipeline/regression"
     OSS_URL_PREFIX="http://opensource-pipeline.oss-cn-hongkong.aliyuncs.com/regression"
     upload_file_to_oss "$1"
