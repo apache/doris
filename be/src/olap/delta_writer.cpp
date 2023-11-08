@@ -244,7 +244,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
     }
 
     auto request = std::make_shared<PTabletWriteSlaveRequest>();
-    *(request->mutable_rowset_meta) = cur_rowset->rowset_meta()->get_rowset_pb();
+    *(request->mutable_rowset_meta()) = cur_rowset->rowset_meta()->get_rowset_pb();
     request->set_host(BackendOptions::get_localhost());
     request->set_http_port(config::webserver_port);
     string tablet_path = _rowset_builder.tablet()->tablet_path();
@@ -278,7 +278,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
 
     auto response = std::make_shared<PTabletWriteSlaveResult>();
     auto closure =
-            AutoReleaseClosure<PTabletWriteSlaveRequest, PTabletWriteSlaveResult>::make_unique(
+            AutoReleaseClosure<PTabletWriteSlaveRequest, PTabletWriteSlaveResult>::create_unique(
                     request, response, false /*not auto release*/);
     closure->cntl_->set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
     closure->cntl_->ignore_eovercrowded();
