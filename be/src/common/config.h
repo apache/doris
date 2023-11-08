@@ -110,7 +110,7 @@ DECLARE_Int32(brpc_num_threads);
 // If no ip match this rule, will choose one randomly.
 DECLARE_String(priority_networks);
 
-// performance moderate or or compact, only tcmalloc compile
+// performance moderate or compact, only tcmalloc compile
 DECLARE_String(memory_mode);
 
 // process memory limit specified as number of bytes
