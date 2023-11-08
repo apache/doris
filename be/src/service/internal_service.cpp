@@ -1853,9 +1853,10 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
             }
         }
         st.to_protobuf(response->mutable_status());
+        _exec_env->new_load_stream_mgr()->remove(load_id);
     });
-    _exec_env->new_load_stream_mgr()->remove(load_id);
     if (!ret) {
+        _exec_env->new_load_stream_mgr()->remove(load_id);
         offer_failed(response, done, _light_work_pool);
         return;
     }
