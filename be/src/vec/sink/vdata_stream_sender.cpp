@@ -427,7 +427,6 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
         _partition_count = _channels.size();
         _partitioner.reset(new XXHashPartitioner<ShuffleChannelIds>(_channels.size()));
         RETURN_IF_ERROR(_partitioner->init(t_stream_sink.output_partition.partition_exprs));
-        _profile->add_info_string("Partitioner", "XXHashPartitioner");
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = _channel_shared_ptrs.size();
         _partitioner.reset(
