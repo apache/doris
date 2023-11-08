@@ -59,6 +59,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         String auto_default_t = "auto_default_t";
         String dt = "dt";
         String dt_null = "dt_null";
+        String test_zd = "test_zd"
 
         try_sql("DROP USER ${user}")
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
@@ -119,6 +120,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
         order_qt_dt """select * from ${dt}; """
         order_qt_dt_null """select * from ${dt_null} order by 1; """
+        order_qt_test_dz """select * from ${test_zd} order by 1; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
