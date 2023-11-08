@@ -276,25 +276,25 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
         }
     }
 
-    auto response = std::make_shared<PTabletWriteSlaveResult>();
-    auto closure =
-            AutoReleaseClosure<PTabletWriteSlaveRequest, PTabletWriteSlaveResult>::create_unique(
-                    request, response, false /*not auto release*/);
+    auto pull_callback = DummyBrpcCallback<PTabletWriteSlaveResult>::create_shared();
+    auto closure = AutoReleaseClosure<
+            PTabletWriteSlaveRequest,
+            DummyBrpcCallback<PTabletWriteSlaveResult>>::create_unique(request, pull_callback);
     closure->cntl_->set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
     closure->cntl_->ignore_eovercrowded();
     stub->request_slave_tablet_pull_rowset(closure->cntl_.get(), closure->request_.get(),
-                                           closure->response_.get(), closure.get());
+                                           closure->response_.get(), closure.release());
 
-    closure->join();
-    if (closure->cntl_->Failed()) {
+    pull_callback->join();
+    if (pull_callback->cntl_->Failed()) {
         if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
                     stub, node_info.host(), node_info.async_internal_port())) {
             ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
-                    closure->cntl_->remote_side());
+                    pull_callback->cntl_->remote_side());
         }
         LOG(WARNING) << "failed to send pull rowset request to slave replica, error="
-                     << berror(closure->cntl_->ErrorCode())
-                     << ", error_text=" << closure->cntl_->ErrorText()
+                     << berror(pull_callback->cntl_->ErrorCode())
+                     << ", error_text=" << pull_callback->cntl_->ErrorText()
                      << ". slave host: " << node_info.host() << ", tablet_id=" << _req.tablet_id
                      << ", txn_id=" << _req.txn_id;
         std::lock_guard<std::shared_mutex> lock(_slave_node_lock);
