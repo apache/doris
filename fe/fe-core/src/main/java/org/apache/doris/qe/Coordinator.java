@@ -847,7 +847,7 @@ public class Coordinator implements CoordInterface {
                     }
                 }
 
-                long numBackendsWithSink = 0;
+                int numBackendsWithSink = 0;
                 // 3. group PipelineExecContext by BE.
                 // So that we can use one RPC to send all fragment instances of a BE.
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
