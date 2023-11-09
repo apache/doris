@@ -3413,7 +3413,7 @@ public class Env {
         createTableStmt.add(sb + ";");
 
         // 2. add partition
-        if (separatePartition && (table instanceof OlapTable) && ((OlapTable) table).getPartitions().size() > 1) {
+        if (separatePartition && (table.isOlapTable()) && ((OlapTable) table).getPartitions().size() > 1) {
             if (((OlapTable) table).getPartitionInfo().getType() == PartitionType.RANGE
                     || ((OlapTable) table).getPartitionInfo().getType() == PartitionType.LIST) {
                 OlapTable olapTable = (OlapTable) table;
@@ -3448,7 +3448,7 @@ public class Env {
         }
 
         // 3. rollup
-        if (createRollupStmt != null && (table instanceof OlapTable)) {
+        if (createRollupStmt != null && (table.isOlapTable())) {
             OlapTable olapTable = (OlapTable) table;
             for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getIndexIdToMeta().entrySet()) {
                 if (entry.getKey() == olapTable.getBaseIndexId()) {
@@ -4087,7 +4087,7 @@ public class Env {
         try {
             table.writeLockOrDdlException();
             try {
-                if (table instanceof OlapTable) {
+                if (table.isOlapTable()) {
                     OlapTable olapTable = (OlapTable) table;
                     olapTable.checkNormalStateForAlter();
                 }

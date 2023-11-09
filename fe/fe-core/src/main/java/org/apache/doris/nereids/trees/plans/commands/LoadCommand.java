@@ -429,7 +429,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
     private static OlapTable getOlapTable(ConnectContext ctx, BulkLoadDataDesc dataDesc) throws AnalysisException {
         OlapTable targetTable;
         TableIf table = RelationUtil.getTable(dataDesc.getNameParts(), ctx.getEnv());
-        if (!(table instanceof OlapTable)) {
+        if (!(table.isOlapTable())) {
             throw new AnalysisException("table must be olapTable in load command");
         }
         targetTable = ((OlapTable) table);

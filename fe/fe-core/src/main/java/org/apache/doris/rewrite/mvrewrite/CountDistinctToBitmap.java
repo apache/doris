@@ -70,7 +70,7 @@ public class CountDistinctToBitmap implements ExprRewriteRule {
         SlotRef fnChild0 = (SlotRef) fnExpr.getChild(0);
         Column column = fnChild0.getColumn();
         TableIf table = fnChild0.getTable();
-        if (column == null || table == null || !(table instanceof OlapTable)) {
+        if (column == null || table == null || !(table.isOlapTable())) {
             return expr;
         }
         OlapTable olapTable = (OlapTable) table;

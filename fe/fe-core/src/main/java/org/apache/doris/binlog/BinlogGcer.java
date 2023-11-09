@@ -120,7 +120,7 @@ public class BinlogGcer extends MasterDaemon {
                     LOG.warn("fail to get table. db: {}, table id: {}", db.getFullName(), tableId);
                     continue;
                 }
-                if (!(tbl instanceof OlapTable)) {
+                if (!tbl.isOlapTable()) {
                     LOG.warn("table is not olap table. db: {}, table id: {}", db.getFullName(), tableId);
                     continue;
                 }

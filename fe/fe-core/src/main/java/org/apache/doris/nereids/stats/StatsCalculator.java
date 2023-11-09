@@ -613,7 +613,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         if (colStats.partitionIdToColStats.isEmpty()) {
             return colStats;
         }
-        if (!(tableIf instanceof OlapTable)) {
+        if (!(tableIf.isOlapTable())) {
             return colStats;
         }
         OlapTable table = (OlapTable) tableIf;

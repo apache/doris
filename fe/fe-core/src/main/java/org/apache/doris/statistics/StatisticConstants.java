@@ -100,7 +100,7 @@ public class StatisticConstants {
     }
 
     public static boolean isSystemTable(TableIf tableIf) {
-        if (tableIf instanceof OlapTable) {
+        if (tableIf.isOlapTable()) {
             OlapTable olapTable = (OlapTable) tableIf;
             if (StatisticConstants.SYSTEM_DBS.contains(olapTable.getQualifiedDbName())) {
                 return true;

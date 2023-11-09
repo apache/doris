@@ -731,7 +731,7 @@ public class ShowExecutor {
             }
             List<Table> tables = database.getTables();
             for (Table tbl : tables) {
-                if (tbl instanceof OlapTable) {
+                if (tbl.isOlapTable()) {
                     tbl.readLock();
                     try {
                         Partition partition = ((OlapTable) tbl).getPartition(partitionId);
@@ -819,7 +819,7 @@ public class ShowExecutor {
             }
             if (showTableStmt.isVerbose()) {
                 String storageFormat = "NONE";
-                if (tbl instanceof OlapTable) {
+                if (tbl.isOlapTable()) {
                     storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
                 }
                 rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat));
@@ -1724,7 +1724,7 @@ public class ShowExecutor {
                 }
                 dbName = db.getFullName();
                 Table table = db.getTableNullable(tableId);
-                if (!(table instanceof OlapTable)) {
+                if (!(table.isOlapTable())) {
                     isSync = false;
                     break;
                 }
@@ -2134,7 +2134,7 @@ public class ShowExecutor {
         if (db != null && (db instanceof Database)) {
             List<Table> tableList = db.getTables();
             for (Table tbl : tableList) {
-                if (!(tbl instanceof OlapTable)) {
+                if (!(tbl.isOlapTable())) {
                     continue;
                 }
 
@@ -2602,7 +2602,7 @@ public class ShowExecutor {
         ShowCreateMaterializedViewStmt showStmt = (ShowCreateMaterializedViewStmt) stmt;
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(showStmt.getTableName().getDb());
         Table table = db.getTableOrAnalysisException(showStmt.getTableName().getTbl());
-        if (table instanceof OlapTable) {
+        if (table.isOlapTable()) {
             OlapTable baseTable = ((OlapTable) table);
             Long indexIdByName = baseTable.getIndexIdByName(showStmt.getMvName());
             if (indexIdByName != null) {

@@ -71,7 +71,7 @@ public class ModifyColumnClause extends AlterTableClause {
         if (tableName != null) {
             Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
                     .getTableOrDdlException(tableName.getTbl());
-            if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.AGG_KEYS
+            if (table.isOlapTable() && ((OlapTable) table).getKeysType() == KeysType.AGG_KEYS
                     && columnDef.getAggregateType() == null) {
                 columnDef.setIsKey(true);
             }

@@ -72,7 +72,7 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
             if (table == null) {
                 continue;
             }
-            if (!(table instanceof OlapTable)) {
+            if (!(table.isOlapTable())) {
                 return null;
             }
 

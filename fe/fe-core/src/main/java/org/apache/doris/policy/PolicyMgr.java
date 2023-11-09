@@ -152,7 +152,7 @@ public class PolicyMgr implements Writable {
             for (Database db : databases) {
                 List<Table> tables = db.getTables();
                 for (Table table : tables) {
-                    if (table instanceof OlapTable) {
+                    if (table.isOlapTable()) {
                         if (((OlapTable) table).getStoragePolicy().equals(dropPolicyLog.getPolicyName())) {
                             throw new DdlException("the policy " + dropPolicyLog.getPolicyName() + " is used by table: "
                                     + table.getName());

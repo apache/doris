@@ -551,7 +551,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
      */
     public long estimatedRowCount() {
         long cardinality = 0;
-        if (this instanceof OlapTable) {
+        if (this.isOlapTable()) {
             OlapTable table = (OlapTable) this;
             for (long selectedPartitionId : table.getPartitionIds()) {
                 final Partition partition = table.getPartition(selectedPartitionId);

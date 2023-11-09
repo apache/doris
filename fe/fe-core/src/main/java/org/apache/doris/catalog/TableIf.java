@@ -91,6 +91,11 @@ public interface TableIf {
         }
     }
 
+    default boolean isOlapTable() {
+        TableType type = getType();
+        return type == TableType.OLAP || type.getParentType() == TableType.OLAP;
+    }
+
     List<Column> getBaseSchema(boolean full);
 
     void setNewFullSchema(List<Column> newSchema);
@@ -196,6 +201,15 @@ public interface TableIf {
                     return "deltalake";
                 default:
                     return null;
+            }
+        }
+
+        public TableType getParentType() {
+            switch (this) {
+                case MATERIALIZED_VIEW:
+                    return OLAP;
+                default:
+                    return this;
             }
         }
 

@@ -158,7 +158,7 @@ public interface DatabaseIf<T extends TableIf> {
 
     default T getTableOrMetaException(String tableName, TableIf.TableType tableType) throws MetaNotFoundException {
         T table = getTableOrMetaException(tableName);
-        if (table.getType() != tableType) {
+        if (table.getType() != tableType && table.getType().getParentType() != tableType) {
             throw new MetaNotFoundException(
                     "table type is not " + tableType + ", tableName=" + tableName + ", type=" + table.getType());
         }
@@ -168,7 +168,7 @@ public interface DatabaseIf<T extends TableIf> {
     default T getTableOrMetaException(String tableName, List<TableIf.TableType> tableTypes)
             throws MetaNotFoundException {
         T table = getTableOrMetaException(tableName);
-        if (!tableTypes.contains(table.getType())) {
+        if (!tableTypes.contains(table.getType()) && !tableTypes.contains(table.getType().getParentType())) {
             throw new MetaNotFoundException(
                     "Type of " + tableName + " doesn't match, expected data tables=" + tableTypes);
         }
@@ -182,7 +182,7 @@ public interface DatabaseIf<T extends TableIf> {
 
     default T getTableOrMetaException(long tableId, TableIf.TableType tableType) throws MetaNotFoundException {
         T table = getTableOrMetaException(tableId);
-        if (table.getType() != tableType) {
+        if (table.getType() != tableType && table.getType().getParentType() != tableType) {
             throw new MetaNotFoundException(
                     "table type is not " + tableType + ", tableId=" + tableId + ", type=" + table.getType());
         }
@@ -192,7 +192,7 @@ public interface DatabaseIf<T extends TableIf> {
     default T getTableOrMetaException(long tableId, List<TableIf.TableType> tableTypes)
             throws MetaNotFoundException {
         T table = getTableOrMetaException(tableId);
-        if (!tableTypes.contains(table.getType())) {
+        if (!tableTypes.contains(table.getType()) && !tableTypes.contains(table.getType().getParentType())) {
             throw new MetaNotFoundException(
                     "Type of " + tableId + " doesn't match, expected data tables=" + tableTypes);
         }
@@ -237,7 +237,7 @@ public interface DatabaseIf<T extends TableIf> {
 
     default OlapTable getOlapTableOrDdlException(String tableName) throws DdlException {
         T table = getTableOrDdlException(tableName);
-        if (!(table instanceof OlapTable)) {
+        if (!table.isOlapTable()) {
             throw new DdlException(ErrorCode.ERR_NOT_OLAP_TABLE.formatErrorMsg(tableName));
         }
         return (OlapTable) table;
@@ -245,7 +245,7 @@ public interface DatabaseIf<T extends TableIf> {
 
     default OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException {
         T table = getTableOrAnalysisException(tableName);
-        if (!(table instanceof OlapTable)) {
+        if (!(table.isOlapTable())) {
             throw new AnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE.formatErrorMsg(tableName));
         }
         return (OlapTable) table;

@@ -589,7 +589,7 @@ public class Load {
         }
         // check whether the OlapTable has sequenceCol
         boolean hasSequenceCol = false;
-        if (tbl instanceof OlapTable && ((OlapTable) tbl).hasSequenceCol()) {
+        if (tbl.isOlapTable() && ((OlapTable) tbl).hasSequenceCol()) {
             hasSequenceCol = true;
         }
 

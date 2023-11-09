@@ -602,7 +602,7 @@ public class BackupJobInfo implements Writable {
         Collection<Table> tbls = backupMeta.getTables().values();
         // tbls
         for (Table tbl : tbls) {
-            if (tbl instanceof OlapTable) {
+            if (tbl.isOlapTable()) {
                 OlapTable olapTbl = (OlapTable) tbl;
                 BackupOlapTableInfo tableInfo = new BackupOlapTableInfo();
                 tableInfo.id = tbl.getId();

@@ -102,7 +102,7 @@ public class BinlogConfigCache {
                 LOG.warn("fail to get table. db: {}, table id: {}", db.getFullName(), tableId);
                 return null;
             }
-            if (!(table instanceof OlapTable)) {
+            if (!table.isOlapTable()) {
                 LOG.warn("table is not olap table. db: {}, table id: {}", db.getFullName(), tableId);
                 return null;
             }

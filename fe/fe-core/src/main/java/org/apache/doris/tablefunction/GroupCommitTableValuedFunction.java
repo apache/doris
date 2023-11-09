@@ -62,7 +62,7 @@ public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunct
         if (table == null) {
             throw new AnalysisException("table with table_id " + tableId + " is not exists");
         }
-        if (!(table instanceof OlapTable)) {
+        if (!(table.isOlapTable())) {
             throw new AnalysisException("Only support OLAP table, but table type of table_id "
                     + tableId + " is " + table.getType());
         }

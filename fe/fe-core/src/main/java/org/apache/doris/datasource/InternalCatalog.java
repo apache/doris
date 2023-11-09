@@ -896,7 +896,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             table.writeLock();
             long recycleTime = 0;
             try {
-                if (table instanceof OlapTable && !stmt.isForceDrop()) {
+                if (table.isOlapTable() && !stmt.isForceDrop()) {
                     OlapTable olapTable = (OlapTable) table;
                     if ((olapTable.getState() != OlapTableState.NORMAL)) {
                         throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState()

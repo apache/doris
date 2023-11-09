@@ -136,7 +136,7 @@ public class StatisticsCleaner extends MasterDaemon {
     private Map<Long, MaterializedIndexMeta> constructIdxMap() {
         Map<Long, MaterializedIndexMeta> idToMVIdx = new HashMap<>();
         for (TableIf t : idToTbl.values()) {
-            if (t instanceof OlapTable) {
+            if (t.isOlapTable()) {
                 OlapTable olapTable = (OlapTable) t;
                 olapTable.getCopyOfIndexIdToMeta()
                         .entrySet()
@@ -224,7 +224,7 @@ public class StatisticsCleaner extends MasterDaemon {
                         expiredStats.ids.add(id);
                         continue;
                     }
-                    if (!(t instanceof OlapTable)) {
+                    if (!(t.isOlapTable())) {
                         continue;
                     }
                     OlapTable olapTable = (OlapTable) t;

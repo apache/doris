@@ -956,7 +956,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             colDef.setComment(comment);
                         }
                         if (column.isKey()) {
-                            if (table instanceof OlapTable) {
+                            if (table.isOlapTable()) {
                                 desc.setColumnKey(((OlapTable) table).getKeysType().toMetadata());
                             }
                         }
@@ -1032,7 +1032,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                 colDef.setComment(comment);
                             }
                             if (column.isKey()) {
-                                if (table instanceof OlapTable) {
+                                if (table.isOlapTable()) {
                                     desc.setColumnKey(((OlapTable) table).getKeysType().toMetadata());
                                 }
                             }
@@ -3260,7 +3260,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        if (!(table instanceof OlapTable)) {
+        if (!(table.isOlapTable())) {
             errorStatus.setErrorMsgs(
                     Lists.newArrayList(String.format("dbId=%d tableId=%d is not olap table", dbId, tableId)));
             result.setStatus(errorStatus);

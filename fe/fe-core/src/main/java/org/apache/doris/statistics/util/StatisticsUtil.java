@@ -341,7 +341,7 @@ public class StatisticsUtil {
             return null;
         }
         if (idxId != -1) {
-            if (tblIf instanceof OlapTable) {
+            if (tblIf.isOlapTable()) {
                 OlapTable olapTable = (OlapTable) tblIf;
                 return olapTable.getIndexIdToMeta().get(idxId).getColumnByName(columnName);
             }
@@ -467,7 +467,7 @@ public class StatisticsUtil {
     }
 
     public static Set<String> getPartitionIds(TableIf table) {
-        if (table instanceof OlapTable) {
+        if (table.isOlapTable()) {
             return ((OlapTable) table).getPartitionIds().stream().map(String::valueOf).collect(Collectors.toSet());
         } else if (table instanceof ExternalTable) {
             return table.getPartitionNames();

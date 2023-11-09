@@ -84,7 +84,7 @@ public class HLLHashToSlotRefRule implements ExprRewriteRule {
         }
         Column column = queryColumnSlotRef.getColumn();
         TableIf table = queryColumnSlotRef.getTable();
-        if (column == null || table == null || !(table instanceof OlapTable)) {
+        if (column == null || table == null || !(table.isOlapTable())) {
             return expr;
         }
         OlapTable olapTable = (OlapTable) table;

@@ -238,7 +238,7 @@ public class CacheAnalyzer {
         }
 
         // TODO:wxy support partition cache for hive table later
-        if (!(latestTable.table instanceof OlapTable)) {
+        if (!(latestTable.table.isOlapTable())) {
             LOG.debug("only support partition cache for olap table now. queryid {}", DebugUtil.printId(queryId));
             return CacheMode.None;
         }

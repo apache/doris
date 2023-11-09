@@ -72,7 +72,7 @@ public class ColumnIdFlushDaemon extends MasterDaemon {
             try {
                 db.getTables()
                         .stream()
-                        .filter(table -> table instanceof OlapTable)
+                        .filter(table -> table.isOlapTable())
                         .map(table -> (OlapTable) table)
                         .filter(olapTable -> !olapTable.getTableProperty().getUseSchemaLightChange())
                         .forEach(table -> flushFunc.accept(db, table));
