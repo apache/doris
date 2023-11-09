@@ -438,6 +438,9 @@ public:
                                  const TabletColumn& tablet_column,
                                  vectorized::MutableColumnPtr& dst);
 
+    // We use the TabletSchema from the caller because the TabletSchema in the rowset'meta
+    // may be outdated due to schema change. Also note that the the cids should indicate the indexes
+    // of the columns in the TabletSchema passed in.
     Status fetch_value_through_row_column(RowsetSharedPtr input_rowset,
                                           const TabletSchema& tablet_schema, uint32_t segid,
                                           const std::vector<uint32_t>& rowids,
