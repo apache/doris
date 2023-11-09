@@ -217,10 +217,10 @@ suite("insert_group_commit_into") {
         try {
             def fes = sql_return_maparray "show frontends"
             logger.info("frontends: ${fes}")
-            if (fes.size() > 0) {
+            if (fes.size() > 1) {
                 def observer_fe = null
                 for (def fe : fes) {
-                    if (fe.IsMaster == "true") {
+                    if (fe.IsMaster == "false") {
                         observer_fe = fe
                         break
                     }
