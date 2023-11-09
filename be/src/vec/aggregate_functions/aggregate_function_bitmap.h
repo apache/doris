@@ -143,7 +143,7 @@ struct AggregateFunctionBitmapData {
 
     void reset() {
         is_first = true;
-        value.clear();
+        value.reset(); // it's better to call reset function by self firstly.
     }
 
     BitmapValue& get() { return value; }
