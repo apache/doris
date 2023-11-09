@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <memory>
+
 #include "common/config.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
@@ -56,6 +58,8 @@ private:
     std::vector<std::string> _wal_dirs;
     std::shared_mutex _wal_lock;
     std::unordered_map<int64_t, std::string> _wal_path_map;
+    std::unordered_map<int64_t, std::shared_ptr<WalWriter>> _wal_id_to_writer_map;
+    std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes;
     bool _stop = false;
 };
 } // namespace doris
