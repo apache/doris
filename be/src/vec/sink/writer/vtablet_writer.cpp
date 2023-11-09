@@ -279,7 +279,7 @@ VNodeChannel::VNodeChannel(VTabletWriter* parent, IndexChannel* index_channel, i
             thread_context()->get_thread_id()));
 }
 
-VNodeChannel::~VNodeChannel() {}
+VNodeChannel::~VNodeChannel() = default;
 
 void VNodeChannel::clear_all_blocks() {
     std::lock_guard<std::mutex> lg(_pending_batches_lock);
