@@ -70,15 +70,14 @@ public class ExpressionDeepCopier extends DefaultExpressionRewriter<DeepCopierCo
     @Override
     public Expression visitSlotReference(SlotReference slotReference, DeepCopierContext context) {
         Map<ExprId, ExprId> exprIdReplaceMap = context.exprIdReplaceMap;
+        ExprId newExprId;
         if (exprIdReplaceMap.containsKey(slotReference.getExprId())) {
-            ExprId newExprId = exprIdReplaceMap.get(slotReference.getExprId());
-            return slotReference.withExprId(newExprId);
+            newExprId = exprIdReplaceMap.get(slotReference.getExprId());
         } else {
-            SlotReference newOne = new SlotReference(slotReference.getName(), slotReference.getDataType(),
-                    slotReference.nullable(), slotReference.getQualifier());
-            exprIdReplaceMap.put(slotReference.getExprId(), newOne.getExprId());
-            return newOne;
+            newExprId = StatementScopeIdGenerator.newExprId();
+            exprIdReplaceMap.put(slotReference.getExprId(), newExprId);
         }
+        return slotReference.withExprId(newExprId);
     }
 
     @Override
