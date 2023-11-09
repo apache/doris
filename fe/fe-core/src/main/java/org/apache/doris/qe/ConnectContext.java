@@ -25,7 +25,6 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -55,7 +54,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import io.opentelemetry.api.trace.Tracer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
@@ -148,8 +146,6 @@ public class ConnectContext {
     protected volatile long startTime;
     // Cache thread info for this connection.
     protected volatile ThreadInfo threadInfo;
-
-    protected volatile Tracer tracer = Telemetry.getNoopTracer();
 
     // Catalog: put catalog here is convenient for unit test,
     // because catalog is singleton, hard to mock
@@ -703,10 +699,6 @@ public class ConnectContext {
         }
     }
 
-    public void setTraceId(String traceId) {
-        this.traceId = traceId;
-    }
-
     public String traceId() {
         return traceId;
     }
@@ -737,14 +729,6 @@ public class ConnectContext {
 
     public void setMinidump(JSONObject minidump) {
         this.minidump = minidump;
-    }
-
-    public Tracer getTracer() {
-        return tracer;
-    }
-
-    public void initTracer(String name) {
-        this.tracer = Telemetry.getOpenTelemetry().getTracer(name);
     }
 
     public StatementContext getStatementContext() {
