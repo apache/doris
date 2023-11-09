@@ -32,7 +32,7 @@ under the License.
 
 - Installation k8s
 - Build or download a Doris image
-    - Building an image [Build Docker Image](./construct-docker/construct-docker-image)
+    - Building an image [Build Docker Image](./construct-docker/build-docker-image.md)
     - Download Image https://hub.docker.com/r/apache/doris/tags
 - Create or download the yml file for Doris on k8s
     - https://github.com/apache/doris/blob/master/docker/runtime/k8s/doris_follower.yml
