@@ -194,6 +194,9 @@ class SuiteCluster {
         if (options.beDisks != null) {
             sb.append('--be-disks ' + options.beDisks.join(" ") + ' ')
         }
+        if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
+            sb.append('--coverage-dir ' + config.dockerCoverageOutputDir)
+        }
         sb.append('--wait-timeout 180')
 
         runCmd(sb.toString(), -1)

@@ -132,18 +132,19 @@ class Node(object):
     TYPE_BE = "be"
     TYPE_ALL = [TYPE_FE, TYPE_BE]
 
-    def __init__(self, cluster_name, id, subnet, meta):
+    def __init__(self, cluster_name, coverage_dir, id, subnet, meta):
         self.cluster_name = cluster_name
+        self.coverage_dir = coverage_dir
         self.id = id
         self.subnet = subnet
         self.meta = meta
 
     @staticmethod
-    def new(cluster_name, node_type, id, subnet, meta):
+    def new(cluster_name, coverage_dir, node_type, id, subnet, meta):
         if node_type == Node.TYPE_FE:
-            return FE(cluster_name, id, subnet, meta)
+            return FE(cluster_name, coverage_dir, id, subnet, meta)
         elif node_type == Node.TYPE_BE:
-            return BE(cluster_name, id, subnet, meta)
+            return BE(cluster_name, coverage_dir, id, subnet, meta)
         else:
             raise Exception("Unknown node type {}".format(node_type))
 
@@ -226,7 +227,7 @@ class Node(object):
                                                       self.get_name()))
 
     def docker_env(self):
-        return {
+        envs = {
             "MY_IP": self.get_ip(),
             "MY_ID": self.id,
             "FE_QUERY_PORT": FE_QUERY_PORT,
@@ -235,47 +236,58 @@ class Node(object):
             "DORIS_HOME": os.path.join(DOCKER_DORIS_PATH, self.node_type()),
         }
 
+        if self.coverage_dir:
+            outfile = "{}/coverage/{}.{}.coverage".format(
+                DOCKER_DORIS_PATH, self.get_ip(), self.node_type())
+            if self.node_type() == Node.TYPE_FE:
+                envs["JACOCO_COVERAGE_OPT"] = "-javaagent:/jacoco/lib/jacocoagent.jar" \
+                    "=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format" \
+                    ":com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format," \
+                    "output=file,append=true,destfile=" + outfile
+            elif self.node_type() == Node.TYPE_BE:
+                envs["LLVM_PROFILE_FILE"] = outfile
+
+        return envs
+
     def docker_ports(self):
         raise Exception("No implemented")
 
     def compose(self):
+        volumes = [
+            "{}:{}/{}/{}".format(os.path.join(self.get_path(), sub_dir),
+                                 DOCKER_DORIS_PATH, self.node_type(), sub_dir)
+            for sub_dir in self.expose_sub_dirs()
+        ] + [
+            "{}:{}:ro".format(LOCAL_RESOURCE_PATH, DOCKER_RESOURCE_PATH),
+            "{}:{}/{}/status".format(get_status_path(self.cluster_name),
+                                     DOCKER_DORIS_PATH, self.node_type()),
+        ] + [
+            "{0}:{0}:ro".format(path)
+            for path in ("/etc/localtime", "/etc/timezone",
+                         "/usr/share/zoneinfo") if os.path.exists(path)
+        ]
+        if self.coverage_dir:
+            volumes.append("{}:{}/coverage".format(self.coverage_dir,
+                                                   DOCKER_DORIS_PATH))
+
         return {
             "cap_add": ["SYS_PTRACE"],
-            "hostname":
-            self.get_name(),
-            "container_name":
-            self.service_name(),
-            "command":
-            self.docker_command(),
-            "environment":
-            self.docker_env(),
-            "image":
-            self.get_image(),
+            "hostname": self.get_name(),
+            "container_name": self.service_name(),
+            "command": self.docker_command(),
+            "environment": self.docker_env(),
+            "image": self.get_image(),
             "networks": {
                 utils.with_doris_prefix(self.cluster_name): {
                     "ipv4_address": self.get_ip(),
                 }
             },
-            "ports":
-            self.docker_ports(),
+            "ports": self.docker_ports(),
             "ulimits": {
                 "core": -1
             },
             "security_opt": ["seccomp:unconfined"],
-            "volumes": [
-                "{}:{}/{}/{}".format(os.path.join(self.get_path(),
-                                                  sub_dir), DOCKER_DORIS_PATH,
-                                     self.node_type(), sub_dir)
-                for sub_dir in self.expose_sub_dirs()
-            ] + [
-                "{}:{}:ro".format(LOCAL_RESOURCE_PATH, DOCKER_RESOURCE_PATH),
-                "{}:{}/{}/status".format(get_status_path(self.cluster_name),
-                                         DOCKER_DORIS_PATH, self.node_type()),
-            ] + [
-                "{0}:{0}:ro".format(path)
-                for path in ("/etc/localtime", "/etc/timezone",
-                             "/usr/share/zoneinfo") if os.path.exists(path)
-            ],
+            "volumes": volumes,
         }
 
 
@@ -355,22 +367,25 @@ class BE(Node):
 
 class Cluster(object):
 
-    def __init__(self, name, subnet, image, fe_config, be_config, be_disks):
+    def __init__(self, name, subnet, image, fe_config, be_config, be_disks,
+                 coverage_dir):
         self.name = name
         self.subnet = subnet
         self.image = image
         self.fe_config = fe_config
         self.be_config = be_config
         self.be_disks = be_disks
+        self.coverage_dir = coverage_dir
         self.groups = {
             node_type: Group(node_type)
             for node_type in Node.TYPE_ALL
         }
 
     @staticmethod
-    def new(name, image, fe_config, be_config, be_disks):
+    def new(name, image, fe_config, be_config, be_disks, coverage_dir):
         subnet = gen_subnet_prefix16()
-        cluster = Cluster(name, subnet, image, fe_config, be_config, be_disks)
+        cluster = Cluster(name, subnet, image, fe_config, be_config, be_disks,
+                          coverage_dir)
         os.makedirs(cluster.get_path(), exist_ok=True)
         os.makedirs(get_status_path(name), exist_ok=True)
         return cluster
@@ -423,15 +438,16 @@ class Cluster(object):
         meta = group.get_node(id)
         if not meta:
             raise Exception("No found {} with id {}".format(node_type, id))
-        return Node.new(self.name, node_type, id, self.subnet, meta)
+        return Node.new(self.name, self.coverage_dir, node_type, id,
+                        self.subnet, meta)
 
     def get_all_nodes(self, node_type):
         group = self.groups.get(node_type, None)
         if not group:
             raise Exception("Unknown node_type: {}".format(node_type))
         return [
-            Node.new(self.name, node_type, id, self.subnet, meta)
-            for id, meta in group.get_all_nodes().items()
+            Node.new(self.name, self.coverage_dir, node_type, id, self.subnet,
+                     meta) for id, meta in group.get_all_nodes().items()
         ]
 
     def get_all_nodes_num(self):
