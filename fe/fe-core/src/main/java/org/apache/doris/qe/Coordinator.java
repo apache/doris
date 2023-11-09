@@ -847,7 +847,7 @@ public class Coordinator implements CoordInterface {
                     }
                 }
 
-                Set<Long> backendsWithSink = Sets.newHashSet();
+                long numBackendsWithSink = 0;
                 // 3. group PipelineExecContext by BE.
                 // So that we can use one RPC to send all fragment instances of a BE.
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
@@ -884,7 +884,7 @@ public class Coordinator implements CoordInterface {
                     if (entry.getValue().getFragment().getOutputSink() != null
                             && entry.getValue().getFragment().getOutputSink().getType()
                             == TDataSinkType.OLAP_TABLE_SINK) {
-                        backendsWithSink.add(backendId);
+                        numBackendsWithSink++;
                     }
                     ++backendIdx;
                 }
@@ -897,7 +897,7 @@ public class Coordinator implements CoordInterface {
                             && entry.getValue().getFragment().getOutputSink().getType()
                             == TDataSinkType.OLAP_TABLE_SINK) {
                         entry.getValue().setLoadStreamPerNode(loadStreamPerNode);
-                        entry.getValue().setTotalLoadStreams(backendsWithSink.size() * loadStreamPerNode);
+                        entry.getValue().setTotalLoadStreams(numBackendsWithSink * loadStreamPerNode);
                         entry.getValue().setNumLocalSink(entry.getValue().getLocalParams().size());
                         LOG.info("num local sink for backend {} is {}", entry.getValue().getBackendId(),
                                 entry.getValue().getNumLocalSink());
