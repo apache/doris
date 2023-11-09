@@ -70,6 +70,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
     // 0 means file cache is disabled; >0 means file cache with ttl;
     public static final int FILE_META_CACHE_TTL_DISABLE_CACHE = 0;
 
+    public HMSExternalCatalog() {
+        catalogProperty = new CatalogProperty(null, null);
+    }
+
     /**
      * Default constructor for HMSExternalCatalog.
      */
