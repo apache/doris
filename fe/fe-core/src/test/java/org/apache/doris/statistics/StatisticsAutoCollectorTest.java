@@ -263,6 +263,11 @@ public class StatisticsAutoCollectorTest {
             public long getDataSize(boolean singleReplica) {
                 return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() * 5 + 1000000000;
             }
+
+            @Mock
+            public boolean isOlapTable() {
+                return true;
+            }
         };
 
         new MockUp<AnalysisManager>() {
