@@ -72,7 +72,7 @@ public class OptimizeGroupExpressionJob extends Job {
                 .isEnableBushyTree();
         boolean isLeftZigZagTree = context.getCascadesContext().getConnectContext()
                 .getSessionVariable().isEnableLeftZigZag()
-                || !(groupExpression.getOwnerGroup() != null && groupExpression.getOwnerGroup().isStatsReliable());
+                || (groupExpression.getOwnerGroup() != null && !groupExpression.getOwnerGroup().isStatsReliable());
         int joinNumBushyTree = context.getCascadesContext().getConnectContext()
                 .getSessionVariable().getMaxJoinNumBushyTree();
         if (isDisableJoinReorder) {
