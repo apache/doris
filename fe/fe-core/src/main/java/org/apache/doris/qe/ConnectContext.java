@@ -77,7 +77,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
 
 // When one client connect in, we create a connect context for it.
@@ -150,7 +149,7 @@ public class ConnectContext {
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
     // Store user variable in this connection
-    private volatile Map<String, LiteralExpr> userVars = new ConcurrentHashMap<>();
+    private Map<String, LiteralExpr> userVars = new HashMap<>();
     // Scheduler this connection belongs to
     protected volatile ConnectScheduler connectScheduler;
     // Executor
@@ -313,7 +312,7 @@ public class ConnectContext {
         returnRows = 0;
         isKilled = false;
         sessionVariable = VariableMgr.newSessionVariable();
-        userVars = new ConcurrentHashMap<>();
+        userVars = new HashMap<>();
         command = MysqlCommand.COM_SLEEP;
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
@@ -468,6 +467,7 @@ public class ConnectContext {
     }
 
     public @Nullable Literal getLiteralForUserVar(String varName) {
+        varName = varName.toLowerCase();
         if (userVars.containsKey(varName)) {
             LiteralExpr literalExpr = userVars.get(varName);
             if (literalExpr instanceof BoolLiteral) {
@@ -493,7 +493,7 @@ public class ConnectContext {
 
     // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
     public void fillValueForUserDefinedVar(VariableExpr desc) {
-        String varName = desc.getName();
+        String varName = desc.getName().toLowerCase();
         if (userVars.containsKey(varName)) {
             LiteralExpr literalExpr = userVars.get(varName);
             desc.setType(literalExpr.getType());
