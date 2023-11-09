@@ -48,12 +48,6 @@ public:
 
     int slot_id() const { return _slot_id; }
 
-    int32_t tablet_schema_column_id() const { return _tablet_schema_column_id; }
-
-    void set_tablet_schema_column_id(int32_t tablet_schema_column_id) {
-        _tablet_schema_column_id = tablet_schema_column_id;
-    }
-
     int32_t col_unique_id() const { return _col_unique_id; }
 
     void set_col_unique_id(int32_t col_unique_id) { _col_unique_id = col_unique_id; }
@@ -64,9 +58,8 @@ public:
 
 private:
     int _slot_id;
-    int _column_id;                   // scan tuple/block column index
-    int32_t _tablet_schema_column_id; // tablet schema column index
-    int32_t _col_unique_id;           // column unique id, global unique
+    int _column_id;         // scan tuple/block column index
+    int32_t _col_unique_id; // column unique id, global unique
     // segment iterator output batch/block column index.
     // when reade unique mor/agg key table, all key columns will be read,
     // which may lead to different column index from scan tuple/block.

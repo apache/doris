@@ -41,7 +41,6 @@ VSlotRef::VSlotRef(const doris::TExprNode& node)
         : VExpr(node),
           _slot_id(node.slot_ref.slot_id),
           _column_id(-1),
-          _tablet_schema_column_id(-1),
           _col_unique_id(-1),
           _push_down_column_index(-1),
           _column_name(nullptr) {}
@@ -50,7 +49,6 @@ VSlotRef::VSlotRef(const SlotDescriptor* desc)
         : VExpr(desc->type(), true, desc->is_nullable()),
           _slot_id(desc->id()),
           _column_id(-1),
-          _tablet_schema_column_id(-1),
           _col_unique_id(-1),
           _push_down_column_index(-1),
           _column_name(nullptr) {}

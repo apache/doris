@@ -587,7 +587,9 @@ Status SegmentIterator::_extract_common_expr_columns(const vectorized::VExprSPtr
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
         auto slot_expr = std::dynamic_pointer_cast<doris::vectorized::VSlotRef>(expr);
-        auto cid = slot_expr->tablet_schema_column_id();
+        auto unique_id = slot_expr->col_unique_id();
+        DCHECK(unique_id >= 0);
+        auto cid = _opts.tablet_schema->field_index(unique_id);
         DCHECK(cid >= 0);
         _is_common_expr_column[cid] = true;
         _common_expr_columns.insert(cid);

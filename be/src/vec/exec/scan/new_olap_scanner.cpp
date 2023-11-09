@@ -118,9 +118,6 @@ void NewOlapScanner::_perfect_slot_column_id(const VExprSPtr& expr) {
             DCHECK(slot_unique_id >= 0);
             slot_expr->set_col_unique_id(slot_unique_id);
         }
-        auto index = tablet_schema->field_index(slot_expr->expr_name());
-        DCHECK(index >= 0);
-        slot_expr->set_tablet_schema_column_id(index);
     }
 }
 
