@@ -738,6 +738,7 @@ Status OrcReader::set_fill_columns(
         PrimitiveType column_type = each->col_type();
         if (column_type == TYPE_ARRAY || column_type == TYPE_MAP || column_type == TYPE_STRUCT) {
             _has_complex_type = true;
+            break;
         }
     }
 
