@@ -33,7 +33,7 @@
 namespace doris {
 
 // forehead declare class, because jni function init in DorisServer.
-class DorisServer;
+
 class RuntimeState;
 class ObjectPool;
 class TUserIdentity;
@@ -101,8 +101,6 @@ public:
     static std::unique_ptr<SchemaScanner> create(TSchemaTableType::type type);
     TSchemaTableType::type type() const { return _schema_table_type; }
 
-    static void set_doris_server(DorisServer* doris_server) { _s_doris_server = doris_server; }
-
 protected:
     Status fill_dest_column_for_range(vectorized::Block* block, size_t pos,
                                       const std::vector<void*>& datas);
@@ -112,8 +110,6 @@ protected:
     SchemaScannerParam* _param;
     // schema table's column desc
     std::vector<ColumnDesc> _columns;
-
-    static DorisServer* _s_doris_server;
 
     TSchemaTableType::type _schema_table_type;
 
