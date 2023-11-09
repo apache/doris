@@ -336,7 +336,6 @@ public:
     // tablet's delete bitmap we can use arbitary version number in BitmapKey. Here we define some version numbers
     // for specific usage during this periods to avoid conflicts
     constexpr static inline uint64_t TEMP_VERSION_COMMON = 0;
-    constexpr static inline uint64_t TEMP_VERSION_FOR_DELETE_SIGN = 1;
 
     /**
      * 
