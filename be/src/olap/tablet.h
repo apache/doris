@@ -438,7 +438,8 @@ public:
                                  const TabletColumn& tablet_column,
                                  vectorized::MutableColumnPtr& dst);
 
-    Status fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint32_t segid,
+    Status fetch_value_through_row_column(RowsetSharedPtr input_rowset,
+                                          const TabletSchema& tablet_schema, uint32_t segid,
                                           const std::vector<uint32_t>& rowids,
                                           const std::vector<uint32_t>& cids,
                                           vectorized::Block& block);
