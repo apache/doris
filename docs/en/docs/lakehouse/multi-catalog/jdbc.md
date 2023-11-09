@@ -205,6 +205,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 | FLOAT                                     | FLOAT          |                                                                               |
 | DOUBLE                                    | DOUBLE         |                                                                               |
 | DECIMAL                                   | DECIMAL        |                                                                               |
+| UNSIGNED DECIMAL(p,s)                     | DECIMAL(p+1,s) / STRING | If p+1>38, the Doris STRING type will be used.        |
 | DATE                                      | DATE           |                                                                               |
 | TIMESTAMP                                 | DATETIME       |                                                                               |
 | DATETIME                                  | DATETIME       |                                                                               |

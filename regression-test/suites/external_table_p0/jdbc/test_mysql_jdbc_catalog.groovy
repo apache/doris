@@ -56,6 +56,8 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         String ex_tb20 = "ex_tb20";
         String test_insert = "test_insert";
         String test_insert2 = "test_insert2";
+        String test_insert_all_types = "test_insert_all_types";
+        String test_ctas = "test_ctas";
         String auto_default_t = "auto_default_t";
         String dt = "dt";
         String dt_null = "dt_null";
@@ -84,6 +86,46 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
                 `id` INT NULL COMMENT "主键id",
                 `name` string NULL COMMENT "名字"
                 ) DISTRIBUTED BY HASH(id) BUCKETS 10
+                PROPERTIES("replication_num" = "1");
+        """
+
+        // used for testing all types
+        sql  """ drop table if exists ${internal_db_name}.${test_insert_all_types} """
+        sql  """
+                CREATE TABLE ${internal_db_name}.${test_insert_all_types} (
+                    `tinyint_u` SMALLINT,
+                    `smallint_u` INT,
+                    `mediumint_u` INT,
+                    `int_u` BIGINT,
+                    `bigint_u` LARGEINT,
+                    `decimal_u` DECIMAL(18, 5),
+                    `double_u` DOUBLE,
+                    `float_u` FLOAT,
+                    `boolean` TINYINT,
+                    `tinyint` TINYINT,
+                    `smallint` SMALLINT,
+                    `year` SMALLINT,
+                    `mediumint` INT,
+                    `int` INT,
+                    `bigint` BIGINT,
+                    `date` DATE,
+                    `timestamp` DATETIME(4) null,
+                    `datetime` DATETIME,
+                    `float` FLOAT,
+                    `double` DOUBLE,
+                    `decimal` DECIMAL(12, 4),
+                    `char` CHAR(5),
+                    `varchar` VARCHAR(10),
+                    `time` STRING,
+                    `text` STRING,
+                    `blob` STRING,
+                    `json` JSON,
+                    `set` STRING,
+                    `bit` STRING,
+                    `binary` STRING,
+                    `varbinary` STRING,
+                    `enum` STRING
+                ) DISTRIBUTED BY HASH(tinyint_u) BUCKETS 10
                 PROPERTIES("replication_num" = "1");
         """
 
@@ -248,6 +290,21 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         sql """use doris_test;"""
         qt_mysql_all_types """select * from all_types order by tinyint_u;"""
 
+        // test insert into internal.db.table select * from all_types
+        sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * from all_types; """
+        order_qt_select_insert_all_types """ select * from internal.${internal_db_name}.${test_insert_all_types} order by tinyint_u; """
+
+        // test CTAS
+        sql  """ drop table if exists internal.${internal_db_name}.${test_ctas} """
+        sql """ create table internal.${internal_db_name}.${test_ctas}
+                PROPERTIES("replication_num" = "1")
+                AS select * from all_types;
+            """
+
+        order_qt_ctas """select * from internal.${internal_db_name}.${test_ctas} order by tinyint_u;"""
+
+        order_qt_ctas_desc """desc internal.${internal_db_name}.${test_ctas};"""
+        
         sql """ drop catalog if exists ${catalog_name} """
 
         // test mysql view

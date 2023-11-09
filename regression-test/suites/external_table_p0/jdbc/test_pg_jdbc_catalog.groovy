@@ -29,6 +29,9 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         String pg_port = context.config.otherConfigs.get("pg_14_port");
         String inDorisTable = "test_pg_jdbc_doris_in_tb";
         String test_insert = "test_insert";
+        String test_all_types = "test_all_types";
+        String test_insert_all_types = "test_insert_all_types";
+        String test_ctas = "test_ctas";
 
         sql """create database if not exists ${internal_db_name}; """
 
@@ -50,6 +53,38 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
                 `name` string NULL COMMENT "名字"
                 ) DISTRIBUTED BY HASH(id) BUCKETS 10
                 PROPERTIES("replication_num" = "1");
+        """
+        sql  """ drop table if exists ${internal_db_name}.${test_insert_all_types} """
+        sql """
+            CREATE TABLE ${internal_db_name}.${test_insert_all_types} (
+                `id` INT NOT NULL,
+                `char_value` VARCHAR(*) NULL,
+                `varchar_value` TEXT NULL,
+                `date_value` DATE NULL,
+                `smallint_value` SMALLINT NULL,
+                `int_value` INT NULL,
+                `bigint_value` BIGINT NULL,
+                `timestamp_value` DATETIME(6) NULL,
+                `decimal_value` DECIMAL(10, 3) NULL,
+                `bit_value` BOOLEAN NULL,
+                `real_value` FLOAT NULL,
+                `cidr_value` TEXT NULL,
+                `inet_value` TEXT NULL,
+                `macaddr_value` TEXT NULL,
+                `bitn_value` TEXT NULL,
+                `bitnv_value` TEXT NULL,
+                `serial4_value` INT NOT NULL,
+                `jsonb_value` JSON NULL,
+                `point_value` TEXT NULL,
+                `line_value` TEXT NULL,
+                `lseg_value` TEXT NULL,
+                `box_value` TEXT NULL,
+                `path_value` TEXT NULL,
+                `polygon_value` TEXT NULL,
+                `circle_value` TEXT NULL
+            )
+            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            PROPERTIES("replication_num" = "1");
         """
 
         sql """switch ${catalog_name}"""
@@ -104,6 +139,25 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
 
         sql """ insert into ${test_insert} select * from ${test_insert} where id = '${uuid2}' """
         order_qt_test_insert3 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
+
+        // test select all types
+        order_qt_select_all_types """select * from ${test_all_types}; """
+
+        // test test ctas
+        sql """ drop table if exists internal.${internal_db_name}.${test_ctas} """
+        sql """ create table internal.${internal_db_name}.${test_ctas}
+                PROPERTIES("replication_num" = "1")
+                AS select * from ${test_all_types};
+            """
+
+        order_qt_ctas """select * from internal.${internal_db_name}.${test_ctas};"""
+
+        order_qt_ctas_desc """desc internal.${internal_db_name}.${test_ctas};"""
+
+        // test insert into internal.db.tbl
+        sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * from ${test_all_types}; """
+        order_qt_select_insert_all_types """ select * from internal.${internal_db_name}.${test_insert_all_types} order by id; """
+        
 
         sql """drop catalog if exists ${catalog_name} """
 
