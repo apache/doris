@@ -58,12 +58,10 @@ public class DiagnoseClusterBalanceProcDir extends SubProcDir {
         long minToMs = 60 * 1000L;
 
         Env env = Env.getCurrentEnv();
-        SystemInfoService infoService = env.getClusterInfo();
         TabletScheduler tabletScheduler = env.getTabletScheduler();
         List<TabletSchedCtx> pendingTablets = tabletScheduler.getPendingTablets(1);
         List<TabletSchedCtx> runningTablets = tabletScheduler.getRunningTablets(1);
         List<TabletSchedCtx> historyTablets = tabletScheduler.getHistoryTablets(10000);
-        Map<Tag, LoadStatisticForTag> loadStatisticMap = tabletScheduler.getStatisticMap();
         long historyLastVisitTime = historyTablets.stream()
                 .mapToLong(tablet -> Math.max(tablet.getCreateTime(), tablet.getLastVisitedTime()))
                 .max().orElse(-1);
@@ -75,10 +73,9 @@ public class DiagnoseClusterBalanceProcDir extends SubProcDir {
 
         List<DiagnoseItem> items = Lists.newArrayList();
         items.add(diagnoseTabletHealth(schedReady, schedRecent));
-        DiagnoseItem baseBalance = diagnoseBaseBalance(infoService, loadStatisticMap, schedReady, schedRecent);
+        DiagnoseItem baseBalance = diagnoseBaseBalance(schedReady, schedRecent);
         items.add(baseBalance);
-        items.add(diagnoseDiskBalance(infoService, loadStatisticMap, schedReady, schedRecent,
-                baseBalance.status == DiagnoseStatus.OK));
+        items.add(diagnoseDiskBalance(schedReady, schedRecent, baseBalance.status == DiagnoseStatus.OK));
         items.add(diagnoseColocateRebalance(schedReady, schedRecent));
         items.add(diagnoseHistorySched(historyTablets,
                 items.stream().allMatch(item -> item.status == DiagnoseStatus.OK)));
@@ -125,8 +122,10 @@ public class DiagnoseClusterBalanceProcDir extends SubProcDir {
         return tabletHealth;
     }
 
-    private DiagnoseItem diagnoseBaseBalance(SystemInfoService infoService,
-            Map<Tag, LoadStatisticForTag> loadStatisticMap, boolean schedReady, boolean schedRecent) {
+    private DiagnoseItem diagnoseBaseBalance(boolean schedReady, boolean schedRecent) {
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
+        Map<Tag, LoadStatisticForTag> loadStatisticMap = Env.getCurrentEnv().getTabletScheduler().getStatisticMap();
+
         DiagnoseItem baseBalance = new DiagnoseItem();
         baseBalance.status = DiagnoseStatus.OK;
 
@@ -143,7 +142,8 @@ public class DiagnoseClusterBalanceProcDir extends SubProcDir {
                     .collect(Collectors.toList());
             int minTabletNum = tabletNums.stream().mapToInt(v -> v).min().orElse(0);
             int maxTabletNum = tabletNums.stream().mapToInt(v -> v).max().orElse(0);
-            if (maxTabletNum <= Math.max(minTabletNum * 1.1, minTabletNum + 50)) {
+            if (maxTabletNum <= Math.max(minTabletNum * Config.diagnose_balance_max_tablet_num_ratio,
+                        minTabletNum + Config.diagnose_balance_max_tablet_num_diff)) {
                 baseBalance.status = DiagnoseStatus.OK;
             } else {
                 baseBalance.status = DiagnoseStatus.ERROR;
@@ -199,12 +199,12 @@ public class DiagnoseClusterBalanceProcDir extends SubProcDir {
     }
 
 
-    private DiagnoseItem diagnoseDiskBalance(SystemInfoService infoService,
-            Map<Tag, LoadStatisticForTag> loadStatisticMap, boolean schedReady, boolean schedRecent,
-            boolean baseBalanceOk) {
+    private DiagnoseItem diagnoseDiskBalance(boolean schedReady, boolean schedRecent, boolean baseBalanceOk) {
         DiagnoseItem diskBalance = new DiagnoseItem();
         diskBalance.name = "Disk Balance";
         diskBalance.status = DiagnoseStatus.OK;
+
+        Map<Tag, LoadStatisticForTag> loadStatisticMap = Env.getCurrentEnv().getTabletScheduler().getStatisticMap();
 
         OUTER2:
         for (LoadStatisticForTag stat : loadStatisticMap.values()) {
