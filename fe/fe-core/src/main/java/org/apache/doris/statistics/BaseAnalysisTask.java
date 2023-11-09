@@ -262,7 +262,7 @@ public abstract class BaseAnalysisTask {
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             job.appendBuf(this, Collections.singletonList(colStatsData));
         } finally {
-            LOG.debug("End cost time in secs: " + (System.currentTimeMillis() - startTime) / 1000);
+            LOG.info("End cost time in secs: " + (System.currentTimeMillis() - startTime) / 1000);
         }
     }
 
