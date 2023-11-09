@@ -315,23 +315,6 @@ if [[ "${ROCKSDB_SOURCE}" == "rocksdb-5.14.2" ]]; then
 fi
 echo "Finished patching ${ROCKSDB_SOURCE}"
 
-# opentelemetry patch is used to solve the problem that threadlocal depends on GLIBC_2.18
-# fix error: unknown type name 'uint64_t'
-# see: https://github.com/apache/doris/pull/7911
-if [[ "${OPENTELEMETRY_SOURCE}" == "opentelemetry-cpp-1.10.0" ]]; then
-    rm -rf "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"/*
-    cp -r "${TP_SOURCE_DIR}/${OPENTELEMETRY_PROTO_SOURCE}"/* "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto"
-    mkdir -p "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}/third_party/opentelemetry-proto/.git"
-
-    cd "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/opentelemetry-cpp-1.10.0.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-fi
-echo "Finished patching ${OPENTELEMETRY_SOURCE}"
-
 # arrow patch is used to get the raw orc reader for filter prune.
 if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-13.0.0" ]]; then
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"

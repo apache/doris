@@ -21,9 +21,6 @@
 #include "util/runtime_profile.h"
 
 #include <gen_cpp/RuntimeProfile_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/tracer.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -550,76 +547,6 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
         RuntimeProfile* profile = children[i].first;
         bool indent = children[i].second;
         profile->pretty_print(s, prefix + (indent ? "  " : ""));
-    }
-}
-
-void RuntimeProfile::add_to_span(OpentelemetrySpan span) {
-    if (!span || !span->IsRecording() || _added_to_span) {
-        return;
-    }
-    _added_to_span = true;
-
-    CounterMap counter_map;
-    ChildCounterMap child_counter_map;
-    {
-        std::lock_guard<std::mutex> l(_counter_map_lock);
-        counter_map = _counter_map;
-        child_counter_map = _child_counter_map;
-    }
-
-    auto total_time = counter_map.find("TotalTime");
-    DCHECK(total_time != counter_map.end());
-
-    // profile name like "VDataBufferSender  (dst_fragment_instance_id=-2608c96868f3b77d--713968f450bfbe0d):"
-    // to "VDataBufferSender"
-    auto i = _name.find_first_of("(: ");
-    auto short_name = _name.substr(0, i);
-    span->SetAttribute(short_name + SPAN_ATTRIBUTE_KEY_SEPARATOR + "TotalTime",
-                       print_counter(total_time->second));
-
-    {
-        std::lock_guard<std::mutex> l(_info_strings_lock);
-        for (const std::string& key : _info_strings_display_order) {
-            // nlohmann json will core dump when serializing 'KeyRanges', here temporarily skip it.
-            if (key.compare("KeyRanges") == 0) {
-                continue;
-            }
-            span->SetAttribute(short_name + SPAN_ATTRIBUTE_KEY_SEPARATOR + key,
-                               _info_strings.find(key)->second);
-        }
-    }
-
-    RuntimeProfile::add_child_counters_to_span(span, short_name, ROOT_COUNTER, counter_map,
-                                               child_counter_map);
-
-    ChildVector children;
-    {
-        std::lock_guard<std::mutex> l(_children_lock);
-        children = _children;
-    }
-
-    for (auto& [profile, flag] : children) {
-        profile->add_to_span(span);
-    }
-}
-
-void RuntimeProfile::add_child_counters_to_span(OpentelemetrySpan span,
-                                                const std::string& profile_name,
-                                                const std::string& counter_name,
-                                                const CounterMap& counter_map,
-                                                const ChildCounterMap& child_counter_map) {
-    ChildCounterMap::const_iterator itr = child_counter_map.find(counter_name);
-
-    if (itr != child_counter_map.end()) {
-        const std::set<std::string>& child_counters = itr->second;
-        for (const std::string& child_counter : child_counters) {
-            CounterMap::const_iterator iter = counter_map.find(child_counter);
-            DCHECK(iter != counter_map.end());
-            span->SetAttribute(profile_name + SPAN_ATTRIBUTE_KEY_SEPARATOR + iter->first,
-                               print_counter(iter->second));
-            RuntimeProfile::add_child_counters_to_span(span, profile_name, child_counter,
-                                                       counter_map, child_counter_map);
-        }
     }
 }
 

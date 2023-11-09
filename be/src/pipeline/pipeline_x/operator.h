@@ -126,7 +126,6 @@ protected:
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
 
-    OpentelemetrySpan _span;
     OperatorXBase* _parent;
     RuntimeState* _state;
     vectorized::VExprContextSPtrs _conjuncts;

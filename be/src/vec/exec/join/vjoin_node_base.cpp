@@ -20,8 +20,6 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/tracer.h>
 #include <stddef.h>
 
 #include <sstream>
@@ -31,7 +29,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"

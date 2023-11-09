@@ -21,10 +21,6 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/span_context.h>
-#include <opentelemetry/trace/tracer.h>
 #include <pthread.h>
 #include <stdlib.h>
 // IWYU pragma: no_include <bits/chrono.h>
@@ -99,7 +95,6 @@
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
-#include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/common/assert_cast.h"
 #include "vec/exec/join/vhash_join_node.h"
@@ -211,10 +206,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     SCOPED_TIMER(_prepare_timer);
 
     auto* fragment_context = this;
-    OpentelemetryTracer tracer = telemetry::get_noop_tracer();
-    if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
-        tracer = telemetry::get_tracer(print_id(_query_id));
-    }
 
     LOG_INFO("Preparing instance {}, backend_num {}",
              PrintInstanceStandardInfo(_query_id, local_params.fragment_instance_id),
@@ -229,7 +220,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     }
     _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
-    _runtime_state->set_tracer(std::move(tracer));
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
     SCOPED_ATTACH_TASK(_runtime_state.get());

@@ -19,7 +19,6 @@
 
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
@@ -31,7 +30,6 @@
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/block.h"

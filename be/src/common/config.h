@@ -873,24 +873,6 @@ DECLARE_String(function_service_protocol);
 // use which load balancer to select server to connect
 DECLARE_String(rpc_load_balancer);
 
-// Enable tracing
-// If this configuration is enabled, you should also specify the trace_export_url.
-DECLARE_Bool(enable_tracing);
-
-// Enable opentelemtry collector
-DECLARE_Bool(enable_otel_collector);
-
-// Current support for exporting traces:
-// zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-// collector: The collector can be used to receive and process traces and support export to a variety of
-//   third-party systems.
-DECLARE_mString(trace_exporter);
-
-// The endpoint to export spans to.
-// export to zipkin like: http://127.0.0.1:9411/api/v2/spans
-// export to collector like: http://127.0.0.1:4318/v1/traces
-DECLARE_String(trace_export_url);
-
 // The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
 // An export will be triggered when the number of spans in the queue reaches half of the maximum.
 DECLARE_Int32(max_span_queue_size);

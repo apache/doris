@@ -18,7 +18,6 @@
 #include "vec/sink/vresult_sink.h"
 
 #include <fmt/format.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <time.h>
 
 #include <new>
@@ -35,7 +34,6 @@
 #include "runtime/runtime_state.h"
 #include "util/arrow/row_batch.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/sink/varrow_flight_result_writer.h"

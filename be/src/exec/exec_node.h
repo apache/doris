@@ -36,7 +36,6 @@
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_fwd.h"
 
@@ -231,8 +230,6 @@ public:
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
 
-    OpentelemetrySpan get_next_span() { return _span; }
-
     virtual std::string get_name();
 
     // Names of counters shared by all exec nodes
@@ -288,9 +285,6 @@ protected:
     RuntimeProfile::Counter* _projection_timer;
     // Account for peak memory used by this node
     RuntimeProfile::Counter* _peak_memory_usage_counter;
-
-    //
-    OpentelemetrySpan _span;
 
     //NOTICE: now add a faker profile, because sometimes the profile record is useless
     //so we want remove some counters and timers, eg: in join node, if it's broadcast_join

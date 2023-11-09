@@ -32,7 +32,6 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
 #include "common/status.h"

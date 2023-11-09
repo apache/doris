@@ -25,7 +25,6 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.HttpServer;
@@ -167,8 +166,6 @@ public class DorisFE {
             // init catalog and wait it be ready
             Env.getCurrentEnv().initialize(args);
             Env.getCurrentEnv().waitForReady();
-
-            Telemetry.initOpenTelemetry();
 
             // init and start:
             // 1. HttpServer for HTTP Server

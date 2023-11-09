@@ -24,7 +24,6 @@
 #include <algorithm>
 #include <chrono>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"

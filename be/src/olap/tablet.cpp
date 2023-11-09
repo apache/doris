@@ -40,7 +40,6 @@
 #include <boost/container/detail/std_fwd.hpp>
 #include <roaring/roaring.hh>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep

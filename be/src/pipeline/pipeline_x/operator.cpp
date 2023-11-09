@@ -380,7 +380,6 @@ Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
     if (_rows_returned_counter != nullptr) {
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     }
-    profile()->add_to_span(_span);
     _closed = true;
     return Status::OK();
 }

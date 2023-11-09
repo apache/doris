@@ -21,7 +21,6 @@
 #include <ostream>
 #include <string>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/object_pool.h"

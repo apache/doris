@@ -31,9 +31,6 @@
 #include <gen_cpp/QueryPlanExtra_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/tracer.h>
 #include <pthread.h>
 #include <stddef.h>
 #include <thrift/Thrift.h>
@@ -58,7 +55,6 @@
 #include "common/utils.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/stream_load_pipe.h"
-#include "opentelemetry/trace/scope.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
@@ -85,7 +81,6 @@
 #include "util/network_util.h"
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
@@ -725,12 +720,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                                        const FinishCallback& cb) {
-    auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
-                                                     : telemetry::get_noop_tracer();
-    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
-    cur_span->SetAttribute("query_id", print_id(params.params.query_id));
-    cur_span->SetAttribute("instance_id", print_id(params.params.fragment_instance_id));
-
     VLOG_ROW << "exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
@@ -790,11 +779,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
         _cv.notify_all();
     }
     auto st = _thread_pool->submit_func(
-            [this, fragment_executor, cb,
-             parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
-                OpentelemetryScope scope {parent_span};
-                _exec_actual(fragment_executor, cb);
-            });
+            [this, fragment_executor, cb] { _exec_actual(fragment_executor, cb); });
     if (!st.ok()) {
         {
             // Remove the exec state added
@@ -814,11 +799,6 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        const FinishCallback& cb) {
-    auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
-                                                     : telemetry::get_noop_tracer();
-    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
-    cur_span->SetAttribute("query_id", print_id(params.query_id));
-
     VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
@@ -867,8 +847,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 }
                 query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
             }
-            START_AND_SCOPE_SPAN(tracer, span, "exec_instance");
-            span->SetAttribute("instance_id", print_id(fragment_instance_id));
 
             if (!params.__isset.need_wait_execution_trigger ||
                 !params.need_wait_execution_trigger) {
@@ -904,8 +882,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 }
                 query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
             }
-            START_AND_SCOPE_SPAN(tracer, span, "exec_instance");
-            span->SetAttribute("instance_id", print_id(fragment_instance_id));
 
             int64_t duration_ns = 0;
             if (!params.__isset.need_wait_execution_trigger ||

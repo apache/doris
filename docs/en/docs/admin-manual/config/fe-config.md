@@ -666,43 +666,6 @@ Default：1048576  （1M）
 
 http header size configuration parameter, the default value is 1M.
 
-#### `enable_tracing`
-
-Default：false
-
-IsMutable：false
-
-MasterOnly：false
-
-Whether to enable tracking
-
-If this configuration is enabled, you should also specify the trace_export_url.
-
-#### `trace_exporter`
-
-Default：zipkin
-
-IsMutable：false
-
-MasterOnly：false
-
-Current support for exporting traces:
-  zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-  collector: The collector can be used to receive and process traces and support export to a variety of third-party systems.
-If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
-
-#### `trace_export_url`
-
-Default：`http://127.0.0.1:9411/api/v2/spans`
-
-IsMutable：false
-
-MasterOnly：false
-
-trace export to zipkin like: `http://127.0.0.1:9411/api/v2/spans`
-
-trace export to collector like: `http://127.0.0.1:4318/v1/traces`
-
 ### Query Engine
 
 #### `default_max_query_instances`

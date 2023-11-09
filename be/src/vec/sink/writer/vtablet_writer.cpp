@@ -57,7 +57,6 @@
 #include <unordered_set>
 #endif
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "bvar/bvar.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
@@ -77,7 +76,6 @@
 #include "util/network_util.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"
-#include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_util.h"

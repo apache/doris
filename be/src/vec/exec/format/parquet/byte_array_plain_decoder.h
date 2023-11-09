@@ -22,7 +22,6 @@
 #include <cstdint>
 #include <memory>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "util/bit_util.h"

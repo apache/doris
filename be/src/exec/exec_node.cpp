@@ -29,7 +29,6 @@
 #include <typeinfo>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -127,9 +126,6 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
-    _span = state->get_tracer()->StartSpan(get_name());
-    OpentelemetryScope scope {_span};
-
     _exec_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "ExecTime", 1);
     _rows_returned_counter =
             ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsReturned", TUnit::UNIT, 1);
@@ -201,7 +197,6 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         }
 
-        runtime_profile()->add_to_span(_span);
         _is_resource_released = true;
     }
 }

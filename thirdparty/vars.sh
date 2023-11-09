@@ -430,18 +430,6 @@ NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
 NLOHMANN_JSON_SOURCE=json-3.10.1
 NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
 
-# opentelemetry-proto
-OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v1.0.0.tar.gz"
-OPENTELEMETRY_PROTO_NAME="opentelemetry-proto-v1.0.0.tar.gz"
-OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-1.0.0
-OPENTELEMETRY_PROTO_MD5SUM="8c7495a0dceea7cfdbdbcd53b07436dc"
-
-# opentelemetry
-OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.10.0.tar.gz"
-OPENTELEMETRY_NAME="opentelemetry-cpp-v1.10.0.tar.gz"
-OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.10.0
-OPENTELEMETRY_MD5SUM="89169762241b2f5142b728c775173283"
-
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
 LIBBACKTRACE_NAME=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
@@ -552,8 +540,6 @@ export TP_ARCHIVES=(
     'XSIMD'
     'SIMDJSON'
     'NLOHMANN_JSON'
-    'OPENTELEMETRY_PROTO'
-    'OPENTELEMETRY'
     'LIBBACKTRACE'
     'SSE2NEON'
     'XXHASH'

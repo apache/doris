@@ -268,39 +268,6 @@
 #include <openssl/md5.h>
 #include <openssl/ossl_typ.h>
 
-// opentelemetry headers
-#include <opentelemetry/context/context.h>
-#include <opentelemetry/context/propagation/global_propagator.h>
-#include <opentelemetry/context/propagation/text_map_propagator.h>
-#include <opentelemetry/context/runtime_context.h>
-#include <opentelemetry/exporters/otlp/otlp_environment.h>
-#include <opentelemetry/exporters/otlp/otlp_http_exporter.h>
-#include <opentelemetry/exporters/zipkin/zipkin_exporter.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/nostd/string_view.h>
-#include <opentelemetry/nostd/variant.h>
-#include <opentelemetry/sdk/common/attribute_utils.h>
-#include <opentelemetry/sdk/common/global_log_handler.h>
-#include <opentelemetry/sdk/resource/resource.h>
-#include <opentelemetry/sdk/resource/resource_detector.h>
-#include <opentelemetry/sdk/trace/batch_span_processor.h>
-#include <opentelemetry/sdk/trace/exporter.h>
-#include <opentelemetry/sdk/trace/processor.h>
-#include <opentelemetry/sdk/trace/recordable.h>
-#include <opentelemetry/sdk/trace/tracer_provider.h>
-#include <opentelemetry/trace/canonical_code.h>
-#include <opentelemetry/trace/context.h>
-#include <opentelemetry/trace/noop.h>
-#include <opentelemetry/trace/propagation/http_trace_context.h>
-#include <opentelemetry/trace/provider.h>
-#include <opentelemetry/trace/scope.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/span_context.h>
-#include <opentelemetry/trace/span_metadata.h>
-#include <opentelemetry/trace/span_startoptions.h>
-#include <opentelemetry/trace/tracer.h>
-#include <opentelemetry/trace/tracer_provider.h>
-
 // parallel_hashmap headers
 #include <parallel_hashmap/btree.h>
 #include <parallel_hashmap/phmap.h>

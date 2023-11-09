@@ -34,8 +34,6 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
-import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.context.Scope;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -86,16 +84,7 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
         prepare(command);
 
         ctx.setRunningQuery(query);
-        ctx.initTracer("trace");
-        Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").setNoParent().startSpan();
-        try (Scope scope = rootSpan.makeCurrent()) {
-            handleQuery(command, query);
-        } catch (Exception e) {
-            rootSpan.recordException(e);
-            throw e;
-        } finally {
-            rootSpan.end();
-        }
+        handleQuery(command, query);
     }
 
     // TODO

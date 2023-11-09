@@ -21,7 +21,6 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 
 #include <array>
 #include <atomic>
@@ -33,7 +32,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/hash_table_set_build.h"
