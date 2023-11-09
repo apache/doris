@@ -29,6 +29,8 @@
 #include <vector>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include <boost/thread/sync_bounded_queue.hpp>
+
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -87,7 +89,7 @@ void ScannerScheduler::stop() {
 
     _scheduler_pool->wait();
     _local_scan_thread_pool->join();
-    _remote_scan_thread_pool->wait();
+    _remote_scan_thread_pool->join();
     _limited_scan_thread_pool->wait();
     _group_local_scan_thread_pool->wait();
 
@@ -113,15 +115,9 @@ Status ScannerScheduler::init(ExecEnv* env) {
                                    config::doris_scanner_thread_pool_queue_size, "local_scan"));
 
     // 3. remote scan thread pool
-    static_cast<void>(
-            ThreadPoolBuilder("RemoteScanThreadPool")
-                    .set_min_threads(config::doris_scanner_thread_pool_thread_num) // 48 default
-                    .set_max_threads(
-                            config::doris_max_remote_scanner_thread_pool_thread_num != -1
-                                    ? config::doris_max_remote_scanner_thread_pool_thread_num
-                                    : std::max(512, CpuInfo::num_cores() * 10))
-                    .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
-                    .build(&_remote_scan_thread_pool));
+    _remote_scan_thread_pool.reset(new PriorityThreadPool(
+            config::doris_scanner_thread_pool_thread_num,
+            config::doris_scanner_thread_pool_queue_size, "RemoteScanThreadPool"));
 
     // 4. limited scan thread pool
     static_cast<void>(ThreadPoolBuilder("LimitedScanThreadPool")
@@ -259,9 +255,12 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                         ret = _local_scan_thread_pool->offer(task);
                     }
                 } else {
-                    ret = _remote_scan_thread_pool->submit_func([this, scanner = *iter, ctx] {
+                    PriorityThreadPool::Task task;
+                    task.work_function = [this, scanner = *iter, ctx] {
                         this->_scanner_scan(this, ctx, scanner);
-                    });
+                    };
+                    task.priority = nice;
+                    ret = _remote_scan_thread_pool->offer(task);
                 }
                 if (ret) {
                     this_run.erase(iter++);

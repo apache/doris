@@ -428,6 +428,7 @@ std::string ScannerContext::debug_string() {
             _max_bytes_in_queue);
 }
 
+// pipeline scan operator 使用的
 void ScannerContext::reschedule_scanner_ctx() {
     std::lock_guard l(_transfer_lock);
     auto state = _scanner_scheduler->submit(this);
