@@ -54,4 +54,85 @@ private:
     std::atomic<int> _refs;
 };
 
+template <typename Response>
+class DummyBrpcCallback {
+    ENABLE_FACTORY_CREATOR(DummyBrpcCallback);
+
+public:
+    using ResponseType = Response;
+    DummyBrpcCallback() {
+        cntl_ = std::make_shared<brpc::Controller>();
+        response_ = std::make_shared<Response>();
+    }
+
+    void call() {}
+
+    void join() { brpc::Join(cntl_->call_id()); }
+
+    // controller has to be the same lifecycle with the closure, because brpc may use
+    // it in any stage of the rpc.
+    std::shared_ptr<brpc::Controller> cntl_;
+    // We do not know if brpc will use request or response after brpc method returns.
+    // So that we need keep a shared ptr here to ensure that brpc could use req/rep
+    // at any stage.
+    std::shared_ptr<Response> response_;
+};
+
+// The closure will be deleted after callback.
+// It could only be created by using shared ptr or unique ptr.
+// It will hold a weak ptr of T and call run of T
+// Callback() {
+//  xxxx;
+//  public
+//  void run() {
+//      logxxx
+//  }
+//  }
+//
+//  std::shared_ptr<Callback> b;
+//
+//  std::unique_ptr<AutoReleaseClosure> a(b);
+//  brpc_call(a.release());
+
+template <typename Request, typename Callback>
+class AutoReleaseClosure : public google::protobuf::Closure {
+    using Weak = typename std::shared_ptr<Callback>::weak_type;
+    using ResponseType = typename Callback::ResponseType;
+    ENABLE_FACTORY_CREATOR(AutoReleaseClosure);
+
+public:
+    AutoReleaseClosure(std::shared_ptr<Request> req, std::shared_ptr<Callback> callback)
+            : callback_(callback) {
+        this->cntl_ = callback->cntl_;
+        this->response_ = callback->response_;
+    }
+
+    ~AutoReleaseClosure() override = default;
+
+    //  Will delete itself
+    void Run() override {
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
+        Defer defer {[&]() { delete this; }};
+        // If lock failed, it means the callback object is deconstructed, then no need
+        // to deal with the callback any more.
+        if (auto tmp = callback_.lock()) {
+            tmp->call();
+        }
+    }
+
+    // controller has to be the same lifecycle with the closure, because brpc may use
+    // it in any stage of the rpc.
+    std::shared_ptr<brpc::Controller> cntl_;
+    // We do not know if brpc will use request or response after brpc method returns.
+    // So that we need keep a shared ptr here to ensure that brpc could use req/rep
+    // at any stage.
+    std::shared_ptr<Request> request_;
+    std::shared_ptr<ResponseType> response_;
+
+private:
+    // Use a weak ptr to keep the callback, so that the callback can be deleted if the main
+    // thread is freed.
+    Weak callback_;
+};
+
 } // namespace doris
