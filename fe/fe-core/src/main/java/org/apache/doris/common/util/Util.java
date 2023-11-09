@@ -566,6 +566,8 @@ public class Util {
             return TFileFormatType.FORMAT_CSV_PLAIN;
         } else if (lowerFileFormat.equals("wal")) {
             return TFileFormatType.FORMAT_WAL;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ARROW)) {
+            return TFileFormatType.FORMAT_ARROW;
         } else {
             return TFileFormatType.FORMAT_UNKNOWN;
         }

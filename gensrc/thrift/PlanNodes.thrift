@@ -120,6 +120,7 @@ enum TFileFormatType {
     FORMAT_CSV_LZ4BLOCK,
     FORMAT_CSV_SNAPPYBLOCK,
     FORMAT_WAL,
+    FORMAT_ARROW
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,

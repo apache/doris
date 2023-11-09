@@ -54,6 +54,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/avro/avro_jni_reader.h"
+#include "vec/exec/format/arrow/arrow_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
@@ -871,6 +872,12 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_WAL: {
             _cur_reader.reset(new WalReader(_state));
             init_status = ((WalReader*)(_cur_reader.get()))->init_reader();
+            break;
+        }
+        case TFileFormatType::FORMAT_ARROW: {
+            _cur_reader = ArrowReader::create_unique(_state, _profile, &_counter, *_params, range,
+                                                   _file_slot_descs, _io_ctx.get());
+            init_status = ((ArrowReader*)(_cur_reader.get()))->init_reader();
             break;
         }
         default:
