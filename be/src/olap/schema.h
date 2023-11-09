@@ -176,7 +176,7 @@ public:
     const std::vector<int32_t>& unique_ids() const { return _unique_ids; }
     ColumnId column_id(size_t index) const { return _col_ids[index]; }
     int32_t unique_id(size_t index) const { return _unique_ids[index]; }
-    size_t col_id_to_col_ids_index(int cid) const {
+    int32_t col_id_to_col_ids_index(int cid) const {
         DCHECK(cid >= 0);
         for (int index = 0; index < _col_ids.size(); index++) {
             if (cid == _col_ids[index]) {
