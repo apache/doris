@@ -1877,7 +1877,7 @@ public class StmtExecutor {
                     rows.add(data);
                 }
                 Future<PGroupCommitInsertResponse> future = groupCommitPlanner
-                        .prepareGroupCommitInsertRequest(context, rows);
+                        .executeGroupCommitInsert(context, rows);
                 PGroupCommitInsertResponse response = future.get();
                 TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
                 if (code == TStatusCode.DATA_QUALITY_ERROR) {

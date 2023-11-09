@@ -18,9 +18,9 @@
 package org.apache.doris.planner;
 
 
-import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -109,7 +109,7 @@ public class GroupCommitPlanner {
         execPlanFragmentParamsBytes = ByteString.copyFrom(new TSerializer().serialize(paramsList));
     }
 
-    public Future<PGroupCommitInsertResponse> prepareGroupCommitInsertRequest(ConnectContext ctx,
+    public Future<PGroupCommitInsertResponse> executeGroupCommitInsert(ConnectContext ctx,
             List<InternalService.PDataRow> rows) throws TException, DdlException, RpcException {
         backend = ctx.getInsertGroupCommit(this.table.getId());
         if (backend == null || !backend.isAlive()) {
@@ -136,25 +136,35 @@ public class GroupCommitPlanner {
         return future;
     }
 
-    public static InternalService.PDataRow getRowValue(List<Expr> cols) throws UserException {
+    // only for nereids use
+    public static InternalService.PDataRow getRowStringValue(List<Expr> cols, int filterSize) throws UserException {
         if (cols.isEmpty()) {
             return null;
         }
         InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
-        for (Expr expr : cols) {
-            if (!expr.isConstant() || !expr.isAnalyzed()) {
-                throw new UserException(
-                    "do not support non-constant expr in transactional insert operation: " + expr.toSql());
+        try {
+            List<Expr> exprs = cols.subList(0, cols.size() - filterSize);
+            for (Expr expr : exprs) {
+                if (!expr.isLiteralOrCastExpr()) {
+                    if (expr.getChildren().get(0) instanceof NullLiteral) {
+                        row.addColBuilder().setValue("\\N");
+                        continue;
+                    }
+                    throw new UserException(
+                        "do not support non-literal expr in transactional insert operation: " + expr.toSql());
+                }
+                if (expr instanceof NullLiteral) {
+                    row.addColBuilder().setValue("\\N");
+                } else if (expr.getType() instanceof ArrayType) {
+                    row.addColBuilder().setValue(expr.getStringValueForArray());
+                } else if (!expr.getChildren().isEmpty()) {
+                    expr.getChildren().forEach(child -> processExprVal(child, row));
+                } else {
+                    row.addColBuilder().setValue(expr.getStringValue());
+                }
             }
-            if (expr instanceof NullLiteral) {
-                row.addColBuilder().setValue("\\N");
-            } else if (expr instanceof ArrayLiteral) {
-                row.addColBuilder().setValue(expr.getStringValueForArray());
-            } else if (!expr.getChildren().isEmpty()) {
-                expr.getChildren().forEach(child -> processExprVal(child, row));
-            } else {
-                row.addColBuilder().setValue(expr.getStringValue());
-            }
+        } catch (UserException e) {
+            throw new RuntimeException(e);
         }
         return row.build();
     }

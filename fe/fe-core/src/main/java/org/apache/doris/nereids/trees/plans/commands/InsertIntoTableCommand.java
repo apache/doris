@@ -40,6 +40,7 @@ import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -165,12 +166,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         OlapTableSink sink = ((OlapTableSink) planner.getFragments().get(0).getSink());
         if (ctx.getSessionVariable().enableInsertGroupCommit) {
             // group commit
-            if (!analyzeGroupCommit(sink, physicalOlapTableSink)) {
-                throw new AnalysisException("Nereids does not support group_commit "
-                        + "for this SQL statement, query id: " + ctx.queryId());
+            if (analyzeGroupCommit(sink, physicalOlapTableSink)) {
+                handleGroupCommit(ctx, sink, physicalOlapTableSink);
+                return;
             }
-            handleGroupCommit(ctx, sink, physicalOlapTableSink);
-            return;
         }
         Preconditions.checkArgument(!isTxnBegin, "an insert command cannot create more than one txn");
         Transaction txn = new Transaction(ctx,
@@ -378,13 +377,20 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         List<InternalService.PDataRow> rows = new ArrayList<>();
         List<List<Expr>> materializedConstExprLists = ((UnionNode) sink.getFragment().getPlanRoot())
                 .getMaterializedConstExprLists();
-        for (List<Expr> list : materializedConstExprLists) {
-            rows.add(GroupCommitPlanner.getRowValue(list));
-        }
 
+        int filterSize = 0;
+        for (Slot slot : physicalOlapTableSink.getOutput()) {
+            if (slot.getName().contains("__DORIS_DELETE_SIGN__")
+                    || slot.getName().contains("__DORIS_VERSION_COL__")) {
+                filterSize += 1;
+            }
+        }
+        for (List<Expr> list : materializedConstExprLists) {
+            rows.add(GroupCommitPlanner.getRowStringValue(list, filterSize));
+        }
         GroupCommitPlanner groupCommitPlanner = new GroupCommitPlanner(physicalOlapTableSink.getDatabase(),
                 physicalOlapTableSink.getTargetTable(), null, ctx.queryId());
-        Future<PGroupCommitInsertResponse> future = groupCommitPlanner.prepareGroupCommitInsertRequest(ctx, rows);
+        Future<PGroupCommitInsertResponse> future = groupCommitPlanner.executeGroupCommitInsert(ctx, rows);
         PGroupCommitInsertResponse response = future.get();
         TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
         if (code == TStatusCode.DATA_QUALITY_ERROR) {
