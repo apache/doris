@@ -584,7 +584,7 @@ struct BitmapAndNot {
             mid_data &= rvec[i];
             res[i] = lvec[i];
             res[i] -= mid_data;
-            mid_data.clear();
+            mid_data.reset();
         }
     }
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, TData& res) {
@@ -595,7 +595,7 @@ struct BitmapAndNot {
             mid_data &= rval;
             res[i] = lvec[i];
             res[i] -= mid_data;
-            mid_data.clear();
+            mid_data.reset();
         }
     }
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, TData& res) {
@@ -606,7 +606,7 @@ struct BitmapAndNot {
             mid_data &= rvec[i];
             res[i] = lval;
             res[i] -= mid_data;
-            mid_data.clear();
+            mid_data.reset();
         }
     }
 };
@@ -630,7 +630,7 @@ struct BitmapAndNotCount {
             mid_data = lvec[i];
             mid_data &= rvec[i];
             res[i] = lvec[i].andnot_cardinality(mid_data);
-            mid_data.clear();
+            mid_data.reset();
         }
     }
     static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData* res) {
@@ -640,7 +640,7 @@ struct BitmapAndNotCount {
             mid_data = lval;
             mid_data &= rvec[i];
             res[i] = lval.andnot_cardinality(mid_data);
-            mid_data.clear();
+            mid_data.reset();
         }
     }
     static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData* res) {
@@ -650,7 +650,7 @@ struct BitmapAndNotCount {
             mid_data = lvec[i];
             mid_data &= rval;
             res[i] = lvec[i].andnot_cardinality(mid_data);
-            mid_data.clear();
+            mid_data.reset();
         }
     }
 };
