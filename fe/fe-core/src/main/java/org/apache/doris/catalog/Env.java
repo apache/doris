@@ -230,7 +230,6 @@ import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
-import org.apache.doris.statistics.StatisticsPeriodCollector;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -495,8 +494,6 @@ public class Env {
 
     private StatisticsAutoCollector statisticsAutoCollector;
 
-    private StatisticsPeriodCollector statisticsPeriodCollector;
-
     private HiveTransactionMgr hiveTransactionMgr;
 
     private TopicPublisherThread topicPublisherThread;
@@ -720,7 +717,6 @@ public class Env {
         this.analysisManager = new AnalysisManager();
         this.statisticsCleaner = new StatisticsCleaner();
         this.statisticsAutoCollector = new StatisticsAutoCollector();
-        this.statisticsPeriodCollector = new StatisticsPeriodCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.queryStats = new QueryStats();
@@ -970,9 +966,6 @@ public class Env {
         }
         if (statisticsAutoCollector != null) {
             statisticsAutoCollector.start();
-        }
-        if (statisticsPeriodCollector != null) {
-            statisticsPeriodCollector.start();
         }
 
         queryCancelWorker.start();

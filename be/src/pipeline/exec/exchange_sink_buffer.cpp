@@ -52,7 +52,6 @@ void BroadcastPBlockHolder::unref() noexcept {
     auto old_value = _ref_count._value.fetch_sub(1);
     if (_dep && old_value == 1) {
         _dep->return_available_block();
-        CHECK(available());
     }
 }
 
@@ -178,20 +177,17 @@ Status ExchangeSinkBuffer<Parent>::add_block(TransmitInfo<Parent>&& request) {
 }
 
 template <typename Parent>
-Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& request,
-                                             [[maybe_unused]] bool* sent) {
+Status ExchangeSinkBuffer<Parent>::add_block(BroadcastTransmitInfo<Parent>&& request) {
     if (_is_finishing) {
+        request.block_holder->unref();
         return Status::OK();
     }
     TUniqueId ins_id = request.channel->_fragment_instance_id;
     if (_is_receiver_eof(ins_id.lo)) {
+        request.block_holder->unref();
         return Status::EndOfFile("receiver eof");
     }
     bool send_now = false;
-    if (sent) {
-        *sent = true;
-    }
-    request.block_holder->ref();
     {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[ins_id.lo]);
         // Do not have in process rpc, directly send
@@ -373,12 +369,24 @@ void ExchangeSinkBuffer<Parent>::_construct_request(InstanceLoId id, PUniqueId f
 
 template <typename Parent>
 void ExchangeSinkBuffer<Parent>::_ended(InstanceLoId id) {
-    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
-    if (!_rpc_channel_is_idle[id]) {
-        _busy_channels--;
-        _rpc_channel_is_idle[id] = true;
-        if (_finish_dependency && _busy_channels == 0) {
-            _finish_dependency->set_ready_to_finish();
+    if (!_instance_to_package_queue_mutex.template contains(id)) {
+        std::stringstream ss;
+        ss << "failed find the instance id:" << id
+           << " now mutex map size:" << _instance_to_package_queue_mutex.size();
+        for (const auto& p : _instance_to_package_queue_mutex) {
+            ss << " key:" << p.first << " value:" << p.second << "\n";
+        }
+        LOG(INFO) << ss.str();
+
+        LOG(FATAL) << "not find the instance id";
+    } else {
+        std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+        if (!_rpc_channel_is_idle[id]) {
+            _busy_channels--;
+            _rpc_channel_is_idle[id] = true;
+            if (_finish_dependency && _busy_channels == 0) {
+                _finish_dependency->set_ready_to_finish();
+            }
         }
     }
 }

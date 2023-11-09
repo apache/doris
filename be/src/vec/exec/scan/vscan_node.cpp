@@ -524,9 +524,6 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                                 RETURN_IF_PUSH_DOWN(
                                         _normalize_bitmap_filter(cur_expr, context, slot, &pdt),
                                         status);
-                                RETURN_IF_PUSH_DOWN(
-                                        _normalize_bloom_filter(cur_expr, context, slot, &pdt),
-                                        status);
                                 if (_state->enable_function_pushdown()) {
                                     RETURN_IF_PUSH_DOWN(_normalize_function_filters(
                                                                 cur_expr, context, slot, &pdt),
@@ -596,20 +593,6 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
         }
     }
     output_expr = conjunct_expr_root;
-    return Status::OK();
-}
-
-Status VScanNode::_normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
-                                          PushDownType* pdt) {
-    if (TExprNodeType::BLOOM_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 1);
-        PushDownType temp_pdt = _should_push_down_bloom_filter();
-        if (temp_pdt != PushDownType::UNACCEPTABLE) {
-            _filter_predicates.bloom_filters.emplace_back(slot->col_name(),
-                                                          expr->get_bloom_filter_func());
-            *pdt = temp_pdt;
-        }
-    }
     return Status::OK();
 }
 

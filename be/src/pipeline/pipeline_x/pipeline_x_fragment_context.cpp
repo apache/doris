@@ -211,6 +211,8 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     }
     _runtime_state->set_desc_tbl(_desc_tbl);
     _runtime_state->set_num_per_fragment_instances(request.num_senders);
+    _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
+    _runtime_state->set_total_load_streams(request.total_load_streams);
 
     // 2. Build pipelines with operators in this fragment.
     auto root_pipeline = add_pipeline();
@@ -390,9 +392,12 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
     for (size_t i = 0; i < target_size; i++) {
         const auto& local_params = request.local_params[i];
 
-        _runtime_states[i] = RuntimeState::create_unique(local_params, request.query_id,
-                                                         request.fragment_id, request.query_options,
-                                                         _query_ctx->query_globals, _exec_env);
+        _runtime_states[i] = RuntimeState::create_unique(
+                local_params.fragment_instance_id, request.query_id, request.fragment_id,
+                request.query_options, _query_ctx->query_globals, _exec_env);
+        if (local_params.__isset.runtime_filter_params) {
+            _runtime_states[i]->set_runtime_filter_params(local_params.runtime_filter_params);
+        }
         _runtime_states[i]->set_query_ctx(_query_ctx.get());
         _runtime_states[i]->set_query_mem_tracker(_query_ctx->query_mem_tracker);
         _runtime_states[i]->set_tracer(_runtime_state->get_tracer());

@@ -34,7 +34,6 @@ class DataTypeNumber final : public DataTypeNumberBase<T> {
     bool is_summable() const override { return true; }
     bool can_be_used_in_bit_operations() const override { return true; }
     bool can_be_used_in_boolean_context() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
 };
 
 using DataTypeUInt8 = DataTypeNumber<UInt8>;

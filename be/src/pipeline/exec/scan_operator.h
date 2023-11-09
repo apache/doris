@@ -287,9 +287,6 @@ protected:
     Status _eval_const_conjuncts(vectorized::VExpr* vexpr, vectorized::VExprContext* expr_ctx,
                                  vectorized::VScanNode::PushDownType* pdt);
 
-    Status _normalize_bloom_filter(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                   SlotDescriptor* slot, vectorized::VScanNode::PushDownType* pdt);
-
     Status _normalize_bitmap_filter(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
                                     SlotDescriptor* slot, vectorized::VScanNode::PushDownType* pdt);
 

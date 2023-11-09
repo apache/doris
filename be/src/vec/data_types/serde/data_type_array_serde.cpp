@@ -222,6 +222,35 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
     result.writeEndBinary();
 }
 
+void DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                                rapidjson::Document::AllocatorType& allocator,
+                                                int row_num) const {
+    // vectorized::Field array = column[row_num];
+    // Use allocator instead of stack memory, since rapidjson hold the reference of String value
+    // otherwise causes stack use after free
+    auto& column_array = static_cast<const ColumnArray&>(column);
+    void* mem = allocator.Malloc(sizeof(vectorized::Field));
+    vectorized::Field* array = new (mem) vectorized::Field(column_array[row_num]);
+
+    convert_field_to_rapidjson(*array, result, allocator);
+}
+
+void DataTypeArraySerDe::read_one_cell_from_json(IColumn& column,
+                                                 const rapidjson::Value& result) const {
+    auto& column_array = static_cast<ColumnArray&>(column);
+    auto& offsets_data = column_array.get_offsets();
+    auto& nested_data = column_array.get_data();
+    if (!result.IsArray()) {
+        column_array.insert_default();
+        return;
+    }
+    // TODO this is slow should improve performance
+    for (const rapidjson::Value& v : result.GetArray()) {
+        nested_serde->read_one_cell_from_json(nested_data, v);
+    }
+    offsets_data.emplace_back(result.GetArray().Size());
+}
+
 void DataTypeArraySerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     column.deserialize_and_insert_from_arena(blob->getBlob());
