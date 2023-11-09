@@ -66,6 +66,8 @@ public class LeadingHint extends Hint {
 
     private Long innerJoinBitmap = 0L;
 
+    private Long totalBitmap = 0L;
+
     public LeadingHint(String hintName) {
         super(hintName);
     }
@@ -202,6 +204,31 @@ public class LeadingHint extends Hint {
 
     public void setInnerJoinBitmap(Long innerJoinBitmap) {
         this.innerJoinBitmap = innerJoinBitmap;
+    }
+
+    public Long getTotalBitmap() {
+        return totalBitmap;
+    }
+
+    /**
+     * set total bitmap used in leading before we get into leading join
+     */
+    public void setTotalBitmap() {
+        Long totalBitmap = 0L;
+        if (hasSameName()) {
+            this.setStatus(HintStatus.SYNTAX_ERROR);
+            this.setErrorMessage("duplicated table");
+        }
+        for (int index = 0; index < getTablelist().size(); index++) {
+            RelationId id = findRelationIdAndTableName(getTablelist().get(index));
+            if (id == null) {
+                this.setStatus(HintStatus.SYNTAX_ERROR);
+                this.setErrorMessage("can not find table: " + getTablelist().get(index));
+                return;
+            }
+            totalBitmap = LongBitmap.set(totalBitmap, id.asInt());
+        }
+        this.totalBitmap = totalBitmap;
     }
 
     /**
@@ -368,6 +395,10 @@ public class LeadingHint extends Hint {
                             newStackTop.second.getOutput(), logicalPlan.getOutput(), conditions);
                     JoinType joinType = computeJoinType(getBitmap(newStackTop.second),
                             getBitmap(logicalPlan), conditions);
+                    if (joinType == null) {
+                        this.setStatus(HintStatus.SYNTAX_ERROR);
+                        this.setErrorMessage("JoinType can not be null");
+                    }
                     if (!this.isSuccess()) {
                         return null;
                     }

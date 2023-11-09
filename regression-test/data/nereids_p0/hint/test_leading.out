@@ -97,7 +97,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: leading({ t1 t2 } { t3 t4 })
+Used: leading(t1 t2 { t3 t4 })
 UnUsed:
 SyntaxError:
 
@@ -117,7 +117,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[t4]
 
 Hint log:
-Used: leading({ t1 t2 } { t3 t4 })
+Used: leading(t1 t2 { t3 t4 })
 UnUsed:
 SyntaxError:
 
@@ -285,13 +285,17 @@ PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
 ------NestedLoopJoin[CROSS_JOIN]
---------PhysicalProject
-----------PhysicalOlapScan[t2]
+--------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = cte.c2))otherCondition=()
+----------PhysicalProject
+------------PhysicalOlapScan[t1]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------PhysicalOlapScan[t2]
 --------PhysicalDistribute
-----------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t2 t1)
+Used: leading(cte t3)
 UnUsed:
 SyntaxError:
 
@@ -302,19 +306,24 @@ PhysicalResultSink
 ------NestedLoopJoin[CROSS_JOIN]
 --------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = cte.c2))otherCondition=()
 ----------PhysicalProject
-------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
 ----------PhysicalDistribute
 ------------PhysicalProject
---------------PhysicalOlapScan[t2]
+--------------PhysicalOlapScan[t1]
 --------PhysicalDistribute
-----------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t3]
+
+Hint log:
+Used: leading(t2 t1)
+UnUsed:
+SyntaxError:
 
 -- !select21 --
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
 ------NestedLoopJoin[CROSS_JOIN]
---------NestedLoopJoin[CROSS_JOIN](cte.c1 = cte.c2)
+--------hashJoin[INNER_JOIN] hashCondition=((cte.c1 = cte.c2))otherCondition=()
 ----------PhysicalProject
 ------------PhysicalOlapScan[t2]
 ----------PhysicalDistribute
@@ -324,7 +333,7 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t2 t1 t3)
+Used: leading(t2 t1) leading(cte t3)
 UnUsed:
 SyntaxError:
 
@@ -373,7 +382,7 @@ PhysicalResultSink
 Hint log:
 Used:
 UnUsed:
-SyntaxError: leading(t2 cte t1) Msg:tables should be same as join tables
+SyntaxError: leading(t2 cte t1) Msg:can not find table: t1
 
 -- !select25 --
 PhysicalResultSink
@@ -388,9 +397,9 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t3]
 
 Hint log:
-Used:
+Used: leading(t1 t2)
 UnUsed:
-SyntaxError: leading(t1 t2) Msg:tables should be same as join tables
+SyntaxError:
 
 -- !select26 --
 PhysicalResultSink
@@ -434,8 +443,8 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed:
-SyntaxError: leading(t1 t2) Msg:can not find table: t2
+UnUsed: leading(t1 t2)
+SyntaxError:
 
 -- !select29 --
 PhysicalResultSink
@@ -446,7 +455,7 @@ PhysicalResultSink
 --------PhysicalOlapScan[t1]
 
 Hint log:
-Used:
+Used: leading(t1 t_1)
 UnUsed:
-SyntaxError: leading(t1 t_1) Msg:tables should be same as join tables
+SyntaxError:
 

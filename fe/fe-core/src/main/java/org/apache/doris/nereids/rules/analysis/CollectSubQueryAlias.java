@@ -21,8 +21,14 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * Eliminate the logical sub query and alias node after analyze and before rewrite
@@ -30,10 +36,10 @@ import org.apache.doris.nereids.trees.plans.RelationId;
  * <p>
  * TODO: refactor group merge strategy to support the feature above
  */
-public class CollectSubQueryAlias extends OneRewriteRuleFactory {
+public class CollectSubQueryAlias implements RewriteRuleFactory {
     @Override
-    public Rule build() {
-        return RuleType.COLLECT_SUB_QUERY_ALIAS.build(
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
                 logicalSubQueryAlias().thenApply(ctx -> {
                     if (ctx.cascadesContext.isLeadingJoin()) {
                         String aliasName = ctx.root.getAlias();
@@ -44,7 +50,20 @@ public class CollectSubQueryAlias extends OneRewriteRuleFactory {
                         ctx.root.setRelationId(newId);
                     }
                     return ctx.root;
-                })
+                }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
+                logicalRelation().thenApply(ctx -> {
+                    if (ctx.cascadesContext.isLeadingJoin()) {
+                        LeadingHint leading = (LeadingHint) ctx.cascadesContext.getHintMap().get("Leading");
+                        LogicalRelation relation = (LogicalRelation) ctx.root;
+                        RelationId relationId = relation.getRelationId();
+                        if (ctx.root instanceof LogicalCatalogRelation) {
+                            String relationName = ((LogicalCatalogRelation) ctx.root).getTable().getName();
+                            leading.putRelationIdAndTableName(Pair.of(relationId, relationName));
+                        }
+                        leading.getRelationIdToScanMap().put(relationId, ctx.root);
+                    }
+                    return ctx.root;
+                }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT)
         );
     }
 }

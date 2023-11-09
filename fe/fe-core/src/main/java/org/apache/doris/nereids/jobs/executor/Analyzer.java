@@ -19,7 +19,6 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
-import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
@@ -28,6 +27,7 @@ import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
+import org.apache.doris.nereids.rules.analysis.CheckLeadingJoin;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
@@ -88,8 +88,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
     private static List<RewriteJob> buildAnalyzeJobs(Optional<CustomTableResolver> customTableResolver) {
         return jobs(
             // we should eliminate hint before "Subquery unnesting".
-            topDown(new EliminateLogicalSelectHint()),
             topDown(new AnalyzeCTE()),
+            topDown(new EliminateLogicalSelectHint()),
             bottomUp(
                 new BindRelation(customTableResolver),
                 new CheckPolicy(),
@@ -124,12 +124,13 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(new CheckAnalysis()),
             topDown(new EliminateGroupByConstant()),
             topDown(new NormalizeAggregate()),
-            bottomUp(new SubqueryToApply()),
             bottomUp(
+                    new CheckLeadingJoin(),
                     new CollectSubQueryAlias(),
                     new CollectJoinConstraint()
             ),
-            custom(RuleType.LEADING_JOIN, LeadingJoin::new)
+            topDown(new LeadingJoin()),
+            bottomUp(new SubqueryToApply())
         );
     }
 }

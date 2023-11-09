@@ -68,7 +68,8 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                     ordered.setStatus(Hint.HintStatus.SUCCESS);
                     ctx.cascadesContext.getHintMap().put("Ordered", ordered);
                 } else if (hintName.equalsIgnoreCase("LEADING")) {
-                    extractLeading((SelectHintLeading) hint.getValue(), ctx.cascadesContext, selectHintPlan.getHints());
+                    extractLeading((SelectHintLeading) hint.getValue(), ctx.cascadesContext,
+                            ctx.statementContext, selectHintPlan.getHints());
                 } else {
                     // logger.warn("Can not process select hint '{}' and skip it", hint.getKey());
                 }
@@ -106,12 +107,17 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
         }
     }
 
-    private void extractLeading(SelectHintLeading selectHint, CascadesContext context, Map<String, SelectHint> hints) {
+    private void extractLeading(SelectHintLeading selectHint, CascadesContext context,
+                                    StatementContext statementContext, Map<String, SelectHint> hints) {
         LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString());
         if (context.getHintMap().get("Leading") != null) {
             hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
-            hint.setErrorMessage("can only have one leading clause");
+            hint.setErrorMessage("one query block can only have one leading clause");
+            statementContext.addHint(hint);
+            context.setLeadingJoin(false);
+            return;
         }
+        statementContext.addHint(hint);
         context.getHintMap().put("Leading", hint);
         if (hints.get("ordered") != null) {
             context.setLeadingJoin(false);

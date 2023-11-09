@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -48,17 +47,6 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-            logicalRelation().thenApply(ctx -> {
-                if (!ctx.cascadesContext.isLeadingJoin()) {
-                    return ctx.root;
-                }
-                LogicalRelation logicalRelation = (LogicalRelation) ctx.root;
-                LeadingHint leading = (LeadingHint) ctx.cascadesContext.getHintMap().get("Leading");
-                leading.putRelationIdAndTableName(Pair.of(logicalRelation.getRelationId(), ""));
-                leading.getRelationIdToScanMap().put(logicalRelation.getRelationId(), logicalRelation);
-                return ctx.root;
-            }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
-
             logicalJoin().thenApply(ctx -> {
                 if (!ctx.cascadesContext.isLeadingJoin()) {
                     return ctx.root;
@@ -196,7 +184,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
             if (getNotNullable && slot.nullable()) {
                 continue;
             }
-            if (!slot.isColumnFromTable()) {
+            if (!slot.isColumnFromTable() && slot.getQualifier() == null) {
                 // we can not get info from column not from table
                 continue;
             }
