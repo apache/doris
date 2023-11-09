@@ -125,6 +125,10 @@ void BlockedTaskScheduler::_schedule() {
                     _make_task_run(local_blocked_tasks, iter, PipelineTaskState::PENDING_FINISH);
                 }
             } else if (task->query_context()->is_cancelled()) {
+                LOG(WARNING) << "Cancelled, query_id="
+                             << print_id(task->query_context()->query_id())
+                             << ", instance_id=" << print_id(task->instance_id())
+                             << ", task info: " << task->debug_string();
                 _make_task_run(local_blocked_tasks, iter);
             } else if (task->query_context()->is_timeout(now)) {
                 LOG(WARNING) << "Timeout, query_id=" << print_id(task->query_context()->query_id())

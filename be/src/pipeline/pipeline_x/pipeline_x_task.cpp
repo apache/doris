@@ -334,14 +334,14 @@ std::string PipelineXTask::debug_string() {
     fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
                    print_id(_state->fragment_instance_id()));
 
-    fmt::format_to(debug_string_buffer, "RuntimeUsage: {}\n",
-                   PrettyPrinter::print(get_runtime_ns(), TUnit::TIME_NS));
-    {
-        std::stringstream profile_ss;
-        _fresh_profile_counter();
-        _task_profile->pretty_print(&profile_ss, "");
-        fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
-    }
+    // fmt::format_to(debug_string_buffer, "RuntimeUsage: {}\n",
+    //                PrettyPrinter::print(get_runtime_ns(), TUnit::TIME_NS));
+    // {
+    //     std::stringstream profile_ss;
+    //     _fresh_profile_counter();
+    //     _task_profile->pretty_print(&profile_ss, "");
+    //     fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
+    // }
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, state = {}]\noperators: ", (void*)this,
                    get_state_name(_cur_state));
@@ -353,6 +353,18 @@ std::string PipelineXTask::debug_string() {
     fmt::format_to(debug_string_buffer, "\n{}",
                    _opened ? _sink->debug_string(_state, _operators.size())
                            : _sink->debug_string(_operators.size()));
+    for (auto* dep : _read_dependencies) {
+        fmt::format_to(debug_string_buffer, "\n{}", dep->debug_string());
+    }
+
+    fmt::format_to(debug_string_buffer, "\n{}", _write_dependencies->debug_string());
+
+    fmt::format_to(debug_string_buffer, "\n{}", _filter_dependency->debug_string());
+
+    for (auto* dep : _finish_dependencies) {
+        fmt::format_to(debug_string_buffer, "\n{}", dep->debug_string());
+    }
+
     return fmt::to_string(debug_string_buffer);
 }
 
