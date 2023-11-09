@@ -1,0 +1,6 @@
+{"id": 100, "city": {"name": "beijing", "region": "haidian" }, "code": 1}
+{"id": 101, "city": {"name": "shanghai", "region": "jingan"}, "code": 2}
+{"id": 102, "city": {"name": "tianjin", "region": "nankai"}, "code": 3}
+{"id": 103, "city": {"name": "chongqing", "region": "yubei"}, "code": 4}
+{"id": 104, "city": {"name": "hangzhou", "region": "xihu"}, "code": 5}
+{"id": 105, "city": {"name": "guangzhou", "region": "huangpu"}, "code": 6}
