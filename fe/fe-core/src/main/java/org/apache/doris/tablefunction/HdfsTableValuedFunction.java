@@ -60,7 +60,6 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
         // 3. analyze other properties
         for (String key : otherProps.keySet()) {
             if (HdfsResource.HADOOP_FS_NAME.equalsIgnoreCase(key)) {
-                // because HADOOP_FS_NAME contains upper and lower case
                 locationProperties.put(HdfsResource.HADOOP_FS_NAME, otherProps.get(key));
             } else {
                 locationProperties.put(key, otherProps.get(key));
