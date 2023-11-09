@@ -14,23 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import java.util.Date
-import java.text.SimpleDateFormat
-import org.apache.http.HttpResponse
-import org.apache.http.client.methods.HttpPut
-import org.apache.http.impl.client.CloseableHttpClient
-import org.apache.http.impl.client.HttpClients
-import org.apache.http.entity.ContentType
-import org.apache.http.entity.StringEntity
-import org.apache.http.client.config.RequestConfig
-import org.apache.http.client.RedirectStrategy
-import org.apache.http.protocol.HttpContext
-import org.apache.http.HttpRequest
-import org.apache.http.impl.client.LaxRedirectStrategy
+
 import org.apache.http.client.methods.RequestBuilder
-import org.apache.http.entity.StringEntity
-import org.apache.http.client.methods.CloseableHttpResponse
+import org.apache.http.impl.client.HttpClients
 import org.apache.http.util.EntityUtils
+
+import java.text.SimpleDateFormat
 
 suite("test_stream_load", "p0") {
     sql "show tables"
@@ -1177,6 +1166,25 @@ suite("test_stream_load", "p0") {
         qt_sql_chunked_transfer "select * from ${tableName16} order by k1"
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
+    }
+
+    // invalid file format
+    streamLoad {
+        table "${tableName8}"
+
+        set 'format', 'txt'
+        file 'array_malformat.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assert json.Message.contains("unknown data format")
+        }
     }
 }
 
