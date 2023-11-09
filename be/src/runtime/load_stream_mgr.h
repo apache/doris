@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/internal_service.pb.h>
+#include <runtime/load_stream.h>
 #include <stdint.h>
 
 #include <condition_variable>
@@ -25,8 +26,6 @@
 #include <mutex>
 #include <unordered_map>
 #include <utility>
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
-#include <runtime/load_stream.h>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"

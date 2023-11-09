@@ -32,40 +32,38 @@
 #include <memory>
 #include <optional>
 
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
+#include "exprs/json_functions.h"
 #include "olap/olap_common.h"
 #include "util/defer_op.h"
 #include "util/simd/bits.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/field_visitors.h"
 #include "vec/common/schema_util.h"
 #include "vec/common/string_buffer.hpp"
+#include "vec/common/typeid_cast.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/convert_field_to_type.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nothing.h"
-#include "vec/data_types/get_least_supertype.h"
-
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
-#include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/logging.h"
-#include "exprs/json_functions.h"
-#include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_vector.h"
-#include "vec/common/assert_cast.h"
-#include "vec/common/typeid_cast.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/get_least_supertype.h"
 
 namespace doris::vectorized {
 namespace {

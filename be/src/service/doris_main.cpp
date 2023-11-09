@@ -72,7 +72,6 @@
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
-#include "util/telemetry/telemetry.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -487,8 +486,6 @@ int main(int argc, char** argv) {
         LOG(FATAL) << "failed to init doris storage engine, res=" << status;
         exit(-1);
     }
-
-    doris::telemetry::init_tracer();
 
     // begin to start services
     doris::ThriftRpcHelper::setup(exec_env);

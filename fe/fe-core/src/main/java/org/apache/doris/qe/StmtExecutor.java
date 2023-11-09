@@ -178,9 +178,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
-import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.context.Context;
-import io.opentelemetry.context.Scope;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -338,16 +335,6 @@ public class StmtExecutor {
         return builder.build();
     }
 
-    public void addProfileToSpan() {
-        Span span = Span.fromContext(Context.current());
-        if (!span.isRecording()) {
-            return;
-        }
-        for (Map.Entry<String, String> entry : getSummaryInfo(true).entrySet()) {
-            span.setAttribute(entry.getKey(), entry.getValue());
-        }
-    }
-
     public Planner planner() {
         return planner;
     }
@@ -448,11 +435,11 @@ public class StmtExecutor {
 
     public void execute(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
-        Span executeSpan = context.getTracer().spanBuilder("execute").setParent(Context.current()).startSpan();
         if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
             context.setReturnResultFromLocal(true);
         }
-        try (Scope scope = executeSpan.makeCurrent()) {
+
+        try {
             if (parsedStmt instanceof LogicalPlanAdapter
                     || (parsedStmt == null && sessionVariable.isEnableNereidsPlanner())) {
                 try {
@@ -479,7 +466,6 @@ public class StmtExecutor {
                 executeByLegacy(queryId);
             }
         } finally {
-            executeSpan.end();
             // revert Session Value
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
@@ -712,17 +698,9 @@ public class StmtExecutor {
             analyzeVariablesInStmt();
 
             if (!context.isTxnModel()) {
-                Span queryAnalysisSpan =
-                        context.getTracer().spanBuilder("query analysis").setParent(Context.current()).startSpan();
-                try (Scope ignored = queryAnalysisSpan.makeCurrent()) {
-                    // analyze this query
-                    analyze(context.getSessionVariable().toThrift());
-                } catch (Exception e) {
-                    queryAnalysisSpan.recordException(e);
-                    throw e;
-                } finally {
-                    queryAnalysisSpan.end();
-                }
+                // analyze this query
+                analyze(context.getSessionVariable().toThrift());
+
                 if (isForwardToMaster()) {
                     if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
@@ -1474,16 +1452,9 @@ public class StmtExecutor {
             profile.addExecutionProfile(coord.getExecutionProfile());
             coordBase = coord;
         }
-        Span queryScheduleSpan =
-                context.getTracer().spanBuilder("query schedule").setParent(Context.current()).startSpan();
-        try (Scope scope = queryScheduleSpan.makeCurrent()) {
-            coordBase.exec();
-        } catch (Exception e) {
-            queryScheduleSpan.recordException(e);
-            throw e;
-        } finally {
-            queryScheduleSpan.end();
-        }
+
+        coordBase.exec();
+
         profile.getSummaryProfile().setQueryScheduleFinishTime();
         updateProfile(false);
         if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
@@ -1513,8 +1484,7 @@ public class StmtExecutor {
             return;
         }
 
-        Span fetchResultSpan = context.getTracer().spanBuilder("fetch result").setParent(Context.current()).startSpan();
-        try (Scope scope = fetchResultSpan.makeCurrent()) {
+        try {
             while (true) {
                 // register the fetch result time.
                 profile.getSummaryProfile().setTempStartTime();
@@ -1587,10 +1557,8 @@ public class StmtExecutor {
             // details see issue https://github.com/apache/doris/issues/16203
             LOG.warn("cancel fragment query_id:{} cause {}", DebugUtil.printId(context.queryId()), e.getMessage());
             coordBase.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
-            fetchResultSpan.recordException(e);
             throw e;
         } finally {
-            fetchResultSpan.end();
             if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
                 try {
                     LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
@@ -2712,19 +2680,13 @@ public class StmtExecutor {
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
 
-            Span queryScheduleSpan = context.getTracer()
-                    .spanBuilder("internal SQL schedule").setParent(Context.current()).startSpan();
-            try (Scope scope = queryScheduleSpan.makeCurrent()) {
+            try {
                 coord.exec();
             } catch (Exception e) {
-                queryScheduleSpan.recordException(e);
                 throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
-            } finally {
-                queryScheduleSpan.end();
             }
-            Span fetchResultSpan = context.getTracer().spanBuilder("fetch internal SQL result")
-                    .setParent(Context.current()).startSpan();
-            try (Scope scope = fetchResultSpan.makeCurrent()) {
+
+            try {
                 while (true) {
                     batch = coord.getNext();
                     if (batch == null || batch.isEos()) {
@@ -2734,10 +2696,7 @@ public class StmtExecutor {
                     }
                 }
             } catch (Exception e) {
-                fetchResultSpan.recordException(e);
                 throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
-            } finally {
-                fetchResultSpan.end();
             }
         } finally {
             AuditLogHelper.logAuditLog(context, originStmt.toString(), parsedStmt, getQueryStatisticsForAuditLog(),

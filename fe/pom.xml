@@ -307,7 +307,6 @@ under the License.
         <ojdbc8.version>12.2.0.1</ojdbc8.version>
         <zookeeper.version>3.4.14</zookeeper.version>
         <velocity-engine-core.version>2.3</velocity-engine-core.version>
-        <opentelemetry.version>1.26.0</opentelemetry.version>
         <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
         <woodstox.version>6.5.1</woodstox.version>
@@ -381,29 +380,6 @@ under the License.
                 <groupId>com.amazonaws</groupId>
                 <artifactId>aws-java-sdk-bundle</artifactId>
                 <version>${aws-java-sdk.version}</version>
-            </dependency>
-            <!-- opentelemetry-->
-            <dependency>
-                <groupId>io.opentelemetry</groupId>
-                <artifactId>opentelemetry-api</artifactId>
-                <version>${opentelemetry.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>io.opentelemetry</groupId>
-                <artifactId>opentelemetry-sdk</artifactId>
-                <version>${opentelemetry.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>io.opentelemetry</groupId>
-                <artifactId>opentelemetry-exporter-otlp</artifactId>
-                <version>${opentelemetry.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.opentelemetry</groupId>
-                <artifactId>opentelemetry-exporter-zipkin</artifactId>
-                <version>${opentelemetry.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.orc</groupId>
