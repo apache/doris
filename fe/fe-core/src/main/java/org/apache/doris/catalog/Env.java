@@ -2986,12 +2986,6 @@ public class Env {
             return;
         }
 
-        if (table.getType() == TableType.MATERIALIZED_VIEW) {
-            MTMV mtmv = (MTMV) table;
-            createTableStmt.add(mtmv.toSql() + ";");
-            return;
-        }
-
         // 1.2 other table type
         sb.append("CREATE ");
         if (table.getType() == TableType.ODBC || table.getType() == TableType.MYSQL
@@ -2999,48 +2993,47 @@ public class Env {
                 || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
             sb.append("EXTERNAL ");
         }
-        sb.append(table.getType() != TableType.MATERIALIZED_VIEW ? "TABLE " : "MATERIALIZED VIEW ");
+        sb.append("TABLE ");
 
         if (!Strings.isNullOrEmpty(dbName)) {
             sb.append("`").append(dbName).append("`.");
         }
         sb.append("`").append(table.getName()).append("`");
 
-        if (table.getType() != TableType.MATERIALIZED_VIEW) {
-            sb.append(" (\n");
-            int idx = 0;
-            List<Column> columns;
-            // when 'create table B like A', always return schema of A without hidden columns
-            if (getDdlForLike) {
-                columns = table.getBaseSchema(false);
-            } else {
-                columns = table.getBaseSchema();
-            }
-            for (Column column : columns) {
-                if (idx++ != 0) {
-                    sb.append(",\n");
-                }
-                // There MUST BE 2 space in front of each column description line
-                // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
-                if (table.getType() == TableType.OLAP) {
-                    sb.append("  ").append(
-                            column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
-                } else {
-                    sb.append("  ").append(column.toSql());
-                }
-            }
-            if (table.getType() == TableType.OLAP) {
-                OlapTable olapTable = (OlapTable) table;
-                if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
-                    for (Index index : olapTable.getIndexes()) {
-                        sb.append(",\n");
-                        sb.append("  ").append(index.toSql());
-                    }
-                }
-            }
-            sb.append("\n) ENGINE=");
-            sb.append(table.getType().name());
+
+        sb.append(" (\n");
+        int idx = 0;
+        List<Column> columns;
+        // when 'create table B like A', always return schema of A without hidden columns
+        if (getDdlForLike) {
+            columns = table.getBaseSchema(false);
+        } else {
+            columns = table.getBaseSchema();
         }
+        for (Column column : columns) {
+            if (idx++ != 0) {
+                sb.append(",\n");
+            }
+            // There MUST BE 2 space in front of each column description line
+            // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
+            if (table.getType() == TableType.OLAP) {
+                sb.append("  ").append(
+                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
+            } else {
+                sb.append("  ").append(column.toSql());
+            }
+        }
+        if (table.getType() == TableType.OLAP) {
+            OlapTable olapTable = (OlapTable) table;
+            if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
+                for (Index index : olapTable.getIndexes()) {
+                    sb.append(",\n");
+                    sb.append("  ").append(index.toSql());
+                }
+            }
+        }
+        sb.append("\n) ENGINE=");
+        sb.append(table.getType().name());
 
         if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
             OlapTable olapTable = (OlapTable) table;
