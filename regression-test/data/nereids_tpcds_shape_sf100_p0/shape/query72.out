@@ -9,8 +9,9 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[RIGHT_OUTER_JOIN](catalog_returns.cr_item_sk = catalog_sales.cs_item_sk)(catalog_returns.cr_order_number = catalog_sales.cs_order_number)
-------------------PhysicalProject
---------------------PhysicalOlapScan[catalog_returns]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[catalog_returns]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------hashJoin[LEFT_OUTER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)

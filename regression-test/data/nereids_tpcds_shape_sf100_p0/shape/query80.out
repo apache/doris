@@ -16,7 +16,8 @@ PhysicalResultSink
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
 ------------------------------hashJoin[RIGHT_OUTER_JOIN](store_sales.ss_item_sk = store_returns.sr_item_sk)(store_sales.ss_ticket_number = store_returns.sr_ticket_number)
---------------------------------PhysicalOlapScan[store_returns]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalOlapScan[store_returns]
 --------------------------------PhysicalDistribute
 ----------------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
 ------------------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
@@ -42,7 +43,8 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_catalog_page_sk = catalog_page.cp_catalog_page_sk)
 --------------------------------hashJoin[RIGHT_OUTER_JOIN](catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)(catalog_sales.cs_order_number = catalog_returns.cr_order_number)
-----------------------------------PhysicalOlapScan[catalog_returns]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalOlapScan[catalog_returns]
 ----------------------------------PhysicalDistribute
 ------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
 --------------------------------------PhysicalDistribute
@@ -66,7 +68,8 @@ PhysicalResultSink
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
 ------------------------------hashJoin[RIGHT_OUTER_JOIN](web_sales.ws_item_sk = web_returns.wr_item_sk)(web_sales.ws_order_number = web_returns.wr_order_number)
---------------------------------PhysicalOlapScan[web_returns]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalOlapScan[web_returns]
 --------------------------------PhysicalDistribute
 ----------------------------------hashJoin[INNER_JOIN](web_sales.ws_web_site_sk = web_site.web_site_sk)
 ------------------------------------hashJoin[INNER_JOIN](web_sales.ws_item_sk = item.i_item_sk)
