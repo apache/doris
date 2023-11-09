@@ -980,6 +980,26 @@ suite("test_stream_load", "p0") {
             assertEquals("[INVALID_ARGUMENT]Invalid merge type other", json.Message)
         }
     }
+
+    // invalid file format
+    streamLoad {
+        table "${tableName8}"
+
+        set 'format', 'txt'
+        file 'array_malformat.csv'
+
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assert json.Message.contains("unknown data format")
+        }
+    }
     
     sql "sync"
     def res = sql "select * from ${tableName14}"
@@ -1166,25 +1186,6 @@ suite("test_stream_load", "p0") {
         qt_sql_chunked_transfer "select * from ${tableName16} order by k1"
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
-    }
-
-    // invalid file format
-    streamLoad {
-        table "${tableName8}"
-
-        set 'format', 'txt'
-        file 'array_malformat.csv'
-        time 10000 // limit inflight 10s
-
-        check { result, exception, startTime, endTime ->
-            if (exception != null) {
-                throw exception
-            }
-            log.info("Stream load result: ${result}".toString())
-            def json = parseJson(result)
-            assertEquals("fail", json.Status.toLowerCase())
-            assert json.Message.contains("unknown data format")
-        }
     }
 }
 
