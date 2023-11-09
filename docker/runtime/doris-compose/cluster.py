@@ -237,8 +237,9 @@ class Node(object):
         }
 
         if self.coverage_dir:
-            outfile = "{}/coverage/{}.{}.coverage".format(
-                DOCKER_DORIS_PATH, self.get_ip(), self.node_type())
+            outfile = "{}/coverage/{}.{}.{}.coverage".format(
+                DOCKER_DORIS_PATH, self.cluster_name, self.id,
+                self.node_type())
             if self.node_type() == Node.TYPE_FE:
                 envs["JACOCO_COVERAGE_OPT"] = "-javaagent:/jacoco/lib/jacocoagent.jar" \
                     "=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format" \
