@@ -1,6 +1,6 @@
 ---
 {
-    "title": "elt",
+    "title": "ELT",
     "language": "en"
 }
 ---

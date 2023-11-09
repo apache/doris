@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Multi Catalog",
+    "title": "Multi-Catalog Overview",
     "language": "en"
 }
 ---
@@ -25,7 +25,7 @@ under the License.
 -->
 
 
-# Multi Catalog
+# Overview
 
 Multi-Catalog is designed to make it easier to connect to external data catalogs to enhance Doris's data lake analysis and federated data query capabilities.
 
@@ -294,96 +294,21 @@ Setting `include_database_list` and `exclude_database_list` in Catalog propertie
 
 ## Metadata Refresh
 
-### Manual Refresh
+By default, metadata changes in external catalogs, such as creating and dropping tables, adding and dropping columns, etc., will not be synchronized to Doris.
 
-By default, changes in metadata of external data sources, including addition or deletion of tables and columns, will not be synchronized into Doris.
+Users can refresh metadata in the following ways.
 
-Users need to manually update the metadata using the  [REFRESH CATALOG](https://doris.apache.org/docs/dev/sql-manual/sql-reference/Utility-Statements/REFRESH/) command.
+### Manual refresh
 
-### Automatic Refresh
+Users need to manually refresh the metadata through the [REFRESH](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) command.
 
-#### Hive Metastore
+### Regular refresh
 
-Currently, Doris only supports automatic update of metadata in Hive Metastore (HMS). It perceives changes in metadata by the FE node which regularly reads the notification events from HMS. The supported events are as follows:
+When creating the catalog, specify the refresh time parameter `metadata_refresh_interval_sec` in the properties in seconds. If this parameter is set when creating the catalog, the FE master node will refresh the catalog regularly according to the parameter value. Currently three types of catalogs are supported:
 
-| Event           | Corresponding Update Operation                               |
-| :-------------- | :----------------------------------------------------------- |
-| CREATE DATABASE | Create a database in the corresponding catalog.              |
-| DROP DATABASE   | Delete a database in the corresponding catalog.              |
-| ALTER DATABASE  | Such alterations mainly include changes in properties, comments, or storage location of databases. They do not affect Doris' queries in External Catalogs so they will not be synchronized. |
-| CREATE TABLE    | Create a table in the corresponding database.                |
-| DROP TABLE      | Delete a table in the corresponding database, and invalidate the cache of that table. |
-| ALTER TABLE     | If it is a renaming, delete the table of the old name, and then create a new table with the new name; otherwise, invalidate the cache of that table. |
-| ADD PARTITION   | Add a partition to the cached partition list of the corresponding table. |
-| DROP PARTITION  | Delete a partition from the cached partition list of the corresponding table, and invalidate the cache of that partition. |
-| ALTER PARTITION | If it is a renaming, delete the partition of the old name, and then create a new partition with the new name; otherwise, invalidate the cache of that partition. |
-
-> After data ingestion, changes in partition tables will follow the `ALTER PARTITION` logic, while those in non-partition tables will follow the `ALTER TABLE` logic.
->
-> If changes are conducted on the file system directly instead of through the HMS, the HMS will not generate an event. As a result, such changes will not be perceived by Doris.
-
-The automatic update feature involves the following parameters in fe.conf:
-
-1. `enable_hms_events_incremental_sync`: This specifies whether to enable automatic incremental synchronization for metadata, which is disabled by default. 
-2. `hms_events_polling_interval_ms`: This specifies the interval between two readings, which is set to 10000 by default. (Unit: millisecond) 
-3. `hms_events_batch_size_per_rpc`: This specifies the maximum number of events that are read at a time, which is set to 500 by default.
-
-To enable automatic update(Excluding Huawei MRS), you need to modify the hive-site.xml of HMS and then restart HMS and HiveServer2:
-
-```
-<property>
-    <name>hive.metastore.event.db.notification.api.auth</name>
-    <value>false</value>
-</property>
-<property>
-    <name>hive.metastore.dml.events</name>
-    <value>true</value>
-</property>
-<property>
-    <name>hive.metastore.transactional.event.listeners</name>
-    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
-</property>
-
-```
-
-Huawei's MRS needs to change hivemetastore-site.xml and restart HMS and HiveServer2:
-
-```
-<property>
-    <name>metastore.transactional.event.listeners</name>
-    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
-</property>
-```
-
-Note: Value is appended with commas separated from the original value, not overwritten.For example, the default configuration for MRS 3.1.0 is
-
-```
-<property>
-    <name>metastore.transactional.event.listeners</name>
-    <value>com.huawei.bigdata.hive.listener.TableKeyFileManagerListener,org.apache.hadoop.hive.metastore.listener.FileAclListener</value>
-</property>
-```
-
-We need to change to
-
-```
-<property>
-    <name>metastore.transactional.event.listeners</name>
-    <value>com.huawei.bigdata.hive.listener.TableKeyFileManagerListener,org.apache.hadoop.hive.metastore.listener.FileAclListener,org.apache.hive.hcatalog.listener.DbNotificationListener</value>
-</property>
-```
-
-> Note: To enable automatic update, whether for existing Catalogs or newly created Catalogs, all you need is to set `enable_hms_events_incremental_sync` to `true`, and then restart the FE node. You don't need to manually update the metadata before or after the restart.
-
-#### Timed Refresh
-
-When creating a catalog, specify the refresh time parameter `metadata_refresh_interval_sec` in the properties, in seconds. If this parameter is set when creating a catalog, the master node of FE will refresh the catalog regularly according to the parameter value. Three types are currently supported
-
-- hms: Hive MetaStore
--es: Elasticsearch
-- jdbc: Standard interface for database access (JDBC)
-
-##### Example
+- hive: Hive MetaStore
+- es: Elasticsearch
+- jdbc: standard interface for database access (JDBC)
 
 ```
 -- Set the catalog refresh interval to 20 seconds
@@ -394,3 +319,6 @@ CREATE CATALOG es PROPERTIES (
 );
 ```
 
+### Auto Refresh
+
+Auto-refresh currently only supports [Hive Catalog](./hive.md).

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "strright",
+    "title": "STRRIGHT",
     "language": "en"
 }
 ---

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "repeat",
+    "title": "REPEAT",
     "language": "en"
 }
 ---

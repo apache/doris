@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Import local data",
+    "title": "Import Local Data",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Import local data
+# Import Local Data
 The following mainly introduces how to import local data in client.
 
 Now Doris support two way to load data from client local file:
@@ -111,12 +111,12 @@ PUT /api/{db}/{table}/_stream_load
    - The status of the `Status` field is `Success`, which means the import is successful.
    - For details of other fields, please refer to the [Stream Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.md) command documentation.
 
-### Import suggestion
+### Import Suggestion
 
 - Stream Load can only import local files.
 - It is recommended to limit the amount of data for an import request to 1 - 2 GB. If you have a large number of local files, you can submit them concurrently in batches.
 
-### Java code example
+### Java Code Examples
 
 Here is a simple JAVA example to execute Stream Load:
 
@@ -269,7 +269,7 @@ public class DorisStreamLoader {
    - Load success if the client show the return rows. Otherwise sql statement will throw an exception and show the error message in client.
    - For details of other fields, please refer to the [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) command documentation.
 
-### Import suggestion
+### Import Suggestion
 
    - MySql Load can only import local files(which can be client local file or fe local file) and only support csv format.
    - It is recommended to limit the amount of data for an import request to 1 - 2 GB. If you have a large number of local files, you can submit them concurrently in batches.
