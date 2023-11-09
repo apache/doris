@@ -121,7 +121,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                 batchTask.addTask(task);
                 transactionState.addPublishVersionTask(backendId, task);
             }
-            transactionState.setHasSendTask(true);
+            transactionState.setSendedTask();
             LOG.info("send publish tasks for transaction: {}, db: {}", transactionState.getTransactionId(),
                     transactionState.getDbId());
         }

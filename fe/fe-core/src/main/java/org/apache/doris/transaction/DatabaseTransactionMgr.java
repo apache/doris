@@ -944,10 +944,10 @@ public class DatabaseTransactionMgr {
         Map<Long, PublishVersionTask> publishTasks = transactionState.getPublishVersionTasks();
 
         long now = System.currentTimeMillis();
-        long firstPublishOneSuccTime = transactionState.getFirstPublishOneSuccTime();
+        long firstPublishVersionTime = transactionState.getFirstPublishVersionTime();
         boolean allowPublishOneSucc = false;
-        if (Config.publish_wait_time_second > 0 && firstPublishOneSuccTime > 0
-                && now >= firstPublishOneSuccTime + Config.publish_wait_time_second * 1000L) {
+        if (Config.publish_wait_time_second > 0 && firstPublishVersionTime > 0
+                && now >= firstPublishVersionTime + Config.publish_wait_time_second * 1000L) {
             allowPublishOneSucc = true;
         }
 
@@ -1099,9 +1099,6 @@ public class DatabaseTransactionMgr {
                         }
                     }
                 }
-            }
-            if (allTabletsLeastOneSucc && firstPublishOneSuccTime <= 0) {
-                transactionState.setFirstPublishOneSuccTime(now);
             }
             if (publishResult == PublishResult.FAILED) {
                 return;

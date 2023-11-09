@@ -224,9 +224,9 @@ public class TransactionState implements Writable {
     private TransactionStatus preStatus = null;
 
     // When publish txn, if every tablet has at least 1 replica published succ, but not quorum replicas succ,
-    // and time since firstPublishOneSuccTime has exceeds Config.publish_wait_time_second,
+    // and time since firstPublishVersionTime has exceeds Config.publish_wait_time_second,
     // then this transaction will become visible.
-    private long firstPublishOneSuccTime = -1;
+    private long firstPublishVersionTime = -1;
 
     @SerializedName(value = "callbackId")
     private long callbackId = -1;
@@ -339,13 +339,16 @@ public class TransactionState implements Writable {
         this.publishVersionTasks.put(backendId, task);
     }
 
-    public void setHasSendTask(boolean hasSendTask) {
-        this.hasSendTask = hasSendTask;
-        this.publishVersionTime = System.currentTimeMillis();
+    public void setSendedTask() {
+        this.hasSendTask = true;
+        updateSendTaskTime();
     }
 
     public void updateSendTaskTime() {
         this.publishVersionTime = System.currentTimeMillis();
+        if (this.firstPublishVersionTime <= 0) {
+            this.firstPublishVersionTime = publishVersionTime;
+        }
     }
 
     public long getPublishVersionTime() {
@@ -420,12 +423,8 @@ public class TransactionState implements Writable {
         return errorLogUrl;
     }
 
-    public long getFirstPublishOneSuccTime() {
-        return firstPublishOneSuccTime;
-    }
-
-    public void setFirstPublishOneSuccTime(long firstPublishOneSuccTime) {
-        this.firstPublishOneSuccTime = firstPublishOneSuccTime;
+    public long getFirstPublishVersionTime() {
+        return firstPublishVersionTime;
     }
 
     public void setTransactionStatus(TransactionStatus transactionStatus) {
