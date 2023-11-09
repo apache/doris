@@ -52,6 +52,7 @@ import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Locale;
@@ -89,7 +90,6 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
         // bind function
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
-        String functionName = unboundFunction.getName();
         List<Object> arguments = unboundFunction.isDistinct()
                 ? ImmutableList.builder()
                 .add(unboundFunction.isDistinct())
@@ -97,14 +97,17 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 .build()
                 : (List) unboundFunction.getArguments();
 
-        // we will change arithmetic function like add(), subtract(), bitnot() to the corresponding objects rather than
-        // BoundFunction.
-        ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
-        if (functionBinder.isBinaryArithmetic(unboundFunction.getName())) {
-            return functionBinder.bindBinaryArithmetic(unboundFunction.getName(), unboundFunction.children())
-                    .accept(this, context);
+        if (StringUtils.isEmpty(unboundFunction.getDbName())) {
+            // we will change arithmetic function like add(), subtract(), bitnot()
+            // to the corresponding objects rather than BoundFunction.
+            ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
+            if (functionBinder.isBinaryArithmetic(unboundFunction.getName())) {
+                return functionBinder.bindBinaryArithmetic(unboundFunction.getName(), unboundFunction.children())
+                        .accept(this, context);
+            }
         }
 
+        String functionName = unboundFunction.getName();
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(
                 unboundFunction.getDbName(), functionName, arguments);
         if (builder instanceof AliasUdfBuilder) {
