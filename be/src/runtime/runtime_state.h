@@ -175,9 +175,11 @@ public:
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
     [[nodiscard]] bool is_cancelled() const;
+    std::string cancel_reason() const;
     int codegen_level() const { return _query_options.codegen_level; }
     void set_is_cancelled(bool v, std::string msg) {
         _is_cancelled.store(v);
+        _cancel_reason = msg;
         // Create a error status, so that we could print error stack, and
         // we could know which path call cancel.
         LOG(WARNING) << "Task is cancelled, instance: "
@@ -557,6 +559,7 @@ private:
 
     // if true, execution should stop with a CANCELLED status
     std::atomic<bool> _is_cancelled;
+    std::string _cancel_reason;
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;
