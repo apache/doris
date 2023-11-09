@@ -721,7 +721,7 @@ BaseCompaction:546859:
 #### `enable_single_replica_load`
 
 * Description: Whether to enable the single-copy data import function
-* Default value: false
+* Default value: true
 
 #### `load_error_log_reserve_hours`
 
