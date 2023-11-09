@@ -1177,10 +1177,11 @@ public:
     using SetContainer = phmap::flat_hash_set<T>;
 
     // Construct an empty bitmap.
-    BitmapValue() : _type(EMPTY), _is_shared(false) {}
+    BitmapValue() : _sv(0), _bitmap(nullptr), _type(EMPTY), _is_shared(false) { _set.clear(); }
 
     // Construct a bitmap with one element.
-    explicit BitmapValue(uint64_t value) : _sv(value), _type(SINGLE), _is_shared(false) {}
+    explicit BitmapValue(uint64_t value)
+            : _sv(value), _bitmap(nullptr), _type(SINGLE), _is_shared(false) {}
 
     // Construct a bitmap from serialized data.
     explicit BitmapValue(const char* src) : _is_shared(false) {
@@ -1204,7 +1205,7 @@ public:
             break;
         }
 
-        if (other._type != EMPTY) {
+        if (other._type == BITMAP) {
             _is_shared = true;
             // should also set other's state to shared, so that other bitmap value will
             // create a new bitmap when it wants to modify it.
@@ -1234,6 +1235,10 @@ public:
     }
 
     BitmapValue& operator=(const BitmapValue& other) {
+        if (this == &other) {
+            return *this;
+        }
+        reset();
         _type = other._type;
         switch (other._type) {
         case EMPTY:
@@ -1249,7 +1254,7 @@ public:
             break;
         }
 
-        if (other._type != EMPTY) {
+        if (other._type == BITMAP) {
             _is_shared = true;
             // should also set other's state to shared, so that other bitmap value will
             // create a new bitmap when it wants to modify it.
@@ -1270,6 +1275,7 @@ public:
         if (this == &other) {
             return *this;
         }
+        reset();
 
         _type = other._type;
         switch (other._type) {
@@ -1726,8 +1732,7 @@ public:
     BitmapValue& operator&=(const BitmapValue& rhs) {
         switch (rhs._type) {
         case EMPTY:
-            _type = EMPTY;
-            _bitmap.reset();
+            reset(); // empty & any = empty
             break;
         case SINGLE:
             switch (_type) {
@@ -1746,6 +1751,7 @@ public:
                     _sv = rhs._sv;
                 }
                 _bitmap.reset();
+                _is_shared = false;
                 break;
             case SET:
                 if (!_set.contains(rhs._sv)) {
@@ -1802,6 +1808,7 @@ public:
                 }
                 _type = SET;
                 _bitmap.reset();
+                _is_shared = false;
                 _convert_to_smaller_type();
                 break;
             case SET:
@@ -1837,7 +1844,6 @@ public:
             case SINGLE:
                 if (_sv == rhs._sv) {
                     _type = EMPTY;
-                    _bitmap.reset();
                 } else {
                     add(rhs._sv);
                 }
@@ -2167,7 +2173,7 @@ public:
 
     // Return how many bytes are required to serialize this bitmap.
     // See BitmapTypeCode for the serialized format.
-    size_t getSizeInBytes() {
+    size_t getSizeInBytes() const {
         size_t res = 0;
         switch (_type) {
         case EMPTY:
@@ -2618,12 +2624,13 @@ public:
         }
     }
 
-    void clear() {
+    void reset() {
         _type = EMPTY;
-        _bitmap.reset();
         _sv = 0;
+        _set.clear();
+        _is_shared = false;
+        _bitmap = nullptr;
     }
-
     // Implement an iterator for convenience
     friend class BitmapValueIterator;
     typedef BitmapValueIterator b_iterator;
