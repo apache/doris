@@ -144,6 +144,9 @@ public:
     }
 
     [[nodiscard]] virtual WriteDependency* write_blocked_by() {
+        if (_ready_for_read) {
+            Dependency::try_to_wake_up_task();
+        }
         if (config::enable_fuzzy_mode && !_ready_for_write &&
             _should_log(_write_dependency_watcher.elapsed_time())) {
             LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
@@ -541,10 +544,8 @@ public:
         _union_state = union_state;
     }
     void set_ready_for_read() override {
+        std::unique_lock lc(_union_lock);
         if (!_union_state->data_queue.is_all_finish()) {
-            return;
-        }
-        if (_ready_for_read) {
             return;
         }
         Dependency::set_ready_for_read();
@@ -553,13 +554,16 @@ public:
         if (_union_state->child_count() == 0) {
             return nullptr;
         }
-        return WriteDependency::read_blocked_by();
+        return Dependency::read_blocked_by();
     }
+
+    WriteDependency* write_blocked_by() override { return nullptr; }
     void block_reading() override {}
     void block_writing() override {}
 
 private:
     std::shared_ptr<UnionSharedState> _union_state;
+    std::mutex _union_lock;
 };
 
 struct MultiCastSharedState {
