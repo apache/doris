@@ -301,7 +301,8 @@ void VOlapTableSinkV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& 
     }
 }
 
-Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, Streams& streams) {
+Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
+                                         Streams& streams) {
     auto location = _location->find_tablet(tablet_id);
     if (location == nullptr) {
         return Status::InternalError("unknown tablet location, tablet id = {}", tablet_id);
@@ -309,11 +310,18 @@ Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, Streams& streams) {
     for (auto& node_id : location->node_ids) {
         if (!_streams_for_node.contains(node_id)) {
             auto load_streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                    _load_id, _backend_id, node_id, _stream_per_node, _num_local_sink);
+                _load_id, _backend_id, node_id, _stream_per_node, _num_local_sink);
+            PTabletID tablet;
+            tablet.set_partition_id(partition_id);
+            tablet.set_index_id(index_id);
+            tablet.set_tablet_id(tablet_id);
+            _tablets_for_node[node_id].emplace_back(tablet);
+            _indexes_from_node[node_id].emplace_back(tablet);
             RETURN_IF_ERROR(_open_streams_to_backend(node_id, *load_streams));
             _streams_for_node[node_id] = load_streams;
         }
         streams.emplace_back(_streams_for_node.at(node_id)->streams().at(_stream_index));
+        RETURN_IF_ERROR(streams[0]->wait_for_schema(partition_id, index_id, tablet_id));
     }
     _stream_index = (_stream_index + 1) % _stream_per_node;
     return Status::OK();
@@ -359,7 +367,7 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     // For each tablet, send its input_rows from block to delta writer
     for (const auto& [tablet_id, rows] : rows_for_tablet) {
         Streams streams;
-        RETURN_IF_ERROR(_select_streams(tablet_id, streams));
+        RETURN_IF_ERROR(_select_streams(tablet_id, rows.partition_id, rows.index_id, streams));
         RETURN_IF_ERROR(_write_memtable(block, tablet_id, rows, streams));
     }
 
