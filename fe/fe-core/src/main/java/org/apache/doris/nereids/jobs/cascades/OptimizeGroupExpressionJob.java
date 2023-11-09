@@ -63,16 +63,16 @@ public class OptimizeGroupExpressionJob extends Job {
             System.out.println(groupExpression);
         }
         boolean isDisableJoinReorder = context.getCascadesContext().getConnectContext().getSessionVariable()
-            .isDisableJoinReorder()
-            || context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
-            .getConnectContext().getSessionVariable().memoMaxGroupExpressionSize;
+                .isDisableJoinReorder()
+                || context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
+                .getConnectContext().getSessionVariable().memoMaxGroupExpressionSize;
         boolean isDpHyp = context.getCascadesContext().getStatementContext().isDpHyp();
         boolean isOtherJoinReorder = context.getCascadesContext().getStatementContext().isOtherJoinReorder();
         boolean isEnableBushyTree = context.getCascadesContext().getConnectContext().getSessionVariable()
-            .isEnableBushyTree();
+                .isEnableBushyTree();
         boolean isLeftZigZagTree = context.getCascadesContext().getConnectContext()
-            .getSessionVariable().isEnableLeftZigZag()
-            || !(groupExpression.getOwnerGroup() != null && groupExpression.getOwnerGroup().isStatsReliable());
+                .getSessionVariable().isEnableLeftZigZag()
+                || !(groupExpression.getOwnerGroup() != null && groupExpression.getOwnerGroup().isStatsReliable());
         int joinNumBushyTree = context.getCascadesContext().getConnectContext()
                 .getSessionVariable().getMaxJoinNumBushyTree();
         if (isDisableJoinReorder) {
