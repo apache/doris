@@ -19,17 +19,25 @@ package org.apache.doris.avro;
 
 import org.apache.doris.common.jni.vec.ColumnValue;
 
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericData.Fixed;
+import org.apache.avro.generic.GenericFixed;
+import org.apache.avro.generic.GenericRecord;
 import org.apache.hadoop.hive.serde2.objectinspector.ListObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.MapObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.StructField;
+import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.Objects;
 
 public class AvroColumnValue implements ColumnValue {
 
@@ -42,6 +50,12 @@ public class AvroColumnValue implements ColumnValue {
     }
 
     private Object inspectObject() {
+        if (fieldData instanceof ByteBuffer) {
+            return ((PrimitiveObjectInspector) fieldInspector).getPrimitiveJavaObject(((ByteBuffer) fieldData).array());
+        } else if (fieldData instanceof Fixed) {
+            return ((PrimitiveObjectInspector) fieldInspector).getPrimitiveJavaObject(
+                    ((GenericFixed) fieldData).bytes());
+        }
         return ((PrimitiveObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData);
     }
 
@@ -162,6 +176,24 @@ public class AvroColumnValue implements ColumnValue {
 
     @Override
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
-
+        StructObjectInspector inspector = (StructObjectInspector) fieldInspector;
+        List<? extends StructField> fields = inspector.getAllStructFieldRefs();
+        for (Integer idx : structFieldIndex) {
+            AvroColumnValue cv = null;
+            if (idx != null) {
+                StructField sf = fields.get(idx);
+                Object o;
+                if (fieldData instanceof GenericData.Record) {
+                    GenericRecord record = (GenericRecord) inspector.getStructFieldData(fieldData, sf);
+                    o = record.get(idx);
+                } else {
+                    o = inspector.getStructFieldData(fieldData, sf);
+                }
+                if (Objects.nonNull(o)) {
+                    cv = new AvroColumnValue(sf.getFieldObjectInspector(), o);
+                }
+            }
+            values.add(cv);
+        }
     }
 }
