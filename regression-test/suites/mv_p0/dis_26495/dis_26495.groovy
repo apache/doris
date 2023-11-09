@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("dis_26495") {
-
+    sql "set enable_agg_state=true"
     sql """ DROP TABLE IF EXISTS doris_test; """
 
     sql """
