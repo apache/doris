@@ -30,6 +30,7 @@
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/load_stream_writer.h"
+#include "util/runtime_profile.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 
@@ -251,6 +252,8 @@ LoadStream::~LoadStream() {
 
 Status LoadStream::init(const POpenLoadStreamRequest* request) {
     _txn_id = request->txn_id();
+    _total_streams = request->total_streams();
+    DCHECK(_total_streams > 0) << "total streams should be greator than 0";
 
     _schema = std::make_shared<OlapTableSchemaParam>();
     RETURN_IF_ERROR(_schema->init(request->schema()));
@@ -265,41 +268,49 @@ Status LoadStream::init(const POpenLoadStreamRequest* request) {
 Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
                          std::vector<int64_t>* success_tablet_ids,
                          std::vector<int64_t>* failed_tablet_ids) {
-    std::lock_guard lock_guard(_lock);
+    std::lock_guard<bthread::Mutex> lock_guard(_lock);
     SCOPED_TIMER(_close_wait_timer);
 
     // we do nothing until recv CLOSE_LOAD from all stream to ensure all data are handled before ack
     _open_streams[src_id]--;
-    LOG(INFO) << "received CLOSE_LOAD from sender " << src_id << ", remaining "
-              << _open_streams[src_id] << " streams";
     if (_open_streams[src_id] == 0) {
         _open_streams.erase(src_id);
     }
+    _close_load_cnt++;
+    LOG(INFO) << "received CLOSE_LOAD from sender " << src_id << ", remaining "
+              << _total_streams - _close_load_cnt << " senders";
+
+    _tablets_to_commit.insert(_tablets_to_commit.end(), tablets_to_commit.begin(),
+                              tablets_to_commit.end());
+
+    if (_close_load_cnt < _total_streams) {
+        // do not return commit info if there is remaining streams.
+        return Status::OK();
+    }
 
     Status st = Status::OK();
-    if (_open_streams.size() == 0) {
+    {
         bthread::Mutex mutex;
         std::unique_lock<bthread::Mutex> lock(mutex);
         bthread::ConditionVariable cond;
-        bool ret = _load_stream_mgr->heavy_work_pool()->try_offer([this, &success_tablet_ids,
-                                                                   &failed_tablet_ids,
-                                                                   &tablets_to_commit, &mutex,
-                                                                   &cond, &st]() {
-            signal::set_signal_task_id(_load_id);
-            for (auto& it : _index_streams_map) {
-                st = it.second->close(tablets_to_commit, success_tablet_ids, failed_tablet_ids);
-                if (!st.ok()) {
+        bool ret = _load_stream_mgr->heavy_work_pool()->try_offer(
+                [this, &success_tablet_ids, &failed_tablet_ids, &mutex, &cond, &st]() {
+                    signal::set_signal_task_id(_load_id);
+                    for (auto& it : _index_streams_map) {
+                        st = it.second->close(_tablets_to_commit, success_tablet_ids,
+                                              failed_tablet_ids);
+                        if (!st.ok()) {
+                            std::unique_lock<bthread::Mutex> lock(mutex);
+                            cond.notify_one();
+                            return;
+                        }
+                    }
+                    LOG(INFO) << "close load " << *this
+                              << ", failed_tablet_num=" << failed_tablet_ids->size()
+                              << ", success_tablet_num=" << success_tablet_ids->size();
                     std::unique_lock<bthread::Mutex> lock(mutex);
                     cond.notify_one();
-                    return;
-                }
-            }
-            LOG(INFO) << "close load " << *this
-                      << ", failed_tablet_num=" << failed_tablet_ids->size()
-                      << ", success_tablet_num=" << success_tablet_ids->size();
-            std::unique_lock<bthread::Mutex> lock(mutex);
-            cond.notify_one();
-        });
+                });
         if (ret) {
             cond.wait(lock);
         } else {
@@ -307,24 +318,21 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
                     "there is not enough thread resource for close load");
         }
     }
-
-    // do not return commit info for non-last one.
     return st;
 }
 
-void LoadStream::_report_result(StreamId stream, Status& st,
-                                std::vector<int64_t>* success_tablet_ids,
-                                std::vector<int64_t>* failed_tablet_ids) {
-    LOG(INFO) << "report result, success tablet num " << success_tablet_ids->size()
-              << ", failed tablet num " << failed_tablet_ids->size();
+void LoadStream::_report_result(StreamId stream, const Status& st,
+                                const std::vector<int64_t>& success_tablet_ids,
+                                const std::vector<int64_t>& failed_tablet_ids) {
+    LOG(INFO) << "report result, success tablet num " << success_tablet_ids.size()
+              << ", failed tablet num " << failed_tablet_ids.size();
     butil::IOBuf buf;
     PWriteStreamSinkResponse response;
     st.to_protobuf(response.mutable_status());
-    for (auto& id : *success_tablet_ids) {
+    for (auto& id : success_tablet_ids) {
         response.add_success_tablet_ids(id);
     }
-
-    for (auto& id : *failed_tablet_ids) {
+    for (auto& id : failed_tablet_ids) {
         response.add_failed_tablet_ids(id);
     }
 
@@ -421,18 +429,20 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
 void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data) {
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
+    if (UniqueId(hdr.load_id()) != UniqueId(_load_id)) {
+        Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>("invalid load id {}, expected {}",
+                                                               UniqueId(hdr.load_id()).to_string(),
+                                                               UniqueId(_load_id).to_string());
+        _report_failure(id, st, hdr);
+        return;
+    }
 
     {
         std::lock_guard lock_guard(_lock);
         if (!_open_streams.contains(hdr.src_id())) {
-            std::vector<int64_t> success_tablet_ids;
-            std::vector<int64_t> failed_tablet_ids;
-            if (hdr.has_tablet_id()) {
-                failed_tablet_ids.push_back(hdr.tablet_id());
-            }
             Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>("no open stream from source {}",
                                                                    hdr.src_id());
-            _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
+            _report_failure(id, st, hdr);
             return;
         }
     }
@@ -442,10 +452,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     case PStreamHeader::APPEND_DATA: {
         auto st = _append_data(hdr, data);
         if (!st.ok()) {
-            std::vector<int64_t> success_tablet_ids;
-            std::vector<int64_t> failed_tablet_ids;
-            failed_tablet_ids.push_back(hdr.tablet_id());
-            _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
+            _report_failure(id, st, hdr);
         }
     } break;
     case PStreamHeader::CLOSE_LOAD: {
@@ -454,7 +461,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         std::vector<PTabletID> tablets_to_commit(hdr.tablets_to_commit().begin(),
                                                  hdr.tablets_to_commit().end());
         auto st = close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablet_ids);
-        _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
+        _report_result(id, st, success_tablet_ids, failed_tablet_ids);
         brpc::StreamClose(id);
     } break;
     default:
@@ -468,9 +475,9 @@ void LoadStream::on_idle_timeout(StreamId id) {
 }
 
 void LoadStream::on_closed(StreamId id) {
-    auto remaining_rpc_stream = remove_rpc_stream();
-    LOG(INFO) << "stream closed " << id << ", remaining_rpc_stream=" << remaining_rpc_stream;
-    if (remaining_rpc_stream == 0) {
+    auto remaining_streams = _total_streams - _close_rpc_cnt.fetch_add(1) - 1;
+    LOG(INFO) << "stream " << id << " on_closed, remaining streams = " << remaining_streams;
+    if (remaining_streams == 0) {
         _load_stream_mgr->clear_load(_load_id);
     }
 }

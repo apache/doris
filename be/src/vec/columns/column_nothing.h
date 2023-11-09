@@ -14,37 +14,31 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/ColumnNothing.h
+// and modified by Doris
 
 #pragma once
 
-#include <string>
+#include "vec/columns/column_dummy.h"
 
-#include "common/object_pool.h"
-#include "common/status.h"
-#include "vec/data_types/data_type.h"
-#include "vec/exprs/vexpr.h"
+namespace doris::vectorized {
 
-namespace doris {
-class TExprNode;
+class ColumnNothing final : public COWHelper<IColumnDummy, ColumnNothing> {
+private:
+    friend class COWHelper<IColumnDummy, ColumnNothing>;
 
-namespace vectorized {
-class Block;
-class VExprContext;
+    ColumnNothing(size_t s_) { s = s_; }
 
-class VInfoFunc : public VExpr {
-    ENABLE_FACTORY_CREATOR(VInfoFunc);
+    ColumnNothing(const ColumnNothing&) = default;
 
 public:
-    VInfoFunc(const TExprNode& node);
-    ~VInfoFunc() override = default;
+    const char* get_family_name() const override { return "Nothing"; }
+    MutableColumnPtr clone_dummy(size_t s_) const override { return ColumnNothing::create(s_); }
 
-    const std::string& expr_name() const override { return _expr_name; }
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
-
-private:
-    const std::string _expr_name = "vinfofunc expr";
-    ColumnPtr _column_ptr;
+    bool structure_equals(const IColumn& rhs) const override {
+        return typeid(rhs) == typeid(ColumnNothing);
+    }
 };
-} // namespace vectorized
 
-} // namespace doris
+} // namespace doris::vectorized

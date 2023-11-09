@@ -40,35 +40,30 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/stream_load_pipe.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "util/defer_op.h"
-#include "vec/core/block.h"
-#include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
-#include "vec/exec/scan/vscanner.h"
-#include "vec/json/simd_json_parser.h"
-// dynamic table
-#include "common/config.h"
-#include "io/fs/file_reader.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/json/json_parser.h"
-#include "vec/json/parse2column.h"
+#include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
+#include "vec/exec/scan/vscanner.h"
+#include "vec/json/simd_json_parser.h"
 
 namespace doris::io {
 struct IOContext;

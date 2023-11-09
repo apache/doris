@@ -742,8 +742,6 @@ DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 
 // share delta writers when memtable_on_sink_node = true
 DEFINE_Bool(share_delta_writers, "true");
-// number of brpc stream per load
-DEFINE_Int32(num_streams_per_load, "5");
 // timeout for open load stream rpc in ms
 DEFINE_Int64(open_load_stream_timeout_ms, "500");
 
@@ -969,6 +967,9 @@ DEFINE_Bool(enable_workload_group_for_scan, "false");
 // Will remove after fully test.
 DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
+DEFINE_mBool(enable_flatten_nested_for_variant, "false");
+DEFINE_mDouble(ratio_of_defaults_as_sparse_column, "0.95");
+
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
@@ -1013,8 +1014,6 @@ DEFINE_Int32(max_depth_in_bkd_tree, "32");
 DEFINE_Bool(inverted_index_compaction_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
-// semi-structure configs
-DEFINE_Bool(enable_parse_multi_dimession_array, "false");
 
 // max depth of expression tree allowed.
 DEFINE_Int32(max_depth_of_expr_tree, "600");
@@ -1112,6 +1111,7 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
 DEFINE_String(doris_cgroup_cpu_path, "");
+DEFINE_Bool(enable_cgroup_cpu_soft_limit, "false");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 

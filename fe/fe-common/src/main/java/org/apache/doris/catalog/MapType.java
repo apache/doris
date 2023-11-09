@@ -142,7 +142,7 @@ public class MapType extends Type {
 
     @Override
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
-                                       boolean useSpecializedType) throws TypeException {
+                                       boolean useSpecializedType, boolean enableDecimal256) throws TypeException {
         MapType specificMapType = null;
         if (specificType instanceof MapType) {
             specificMapType = (MapType) specificType;
@@ -154,13 +154,13 @@ public class MapType extends Type {
         if (keyType.hasTemplateType()) {
             newKeyType = keyType.specializeTemplateType(
                 specificMapType != null ? specificMapType.keyType : specificType,
-                specializedTypeMap, useSpecializedType);
+                specializedTypeMap, useSpecializedType, enableDecimal256);
         }
         Type newValueType = valueType;
         if (valueType.hasTemplateType()) {
             newValueType = valueType.specializeTemplateType(
                 specificMapType != null ? specificMapType.valueType : specificType,
-                specializedTypeMap, useSpecializedType);
+                specializedTypeMap, useSpecializedType, enableDecimal256);
         }
 
         Type newMapType = new MapType(newKeyType, newValueType);
@@ -198,12 +198,14 @@ public class MapType extends Type {
             || targetType.getValueType().isStringType() && type.getValueType().isStringType());
     }
 
-    public static Type getAssignmentCompatibleType(MapType t1, MapType t2, boolean strict) {
-        Type keyCompatibleType = Type.getAssignmentCompatibleType(t1.getKeyType(), t2.getKeyType(), strict);
+    public static Type getAssignmentCompatibleType(MapType t1, MapType t2, boolean strict, boolean enableDecimal256) {
+        Type keyCompatibleType = Type.getAssignmentCompatibleType(t1.getKeyType(), t2.getKeyType(), strict,
+                enableDecimal256);
         if (keyCompatibleType.isInvalid()) {
             return ScalarType.INVALID;
         }
-        Type valCompatibleType = Type.getAssignmentCompatibleType(t1.getValueType(), t2.getValueType(), strict);
+        Type valCompatibleType = Type.getAssignmentCompatibleType(t1.getValueType(), t2.getValueType(), strict,
+                enableDecimal256);
         if (valCompatibleType.isInvalid()) {
             return ScalarType.INVALID;
         }
