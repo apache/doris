@@ -334,7 +334,7 @@ private:
         auto do_the_probe = [&]() {
             auto matched_cnt_old = matched_cnt;
             while (build_idx && matched_cnt < batch_size) {
-                if (keys[probe_idx] == build_keys[build_idx]) {
+                if (!visited[build_idx] && keys[probe_idx] == build_keys[build_idx]) {
                     build_idxs[matched_cnt++] = build_idx;
                 }
                 build_idx = next[build_idx];
