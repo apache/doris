@@ -552,6 +552,7 @@ private:
     std::shared_ptr<ObjectPool> _obj_pool;
     std::unique_ptr<orc::StringDictFilter> _string_dict_filter;
     bool _is_dict_cols_converted;
+    bool _has_complex_type = false;
 };
 
 class ORCFileInputStream : public orc::InputStream {
