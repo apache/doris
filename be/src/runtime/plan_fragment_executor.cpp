@@ -257,10 +257,14 @@ Status PlanFragmentExecutor::open() {
         _report_thread_started_cv.wait(l);
     }
     Status status = Status::OK();
-    if (_runtime_state->enable_vectorized_exec()) {
-        status = open_vectorized_internal();
-    } else {
-        status = open_internal();
+    try {
+        if (_runtime_state->enable_vectorized_exec()) {
+            status = open_vectorized_internal();
+        } else {
+            status = open_internal();
+        }
+    } catch (const std::exception& e) {
+        status = Status::InternalError(e.what());
     }
 
     if (!status.ok() && !status.is<CANCELLED>() && _runtime_state->log_has_space()) {

@@ -23,9 +23,11 @@
 #include <cassert>
 #include <cstring>
 
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/exception.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/memcpy_small.h"
 #include "vec/common/pod_array.h"
@@ -63,8 +65,11 @@ private:
 
     void ALWAYS_INLINE check_chars_length(size_t total_length, size_t element_number) const {
         if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            LOG(FATAL) << "string column length is too large: total_length=" << total_length
-                       << " ,element_number=" << element_number;
+            std::string msg = "string column length is too large: total_length=" +
+                              std::to_string(total_length) +
+                              ", element_number=" + std::to_string(element_number);
+            LOG(WARNING) << msg;
+            throw Exception(msg, ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE);
         }
     }
 

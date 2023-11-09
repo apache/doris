@@ -43,8 +43,13 @@ VExprContext::~VExprContext() {
 }
 
 doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result_column_id) {
-    Status st = _root->execute(this, block, result_column_id);
-    _last_result_column_id = *result_column_id;
+    Status st = Status::OK();
+    try {
+        st = _root->execute(this, block, result_column_id);
+        _last_result_column_id = *result_column_id;
+    } catch (const std::exception& e) {
+        st = Status::InternalError(e.what());
+    }
     return st;
 }
 
