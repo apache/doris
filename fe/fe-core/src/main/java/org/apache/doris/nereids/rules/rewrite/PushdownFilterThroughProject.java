@@ -41,27 +41,26 @@ public class PushdownFilterThroughProject implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-            RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT.build(logicalFilter(logicalProject())
-                    .whenNot(filter -> filter.child().getProjects().stream().anyMatch(
-                            expr -> expr.anyMatch(WindowExpression.class::isInstance)))
-                    .then(PushdownFilterThroughProject::pushdownFilterThroughProject)),
-            // filter(project(limit)) will change to filter(limit(project)) by PushdownProjectThroughLimit,
-            // then we should change filter(limit(project)) to project(filter(limit))
-            RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT_UNDER_LIMIT
-                    .build(logicalFilter(logicalLimit(logicalProject()))
-                            .whenNot(filter -> filter.child().child().getProjects().stream()
-                                    .anyMatch(expr -> expr
-                                            .anyMatch(WindowExpression.class::isInstance)))
-                            .then(filter -> {
-                                LogicalLimit<LogicalProject<Plan>> limit = filter.child();
-                                LogicalProject<Plan> project = limit.child();
+                logicalFilter(logicalProject())
+                        .whenNot(filter -> filter.child().getProjects().stream().anyMatch(
+                                expr -> expr.anyMatch(WindowExpression.class::isInstance)))
+                        .then(PushdownFilterThroughProject::pushdownFilterThroughProject)
+                        .toRule(RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT),
+                // filter(project(limit)) will change to filter(limit(project)) by PushdownProjectThroughLimit,
+                // then we should change filter(limit(project)) to project(filter(limit))
+                logicalFilter(logicalLimit(logicalProject()))
+                        .whenNot(filter -> filter.child().child().getProjects().stream()
+                                .anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance)))
+                        .then(filter -> {
+                            LogicalLimit<LogicalProject<Plan>> limit = filter.child();
+                            LogicalProject<Plan> project = limit.child();
 
-                                return project.withProjectsAndChild(project.getProjects(),
-                                        new LogicalFilter<>(
-                                                ExpressionUtils.replace(filter.getConjuncts(),
-                                                        project.getAliasToProducer()),
-                                                limit.withChildren(project.child())));
-                            }))
+                            return project.withProjectsAndChild(project.getProjects(),
+                                    new LogicalFilter<>(
+                                            ExpressionUtils.replace(filter.getConjuncts(),
+                                                    project.getAliasToProducer()),
+                                            limit.withChildren(project.child())));
+                        }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT_UNDER_LIMIT)
         );
     }
 
