@@ -173,6 +173,9 @@ public:
         if (!_blocked_dep->avoid_using_blocked_queue_dependency()) {
             return false;
         }
+        if (_blocked_dep->is_or_dep()) {
+            return false;
+        }
         _blocked_dep->add_block_task(this);
         _blocked_dep = nullptr;
         return true;

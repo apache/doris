@@ -53,7 +53,10 @@ class Dependency : public std::enable_shared_from_this<Dependency> {
 public:
     Dependency(int id, std::string name) : _id(id), _name(name), _ready_for_read(false) {}
     virtual ~Dependency() = default;
+
     virtual bool avoid_using_blocked_queue_dependency() { return true; }
+
+    virtual bool is_or_dep() { return false; }
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
     virtual void* shared_state() = 0;
@@ -342,31 +345,27 @@ public:
 
     std::string debug_string(int indentation_level = 0) override;
 
+    bool is_or_dep() override { return true; }
+
     [[nodiscard]] Dependency* read_blocked_by() override {
-        Dependency* res = nullptr;
         for (auto& child : _children) {
             auto* cur_res = child->read_blocked_by();
             if (cur_res == nullptr) {
                 return nullptr;
-            } else {
-                res = cur_res;
             }
         }
-        return res;
+        return this;
     }
 
     [[nodiscard]] WriteDependency* write_blocked_by() override {
-        WriteDependency* res = nullptr;
         for (auto& child : _children) {
             CHECK(child->is_write_dependency());
             auto* cur_res = ((WriteDependency*)child.get())->write_blocked_by();
             if (cur_res == nullptr) {
                 return nullptr;
-            } else {
-                res = cur_res;
             }
         }
-        return res;
+        return this;
     }
 };
 
