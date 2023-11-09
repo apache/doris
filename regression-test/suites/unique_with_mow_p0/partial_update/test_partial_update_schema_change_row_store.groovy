@@ -16,9 +16,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_partial_update_schema_change_row_store", "p0") {
-     // test add value column
-    def tableName = "test_partial_update_light_schema_change_add_column"
+suite("test_partial_update_row_store_schema_change", "p0") {
+
+    /* ============================================== light schema change cases: ============================================== */
+
+    // test add value column
+    def tableName = "test_partial_update_row_store_light_schema_change_add_column"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -141,7 +144,7 @@ suite("test_partial_update_schema_change_row_store", "p0") {
 
 
     // test delete value column
-    tableName = "test_partial_update_light_schema_change_delete_column"
+    tableName = "test_partial_update_row_store_light_schema_change_delete_column"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -264,7 +267,7 @@ suite("test_partial_update_schema_change_row_store", "p0") {
 
 
     // test update value column
-    tableName = "test_partial_update_light_schema_change_update_column"
+    tableName = "test_partial_update_row_store_light_schema_change_update_column"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -357,7 +360,7 @@ suite("test_partial_update_schema_change_row_store", "p0") {
 
 
     // test add key column
-    tableName = "test_partial_update_light_schema_change_add_key_column"
+    tableName = "test_partial_update_row_store_light_schema_change_add_key_column"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -453,7 +456,7 @@ suite("test_partial_update_schema_change_row_store", "p0") {
 
 
     // test create index
-    tableName = "test_partial_update_light_schema_change_create_index"
+    tableName = "test_partial_update_row_store_light_schema_change_create_index"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -545,7 +548,7 @@ suite("test_partial_update_schema_change_row_store", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     // test change properties
-    tableName = "test_partial_update_light_schema_change_properties"
+    tableName = "test_partial_update_row_store_light_schema_change_properties"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -624,8 +627,10 @@ suite("test_partial_update_schema_change_row_store", "p0") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
+    /* ============================================== schema change cases: ============================================== */
+
     // test add value column
-    tableName = "test_partial_update_schema_change_add_column"
+    tableName = "test_partial_update_row_store_schema_change_add_column"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -747,7 +752,7 @@ suite("test_partial_update_schema_change_row_store", "p0") {
 
 
     // test delete value column
-    tableName = "test_partial_update_schema_change_delete_column"
+    tableName = "test_partial_update_row_store_schema_change_delete_column"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -865,7 +870,7 @@ suite("test_partial_update_schema_change_row_store", "p0") {
 
 
     // test update value column
-    tableName = "test_partial_update_schema_change_update_column"
+    tableName = "test_partial_update_row_store_schema_change_update_column"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -957,7 +962,7 @@ suite("test_partial_update_schema_change_row_store", "p0") {
 
 
     // test add key column
-    tableName = "test_partial_update_schema_change_add_key_column"
+    tableName = "test_partial_update_row_store_schema_change_add_key_column"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -1048,7 +1053,7 @@ suite("test_partial_update_schema_change_row_store", "p0") {
 
 
     // test create index
-    tableName = "test_partial_update_schema_change_create_index"
+    tableName = "test_partial_update_row_store_schema_change_create_index"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
@@ -1138,7 +1143,7 @@ suite("test_partial_update_schema_change_row_store", "p0") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     // test change properties
-    tableName = "test_partial_update_schema_change_properties"
+    tableName = "test_partial_update_row_store_schema_change_properties"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} (
