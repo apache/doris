@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Approximate deduplication using HLL",
+    "title": "Approximate Deduplication Using HLL",
     "language": "en"
 }
 ---

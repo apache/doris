@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Synchronize data using Insert method",
+    "title": "Synchronize Data Using Insert Method",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Synchronize data using Insert method
+# Synchronize Data Using Insert Method
 
 Users can use INSERT statement to import data through MySQL protocol.
 

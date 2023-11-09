@@ -55,7 +55,7 @@ Doris 支持 4 种 Shuffle 方式
 
    当进行 Hash Join 时候，可以通过 Join 列计算对应的 Hash 值，并进行 Hash 分桶。
 
-   它的网络开销则是：T（R） + T（N），但它只能支持 Hash Join，因为它是根据 Join 的条件也去做计算分桶的。
+   它的网络开销则是：T（S） + T（R），但它只能支持 Hash Join，因为它是根据 Join 的条件也去做计算分桶的。
 
    ![image-20220523151902368](/images/join/image-20220523151902368.png)
 

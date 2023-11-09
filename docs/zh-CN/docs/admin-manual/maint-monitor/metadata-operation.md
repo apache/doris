@@ -177,7 +177,7 @@ under the License.
 
 FE 有可能因为某些原因出现无法启动 bdbje、FE 之间无法同步等问题。现象包括无法进行元数据写操作、没有 MASTER 等等。这时，我们需要手动操作来恢复 FE。手动恢复 FE 的大致原理，是先通过当前 `meta_dir` 中的元数据，启动一个新的 MASTER，然后再逐台添加其他 FE。请严格按照如下步骤操作：
 
-1. 首先，停止所有 FE 进程，同时停止一切业务访问。保证在元数据恢复期间，不会因为外部访问导致其他不可预期的问题。
+1. 首先，**停止所有 FE 进程，同时停止一切业务访问**。保证在元数据恢复期间，不会因为外部访问导致其他不可预期的问题。(如果没有停止所有FE进程，后续流程可能出现脑裂现象)
 
 2. 确认哪个 FE 节点的元数据是最新：
 
@@ -189,12 +189,15 @@ FE 有可能因为某些原因出现无法启动 bdbje、FE 之间无法同步�
 
 3. 以下操作都在由第2步中选择出来的 FE 节点上进行。
 
-    1. 如果该节点是一个 OBSERVER，先将 `meta_dir/image/ROLE` 文件中的 `role=OBSERVER` 改为 `role=FOLLOWER`。（从 OBSERVER 节点恢复会比较麻烦，先按这里的步骤操作，后面会有单独说明）)
+    1. 修改 `fe.conf` 
+      - 如果该节点是一个 OBSERVER，先将 `meta_dir/image/ROLE` 文件中的 `role=OBSERVER` 改为 `role=FOLLOWER`。（从 OBSERVER 节点恢复会比较麻烦，先按这里的步骤操作，后面会有单独说明）)
+      - 如果 FE 版本< 2.0.2, 则还需要在 fe.conf 中添加配置：`metadata_failure_recovery=true`。
     2. 执行 `sh bin/start_fe.sh --metadata_failure_recovery` 启动这个 FE。
     3. 如果正常，这个 FE 会以 MASTER 的角色启动，类似于前面 `启动单节点 FE` 一节中的描述。在 fe.log 应该会看到 `transfer from XXXX to MASTER` 等字样。
     4. 启动完成后，先连接到这个 FE，执行一些查询导入，检查是否能够正常访问。如果不正常，有可能是操作有误，建议仔细阅读以上步骤，用之前备份的元数据再试一次。如果还是不行，问题可能就比较严重了。
     5. 如果成功，通过 `show frontends;` 命令，应该可以看到之前所添加的所有 FE，并且当前 FE 是 master。
     6. 后重启这个 FE（**重要**）。
+    7. **如果 FE 版本 < 2.0.2**，将 fe.conf 中的 `metadata_failure_recovery=true` 配置项删除，或者设置为 `false`，然后重启这个 FE（**重要**）。
 
 
     > 如果你是从一个 OBSERVER 节点的元数据进行恢复的，那么完成如上步骤后，通过 `show frontends;` 语句你会发现，当前这个 FE 的角色为 OBSERVER，但是 `IsMaster` 显示为 `true`。这是因为，这里看到的 “OBSERVER” 是记录在 Doris 的元数据中的，而是否是 master，是记录在 bdbje 的元数据中的。因为我们是从一个 OBSERVER 节点恢复的，所以这里出现了不一致。请按如下步骤修复这个问题（这个问题我们会在之后的某个版本修复）：
@@ -240,6 +243,7 @@ FE 目前有以下几个端口
 * http_port：http 端口，也用于推送 image
 * rpc_port：FE 的 thrift server port
 * query_port：Mysql 连接端口
+* arrow_flight_sql_port: Arrow Flight SQL 连接端口
 
 1. edit_log_port
 
@@ -257,6 +261,9 @@ FE 目前有以下几个端口
 
     修改配置后，直接重启 FE 即可。这个只影响到 mysql 的连接目标。
 
+5. arrow_flight_sql_port
+
+    修改配置后，直接重启 FE 即可。这个只影响到 Arrow Flight SQL 的连接目标。
 
 ### 从 FE 内存中恢复元数据
 
@@ -300,7 +307,7 @@ FE 的元数据日志以 Key-Value 的方式存储在 BDBJE 中。某些异常�
 
 此时，FE 将进入 debug 模式，仅会启动 http server 和 MySQL server，并打开 BDBJE 实例，但不会进行任何元数据的加载及后续其他启动流程。
 
-这是，我们可以通过访问 FE 的 web 页面，或通过 MySQL 客户端连接到 Doris 后，通过 `show proc /bdbje;` 来查看 BDBJE 中存储的数据。
+这时，我们可以通过访问 FE 的 web 页面，或通过 MySQL 客户端连接到 Doris 后，通过 `show proc "/bdbje";` 来查看 BDBJE 中存储的数据。
 
 ```
 mysql> show proc "/bdbje";
