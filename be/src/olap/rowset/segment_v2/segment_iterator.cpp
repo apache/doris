@@ -99,7 +99,6 @@ public:
 
     explicit BitmapRangeIterator(const roaring::Roaring& bitmap) {
         roaring_init_iterator(&bitmap.roaring, &_iter);
-        _read_next_batch();
     }
 
     bool has_more_range() const { return !_eof; }
@@ -141,6 +140,9 @@ public:
         *to = *from + range_size;
         return true;
     }
+    virtual uint32_t read_batch_rowids(rowid_t* buf, uint32_t batch_size) {
+        return roaring::api::roaring_read_uint32_iterator(&_iter, buf, batch_size);
+    }
 
 private:
     void _read_next_batch() {
@@ -166,6 +168,8 @@ class SegmentIterator::BackwardBitmapRangeIterator : public SegmentIterator::Bit
 public:
     explicit BackwardBitmapRangeIterator(const roaring::Roaring& bitmap) {
         roaring_init_iterator_last(&bitmap.roaring, &_riter);
+        _rowid_count = roaring_bitmap_get_cardinality(&bitmap.roaring);
+        _rowid_left = _rowid_count;
     }
 
     bool has_more_range() const { return !_riter.has_value; }
@@ -189,9 +193,30 @@ public:
 
         return true;
     }
+    uint32_t read_batch_rowids(rowid_t* buf, uint32_t batch_size) override {
+        if (!_riter.has_value || _rowid_left <= 0) {
+            return 0;
+        }
+
+        if (_rowid_count <= batch_size) {
+            roaring_bitmap_to_uint32_array(_riter.parent, buf);
+            _rowid_left = 0;
+            return _rowid_count;
+        }
+        uint32_t read_size = batch_size > _rowid_left ? _rowid_left : batch_size;
+        int32_t reverse_idx = read_size - 1;
+        do {
+            buf[reverse_idx--] = _riter.current_value;
+            roaring_previous_uint32_iterator(&_riter);
+        } while (reverse_idx >= 0 && _riter.has_value);
+        _rowid_left -= read_size;
+        return read_size;
+    }
 
 private:
     roaring::api::roaring_uint32_iterator_t _riter;
+    size_t _rowid_count;
+    int32_t _rowid_left;
 };
 
 SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr schema)
@@ -1614,53 +1639,27 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
                                                bool set_block_rowid) {
     SCOPED_RAW_TIMER(&_opts.stats->first_read_ns);
 
-    do {
-        uint32_t range_from = 0;
-        uint32_t range_to = 0;
-        bool has_next_range =
-                _range_iter->next_range(nrows_read_limit - nrows_read, &range_from, &range_to);
-        if (!has_next_range) {
-            break;
-        }
-
-        size_t rows_to_read = range_to - range_from;
-        _cur_rowid = range_to;
-
-        if (set_block_rowid) {
-            // Here use std::iota is better performance than for-loop, maybe for-loop is not vectorized
-            auto start = _block_rowids.data() + nrows_read;
-            auto end = start + rows_to_read;
-            std::iota(start, end, range_from);
-            nrows_read += rows_to_read;
-        } else {
-            nrows_read += rows_to_read;
-        }
-
-        _split_row_ranges.emplace_back(std::pair {range_from, range_to});
-    } while (nrows_read < nrows_read_limit && !_opts.read_orderby_key_reverse);
+    nrows_read = _range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
+    bool is_continuous = (nrows_read > 1) &&
+                         (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
 
     for (auto cid : _first_read_column_ids) {
         auto& column = _current_return_columns[cid];
         if (_prune_column(cid, column, true, nrows_read)) {
             continue;
         }
-        for (auto& range : _split_row_ranges) {
-            size_t nrows = range.second - range.first;
-            {
-                _opts.stats->block_first_read_seek_num += 1;
-                if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
-                    SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
-                    RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
-                } else {
-                    RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
-                }
-            }
-            size_t rows_read = nrows;
+
+        if (is_continuous) {
+            size_t rows_read = nrows_read;
+            RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(_block_rowids[0]));
             RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
-            if (rows_read != nrows) {
-                return Status::Error<ErrorCode::INTERNAL_ERROR>("nrows({}) != rows_read({})", nrows,
-                                                                rows_read);
+            if (rows_read != nrows_read) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("nrows({}) != rows_read({})",
+                                                                nrows_read, rows_read);
             }
+        } else {
+            RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(_block_rowids.data(), nrows_read,
+                                                                   column));
         }
     }
 
@@ -1858,8 +1857,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         nrows_read_limit = std::min(nrows_read_limit, (uint32_t)100);
         _wait_times_estimate_row_size--;
     }
-    _split_row_ranges.clear();
-    _split_row_ranges.reserve(nrows_read_limit / 2);
     RETURN_IF_ERROR(_read_columns_by_index(
             nrows_read_limit, _current_batch_rows_read,
             _lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval));
@@ -2138,22 +2135,21 @@ void SegmentIterator::_build_index_result_column(uint16_t* sel_rowid_idx, uint16
     size_t idx_in_row_range = 0;
     size_t idx_in_selected = 0;
     // _split_row_ranges store multiple ranges which split in function _read_columns_by_index(),
-    // index_result is a column predicate apply result in a whole segement,
-    // but a scanner thread one time can read max rows limit by block_row_max,
+    // index_result is a column predicate apply result in a whole segment,
+    // but a scanner thread can read max rows limit by block_row_max one time,
     // so split _row_bitmap by one time scan range, in order to match size of one scanner thread read rows.
-    for (auto origin_row_range : _split_row_ranges) {
-        for (size_t rowid = origin_row_range.first; rowid < origin_row_range.second; ++rowid) {
-            if (sel_rowid_idx == nullptr || (idx_in_selected < select_size &&
-                                             idx_in_row_range == sel_rowid_idx[idx_in_selected])) {
-                if (index_result.contains(rowid)) {
-                    vec_match_pred[idx_in_block++] = true;
-                } else {
-                    vec_match_pred[idx_in_block++] = false;
-                }
-                idx_in_selected++;
+    for (uint32_t idx = 0; idx < _current_batch_rows_read; idx++) {
+        auto rowid = _block_rowids[idx];
+        if (sel_rowid_idx == nullptr ||
+            (idx_in_selected < select_size && idx_in_row_range == sel_rowid_idx[idx_in_selected])) {
+            if (index_result.contains(rowid)) {
+                vec_match_pred[idx_in_block++] = true;
+            } else {
+                vec_match_pred[idx_in_block++] = false;
             }
-            idx_in_row_range++;
+            idx_in_selected++;
         }
+        idx_in_row_range++;
     }
     assert(block->rows() == vec_match_pred.size());
     auto index_result_position = block->get_position_by_name(pred_result_sign);
