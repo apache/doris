@@ -535,7 +535,7 @@ public:
     using SharedState = UnionSharedState;
     UnionDependency(int id) : WriteDependency(id, "UnionDependency") {}
     ~UnionDependency() override = default;
-    bool avoid_using_blocked_queue_dependency() override { return true; }
+
     void* shared_state() override { return (void*)_union_state.get(); }
     void set_shared_state(std::shared_ptr<UnionSharedState> union_state) {
         _union_state = union_state;
