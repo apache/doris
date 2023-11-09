@@ -483,7 +483,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                                                 _build_expr_ctxs, _runtime_filter_descs);
 
                                 RETURN_IF_ERROR(local_state._runtime_filter_slots->init(
-                                        state, arg.hash_table->size(), 0));
+                                        state, arg.hash_table->size(),
+                                        local_state._build_rf_cardinality));
                                 RETURN_IF_ERROR(
                                         local_state._runtime_filter_slots->copy_from_shared_context(
                                                 _shared_hash_table_context));
