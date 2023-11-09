@@ -71,7 +71,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -343,24 +342,24 @@ public class NereidsPlanner extends Planner {
 
     /**
      * getting hints explain string, which specified by enumerate and show in lists
-     * @param hintMap hint map recorded in statement context
+     * @param hints hint map recorded in statement context
      * @return explain string shows using of hint
      */
-    public String getHintExplainString(Map<String, Hint> hintMap) {
+    public String getHintExplainString(List<Hint> hints) {
         String used = "";
         String unUsed = "";
         String syntaxError = "";
-        for (Map.Entry<String, Hint> entry : hintMap.entrySet()) {
-            switch (entry.getValue().getStatus()) {
+        for (Hint hint : hints) {
+            switch (hint.getStatus()) {
                 case UNUSED:
-                    unUsed = unUsed + " " + entry.getValue().getExplainString();
+                    unUsed = unUsed + " " + hint.getExplainString();
                     break;
                 case SYNTAX_ERROR:
-                    syntaxError = syntaxError + " " + entry.getValue().getExplainString()
-                        + " Msg:" + entry.getValue().getErrorMessage();
+                    syntaxError = syntaxError + " " + hint.getExplainString()
+                        + " Msg:" + hint.getErrorMessage();
                     break;
                 case SUCCESS:
-                    used = used + " " + entry.getValue().getExplainString();
+                    used = used + " " + hint.getExplainString();
                     break;
                 default:
                     break;
@@ -407,8 +406,8 @@ public class NereidsPlanner extends Planner {
             default:
                 plan = super.getExplainString(explainOptions);
         }
-        if (!cascadesContext.getHintMap().isEmpty()) {
-            String hint = getHintExplainString(cascadesContext.getHintMap());
+        if (statementContext != null && !statementContext.getHints().isEmpty()) {
+            String hint = getHintExplainString(statementContext.getHints());
             return plan + hint;
         }
         return plan;

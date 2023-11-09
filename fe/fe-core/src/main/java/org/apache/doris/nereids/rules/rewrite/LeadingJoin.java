@@ -20,65 +20,45 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
-import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
-import org.apache.doris.nereids.rules.rewrite.LeadingJoin.LeadingContext;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  *  Leading join is used to generate leading join and replace original logical join
 */
-public class LeadingJoin extends DefaultPlanRewriter<LeadingContext> implements CustomRewriter {
+public class LeadingJoin implements RewriteRuleFactory {
 
     @Override
-    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        if (jobContext.getCascadesContext().isLeadingJoin()) {
-            Hint leadingHint = jobContext.getCascadesContext().getHintMap().get("Leading");
-            Plan leadingPlan = plan.accept(this, new LeadingContext(
-                    (LeadingHint) leadingHint, ((LeadingHint) leadingHint)
-                        .getLeadingTableBitmap(jobContext.getCascadesContext().getTables())));
-            if (leadingHint.isSuccess()) {
-                try {
-                    jobContext.getCascadesContext().getConnectContext().getSessionVariable()
-                            .disableNereidsJoinReorderOnce();
-                } catch (DdlException e) {
-                    throw new RuntimeException(e);
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+            logicalJoin().thenApply(ctx -> {
+                if (!ctx.cascadesContext.isLeadingJoin()) {
+                    return ctx.root;
                 }
-            } else {
-                return plan;
-            }
-            return leadingPlan;
-        }
-        return plan;
-    }
-
-    @Override
-    public Plan visit(Plan plan, LeadingContext context) {
-        Long currentBitMap = LongBitmap.computeTableBitmap(plan.getInputRelations());
-        if (LongBitmap.isSubset(currentBitMap, context.totalBitmap)
-                && plan instanceof LogicalJoin && !context.leading.isSyntaxError()) {
-            Plan leadingJoin = context.leading.generateLeadingJoinPlan();
-            if (context.leading.isSuccess() && leadingJoin != null) {
-                return leadingJoin;
-            }
-        } else {
-            return (LogicalPlan) super.visit(plan, context);
-        }
-        return plan;
-    }
-
-    /** LeadingContext */
-    public static class LeadingContext {
-        public LeadingHint leading;
-        public Long totalBitmap;
-
-        public LeadingContext(LeadingHint leading, Long totalBitmap) {
-            this.leading = leading;
-            this.totalBitmap = totalBitmap;
-        }
+                Hint leadingHint = ctx.cascadesContext.getHintMap().get("Leading");
+                ((LeadingHint) leadingHint).setTotalBitmap();
+                Long currentBitMap = LongBitmap.computeTableBitmap(ctx.root.getInputRelations());
+                if (((LeadingHint) leadingHint).getTotalBitmap().equals(currentBitMap)
+                        && !leadingHint.isSyntaxError() && !leadingHint.isSuccess()) {
+                    Plan leadingJoin = ((LeadingHint) leadingHint).generateLeadingJoinPlan();
+                    if (leadingHint.isSuccess() && leadingJoin != null) {
+                        try {
+                            ctx.cascadesContext.getConnectContext().getSessionVariable()
+                                .disableNereidsJoinReorderOnce();
+                        } catch (DdlException e) {
+                            throw new RuntimeException(e);
+                        }
+                        return leadingJoin;
+                    }
+                }
+                return ctx.root;
+            }).toRule(RuleType.LEADING_JOIN)
+        );
     }
 }
