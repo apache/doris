@@ -151,6 +151,34 @@ CREATE TABLE catalog_pg_test.test12 (
    uuid_value uuid
 );
 
+CREATE TABLE catalog_pg_test.test_all_types (
+    ID INT NOT NULL,
+    char_value char(100),
+    varchar_value varchar(128),
+    date_value date,
+    smallint_value smallint,
+    int_value int,
+    bigint_value bigint,
+    timestamp_value timestamp,
+    decimal_value decimal(10, 3),
+    bit_value bit,
+    real_value real,
+    cidr_value cidr,
+    inet_value inet,
+    macaddr_value macaddr,
+    bitn_value bit(10),
+    bitnv_value bit varying(10),
+    serial4_value serial4,
+    jsonb_value jsonb,
+    point_value point,
+    line_value line,
+    lseg_value lseg,
+    box_value box,
+    path_value path,
+    polygon_value polygon,
+    circle_value circle
+);
+
 CREATE TABLE catalog_pg_test.test_insert (
    id varchar(128),
    name varchar(128),
