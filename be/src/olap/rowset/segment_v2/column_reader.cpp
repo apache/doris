@@ -1421,8 +1421,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_VARIANT: {
-        auto& obj = static_cast<vectorized::ColumnObject&>(*dst);
-        obj.incr_num_rows(n);
+        dst->insert_many_defaults(n);
         break;
     }
     default: {
@@ -1457,7 +1456,11 @@ void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnP
 Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                              bool* has_null) {
     size_t size = dst->size();
-    auto& obj = assert_cast<vectorized::ColumnObject&>(*dst);
+    auto& obj =
+            dst->is_nullable()
+                    ? assert_cast<vectorized::ColumnObject&>(
+                              assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
+                    : assert_cast<vectorized::ColumnObject&>(*dst);
     if (obj.is_null_root()) {
         obj.create_root();
     }
@@ -1469,6 +1472,15 @@ Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColum
             entry->data.insertManyDefaults(*n);
         }
     }
+    // fill nullmap
+    if (root_column->is_nullable()) {
+        DCHECK(dst->is_nullable());
+        vectorized::ColumnUInt8& dst_null_map =
+                assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
+        vectorized::ColumnUInt8& src_null_map =
+                assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
+        dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
+    }
 #ifndef NDEBUG
     obj.check_consistency();
 #endif
@@ -1478,7 +1490,11 @@ Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColum
 Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                                  vectorized::MutableColumnPtr& dst) {
     size_t size = dst->size();
-    auto& obj = assert_cast<vectorized::ColumnObject&>(*dst);
+    auto& obj =
+            dst->is_nullable()
+                    ? assert_cast<vectorized::ColumnObject&>(
+                              assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
+                    : assert_cast<vectorized::ColumnObject&>(*dst);
     if (obj.is_null_root()) {
         obj.create_root();
     }
@@ -1489,6 +1505,15 @@ Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const si
         if (entry->data.size() != size + count) {
             entry->data.insertManyDefaults(count);
         }
+    }
+    // fill nullmap
+    if (root_column->is_nullable()) {
+        DCHECK(dst->is_nullable());
+        vectorized::ColumnUInt8& dst_null_map =
+                assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
+        vectorized::ColumnUInt8& src_null_map =
+                assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
+        dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
     }
 #ifndef NDEBUG
     obj.check_consistency();

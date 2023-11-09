@@ -108,4 +108,6 @@ void inherit_tablet_index(TabletSchemaSPtr& schema);
 // Extract json data from source with path
 Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);
 
+std::string dump_column(DataTypePtr type, const ColumnPtr& col);
+
 } // namespace  doris::vectorized::schema_util

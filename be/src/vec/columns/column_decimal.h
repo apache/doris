@@ -106,7 +106,6 @@ public:
 
     bool is_numeric() const override { return false; }
     bool is_column_decimal() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 

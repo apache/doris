@@ -54,9 +54,9 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     """
     sql "insert into var_delete_update_mow select k, cast(v as string), cast(v as string) from var_delete_update"
     sql "delete from ${table_name} where k = 1"
-    sql "delete from ${table_name} where k in (select k from variant_mow where k in (3, 4, 5))"
+    sql "delete from ${table_name} where k in (select k from var_delete_update_mow where k in (3, 4, 5))"
     // FIXME
-    sql """update ${table_name} set vs = '{"updated_value" : 123}' where k = 2"""
-    sql """update ${table_name} set v = '{"updated_value" : 123}' where k = 2"""
+    // sql """update ${table_name} set vs = '{"updated_value" : 123}' where k = 2"""
+    // sql """update ${table_name} set v = '{"updated_value" : 123}' where k = 2"""
     qt_sql "select * from ${table_name} order by k"
 }

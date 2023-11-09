@@ -34,7 +34,11 @@
 #include "olap/rowset/beta_rowset_writer.h" // SegmentStatistics
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/tablet_schema.h"
+#include "olap/utils.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h" // variant column
 #include "vec/core/block.h"
 
@@ -81,8 +85,10 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     if (_context->tablet_schema->is_partial_update()) {
         // check columns that used to do partial updates should not include variant
         for (int i : _context->tablet_schema->get_update_cids()) {
-            if (_context->tablet_schema->columns()[i].is_variant_type()) {
-                return Status::InvalidArgument("Not implement partial updates for variant");
+            const auto& col = _context->tablet_schema->columns()[i];
+            if (!col.is_key() && col.name() != DELETE_SIGN) {
+                return Status::InvalidArgument(
+                        "Not implement partial update for variant only support delete currently");
             }
         }
     } else {
@@ -147,8 +153,10 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     // 2. Collect columns that need to be added or modified when data type changes or new columns encountered
     for (size_t i = 0; i < variant_column_pos.size(); ++i) {
         size_t variant_pos = variant_column_pos[i];
-        vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
-                flush_block.get_by_position(variant_pos).column->assume_mutable_ref());
+        auto column_ref = flush_block.get_by_position(variant_pos).column;
+        bool is_nullable = column_ref->is_nullable();
+        const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
+                remove_nullable(column_ref)->assume_mutable_ref());
         const TabletColumn& parent_column = _context->tablet_schema->columns()[variant_pos];
         CHECK(object_column.is_finalized());
         std::shared_ptr<vectorized::ColumnObject::Subcolumns::Node> root;
@@ -166,7 +174,13 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         static_cast<vectorized::ColumnObject*>(obj.get())->add_sub_column(
                 {}, root->data.get_finalized_column_ptr()->assume_mutable(),
                 root->data.get_least_common_type());
-        flush_block.get_by_position(variant_pos).column = obj->get_ptr();
+        vectorized::ColumnPtr result = obj->get_ptr();
+        if (is_nullable) {
+            const auto& null_map = assert_cast<const vectorized::ColumnNullable&>(*column_ref)
+                                           .get_null_map_column_ptr();
+            result = vectorized::ColumnNullable::create(result, null_map);
+        }
+        flush_block.get_by_position(variant_pos).column = result;
         vectorized::PathInDataBuilder full_root_path_builder;
         auto full_root_path =
                 full_root_path_builder.append(parent_column.name_lower_case(), false).build();

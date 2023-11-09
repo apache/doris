@@ -27,8 +27,10 @@
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
 #include "vec/columns/subcolumn_tree.h"
+#include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/json/path_in_data.h"
@@ -103,10 +105,13 @@ private:
     template <typename ReadFunction>
     Status process_read(ReadFunction&& read_func, vectorized::MutableColumnPtr& dst, size_t nrows) {
         // // Read all sub columns, and merge with root column
-        // for (const SubstreamCache::Node* node : _attatched_nodes) {
-        //     RETURN_IF_ERROR(node_func(node));
-        // }
-        auto& variant = assert_cast<vectorized::ColumnObject&>(*dst);
+        vectorized::ColumnNullable* nullable_column = nullptr;
+        if (dst->is_nullable()) {
+            nullable_column = assert_cast<vectorized::ColumnNullable*>(dst.get());
+        }
+        auto& variant = nullable_column == nullptr ? assert_cast<vectorized::ColumnObject&>(*dst)
+                                                   : assert_cast<vectorized::ColumnObject&>(
+                                                             nullable_column->get_nested_column());
 
         // read data
         // read root first if it is not read before
@@ -124,7 +129,13 @@ private:
 
         // add root first
         if (_path.get_parts().size() == 1) {
-            auto& root_var = assert_cast<vectorized::ColumnObject&>(*_root_reader->column);
+            auto& root_var =
+                    _root_reader->column->is_nullable()
+                            ? assert_cast<vectorized::ColumnObject&>(
+                                      assert_cast<vectorized::ColumnNullable&>(
+                                              *_root_reader->column)
+                                              .get_nested_column())
+                            : assert_cast<vectorized::ColumnObject&>(*_root_reader->column);
             auto column = root_var.get_root();
             auto type = root_var.get_root_type();
             container_variant.add_sub_column({}, std::move(column), type);
@@ -170,7 +181,26 @@ private:
             return Status::OK();
         });
         container->clear();
-        static_cast<vectorized::ColumnObject*>(_root_reader->column.get())->clear_subcolumns_data();
+        if (_root_reader->column->is_nullable()) {
+            // fill nullmap
+            DCHECK(dst->is_nullable());
+            vectorized::ColumnUInt8& dst_null_map =
+                    assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
+            vectorized::ColumnUInt8& src_null_map =
+                    assert_cast<vectorized::ColumnNullable&>(*_root_reader->column)
+                            .get_null_map_column();
+            dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
+            // clear nullmap and inner data
+            src_null_map.clear();
+            assert_cast<vectorized::ColumnObject&>(
+                    assert_cast<vectorized::ColumnNullable&>(*_root_reader->column)
+                            .get_nested_column())
+                    .clear_subcolumns_data();
+        } else {
+            vectorized::ColumnObject& root_column =
+                    assert_cast<vectorized::ColumnObject&>(*_root_reader->column);
+            root_column.clear_subcolumns_data();
+        }
         return Status::OK();
     }
 };

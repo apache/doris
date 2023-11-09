@@ -165,15 +165,26 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     // Variant column is a really special case, src type is nullable but dst variant type is none nullable,
     // but we still need to wrap nullmap into variant root column to prevent from nullable info lost.
     // TODO rethink and better handle this sepecial situation
-    if (arg.type->is_nullable() && WhichDataType(type).is_variant_type()) {
+    if (arg.type->is_nullable() && WhichDataType(remove_nullable(type)).is_variant_type()) {
         auto variant = ColumnObject::create(true);
-        auto& old_variant = assert_cast<const ColumnObject&>(*(*result)->assume_mutable());
+        auto& old_variant =
+                (*result)->is_nullable()
+                        ? assert_cast<const ColumnObject&>(
+                                  assert_cast<const ColumnNullable&>(**result).get_nested_column())
+                        : assert_cast<const ColumnObject&>(*(*result)->assume_mutable());
         DCHECK(!old_variant.get_root()->is_nullable());
         auto nullable = ColumnNullable::create(
                 old_variant.get_root(),
                 assert_cast<const ColumnNullable&>(*arg.column).get_null_map_column_ptr());
         variant->create_root(make_nullable(arg.type), nullable->assume_mutable());
-        *result = std::move(variant);
+        if ((*result)->is_nullable()) {
+            *result = ColumnNullable::create(std::move(variant),
+                                             assert_cast<const ColumnNullable&>(*arg.column)
+                                                     .get_null_map_column_ptr()
+                                                     ->clone_resized(nullable->size()));
+        } else {
+            *result = std::move(variant);
+        }
     }
     return Status::OK();
 }
@@ -377,7 +388,9 @@ TabletSchemaSPtr get_least_common_schema(const std::vector<TabletSchemaSPtr>& sc
 
 void parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
     for (int i = 0; i < variant_pos.size(); ++i) {
-        auto& column = block.get_by_position(variant_pos[i]).column;
+        const auto& column_ref = block.get_by_position(variant_pos[i]).column;
+        bool is_nullable = column_ref->is_nullable();
+        const auto& column = remove_nullable(column_ref);
         const auto& var = assert_cast<const ColumnObject&>(*column.get());
         if (!var.is_scalar_variant()) {
             // already parsed
@@ -391,24 +404,39 @@ void parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
                         : static_cast<const ColumnString&>(root);
         MutableColumnPtr variant_column = ColumnObject::create(true);
         parse_json_to_variant(*variant_column.get(), raw_json_column);
-        block.get_by_position(variant_pos[i]).column = variant_column->get_ptr();
-        block.get_by_position(variant_pos[i]).type = std::make_shared<DataTypeObject>("json", true);
+        // Wrap variant with nullmap if it is nullable
+        ColumnPtr result = variant_column->get_ptr();
+        if (is_nullable) {
+            const auto& null_map =
+                    assert_cast<const ColumnNullable&>(*column_ref).get_null_map_column_ptr();
+            result = ColumnNullable::create(result, null_map);
+        }
+        block.get_by_position(variant_pos[i]).column = result;
+        // block.get_by_position(variant_pos[i]).type = std::make_shared<DataTypeObject>("json", true);
     }
 }
 
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
                               bool ignore_sparse) {
     for (int i = 0; i < variant_pos.size(); ++i) {
-        auto& column = assert_cast<ColumnObject&>(
-                block.get_by_position(variant_pos[i]).column->assume_mutable_ref());
+        auto& column_ref = block.get_by_position(variant_pos[i]).column->assume_mutable_ref();
+        auto& column =
+                column_ref.is_nullable()
+                        ? assert_cast<ColumnObject&>(
+                                  assert_cast<ColumnNullable&>(column_ref).get_nested_column())
+                        : assert_cast<ColumnObject&>(column_ref);
         column.finalize(ignore_sparse);
     }
 }
 
 void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos) {
     for (int i = 0; i < variant_pos.size(); ++i) {
-        auto& column = assert_cast<ColumnObject&>(
-                block.get_by_position(variant_pos[i]).column->assume_mutable_ref());
+        auto& column_ref = block.get_by_position(variant_pos[i]).column->assume_mutable_ref();
+        auto& column =
+                column_ref.is_nullable()
+                        ? assert_cast<ColumnObject&>(
+                                  assert_cast<ColumnNullable&>(column_ref).get_nested_column())
+                        : assert_cast<ColumnObject&>(column_ref);
         // Make sure the root node is jsonb storage type
         auto expected_root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());
         column.ensure_root_node_type(expected_root_type);
@@ -443,5 +471,11 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
     return Status::OK();
 }
 // ---------------------------
+
+std::string dump_column(DataTypePtr type, const ColumnPtr& col) {
+    Block tmp;
+    tmp.insert(ColumnWithTypeAndName {col, type, col->get_name()});
+    return tmp.dump_data(0, tmp.rows());
+}
 
 } // namespace doris::vectorized::schema_util

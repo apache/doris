@@ -290,7 +290,9 @@ vectorized::DataTypePtr Segment::get_data_type_of(const Field& field, bool ignor
                 return node->data.file_column_type;
             }
             // it contains children, so treat it as variant
-            return std::make_shared<vectorized::DataTypeObject>();
+            return field.is_nullable() ? vectorized::make_nullable(
+                                                 std::make_shared<vectorized::DataTypeObject>())
+                                       : std::make_shared<vectorized::DataTypeObject>();
         }
     }
     if (field.unique_id() >= 0) {

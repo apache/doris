@@ -2055,7 +2055,6 @@ private:
             // set variant root column/type to from column/type
             auto variant = ColumnObject::create(true /*always nullable*/);
             variant->create_root(from_type, col_from->assume_mutable());
-
             block.replace_by_position(result, std::move(variant));
             return Status::OK();
         }
@@ -2183,11 +2182,6 @@ private:
         }
 
         bool skip_not_null_check = false;
-        if (from_nested->is_nullable() && WhichDataType(to_type).is_variant_type()) {
-            /// Disable check for variant. Will check that column doesn't contain NULL in wrapper below.
-            skip_not_null_check = true;
-        }
-
         auto wrapper =
                 prepare_remove_nullable(context, from_nested, to_nested, skip_not_null_check);
 

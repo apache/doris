@@ -541,8 +541,6 @@ public:
 
     void get_extremes(Field& min, Field& max) const override;
 
-    bool can_be_inside_nullable() const override { return true; }
-
     bool is_column_string() const override { return true; }
 
     bool structure_equals(const IColumn& rhs) const override {

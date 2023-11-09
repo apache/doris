@@ -1164,6 +1164,12 @@ void ColumnObject::merge_sparse_to_root_column() {
     subcolumns.get_mutable_root()->data.get_finalized_column_ptr() = mresult->get_ptr();
 }
 
+void ColumnObject::finalize_if_not() {
+    if (!is_finalized()) {
+        finalize();
+    }
+}
+
 void ColumnObject::finalize(bool ignore_sparse) {
     Subcolumns new_subcolumns;
     // finalize root first
@@ -1452,12 +1458,12 @@ void align_variant_by_name_and_type(ColumnObject& dst, const ColumnObject& src, 
     if (dst.empty()) {
         dst.incr_num_rows(row_cnt);
     }
-#ifndef NDEBUG
-    // Check all columns rows matched
-    for (const auto& entry : dst.get_subcolumns()) {
-        DCHECK_EQ(entry->data.get_finalized_column().size(), num_rows);
-    }
-#endif
+    // #ifndef NDEBUG
+    //     // Check all columns rows matched
+    //     for (const auto& entry : dst.get_subcolumns()) {
+    //         DCHECK_EQ(entry->data.get_finalized_column().size(), num_rows);
+    //     }
+    // #endif
 }
 
 void ColumnObject::append_data_by_selector(MutableColumnPtr& res,

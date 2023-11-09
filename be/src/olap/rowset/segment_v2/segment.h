@@ -43,6 +43,7 @@
 #include "util/slice.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris {
 namespace vectorized {
@@ -158,7 +159,8 @@ public:
             // Default column iterator
             return true;
         }
-        if (vectorized::WhichDataType(storage_column_type).is_variant_type()) {
+        if (vectorized::WhichDataType(vectorized::remove_nullable(storage_column_type))
+                    .is_variant_type()) {
             // Predicate should nerver apply on variant type
             return false;
         }

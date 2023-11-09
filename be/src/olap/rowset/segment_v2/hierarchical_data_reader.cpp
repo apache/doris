@@ -163,39 +163,55 @@ Status ExtractReader::seek_to_ordinal(ordinal_t ord) {
 Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows) {
     DCHECK(_root_reader);
     DCHECK(_root_reader->inited);
-    vectorized::MutableColumnPtr extracted_column;
-    const auto& root = assert_cast<const vectorized::ColumnObject&>(*_root_reader->column);
+    vectorized::ColumnNullable* nullable_column = nullptr;
+    if (dst->is_nullable()) {
+        nullable_column = assert_cast<vectorized::ColumnNullable*>(dst.get());
+    }
+    auto& variant =
+            nullable_column == nullptr
+                    ? assert_cast<vectorized::ColumnObject&>(*dst)
+                    : assert_cast<vectorized::ColumnObject&>(nullable_column->get_nested_column());
+    const auto& root =
+            _root_reader->column->is_nullable()
+                    ? assert_cast<vectorized::ColumnObject&>(
+                              assert_cast<vectorized::ColumnNullable&>(*_root_reader->column)
+                                      .get_nested_column())
+                    : assert_cast<const vectorized::ColumnObject&>(*_root_reader->column);
     // extract root value with path, we can't modify the original root column
     // since some other column may depend on it.
+    vectorized::MutableColumnPtr extracted_column;
     RETURN_IF_ERROR(root.extract_root( // trim the root name, eg. v.a.b -> a.b
             _col.path_info().pop_front(), extracted_column));
-    if (dst->is_variant()) {
-        auto& dst_var = assert_cast<vectorized::ColumnObject&>(*dst);
-        if (dst_var.empty() || dst_var.is_null_root()) {
-            dst_var.create_root(root.get_root_type(), std::move(extracted_column));
-        } else {
-            vectorized::ColumnPtr cast_column;
-            const auto& expected_type = dst_var.get_root_type();
-            RETURN_IF_ERROR(vectorized::schema_util::cast_column(
-                    {extracted_column->get_ptr(),
-                     vectorized::make_nullable(
-                             std::make_shared<vectorized::ColumnObject::MostCommonType>()),
-                     ""},
-                    expected_type, &cast_column));
-            dst_var.get_root()->insert_range_from(*cast_column, 0, nrows);
-            dst_var.set_num_rows(dst_var.get_root()->size());
-        }
+    if (variant.empty() || variant.is_null_root()) {
+        variant.create_root(root.get_root_type(), std::move(extracted_column));
     } else {
-        CHECK(false) << "Not implemented extract to type " << dst->get_name();
+        vectorized::ColumnPtr cast_column;
+        const auto& expected_type = variant.get_root_type();
+        RETURN_IF_ERROR(vectorized::schema_util::cast_column(
+                {extracted_column->get_ptr(),
+                 vectorized::make_nullable(
+                         std::make_shared<vectorized::ColumnObject::MostCommonType>()),
+                 ""},
+                expected_type, &cast_column));
+        variant.get_root()->insert_range_from(*cast_column, 0, nrows);
+        variant.set_num_rows(variant.get_root()->size());
     }
+    if (dst->is_nullable()) {
+        // fill nullmap
+        vectorized::ColumnUInt8& dst_null_map =
+                assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
+        vectorized::ColumnUInt8& src_null_map =
+                assert_cast<vectorized::ColumnNullable&>(*variant.get_root()).get_null_map_column();
+        dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
+    }
+    _root_reader->column->clear();
 #ifndef NDEBUG
-    assert_cast<vectorized::ColumnObject&>(*dst).check_consistency();
+    variant.check_consistency();
 #endif
     return Status::OK();
 }
 
 Status ExtractReader::next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) {
-    static_cast<vectorized::ColumnObject*>(_root_reader->column.get())->clear_subcolumns_data();
     RETURN_IF_ERROR(_root_reader->iterator->next_batch(n, _root_reader->column));
     RETURN_IF_ERROR(extract_to(dst, *n));
     return Status::OK();
@@ -203,7 +219,6 @@ Status ExtractReader::next_batch(size_t* n, vectorized::MutableColumnPtr& dst, b
 
 Status ExtractReader::read_by_rowids(const rowid_t* rowids, const size_t count,
                                      vectorized::MutableColumnPtr& dst) {
-    static_cast<vectorized::ColumnObject*>(_root_reader->column.get())->clear_subcolumns_data();
     RETURN_IF_ERROR(_root_reader->iterator->read_by_rowids(rowids, count, _root_reader->column));
     RETURN_IF_ERROR(extract_to(dst, count));
     return Status::OK();

@@ -401,7 +401,10 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             ctx->return_free_block(std::move(block));
         } else {
             if (!blocks.empty() && blocks.back()->rows() + block->rows() <= state->batch_size()) {
+                VLOG_DEBUG << "dump block " << block->dump_data(0, block->rows());
                 status = vectorized::MutableBlock(blocks.back().get()).merge(*block);
+                VLOG_DEBUG << "after merge dump merged block "
+                           << blocks.back().get()->dump_data(0, blocks.back().get()->rows());
                 if (!status.ok()) {
                     break;
                 }

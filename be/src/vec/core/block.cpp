@@ -463,7 +463,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
     std::vector<std::string> headers;
     std::vector<size_t> headers_size;
     for (const auto& it : data) {
-        std::string s = fmt::format("{}({})", it.name, it.type->get_name());
+        std::string s = fmt::format("{}({})", it.name, it.column->get_name());
         headers_size.push_back(s.size() > 15 ? s.size() : 15);
         headers.emplace_back(s);
     }

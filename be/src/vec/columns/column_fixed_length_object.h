@@ -50,8 +50,6 @@ private:
 public:
     const char* get_family_name() const override { return "ColumnFixedLengthObject"; }
 
-    bool can_be_inside_nullable() const override { return true; }
-
     size_t size() const override { return _item_count; }
 
     const Container& get_data() const { return _data; }
