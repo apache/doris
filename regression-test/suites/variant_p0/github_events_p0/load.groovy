@@ -46,7 +46,6 @@ suite("regression_test_variant_github_events_p0", "variant_type"){
 
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
-    table_name = "github_events"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
@@ -68,6 +67,6 @@ suite("regression_test_variant_github_events_p0", "variant_type"){
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-22.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
     // TODO fix compaction issue, this case could be stable
-    qt_sql """select v:payload.pull_request.additions  from github_events where cast(v:repo.name as string) = 'xpressengine/xe-core';"""
+    qt_sql """select v:payload.pull_request.additions  from github_events where cast(v:repo.name as string) = 'xpressengine/xe-core' order by k;"""
     // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
 }
