@@ -100,12 +100,36 @@ template Status HashJoinDependency::extract_join_column<false>(
 
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}",
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={},block task = {}",
                    std::string(indentation_level * 2, ' '), _name, _id,
-                   read_blocked_by() == nullptr);
+                   read_blocked_by() == nullptr, _block_task.size());
     return fmt::to_string(debug_string_buffer);
 }
 
+std::string WriteDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer,
+                   "{}{}: id={}, read done={} , write done={} ,read block task = {}, write block "
+                   "task = {}",
+                   std::string(indentation_level * 2, ' '), _name, _id,
+                   read_blocked_by() == nullptr, write_blocked_by() == nullptr, _block_task.size(),
+                   _write_block_task.size());
+    return fmt::to_string(debug_string_buffer);
+}
+std::string FinishDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={},block task = {}",
+                   std::string(indentation_level * 2, ' '), _name, _id,
+                   finish_blocked_by() == nullptr, _block_task.size());
+    return fmt::to_string(debug_string_buffer);
+}
+std::string RuntimeFilterDependency::debug_string(int indentation_level) {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, done={},block task = {}",
+                   std::string(indentation_level * 2, ' '), _name, _id,
+                   filter_blocked_by() == nullptr, _block_task.size());
+    return fmt::to_string(debug_string_buffer);
+}
 std::string AndDependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}{}: id={}, done={}, children=[",

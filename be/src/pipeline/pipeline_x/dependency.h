@@ -173,6 +173,7 @@ public:
     void add_block_task(PipelineXTask* task) override;
 
     void try_to_wake_up_task() override;
+    std::string debug_string(int indentation_level = 0) override;
 
 protected:
     friend class Dependency;
@@ -218,6 +219,7 @@ public:
 
     void block_finishing() { _ready_to_finish = false; }
     void* shared_state() override { return nullptr; }
+    std::string debug_string(int indentation_level = 0) override;
 
 protected:
     std::atomic<bool> _ready_to_finish;
@@ -277,6 +279,7 @@ public:
     void set_blocked_by_rf(std::shared_ptr<std::atomic_bool> blocked_by_rf) {
         _blocked_by_rf = blocked_by_rf;
     }
+    std::string debug_string(int indentation_level = 0) override;
 
 protected:
     const int _node_id;
