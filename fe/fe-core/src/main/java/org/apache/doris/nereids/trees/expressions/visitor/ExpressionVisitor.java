@@ -407,7 +407,7 @@ public abstract class ExpressionVisitor<R, C>
     }
 
     public R visitVirtualReference(VirtualSlotReference virtualSlotReference, C context) {
-        return visit(virtualSlotReference, context);
+        return visitSlotReference(virtualSlotReference, context);
     }
 
     public R visitVariableDesc(VariableDesc variableDesc, C context) {
