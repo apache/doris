@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.catalog.ArrayType;
@@ -145,7 +146,7 @@ public class GroupCommitPlanner {
         try {
             List<Expr> exprs = cols.subList(0, cols.size() - filterSize);
             for (Expr expr : exprs) {
-                if (!expr.isLiteralOrCastExpr()) {
+                if (!expr.isLiteralOrCastExpr() && !(expr instanceof CastExpr)) {
                     if (expr.getChildren().get(0) instanceof NullLiteral) {
                         row.addColBuilder().setValue("\\N");
                         continue;
