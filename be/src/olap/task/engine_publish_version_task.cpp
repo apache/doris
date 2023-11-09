@@ -33,7 +33,6 @@
 #include <utility>
 
 #include "common/logging.h"
-#include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
@@ -236,19 +235,7 @@ Status EnginePublishVersionTask::finish() {
             } else {
                 // check if the version exist, if not exist, then set publish failed
                 if (_error_tablet_ids->find(tablet_id) == _error_tablet_ids->end()) {
-                    bool exist_version = tablet->check_version_exist(version);
-                    bool is_converting = false;
-                    if (!exist_version && tablet->tablet_state() == TabletState::TABLET_NOTREADY) {
-                        bool is_mow = tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                                      tablet->enable_unique_key_merge_on_write();
-                        auto sc_param = SchemaChangeHandler::get_tablet_converting_param(tablet_id);
-                        is_converting =
-                                sc_param != nullptr &&
-                                (is_mow || par_ver_info.version <= sc_param->alter_version) &&
-                                (sc_param->alter_tablet_type == AlterTabletType::ROLLUP ||
-                                 sc_param->alter_tablet_type == AlterTabletType::SCHEMA_CHANGE);
-                    }
-                    if (exist_version || is_converting) {
+                    if (tablet->check_version_exist(version)) {
                         // it's better to report the max continous succ version,
                         // but it maybe time cost now.
                         // current just report 0
@@ -257,14 +244,17 @@ Status EnginePublishVersionTask::finish() {
                         add_error_tablet_id(tablet_id);
                         if (res.ok()) {
                             res = Status::Error<VERSION_NOT_EXIST>(
-                                    "tablet {} not exists version {}", tablet_id,
+                                    "tablet {} with state {} not exists version {}", tablet_id,
+                                    tablet_state_name(tablet->tablet_state()),
                                     par_ver_info.version);
                         }
-                        LOG(WARNING) << "publish version failed on transaction, tablet version not "
-                                        "exists. "
-                                     << "transaction_id=" << transaction_id
-                                     << ", tablet_id=" << tablet_id
-                                     << ", version=" << par_ver_info.version;
+                        LOG(WARNING)
+                                << "publish version failed on transaction, tablet version not "
+                                   "exists. "
+                                << "transaction_id=" << transaction_id
+                                << ", tablet_id=" << tablet_id
+                                << ", tablet_state=" << tablet_state_name(tablet->tablet_state())
+                                << ", version=" << par_ver_info.version;
                     }
                 }
             }

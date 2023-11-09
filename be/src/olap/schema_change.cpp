@@ -667,8 +667,7 @@ Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& req
 }
 
 std::shared_mutex SchemaChangeHandler::_mutex;
-std::unordered_map<int64_t, std::shared_ptr<SchemaChangeParams>>
-        SchemaChangeHandler::_tablet_converting_params;
+std::unordered_set<int64_t> SchemaChangeHandler::_tablet_ids_in_converting;
 
 // In the past schema change and rollup will create new tablet  and will wait for txns starting before the task to finished
 // It will cost a lot of time to wait and the task is very difficult to understand.
@@ -864,8 +863,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         if (!res) {
             break;
         }
-        auto sc_param_ptr = std::make_shared<SchemaChangeParams>();
-        SchemaChangeParams& sc_params = *sc_param_ptr;
+        SchemaChangeParams sc_params;
 
         RETURN_IF_ERROR(
                 DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
@@ -878,7 +876,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         sc_params.delete_handler = &delete_handler;
         sc_params.base_tablet_schema = base_tablet_schema;
         sc_params.be_exec_version = request.be_exec_version;
-        sc_params.alter_version = request.alter_version;
         DCHECK(request.__isset.alter_tablet_type);
         switch (request.alter_tablet_type) {
         case TAlterTabletType::SCHEMA_CHANGE:
@@ -912,12 +909,12 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         }
         {
             std::lock_guard<std::shared_mutex> wrlock(_mutex);
-            _tablet_converting_params[new_tablet->tablet_id()] = sc_param_ptr;
+            _tablet_ids_in_converting.insert(new_tablet->tablet_id());
         }
         res = _convert_historical_rowsets(sc_params);
         {
             std::lock_guard<std::shared_mutex> wrlock(_mutex);
-            _tablet_converting_params.erase(new_tablet->tablet_id());
+            _tablet_ids_in_converting.erase(new_tablet->tablet_id());
         }
         if (!res) {
             break;
@@ -1010,11 +1007,9 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     return res;
 }
 
-std::shared_ptr<SchemaChangeParams> SchemaChangeHandler::get_tablet_converting_param(
-        int64_t tablet_id) {
+bool SchemaChangeHandler::tablet_in_converting(int64_t tablet_id) {
     std::shared_lock rdlock(_mutex);
-    auto it = _tablet_converting_params.find(tablet_id);
-    return it != _tablet_converting_params.end() ? it->second : nullptr;
+    return _tablet_ids_in_converting.find(tablet_id) != _tablet_ids_in_converting.end();
 }
 
 Status SchemaChangeHandler::_get_versions_to_be_changed(
