@@ -2742,7 +2742,8 @@ Status Tablet::_get_segment_column_iterator(
 }
 
 // fetch value by row column
-Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint32_t segid,
+Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
+                                              const TabletSchema& tablet_schema, uint32_t segid,
                                               const std::vector<uint32_t>& rowids,
                                               const std::vector<uint32_t>& cids,
                                               vectorized::Block& block) {
@@ -2755,13 +2756,12 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
 
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
     CHECK(rowset);
-    const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
-    CHECK(tablet_schema->store_row_column());
+    CHECK(tablet_schema.store_row_column());
     SegmentCacheHandle segment_cache_handle;
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     OlapReaderStatistics stats;
     RETURN_IF_ERROR(_get_segment_column_iterator(rowset, segid,
-                                                 tablet_schema->column(BeConsts::ROW_STORE_COL),
+                                                 tablet_schema.column(BeConsts::ROW_STORE_COL),
                                                  &segment_cache_handle, &column_iterator, &stats));
     // get and parse tuple row
     vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
@@ -2774,7 +2774,7 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
     std::vector<std::string> default_values;
     default_values.resize(cids.size());
     for (int i = 0; i < cids.size(); ++i) {
-        const TabletColumn& column = tablet_schema->column(cids[i]);
+        const TabletColumn& column = tablet_schema.column(cids[i]);
         vectorized::DataTypePtr type =
                 vectorized::DataTypeFactory::instance().create_data_type(column);
         col_uid_to_idx[column.unique_id()] = i;
@@ -3255,8 +3255,8 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
                 (*read_index)[id_and_pos.pos] = read_idx++;
             }
             if (has_row_column) {
-                auto st = fetch_value_through_row_column(rowset_iter->second, seg_it.first, rids,
-                                                         cids_to_read, block);
+                auto st = fetch_value_through_row_column(rowset_iter->second, *tablet_schema,
+                                                         seg_it.first, rids, cids_to_read, block);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value through row column";
                     return st;
