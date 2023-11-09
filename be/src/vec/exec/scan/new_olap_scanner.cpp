@@ -104,6 +104,26 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     return read_columns_string;
 }
 
+void NewOlapScanner::_perfect_slot_column_id(const VExprSPtr& expr) {
+    const auto& children = expr->children();
+    for (auto child : children) {
+        _perfect_slot_column_id(child);
+    }
+
+    if (expr->node_type() == TExprNodeType::SLOT_REF) {
+        auto slot_expr = std::dynamic_pointer_cast<doris::vectorized::VSlotRef>(expr);
+        auto& tablet_schema = _tablet_reader_params.tablet_schema;
+        if (slot_expr->col_unique_id() < 0) {
+            auto slot_unique_id = tablet_schema->column(slot_expr->expr_name()).unique_id();
+            DCHECK(slot_unique_id >= 0);
+            slot_expr->set_col_unique_id(slot_unique_id);
+        }
+        auto index = tablet_schema->field_index(slot_expr->expr_name());
+        DCHECK(index >= 0);
+        slot_expr->set_tablet_schema_column_id(index);
+    }
+}
+
 Status NewOlapScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     return VScanner::prepare(state, conjuncts);
 }
@@ -272,6 +292,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
     } else {
         for (auto& ctx : _common_expr_ctxs_push_down) {
             _tablet_reader_params.remaining_conjunct_roots.emplace_back(ctx->root());
+            _perfect_slot_column_id(ctx->root());
         }
     }
 

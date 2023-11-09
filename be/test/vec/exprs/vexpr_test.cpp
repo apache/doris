@@ -162,6 +162,7 @@ TEST(TEST_VEXPR, ABSTEST2) {
     runtime_stat.set_desc_tbl(&desc_tbl);
     auto state = Status::OK();
     state = context->prepare(&runtime_stat, row_desc);
+    std::cout << state.to_string() << std::endl;
     ASSERT_TRUE(state.ok());
     state = context->open(&runtime_stat);
     ASSERT_TRUE(state.ok());

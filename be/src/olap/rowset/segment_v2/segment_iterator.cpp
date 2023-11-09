@@ -587,11 +587,13 @@ Status SegmentIterator::_extract_common_expr_columns(const vectorized::VExprSPtr
     auto node_type = expr->node_type();
     if (node_type == TExprNodeType::SLOT_REF) {
         auto slot_expr = std::dynamic_pointer_cast<doris::vectorized::VSlotRef>(expr);
-        DCHECK(_schema->unique_id_to_index(slot_expr->col_unique_id()) != -1);
-        auto cid = _schema->column_id(_schema->unique_id_to_index(slot_expr->col_unique_id()));
-        slot_expr->set_push_down_column_id(cid);
+        auto cid = slot_expr->tablet_schema_column_id();
+        DCHECK(cid != -1);
         _is_common_expr_column[cid] = true;
         _common_expr_columns.insert(cid);
+        auto col_ids_index = _schema->col_id_to_col_ids_index(cid);
+        DCHECK(col_ids_index != -1);
+        slot_expr->set_push_down_column_index(col_ids_index);
     }
 
     return Status::OK();
