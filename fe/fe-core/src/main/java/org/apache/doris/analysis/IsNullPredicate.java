@@ -156,9 +156,9 @@ public class IsNullPredicate extends Predicate {
      */
     @Override
     public Expr getResultValue(boolean inView) throws AnalysisException {
-        recursiveResetChildrenResult(inView);
+        recursiveResetChildrenResult(!inView);
         final Expr childValue = getChild(0);
-        if (!(childValue instanceof LiteralExpr)) {
+        if (inView || !(childValue instanceof LiteralExpr)) {
             return this;
         }
         return childValue instanceof NullLiteral ? new BoolLiteral(!isNotNull) : new BoolLiteral(isNotNull);
