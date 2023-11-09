@@ -435,7 +435,6 @@ public class StmtExecutor {
 
     public void execute(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
-        
         if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
             context.setReturnResultFromLocal(true);
         }
@@ -1449,7 +1448,7 @@ public class StmtExecutor {
             profile.addExecutionProfile(coord.getExecutionProfile());
             coordBase = coord;
         }
-        
+
         coordBase.exec();
 
         profile.getSummaryProfile().setQueryScheduleFinishTime();

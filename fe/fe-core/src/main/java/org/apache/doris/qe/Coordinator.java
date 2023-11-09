@@ -973,7 +973,7 @@ public class Coordinator implements CoordInterface {
                 errMsg = "timeout when waiting for " + operation + " RPC. Wait(sec): " + timeoutMs / 1000;
                 code = TStatusCode.TIMEOUT;
             }
-            
+
             if (code != TStatusCode.OK) {
                 if (exception != null && errMsg == null) {
                     errMsg = operation + " failed. " + exception.getMessage();
@@ -1034,7 +1034,6 @@ public class Coordinator implements CoordInterface {
                 code = TStatusCode.TIMEOUT;
             }
 
-            
             if (code != TStatusCode.OK) {
                 if (exception != null && errMsg == null) {
                     errMsg = operation + " failed. " + exception.getMessage();

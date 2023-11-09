@@ -66,9 +66,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -522,6 +520,7 @@ public abstract class ConnectProcessor {
                     }
                 }
             }
+
             TUniqueId queryId; // This query id will be set in ctx
             if (request.isSetQueryId()) {
                 queryId = request.getQueryId();
@@ -529,7 +528,7 @@ public abstract class ConnectProcessor {
                 UUID uuid = UUID.randomUUID();
                 queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             }
-            
+
             executor.execute(queryId);
         } catch (IOException e) {
             // Client failed.
