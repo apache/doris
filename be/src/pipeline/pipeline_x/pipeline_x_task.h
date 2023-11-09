@@ -169,8 +169,8 @@ public:
 
     bool push_blocked_task_to_dep() {
         DCHECK(_blocked_dep) << "state :" << get_state_name(get_state());
-        if (get_state() == PipelineTaskState ::BLOCKED_FOR_SOURCE &&
-            !_blocked_dep->avoid_using_blocked_queue_dependency()) {
+        DCHECK(avoid_using_blocked_queue(get_state()));
+        if (!_blocked_dep->avoid_using_blocked_queue_dependency()) {
             return false;
         }
         _blocked_dep->add_block_task(this);
