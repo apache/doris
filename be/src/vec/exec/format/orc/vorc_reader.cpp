@@ -734,6 +734,13 @@ Status OrcReader::set_fill_columns(
         }
     }
 
+    for (auto& each : _tuple_descriptor->slots()) {
+        PrimitiveType column_type = each->col_type();
+        if (column_type == TYPE_ARRAY || column_type == TYPE_MAP || column_type == TYPE_STRUCT) {
+            _has_complex_type = true;
+        }
+    }
+
     for (auto& kv : partition_columns) {
         auto iter = predicate_columns.find(kv.first);
         if (iter == predicate_columns.end()) {
@@ -754,7 +761,8 @@ Status OrcReader::set_fill_columns(
         }
     }
 
-    if (_enable_lazy_mat && _lazy_read_ctx.predicate_columns.first.size() > 0 &&
+    if (!_has_complex_type && _enable_lazy_mat &&
+        _lazy_read_ctx.predicate_columns.first.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
     }
