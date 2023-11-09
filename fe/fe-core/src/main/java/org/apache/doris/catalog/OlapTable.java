@@ -2358,6 +2358,11 @@ public class OlapTable extends Table {
     }
 
     @Override
+    public boolean isOlapTable() {
+        return true;
+    }
+
+    @Override
     public void analyze(String dbName) {
         for (MaterializedIndexMeta meta : indexIdToMeta.values()) {
             try {

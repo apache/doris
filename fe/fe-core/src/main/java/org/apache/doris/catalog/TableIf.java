@@ -92,8 +92,7 @@ public interface TableIf {
     }
 
     default boolean isOlapTable() {
-        TableType type = getType();
-        return type == TableType.OLAP || type.getParentType() == TableType.OLAP;
+        return false;
     }
 
     List<Column> getBaseSchema(boolean full);
