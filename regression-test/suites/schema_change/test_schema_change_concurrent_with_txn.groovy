@@ -34,7 +34,7 @@ suite('test_schema_change_concurrent_with_txn') {
         order_qt_select_1_1 'SELECT * FROM tbl_1'
 
         sql 'CREATE TABLE tbl_2 AS SELECT * FROM tbl_1'
-        order_qt_select_2_1 'SELECT * FROM tbl_1'
+        order_qt_select_2_1 'SELECT * FROM tbl_2'
 
         sql 'CREATE TABLE tbl_3 (k1 INT, k2 INT, v INT SUM) AGGREGATE KEY (k1, k2)'
         sql 'INSERT INTO tbl_3 VALUES (1, 11, 111)'

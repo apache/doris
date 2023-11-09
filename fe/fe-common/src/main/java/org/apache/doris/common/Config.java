@@ -440,7 +440,7 @@ public class Config extends ConfigBase {
     public static int publish_wait_time_second = 300;
 
     @ConfField(mutable = true, masterOnly = true, description = {"导入 Publish 阶段是否检查正在做 Schema 变更的副本。"
-            + "正常情况情况，不要关闭此检查。除非在极端情况下出现导入和 Schema 变更出现互相等待死锁时才临时打开。",
+            + "正常情况下，不要关闭此检查。除非在极端情况下出现导入和 Schema 变更出现互相等待死锁时才临时打开。",
             "Check the replicas which are doing schema change when publish transaction. Do not turn off this check "
             + " under normal circumstances. It's only temporarily skip check if publish version and schema change have"
             + " dead lock" })

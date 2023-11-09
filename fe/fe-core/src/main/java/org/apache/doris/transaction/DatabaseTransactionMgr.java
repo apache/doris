@@ -536,6 +536,7 @@ public class DatabaseTransactionMgr {
                     transactionState.prolongPublishTimeout();
                 }
 
+                // (TODO): ignore the alter index if txn id is less than sc sched watermark
                 int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
@@ -988,7 +989,7 @@ public class DatabaseTransactionMgr {
                     continue;
                 }
 
-                boolean ignoreAlterReplica = isCheckTxnIgnoreAlterReplica(transactionId, table);
+                boolean alterReplicaLoadedTxn = isAlterReplicaLoadedTxn(transactionId, table);
                 Iterator<PartitionCommitInfo> partitionCommitInfoIterator
                         = tableCommitInfo.getIdToPartitionCommitInfo().values().iterator();
                 while (partitionCommitInfoIterator.hasNext()) {
@@ -1041,7 +1042,7 @@ public class DatabaseTransactionMgr {
                             tabletWriteFailedReplicas.clear();
                             tabletVersionFailedReplicas.clear();
                             for (Replica replica : tablet.getReplicas()) {
-                                checkReplicaContinuousVersionSucc(tablet.getId(), replica, ignoreAlterReplica,
+                                checkReplicaContinuousVersionSucc(tablet.getId(), replica, alterReplicaLoadedTxn,
                                         partitionCommitInfo.getVersion(), publishTasks.get(replica.getBackendId()),
                                         errorReplicaIds, tabletSuccReplicas, tabletWriteFailedReplicas,
                                         tabletVersionFailedReplicas);
@@ -1143,10 +1144,7 @@ public class DatabaseTransactionMgr {
         LOG.info("finish transaction {} successfully, publish result: {}", transactionState, publishResult.name());
     }
 
-    private boolean isCheckTxnIgnoreAlterReplica(long transactionId, OlapTable table) {
-        if (!Config.publish_version_check_alter_replica) {
-            return true;
-        }
+    private boolean isAlterReplicaLoadedTxn(long transactionId, OlapTable table) {
         List<AlterJobV2> unfinishedAlterJobs = null;
         if (table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
             unfinishedAlterJobs = Env.getCurrentEnv().getAlterInstance().getSchemaChangeHandler()
@@ -1155,14 +1153,13 @@ public class DatabaseTransactionMgr {
             unfinishedAlterJobs = Env.getCurrentEnv().getAlterInstance().getMaterializedViewHandler()
                     .getUnfinishedAlterJobV2ByTableId(table.getId());
         } else {
-            return false;
+            return true;
         }
 
-        return unfinishedAlterJobs.stream().anyMatch(
-                job -> job.getWatershedTxnId() < 0 || transactionId < job.getWatershedTxnId());
+        return unfinishedAlterJobs.stream().allMatch(job -> transactionId > job.getWatershedTxnId());
     }
 
-    private void checkReplicaContinuousVersionSucc(long tabletId, Replica replica, boolean ignoreAlterReplica,
+    private void checkReplicaContinuousVersionSucc(long tabletId, Replica replica, boolean alterReplicaLoadedTxn,
             long version, PublishVersionTask backendPublishTask,
             Set<Long> errorReplicaIds, List<Replica> tabletSuccReplicas,
             List<Replica> tabletWriteFailedReplicas, List<Replica> tabletVersionFailedReplicas) {
@@ -1185,7 +1182,15 @@ public class DatabaseTransactionMgr {
                 }
             }
         }
-        if (ignoreAlterReplica && replica.getState() == Replica.ReplicaState.ALTER) {
+
+        // Schema change and rollup has a sched watermark,
+        // it's ensure that alter replicas will load those txns whose txn id > sched watermark.
+        // But for txns before the sched watermark, the alter replicas maynot load the txns,
+        // publish will ignore checking them and treat them as success in advance.
+        // Later be will fill the alter replicas's history data which before sched watermark.
+        // If failed to fill, fe will set the alter replica bad.
+        if (replica.getState() == Replica.ReplicaState.ALTER
+                && (!alterReplicaLoadedTxn || !Config.publish_version_check_alter_replica)) {
             errorReplicaIds.remove(replica.getId());
         }
 
