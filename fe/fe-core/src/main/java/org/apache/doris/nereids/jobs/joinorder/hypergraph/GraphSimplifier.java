@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.base.Preconditions;
 
@@ -36,6 +37,7 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.PriorityQueue;
@@ -70,7 +72,7 @@ public class GraphSimplifier {
     private final Deque<SimplificationStep> appliedSteps = new ArrayDeque<>();
     private final Deque<SimplificationStep> unAppliedSteps = new ArrayDeque<>();
 
-    private final Set<Edge> validEdges;
+    private final Set<Edge> inValidEdges = new HashSet<>();
 
     /**
      * Create a graph simplifier
@@ -88,27 +90,30 @@ public class GraphSimplifier {
             cacheStats.put(node.getNodeMap(), node.getGroup().getStatistics());
             cacheCost.put(node.getNodeMap(), node.getRowCount());
         }
-        validEdges = graph.getEdges().stream()
-                .filter(e -> {
-                    for (Slot slot : e.getJoin().getConditionSlot()) {
-                        boolean contains = false;
-                        for (int nodeIdx : LongBitmap.getIterator(e.getReferenceNodes())) {
-                            if (graph.getNode(nodeIdx).getOutput().contains(slot)) {
-                                contains = true;
-                                break;
-                            }
-                        }
-                        if (!contains) {
-                            return false;
-                        }
-                    }
-                    return true;
-                })
-                .collect(Collectors.toSet());
+        initEdges();
         circleDetector = new CircleDetector(edgeSize);
 
         // init first simplification step
         initFirstStep();
+    }
+
+    private void initEdges() {
+        for (Edge edge : graph.getEdges()) {
+            if (!cacheStats.containsKey(edge.getLeftExtendedNodes()) || !cacheStats.containsKey(edge.getRightExtendedNodes())) {
+                inValidEdges.add(edge);
+                continue;
+            }
+            Statistics leftStats = cacheStats.get(edge.getLeftExtendedNodes());
+            Statistics rightStats = cacheStats.get(edge.getRightExtendedNodes());
+            if (edge.getJoin().getExpressions().stream().anyMatch(
+                    s -> !leftStats.columnStatistics().containsKey(s) && !rightStats.columnStatistics().containsKey(s))) {
+                inValidEdges.add(edge);
+                continue;
+            }
+            Statistics stats = JoinEstimation.estimate(cacheStats.get(edge.getLeftExtendedNodes()),
+                    cacheStats.get(edge.getRightExtendedNodes()), edge.getJoin());
+            edge.setSelectivity(stats.getRowCount() / leftStats.getRowCount() * rightStats.getRowCount());
+        }
     }
 
     private boolean isOverlap(Edge edge1, Edge edge2) {
@@ -140,7 +145,7 @@ public class GraphSimplifier {
                 tryGetSuperset(edge1.getLeftExtendedNodes(), edge2.getRightExtendedNodes(), superset);
                 tryGetSuperset(edge1.getRightExtendedNodes(), edge2.getLeftExtendedNodes(), superset);
                 tryGetSuperset(edge1.getRightExtendedNodes(), edge2.getRightExtendedNodes(), superset);
-                if (edge2.isSub(edge1) || edge1.isSub(edge2) || superset.isEmpty() || isOverlap(edge1, edge2)) {
+                if (edge2.isSub(edge1) || edge1.isSub(edge2) || superset.isEmpty()) {
                     continue;
                 }
                 if (!(circleDetector.checkCircleWithEdge(i, j) || circleDetector.checkCircleWithEdge(j, i))) {
@@ -344,7 +349,7 @@ public class GraphSimplifier {
         if (edge1.isSub(edge2) || edge2.isSub(edge1)
                 || circleDetector.checkCircleWithEdge(edgeIndex1, edgeIndex2)
                 || circleDetector.checkCircleWithEdge(edgeIndex2, edgeIndex1)
-                || !validEdges.contains(edge1) || !validEdges.contains(edge2)) {
+                || inValidEdges.contains(edge1) || inValidEdges.contains(edge2)) {
             return Optional.empty();
         }
         long left1 = edge1.getLeftExtendedNodes();
@@ -429,9 +434,9 @@ public class GraphSimplifier {
             return;
         }
         // Note the edge in graphSimplifier contains all tree nodes
-        Statistics joinStats = JoinEstimation
-                .estimate(cacheStats.get(leftBitmap),
-                        cacheStats.get(rightBitmap), edge.getJoin());
+        double rowCount = cacheStats.get(leftBitmap).getRowCount() * cacheStats.get(rightBitmap).getRowCount()
+                * edge.getSelectivity();
+        Statistics joinStats = new StatisticsBuilder().setRowCount(rowCount).build();
         cacheStats.put(bitmap, joinStats);
     }
 

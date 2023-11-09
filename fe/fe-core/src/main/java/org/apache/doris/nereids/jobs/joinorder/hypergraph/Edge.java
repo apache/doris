@@ -39,7 +39,7 @@ import javax.annotation.Nullable;
 public class Edge {
     final int index;
     final LogicalJoin<? extends Plan, ? extends Plan> join;
-    final double selectivity;
+    double selectivity;
 
     // "RequiredNodes" refers to the nodes that can activate this edge based on
     // specific requirements. These requirements are established during the building process.
@@ -73,6 +73,9 @@ public class Edge {
         this.subTreeNodes = subTreeNodes;
     }
 
+    public void setSelectivity(double selectivity) {
+        this.selectivity = selectivity;
+    }
     public LogicalJoin<? extends Plan, ? extends Plan> getJoin() {
         return join;
     }
