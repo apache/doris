@@ -54,6 +54,7 @@ and s_state = 'SD'
 and ctr1.ctr_customer_sk = c_customer_sk
 order by c_customer_id
 limit 100;
+<<<<<<< HEAD
 
     '''
     String plan = sql "${stmt}"
@@ -77,3 +78,28 @@ limit 100;
     
      assertEquals("RF0[d_date_sk->[sr_returned_date_sk],RF2[ctr_customer_sk->[c_customer_sk],RF1[s_store_sk->[ctr_store_sk]", getRuntimeFilters(plan))
 }
+=======
+
+    '''
+    String plan = sql "${stmt}"
+    println plan
+    def getRuntimeFilters = { plantree ->
+        {
+            def lst = []
+            plantree.eachMatch("RF\\d+\\[[^#]+#\\d+->\\[[^\\]]+\\]") {
+                ch ->
+                    {
+                        lst.add(ch.replaceAll("#\\d+", ''))
+                    }
+            }
+            return lst.join(',')
+        }
+    }
+    
+    //def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.1"
+    //File file = new File(outFile)
+    //file.write(getRuntimeFilters(plan))
+    
+    assertEquals("RF0[d_date_sk->[sr_returned_date_sk],RF1[ctr_customer_sk->[c_customer_sk]", getRuntimeFilters(plan))
+}
+>>>>>>> b6ad626ef0 ([brach-2.0](pick)use 2 phase agg above union all #26245 (#26664))
