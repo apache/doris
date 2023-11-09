@@ -94,6 +94,13 @@ public:
             RETURN_IF_ERROR(part_ctx->prepare(_state, *output_row_desc));
             RETURN_IF_ERROR(part_ctx->open(_state));
         }
+        for (auto& index : _schema->indexes()) {
+            auto& where_clause = index->where_clause;
+            if (where_clause != nullptr) {
+                RETURN_IF_ERROR(where_clause->prepare(_state, *output_row_desc));
+                RETURN_IF_ERROR(where_clause->open(_state));
+            }
+        }
         return Status::OK();
     }
 
