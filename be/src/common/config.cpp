@@ -457,7 +457,7 @@ DEFINE_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
 DEFINE_mInt32(periodic_counter_update_period_ms, "500");
 
-DEFINE_Bool(enable_single_replica_load, "false");
+DEFINE_Bool(enable_single_replica_load, "true");
 // Number of download workers for single replica load
 DEFINE_Int32(single_replica_load_download_num_workers, "64");
 
