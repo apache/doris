@@ -128,7 +128,7 @@ class WriteBlockCallback final : public ::doris::DummyBrpcCallback<T> {
 
 public:
     WriteBlockCallback() : cid(INVALID_BTHREAD_ID) {}
-    virtual ~WriteBlockCallback() override = default;
+    ~WriteBlockCallback() override = default;
 
     void addFailedHandler(const std::function<void(bool)>& fn) { failed_handler = fn; }
     void addSuccessHandler(const std::function<void(const T&, bool)>& fn) { success_handler = fn; }
