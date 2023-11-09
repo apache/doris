@@ -15,30 +15,6 @@ PhysicalResultSink
 ------------------------PhysicalQuickSort
 --------------------------PhysicalWindow
 ----------------------------PhysicalQuickSort
-<<<<<<< HEAD
-------------------------------PhysicalProject
---------------------------------hashAgg[GLOBAL]
-----------------------------------PhysicalDistribute
-------------------------------------hashAgg[LOCAL]
---------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN](ws.ws_item_sk = wr.wr_item_sk)(ws.ws_order_number = wr.wr_order_number)
-------------------------------------------PhysicalProject
---------------------------------------------filter((wr.wr_return_amt > 10000.00))
-----------------------------------------------PhysicalOlapScan[web_returns]
-------------------------------------------hashJoin[INNER_JOIN](ws.ws_sold_date_sk = date_dim.d_date_sk)
---------------------------------------------PhysicalProject
-----------------------------------------------filter((ws.ws_net_paid > 0.00)(ws.ws_quantity > 0)(ws.ws_net_profit > 1.00))
-------------------------------------------------PhysicalOlapScan[web_sales]
---------------------------------------------PhysicalDistribute
-----------------------------------------------PhysicalProject
-------------------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1999))
---------------------------------------------------PhysicalOlapScan[date_dim]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------filter(((return_rank <= 10) OR (currency_rank <= 10)))
-------------------PhysicalWindow
---------------------PhysicalQuickSort
-=======
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalQuickSort
 ----------------------------------PhysicalProject
@@ -46,50 +22,25 @@ PhysicalResultSink
 --------------------------------------PhysicalDistribute
 ----------------------------------------hashAgg[LOCAL]
 ------------------------------------------PhysicalProject
---------------------------------------------hashJoin[INNER_JOIN] hashCondition=((ws.ws_item_sk = wr.wr_item_sk) and (ws.ws_order_number = wr.wr_order_number))otherCondition=()
+--------------------------------------------hashJoin[INNER_JOIN](ws.ws_item_sk = wr.wr_item_sk)(ws.ws_order_number = wr.wr_order_number)
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter((wr.wr_return_amt > 10000.00))
 --------------------------------------------------PhysicalOlapScan[web_returns]
-----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((ws.ws_sold_date_sk = date_dim.d_date_sk))otherCondition=()
+----------------------------------------------hashJoin[INNER_JOIN](ws.ws_sold_date_sk = date_dim.d_date_sk)
 ------------------------------------------------PhysicalProject
---------------------------------------------------filter((ws.ws_net_paid > 0.00) and (ws.ws_net_profit > 1.00) and (ws.ws_quantity > 0))
+--------------------------------------------------filter((ws.ws_net_paid > 0.00)(ws.ws_quantity > 0)(ws.ws_net_profit > 1.00))
 ----------------------------------------------------PhysicalOlapScan[web_sales]
 ------------------------------------------------PhysicalDistribute
 --------------------------------------------------PhysicalProject
-----------------------------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 1999))
+----------------------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1999))
 ------------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------filter(((return_rank <= 10) OR (currency_rank <= 10)))
->>>>>>> a6d2013802... [opt](nereids) use 2 phase agg above union all (#26245)
 ----------------------PhysicalWindow
 ------------------------PhysicalQuickSort
 --------------------------PhysicalWindow
 ----------------------------PhysicalQuickSort
-<<<<<<< HEAD
-------------------------------PhysicalProject
---------------------------------hashAgg[GLOBAL]
-----------------------------------PhysicalDistribute
-------------------------------------hashAgg[LOCAL]
---------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN](cs.cs_item_sk = cr.cr_item_sk)(cs.cs_order_number = cr.cr_order_number)
-------------------------------------------PhysicalProject
---------------------------------------------filter((cr.cr_return_amount > 10000.00))
-----------------------------------------------PhysicalOlapScan[catalog_returns]
-------------------------------------------hashJoin[INNER_JOIN](cs.cs_sold_date_sk = date_dim.d_date_sk)
---------------------------------------------PhysicalProject
-----------------------------------------------filter((cs.cs_net_paid > 0.00)(cs.cs_quantity > 0)(cs.cs_net_profit > 1.00))
-------------------------------------------------PhysicalOlapScan[catalog_sales]
---------------------------------------------PhysicalDistribute
-----------------------------------------------PhysicalProject
-------------------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1999))
---------------------------------------------------PhysicalOlapScan[date_dim]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------filter(((return_rank <= 10) OR (currency_rank <= 10)))
-------------------PhysicalWindow
---------------------PhysicalQuickSort
-=======
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalQuickSort
 ----------------------------------PhysicalProject
@@ -97,45 +48,25 @@ PhysicalResultSink
 --------------------------------------PhysicalDistribute
 ----------------------------------------hashAgg[LOCAL]
 ------------------------------------------PhysicalProject
---------------------------------------------hashJoin[INNER_JOIN] hashCondition=((cs.cs_item_sk = cr.cr_item_sk) and (cs.cs_order_number = cr.cr_order_number))otherCondition=()
+--------------------------------------------hashJoin[INNER_JOIN](cs.cs_item_sk = cr.cr_item_sk)(cs.cs_order_number = cr.cr_order_number)
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter((cr.cr_return_amount > 10000.00))
 --------------------------------------------------PhysicalOlapScan[catalog_returns]
-----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((cs.cs_sold_date_sk = date_dim.d_date_sk))otherCondition=()
+----------------------------------------------hashJoin[INNER_JOIN](cs.cs_sold_date_sk = date_dim.d_date_sk)
 ------------------------------------------------PhysicalProject
---------------------------------------------------filter((cs.cs_net_paid > 0.00) and (cs.cs_net_profit > 1.00) and (cs.cs_quantity > 0))
+--------------------------------------------------filter((cs.cs_net_paid > 0.00)(cs.cs_quantity > 0)(cs.cs_net_profit > 1.00))
 ----------------------------------------------------PhysicalOlapScan[catalog_sales]
 ------------------------------------------------PhysicalDistribute
 --------------------------------------------------PhysicalProject
-----------------------------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 1999))
+----------------------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1999))
 ------------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------filter(((return_rank <= 10) OR (currency_rank <= 10)))
->>>>>>> a6d2013802... [opt](nereids) use 2 phase agg above union all (#26245)
 ----------------------PhysicalWindow
 ------------------------PhysicalQuickSort
 --------------------------PhysicalWindow
 ----------------------------PhysicalQuickSort
-<<<<<<< HEAD
-------------------------------PhysicalProject
---------------------------------hashAgg[GLOBAL]
-----------------------------------PhysicalDistribute
-------------------------------------hashAgg[LOCAL]
---------------------------------------PhysicalProject
-----------------------------------------hashJoin[INNER_JOIN](sts.ss_item_sk = sr.sr_item_sk)(sts.ss_ticket_number = sr.sr_ticket_number)
-------------------------------------------PhysicalProject
---------------------------------------------filter((sr.sr_return_amt > 10000.00))
-----------------------------------------------PhysicalOlapScan[store_returns]
-------------------------------------------hashJoin[INNER_JOIN](sts.ss_sold_date_sk = date_dim.d_date_sk)
---------------------------------------------PhysicalProject
-----------------------------------------------filter((sts.ss_quantity > 0)(sts.ss_net_profit > 1.00)(sts.ss_net_paid > 0.00))
-------------------------------------------------PhysicalOlapScan[store_sales]
---------------------------------------------PhysicalDistribute
-----------------------------------------------PhysicalProject
-------------------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1999))
---------------------------------------------------PhysicalOlapScan[date_dim]
-=======
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalQuickSort
 ----------------------------------PhysicalProject
@@ -143,17 +74,16 @@ PhysicalResultSink
 --------------------------------------PhysicalDistribute
 ----------------------------------------hashAgg[LOCAL]
 ------------------------------------------PhysicalProject
---------------------------------------------hashJoin[INNER_JOIN] hashCondition=((sts.ss_item_sk = sr.sr_item_sk) and (sts.ss_ticket_number = sr.sr_ticket_number))otherCondition=()
+--------------------------------------------hashJoin[INNER_JOIN](sts.ss_item_sk = sr.sr_item_sk)(sts.ss_ticket_number = sr.sr_ticket_number)
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter((sr.sr_return_amt > 10000.00))
 --------------------------------------------------PhysicalOlapScan[store_returns]
-----------------------------------------------hashJoin[INNER_JOIN] hashCondition=((sts.ss_sold_date_sk = date_dim.d_date_sk))otherCondition=()
+----------------------------------------------hashJoin[INNER_JOIN](sts.ss_sold_date_sk = date_dim.d_date_sk)
 ------------------------------------------------PhysicalProject
---------------------------------------------------filter((sts.ss_net_paid > 0.00) and (sts.ss_net_profit > 1.00) and (sts.ss_quantity > 0))
+--------------------------------------------------filter((sts.ss_quantity > 0)(sts.ss_net_profit > 1.00)(sts.ss_net_paid > 0.00))
 ----------------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------------------------------PhysicalDistribute
 --------------------------------------------------PhysicalProject
-----------------------------------------------------filter((date_dim.d_moy = 12) and (date_dim.d_year = 1999))
+----------------------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1999))
 ------------------------------------------------------PhysicalOlapScan[date_dim]
->>>>>>> a6d2013802... [opt](nereids) use 2 phase agg above union all (#26245)
 

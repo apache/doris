@@ -5,33 +5,19 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----hashAgg[GLOBAL]
 ------PhysicalDistribute
 --------hashAgg[LOCAL]
-<<<<<<< HEAD
-----------hashAgg[LOCAL]
-------------PhysicalUnion
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------hashJoin[RIGHT_OUTER_JOIN](catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)(catalog_sales.cs_order_number = catalog_returns.cr_order_number)
---------------------PhysicalProject
-----------------------PhysicalOlapScan[catalog_returns]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = catalog_sales.cs_sold_date_sk)
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](item.i_item_sk = catalog_sales.cs_item_sk)
-=======
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]
 ----------------PhysicalUnion
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number))otherCondition=()
+----------------------hashJoin[RIGHT_OUTER_JOIN](catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)(catalog_sales.cs_order_number = catalog_returns.cr_order_number)
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[catalog_returns]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = catalog_sales.cs_sold_date_sk))otherCondition=()
->>>>>>> a6d2013802... [opt](nereids) use 2 phase agg above union all (#26245)
+--------------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = catalog_sales.cs_sold_date_sk)
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = catalog_sales.cs_item_sk))otherCondition=()
+------------------------------hashJoin[INNER_JOIN](item.i_item_sk = catalog_sales.cs_item_sk)
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[catalog_sales]
 --------------------------------PhysicalDistribute
@@ -40,35 +26,17 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
-<<<<<<< HEAD
---------------------------------filter((item.i_category = 'Home'))
-----------------------------------PhysicalOlapScan[item]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------filter(d_year IN (1998, 1999))
-------------------------------PhysicalOlapScan[date_dim]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------hashJoin[RIGHT_OUTER_JOIN](store_sales.ss_item_sk = store_returns.sr_item_sk)(store_sales.ss_ticket_number = store_returns.sr_ticket_number)
---------------------PhysicalProject
-----------------------PhysicalOlapScan[store_returns]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = store_sales.ss_sold_date_sk)
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](item.i_item_sk = store_sales.ss_item_sk)
-=======
 --------------------------------filter(d_year IN (1998, 1999))
 ----------------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number))otherCondition=()
+----------------------hashJoin[RIGHT_OUTER_JOIN](store_sales.ss_item_sk = store_returns.sr_item_sk)(store_sales.ss_ticket_number = store_returns.sr_ticket_number)
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[store_returns]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk))otherCondition=()
->>>>>>> a6d2013802... [opt](nereids) use 2 phase agg above union all (#26245)
+--------------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = store_sales.ss_sold_date_sk)
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = store_sales.ss_item_sk))otherCondition=()
+------------------------------hashJoin[INNER_JOIN](item.i_item_sk = store_sales.ss_item_sk)
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[store_sales]
 --------------------------------PhysicalDistribute
@@ -77,35 +45,17 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
-<<<<<<< HEAD
---------------------------------filter((item.i_category = 'Home'))
-----------------------------------PhysicalOlapScan[item]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------filter(d_year IN (1998, 1999))
-------------------------------PhysicalOlapScan[date_dim]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------hashJoin[RIGHT_OUTER_JOIN](web_sales.ws_item_sk = web_returns.wr_item_sk)(web_sales.ws_order_number = web_returns.wr_order_number)
---------------------PhysicalProject
-----------------------PhysicalOlapScan[web_returns]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = web_sales.ws_sold_date_sk)
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](item.i_item_sk = web_sales.ws_item_sk)
-=======
 --------------------------------filter(d_year IN (1998, 1999))
 ----------------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number))otherCondition=()
+----------------------hashJoin[RIGHT_OUTER_JOIN](web_sales.ws_item_sk = web_returns.wr_item_sk)(web_sales.ws_order_number = web_returns.wr_order_number)
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[web_returns]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = web_sales.ws_sold_date_sk))otherCondition=()
->>>>>>> a6d2013802... [opt](nereids) use 2 phase agg above union all (#26245)
+--------------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = web_sales.ws_sold_date_sk)
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = web_sales.ws_item_sk))otherCondition=()
+------------------------------hashJoin[INNER_JOIN](item.i_item_sk = web_sales.ws_item_sk)
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[web_sales]
 --------------------------------PhysicalDistribute
