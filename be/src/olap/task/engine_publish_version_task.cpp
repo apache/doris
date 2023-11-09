@@ -39,6 +39,7 @@
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "util/bvar_helper.h"
+#include "util/debug_points.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -91,6 +92,17 @@ Status EnginePublishVersionTask::finish() {
     int64_t transaction_id = _publish_version_req.transaction_id;
     OlapStopWatch watch;
     VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
+    DBUG_EXECUTE_IF("EnginePublishVersionTask.finish", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+            LOG_WARNING("EnginePublishVersionTask.finish random failed");
+            return Status::InternalError("debug engine publish version task random failed");
+        }
+        if (auto wait = dp->param<int>("wait", 0); wait > 0) {
+            LOG_WARNING("EnginePublishVersionTask.finish wait")
+                    .tag("wait ms", wait);
+            std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+        }
+    });
     std::unique_ptr<ThreadPoolToken> token =
             StorageEngine::instance()->tablet_publish_txn_thread_pool()->new_token(
                     ThreadPool::ExecutionMode::CONCURRENT);
