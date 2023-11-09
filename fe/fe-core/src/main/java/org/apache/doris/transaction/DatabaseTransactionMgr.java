@@ -970,7 +970,6 @@ public class DatabaseTransactionMgr {
         tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         PublishResult publishResult = PublishResult.QUORUM_SUCC;
         try {
-            boolean allTabletsLeastOneSucc = true;
             Iterator<TableCommitInfo> tableCommitInfoIterator
                     = transactionState.getIdToTableCommitInfos().values().iterator();
             while (tableCommitInfoIterator.hasNext()) {
@@ -1056,10 +1055,6 @@ public class DatabaseTransactionMgr {
                                             loadRequiredReplicaNum, tableId, partitionId, writeDetail);
                                 }
                                 continue;
-                            }
-
-                            if (healthReplicaNum == 0) {
-                                allTabletsLeastOneSucc = false;
                             }
 
                             String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
