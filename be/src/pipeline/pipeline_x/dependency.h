@@ -613,7 +613,6 @@ public:
     AnalyticDependency(int id) : WriteDependency(id, "AnalyticDependency") {}
     ~AnalyticDependency() override = default;
 
-    bool avoid_using_blocked_queue_dependency() override { return false; }
     void* shared_state() override { return (void*)&_analytic_state; };
 
     vectorized::BlockRowPos get_partition_by_end();
