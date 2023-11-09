@@ -332,6 +332,9 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     if (state->query_options().dry_run_query) {
         return status;
     }
+    if (_vpartition->is_auto_partition()) {
+        return Status::NotSupported("auto partition is not supported by sink v2");
+    }
 
     auto input_rows = input_block->rows();
     auto input_bytes = input_block->bytes();
