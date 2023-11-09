@@ -884,11 +884,10 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
                              << ", version already has been merged. spec_version: " << spec_version
                              << ", max_version: " << max_version_unlocked();
             }
-            status = Status::Error<VERSION_ALREADY_MERGED>("missed_versions is empty, spec_version "
-                                                           "{}, max_version {}, tablet_id {}",
-                                                           spec_version.second,
-                                                           max_version_unlocked().second,
-                                                           tablet_id());
+            status = Status::Error<VERSION_ALREADY_MERGED>(
+                    "missed_versions is empty, spec_version "
+                    "{}, max_version {}, tablet_id {}",
+                    spec_version.second, max_version_unlocked().second, tablet_id());
         } else {
             if (version_path != nullptr) {
                 LOG(WARNING) << "status:" << status << ", tablet:" << tablet_id()
