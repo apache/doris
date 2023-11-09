@@ -83,8 +83,8 @@ struct ProcessRuntimeFilterBuild {
         parent->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
                 parent->_build_expr_ctxs, parent->runtime_filter_descs());
 
-        RETURN_IF_ERROR(parent->_runtime_filter_slots->init(
-                state, hash_table_ctx.hash_table->size(), parent->_build_rf_cardinality));
+        RETURN_IF_ERROR(
+                parent->_runtime_filter_slots->init(state, hash_table_ctx.hash_table->size()));
 
         if (!parent->_runtime_filter_slots->empty() && !parent->_inserted_blocks.empty()) {
             {
@@ -445,7 +445,6 @@ private:
     std::unordered_set<const Block*> _inserted_blocks;
 
     std::vector<IRuntimeFilter*> _runtime_filters;
-    size_t _build_rf_cardinality = 0;
     std::atomic_bool _probe_open_finish = false;
 };
 } // namespace vectorized
