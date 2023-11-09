@@ -490,4 +490,7 @@ suite("test_json_load_and_function", "p0") {
     set_be_param.call("enable_simdjson_reader", "false")
 
     test_load_and_function()
+
+    // set to default value
+    set_be_param.call("enable_simdjson_reader", "true")
 }
