@@ -1150,7 +1150,6 @@
                 },
                 "admin-manual/sql-interception",
                 "admin-manual/query-profile",
-                "admin-manual/tracing",
                 "admin-manual/certificate",
                 "admin-manual/fe-certificate",
                 {
