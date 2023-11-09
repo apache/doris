@@ -175,6 +175,8 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """ drop table if exists internal.${internal_db_name}.ctas_arr; """
     order_qt_ctas_base """ create table internal.${internal_db_name}.ctas_base PROPERTIES("replication_num" = "1") as select * from ${catalog_name}.${internal_db_name}.${base_table} order by int_col; """
     order_qt_ctas_arr """ create table internal.${internal_db_name}.ctas_arr PROPERTIES("replication_num" = "1") as select * from ${catalog_name}.${internal_db_name}.${arr_table} order by int_col; """
+    qt_desc_ctas_base """ desc internal.${internal_db_name}.ctas_base; """
+    qt_desc_ctas_arr """ desc internal.${internal_db_name}.ctas_arr; """
     order_qt_query_ctas_base """ select * from internal.${internal_db_name}.ctas_base order by int_col; """
     order_qt_query_ctas_arr """ select * from internal.${internal_db_name}.ctas_arr order by int_col; """
 
