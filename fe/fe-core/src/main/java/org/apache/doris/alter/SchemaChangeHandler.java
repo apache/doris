@@ -79,7 +79,6 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.load.GroupCommitManager.SchemaChangeStatus;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
@@ -1594,8 +1593,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // set table state
         olapTable.setState(OlapTableState.SCHEMA_CHANGE);
-        Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.BLOCK);
-        LOG.info("block table {}", tableId);
 
         // 2. add schemaChangeJob
         addAlterJobV2(schemaChangeJob);

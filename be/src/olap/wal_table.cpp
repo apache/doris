@@ -200,7 +200,10 @@ Status WalTable::replay_wal_internal(const std::string& wal) {
         _replay_wal_map.erase(wal);
         return Status::OK();
     }
-    RETURN_IF_ERROR(abort_txn(_db_id, wal_id));
+    auto st = abort_txn(_db_id, wal_id);
+    if (!st.ok()) {
+        LOG(WARNING) << "abort txn " << wal_id << " fail";
+    }
     RETURN_IF_ERROR(get_column_info(_db_id, _table_id));
 #endif
     RETURN_IF_ERROR(send_request(wal_id, wal, label));
@@ -248,15 +251,15 @@ Status WalTable::send_request(int64_t wal_id, const std::string& wal, const std:
     std::stringstream ss_name;
     std::stringstream ss_id;
     int index = 0;
-    int num = 1;
     for (auto column_id_str : column_id_element) {
         try {
             int64_t column_id = std::strtoll(column_id_str.c_str(), NULL, 10);
-            auto it = _column_map.find(column_id);
-            if (it != _column_map.end()) {
+            auto it = _column_id_name_map.find(column_id);
+            if (it != _column_id_name_map.end()) {
                 ss_name << it->second << ",";
-                ss_id << "c" << std::to_string(num++) << ",";
+                ss_id << "c" << std::to_string(_column_id_index_map[column_id]) << ",";
                 index_vector.emplace_back(index);
+                _column_id_name_map.erase(column_id);
             }
             index++;
         } catch (const std::invalid_argument& e) {
@@ -413,12 +416,14 @@ Status WalTable::get_column_info(int64_t db_id, int64_t tb_id) {
         std::string columns_str = result.column_info;
         std::vector<std::string> column_element;
         doris::vectorized::WalReader::string_split(columns_str, ",", column_element);
+        int64_t index = 1;
         for (auto column : column_element) {
             auto pos = column.find(":");
             try {
                 auto column_name = column.substr(0, pos);
                 int64_t column_id = std::strtoll(column.substr(pos + 1).c_str(), NULL, 10);
-                _column_map.emplace(column_id, column_name);
+                _column_id_name_map.emplace(column_id, column_name);
+                _column_id_index_map.emplace(column_id, index++);
             } catch (const std::invalid_argument& e) {
                 return Status::InvalidArgument("Invalid format, {}", e.what());
             }

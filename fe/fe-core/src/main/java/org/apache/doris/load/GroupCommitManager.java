@@ -66,6 +66,9 @@ public class GroupCommitManager {
         boolean empty = true;
         for (int i = 0; i < aliveBeIds.size(); i++) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(aliveBeIds.get(i));
+            if (backend.getBrpcPort() < 0) {
+                return true;
+            }
             PGetWalQueueSizeRequest request = PGetWalQueueSizeRequest.newBuilder()
                     .setTableId(tableId)
                     .setTxnId(endTransactionId)
@@ -82,6 +85,10 @@ public class GroupCommitManager {
                 } catch (Exception e) {
                     LOG.warn("encounter exception while getting wal queue size on backend id: " + backend.getId()
                             + ",exception:" + e);
+                    String msg = e.getMessage();
+                    if (msg.contains("Method") && msg.contains("unimplemented")) {
+                        break;
+                    }
                     try {
                         Thread.sleep(100);
                     } catch (InterruptedException ie) {

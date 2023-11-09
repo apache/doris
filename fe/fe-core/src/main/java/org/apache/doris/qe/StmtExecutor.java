@@ -1855,13 +1855,10 @@ public class StmtExecutor {
             txnId = context.getTxnEntry().getTxnConf().getTxnId();
         } else if (insertStmt instanceof NativeInsertStmt && ((NativeInsertStmt) insertStmt).isGroupCommit()) {
             isGroupCommit = true;
-            while (Env.getCurrentEnv().getGroupCommitManager().isBlock(insertStmt.getTargetTable().getId())) {
-                LOG.info("insert table " + insertStmt.getTargetTable().getId() + " is blocked");
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ie) {
-                    LOG.info("stmt executor sleep wait InterruptedException: ", ie);
-                }
+            if (Env.getCurrentEnv().getGroupCommitManager().isBlock(insertStmt.getTargetTable().getId())) {
+                String msg = "insert table " + insertStmt.getTargetTable().getId() + " is blocked on schema change";
+                LOG.info(msg);
+                throw new DdlException(msg);
             }
             NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) insertStmt;
             Backend backend = context.getInsertGroupCommit(insertStmt.getTargetTable().getId());

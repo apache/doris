@@ -561,11 +561,19 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         vectorized::Block tmp_block;
         auto* wal_reader = dynamic_cast<vectorized::WalReader*>(_cur_reader.get());
         auto index_vector = wal_reader->get_index();
-        for (auto index : index_vector) {
-            tmp_block.insert(_src_block_ptr->get_by_position(index));
+        int index = 0;
+        for (auto slot_desc : _output_tuple_desc->slots()) {
+            auto pos = index_vector[index];
+            vectorized::ColumnPtr column_ptr = _src_block_ptr->get_by_position(pos).column;
+            if (slot_desc->is_nullable()) {
+                column_ptr = make_nullable(column_ptr);
+            }
+            tmp_block.insert(index, vectorized::ColumnWithTypeAndName(
+                                            std::move(column_ptr), slot_desc->get_data_type_ptr(),
+                                            slot_desc->col_name()));
+            index++;
         }
         block->swap(tmp_block);
-        //_src_block_ptr->clear();?
         return Status::OK();
     }
 
