@@ -39,6 +39,10 @@ public class OptimizeGroupExpressionJob extends Job {
 
     @Override
     public void execute() {
+        if (groupExpression.isUnused()) {
+            return;
+        }
+
         countJobExecutionTimesOfGroupExpressions(groupExpression);
         List<Rule> implementationRules = getRuleSet().getImplementationRules();
         List<Rule> explorationRules = getExplorationRules();
