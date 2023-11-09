@@ -260,8 +260,20 @@ public class NativeInsertStmt extends InsertStmt {
             tblName.setDb(olapTable.getDatabase().getFullName());
             tblName.setTbl(olapTable.getName());
             if (olapTable.getDeleteSignColumn() != null) {
-                List<Column> columns = olapTable.getBaseSchema(false);
+                List<Column> columns = Lists.newArrayList(olapTable.getBaseSchema(false));
+                // The same order as GroupCommitTableValuedFunction#getTableColumns
+                // delete sign col
                 columns.add(olapTable.getDeleteSignColumn());
+                // version col
+                Column versionColumn = olapTable.getFullSchema().stream().filter(Column::isVersionColumn).findFirst()
+                        .orElse(null);
+                if (versionColumn != null) {
+                    columns.add(versionColumn);
+                }
+                // sequence col
+                if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() == null) {
+                    columns.add(olapTable.getSequenceCol());
+                }
                 targetColumnNames = columns.stream().map(c -> c.getName()).collect(Collectors.toList());
             }
         }
@@ -1136,6 +1148,9 @@ public class NativeInsertStmt extends InsertStmt {
         TStreamLoadPutRequest streamLoadPutRequest = new TStreamLoadPutRequest();
         if (targetColumnNames != null) {
             streamLoadPutRequest.setColumns(String.join(",", targetColumnNames));
+            if (targetColumnNames.stream().anyMatch(col -> col.equalsIgnoreCase(Column.SEQUENCE_COL))) {
+                streamLoadPutRequest.setSequenceCol(Column.SEQUENCE_COL);
+            }
         }
         streamLoadPutRequest.setDb(db.getFullName()).setMaxFilterRatio(1)
                 .setTbl(getTbl())
