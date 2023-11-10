@@ -26,6 +26,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
@@ -380,8 +381,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
         int filterSize = 0;
         for (Slot slot : physicalOlapTableSink.getOutput()) {
-            if (slot.getName().contains("__DORIS_DELETE_SIGN__")
-                    || slot.getName().contains("__DORIS_VERSION_COL__")) {
+            if (slot.getName().contains(Column.DELETE_SIGN)
+                    || slot.getName().contains(Column.VERSION_COL)) {
                 filterSize += 1;
             }
         }
