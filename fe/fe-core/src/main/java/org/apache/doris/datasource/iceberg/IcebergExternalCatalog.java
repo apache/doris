@@ -32,6 +32,8 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -39,6 +41,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     private static final Logger LOG = LogManager.getLogger(IcebergExternalCatalog.class);
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
+    public static final String ICEBERG_HLL_COLUMNS = "iceberg.hll.columns";
+    public static final String ICEBERG_BITMAP_COLUMNS = "iceberg.bitmap.columns";
     public static final String ICEBERG_REST = "rest";
     public static final String ICEBERG_HMS = "hms";
     public static final String ICEBERG_HADOOP = "hadoop";
@@ -47,6 +51,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected String icebergCatalogType;
     protected Catalog catalog;
     protected SupportsNamespaces nsCatalog;
+    private HashSet<String> hllColumns = new HashSet<>();
+    private HashSet<String> bitmapColumns = new HashSet<>();
 
     public IcebergExternalCatalog(long catalogId, String name, String comment) {
         super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
@@ -56,6 +62,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected void init() {
         nsCatalog = (SupportsNamespaces) catalog;
         super.init();
+        initColumnMapping();
     }
 
     public Catalog getCatalog() {
@@ -71,6 +78,35 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public String getIcebergCatalogType() {
         makeSureInitialized();
         return icebergCatalogType;
+    }
+
+    public HashSet<String> getHllColumns() {
+        return hllColumns;
+    }
+
+    public HashSet<String> getBitmapColumns() {
+        return bitmapColumns;
+    }
+
+    @Override
+    public void replayInitCatalog(InitCatalogLog log) {
+        super.replayInitCatalog(log);
+        initColumnMapping();
+    }
+
+    private void initColumnMapping() {
+        // init hllColumns
+        String hllColumnsStr = catalogProperty.getProperties().get(ICEBERG_HLL_COLUMNS);
+        if (hllColumnsStr != null) {
+            String[] columnsHll = hllColumnsStr.split(",");
+            hllColumns.addAll(Arrays.asList(columnsHll));
+        }
+        // init bitmapColumns
+        String bitmapColumnsStr = catalogProperty.getProperties().get(ICEBERG_BITMAP_COLUMNS);
+        if (bitmapColumnsStr != null) {
+            String[] columnsBitmap = bitmapColumnsStr.split(",");
+            bitmapColumns.addAll(Arrays.asList(columnsBitmap));
+        }
     }
 
     protected List<String> listDatabaseNames() {
