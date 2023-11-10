@@ -59,9 +59,6 @@ public class OptimizeGroupExpressionJob extends Job {
     }
 
     private List<Rule> getExplorationRules() {
-        if (groupExpression.getOwnerGroup() == null) {
-            System.out.println(groupExpression);
-        }
         boolean isDisableJoinReorder = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isDisableJoinReorder()
                 || context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
