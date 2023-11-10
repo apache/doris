@@ -103,8 +103,6 @@ public:
 
     RowsetId rowset_id() override { return _context.rowset_id; }
 
-    RowsetWriterContext& mutable_context() override { return _context; }
-
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const override {

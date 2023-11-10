@@ -530,9 +530,9 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     for (const auto& filter : read_params.function_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
         auto* pred = _col_predicates.back();
-        const auto& col = _tablet->tablet_schema()->column(pred->column_id());
+        const auto& col = _tablet_schema->column(pred->column_id());
         auto is_like = is_like_predicate(pred);
-        auto* tablet_index = _tablet->tablet_schema()->get_ngram_bf_index(col.unique_id());
+        auto* tablet_index = _tablet_schema->get_ngram_bf_index(col.unique_id());
 
         if (is_like && tablet_index && config::enable_query_like_bloom_filter) {
             std::unique_ptr<segment_v2::BloomFilter> ng_bf;
@@ -670,11 +670,7 @@ Status TabletReader::init_reader_params_and_create_block(
     std::transform(input_rowsets.begin(), input_rowsets.end(), rowset_metas.begin(),
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     TabletSchemaSPtr read_tablet_schema =
-<<<<<<< HEAD
             tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
-=======
-            tablet->tablet_schema_with_max_schema_version(rowset_metas);
->>>>>>> 3a1028514e ([Feature-Variant](Variant Type) support variant type)
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*read_tablet_schema);
 

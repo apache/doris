@@ -105,13 +105,10 @@ struct RowsetWriterContext {
 
     // segcompaction for this RowsetWriter, disable it for some transient writers
     bool enable_segcompaction = true;
-<<<<<<< HEAD
 
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
 
     bool is_transient_rowset_writer = false;
-=======
->>>>>>> 3a1028514e ([Feature-Variant](Variant Type) support variant type)
     // In semi-structure senario tablet_schema will be updated concurrently,
     // this lock need to be held when update.Use shared_ptr to avoid delete copy contructor
     std::shared_ptr<std::mutex> schema_lock;

@@ -17,8 +17,10 @@
 
 package org.apache.doris.service;
 
+import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.PartitionExprUtil;
@@ -26,6 +28,9 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Snapshot;
 import org.apache.doris.catalog.AutoIncrementGenerator;
@@ -437,6 +442,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setCatalogIds(catalogIds);
         result.setDbIds(dbIds);
         return result;
+    }
+
+    private static ColumnDef initColumnfromThrift(TColumnDesc tColumnDesc, String comment) {
+        TypeDef typeDef = TypeDef.createTypeDef(tColumnDesc);
+        boolean isAllowNull = tColumnDesc.isIsAllowNull();
+        ColumnDef.DefaultValue defaultVal = ColumnDef.DefaultValue.NOT_SET;
+        // Dynamic table's Array default value should be '[]'
+        if (typeDef.getType().isArrayType()) {
+            defaultVal = ColumnDef.DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE;
+        }
+        return new ColumnDef(tColumnDesc.getColumnName(), typeDef, false, null, isAllowNull, false,
+                defaultVal, comment, true);
     }
 
     @LogException

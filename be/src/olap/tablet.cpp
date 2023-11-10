@@ -2650,12 +2650,6 @@ void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
     }
 }
 
-void Tablet::update_by_least_common_schema(const TabletSchemaSPtr& least_common_schema) {
-    std::lock_guard wrlock(_meta_lock);
-    CHECK(_max_version_schema->schema_version() >= least_common_schema->schema_version());
-    _max_version_schema = least_common_schema;
-}
-
 Status Tablet::_get_segment_column_iterator(
         const BetaRowsetSharedPtr& rowset, uint32_t segid, const TabletColumn& target_column,
         SegmentCacheHandle* segment_cache_handle,

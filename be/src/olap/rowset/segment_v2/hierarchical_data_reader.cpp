@@ -45,7 +45,7 @@ Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,
             // use set_root to share instead
             continue;
         }
-        stream_iter->add_stream(leaves[i]);
+        RETURN_IF_ERROR(stream_iter->add_stream(leaves[i]));
     }
     // Make sure the root node is in strem_cache, so that child can merge data with root
     // Eg. {"a" : "b" : {"c" : 1}}, access the `a.b` path and merge with root path so that

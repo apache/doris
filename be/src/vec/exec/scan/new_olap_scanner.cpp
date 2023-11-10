@@ -146,9 +146,9 @@ Status NewOlapScanner::init() {
             !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0 &&
             tablet->tablet_schema()->num_variant_columns() == 0) {
-            schema_key = SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
-                                                     olap_scan_node.schema_version,
-                                                     SchemaCache::Type::TABLET_SCHEMA);
+            schema_key = SchemaCache::get_schema_key(
+                    tablet->tablet_id(), olap_scan_node.columns_desc, olap_scan_node.schema_version,
+                    SchemaCache::Type::TABLET_SCHEMA);
             cached_schema = SchemaCache::instance()->get_schema<TabletSchemaSPtr>(schema_key);
         }
         if (cached_schema) {
@@ -425,6 +425,7 @@ vectorized::PathInData NewOlapScanner::_build_path(SlotDescriptor* slot) {
 }
 
 Status NewOlapScanner::_init_variant_columns() {
+    auto& tablet_schema = _tablet_reader_params.tablet_schema;
     // Parent column has path info to distinction from each other
     for (auto slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
@@ -444,16 +445,16 @@ Status NewOlapScanner::_init_variant_columns() {
             PathInData path = _build_path(slot);
             subcol.set_path_info(path);
             subcol.set_name(path.get_path());
-            if (_tablet_schema->field_index(path) < 0) {
-                _tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
+            if (tablet_schema->field_index(path) < 0) {
+                tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }
         } else if (!slot->column_paths().empty()) {
             // Extracted materialized columns update it's path info
             PathInData path = _build_path(slot);
-            int index = _tablet_schema->field_index(slot->col_unique_id());
-            _tablet_schema->mutable_columns()[index].set_path_info(path);
+            int index = tablet_schema->field_index(slot->col_unique_id());
+            tablet_schema->mutable_columns()[index].set_path_info(path);
         }
-        schema_util::inherit_tablet_index(_tablet_schema);
+        schema_util::inherit_tablet_index(tablet_schema);
     }
     return Status::OK();
 }

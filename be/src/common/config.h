@@ -1128,7 +1128,7 @@ DECLARE_mBool(enable_flatten_nested_for_variant);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
 DECLARE_mDouble(ratio_of_defaults_as_sparse_column);
-// Threshold to estimate a column is sparsed 
+// Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(threshold_rows_to_estimate_sparse_column);
 

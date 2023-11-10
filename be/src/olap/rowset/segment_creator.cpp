@@ -89,9 +89,9 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     }
 
     std::vector<int> variant_column_pos;
-    if (_context->tablet_schema->is_partial_update()) {
+    if (_context->partial_update_info && _context->partial_update_info->is_partial_update) {
         // check columns that used to do partial updates should not include variant
-        for (int i : _context->tablet_schema->get_update_cids()) {
+        for (int i : _context->partial_update_info->update_cids) {
             const auto& col = _context->tablet_schema->columns()[i];
             if (!col.is_key() && col.name() != DELETE_SIGN) {
                 return Status::InvalidArgument(
@@ -425,7 +425,7 @@ int64_t SegmentFlusher::Writer::max_row_to_add(size_t row_avg_size_in_bytes) {
     return _writer->max_row_to_add(row_avg_size_in_bytes);
 }
 
-Status SegmentCreator::init(const RowsetWriterContext& rowset_writer_context) {
+Status SegmentCreator::init(RowsetWriterContext& rowset_writer_context) {
     RETURN_IF_ERROR(_segment_flusher.init(rowset_writer_context));
     return Status::OK();
 }

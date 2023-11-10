@@ -830,8 +830,9 @@ Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(
 
 Status SegmentIterator::_apply_inverted_index_except_leafnode_of_andnode(
         ColumnPredicate* pred, roaring::Roaring* output_result) {
-    RETURN_IF_ERROR(pred->evaluate(_storage_name_and_type[pred->column_id()], _inverted_index_iterators[pred->column_id()].get(),
-                                   num_rows(), output_result));
+    RETURN_IF_ERROR(pred->evaluate(_storage_name_and_type[pred->column_id()],
+                                   _inverted_index_iterators[pred->column_id()].get(), num_rows(),
+                                   output_result));
     return Status::OK();
 }
 
@@ -1744,7 +1745,6 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
 void SegmentIterator::_init_current_block(
         vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns) {
     block->clear_column_data(_schema->num_column_ids());
-    
 
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
@@ -1777,9 +1777,9 @@ void SegmentIterator::_init_current_block(
                     current_columns[cid]->set_datetime_type();
                 }
                 current_columns[cid]->reserve(_opts.block_row_max);
-            } 
+            }
         }
-    } 
+    }
 }
 
 void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
@@ -2085,10 +2085,11 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             auto column_desc = _schema->column(cid);
             if (_is_pred_column[cid]) {
                 auto storage_column_type = _storage_name_and_type[cid].second;
-                RETURN_IF_CATCH_EXCEPTION(_current_return_columns[cid] = Schema::get_predicate_column_ptr(
-                        TabletColumn::get_field_type_by_type(
-                                storage_column_type->get_type_as_primitive_type()),
-                        storage_column_type->is_nullable(), _opts.io_ctx.reader_type));
+                RETURN_IF_CATCH_EXCEPTION(
+                        _current_return_columns[cid] = Schema::get_predicate_column_ptr(
+                                TabletColumn::get_field_type_by_type(
+                                        storage_column_type->get_type_as_type_descriptor().type),
+                                storage_column_type->is_nullable(), _opts.io_ctx.reader_type));
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
                 _current_return_columns[cid]->reserve(_opts.block_row_max);

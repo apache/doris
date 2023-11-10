@@ -92,16 +92,9 @@ private:
                                       const FilterPredicates& filter_predicates,
                                       const std::vector<FunctionFilter>& function_filters);
 
-<<<<<<< HEAD
     [[nodiscard]] Status _init_return_columns();
-=======
-    Status _init_return_columns();
-
     vectorized::PathInData _build_path(SlotDescriptor* slot);
-    Status _init_variant_columns();
-
-    bool _aggregation;
->>>>>>> 3a1028514e ([Feature-Variant](Variant Type) support variant type)
+    [[nodiscard]] Status _init_variant_columns();
 
     std::vector<OlapScanRange*> _key_ranges;
 

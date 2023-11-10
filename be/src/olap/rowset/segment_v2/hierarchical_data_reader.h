@@ -176,10 +176,10 @@ private:
         variant.check_consistency();
 #endif
         // clear data in nodes
-        tranverse([&](SubstreamReaderTree::Node& node) {
+        RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
             node.data.column->clear();
             return Status::OK();
-        });
+        }));
         container->clear();
         if (_root_reader->column->is_nullable()) {
             // fill nullmap
