@@ -294,6 +294,20 @@ std::vector<uint16_t> HashJoinDependency::convert_block_to_null(vectorized::Bloc
     return results;
 }
 
+void SetSharedState::set_probe_finished_children(int child_id) {
+    std::unique_lock<std::mutex> lc(child_lock);
+    probe_finished_children_index[child_id] = true;
+    wake_up_dep();
+}
+
+void SetSharedState::wake_up_dep() {
+    for (SetDependency* dep : probe_finished_children_dependency) {
+        if (dep->write_blocked_by() == nullptr) {
+            dep->set_ready_for_write();
+        }
+    }
+}
+
 template <bool BuildSide>
 Status HashJoinDependency::extract_join_column(vectorized::Block& block,
                                                vectorized::ColumnUInt8::MutablePtr& null_map,

@@ -748,6 +748,8 @@ public:
     void* shared_state() override { return nullptr; }
 };
 
+class SetDependency;
+
 struct SetSharedState {
     /// default init
     //record memory during running
@@ -780,7 +782,14 @@ struct SetSharedState {
 
     std::atomic<bool> ready_for_read = false;
 
+    std::vector<SetDependency*> probe_finished_children_dependency;
+    std::mutex child_lock;
+
 public:
+    void set_probe_finished_children(int child_id);
+
+    void wake_up_dep();
+
     /// called in setup_local_state
     void hash_table_init() {
         if (child_exprs_lists[0].size() == 1 && (!build_not_ignore_null[0])) {
@@ -840,8 +849,10 @@ public:
     ~SetDependency() override = default;
     void* shared_state() override { return (void*)_set_state.get(); }
 
-    void set_shared_state(std::shared_ptr<SetSharedState> set_state) { _set_state = set_state; }
-
+    void set_shared_state(std::shared_ptr<SetSharedState> set_state) {
+        _set_state = set_state;
+        _set_state->probe_finished_children_dependency.push_back(this);
+    }
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
     [[nodiscard]] Dependency* read_blocked_by() override {
         if (config::enable_fuzzy_mode && !_set_state->ready_for_read &&
