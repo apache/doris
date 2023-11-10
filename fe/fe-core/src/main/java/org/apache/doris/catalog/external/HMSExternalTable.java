@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
@@ -82,6 +83,9 @@ public class HMSExternalTable extends ExternalTable {
 
     private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
     private static final String TBL_PROP_INSERT_ONLY = "insert_only";
+
+    private static final String TBL_PROP_TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
+
     private static final String NUM_ROWS = "numRows";
 
     static {
@@ -112,8 +116,8 @@ public class HMSExternalTable extends ExternalTable {
     // No as precise as row count in TableStats, but better than none.
     private long estimatedRowCount = -1;
 
-    // record the partition update time when enable hms event listener
-    protected volatile long partitionUpdateTime;
+    // record the event update time when enable hms event listener
+    protected volatile long eventUpdateTime;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG, DELTALAKE
@@ -406,6 +410,20 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
+    public List<Column> initSchemaAndUpdateTime() {
+        org.apache.hadoop.hive.metastore.api.Table table = ((HMSExternalCatalog) catalog).getClient()
+                .getTable(dbName, name);
+        // try to use transient_lastDdlTime from hms client
+        schemaUpdateTime = MapUtils.isNotEmpty(table.getParameters())
+                && table.getParameters().containsKey(TBL_PROP_TRANSIENT_LAST_DDL_TIME)
+                ? Long.parseLong(table.getParameters().get(TBL_PROP_TRANSIENT_LAST_DDL_TIME)) * 1000
+                // use current timestamp if lastDdlTime does not exist (hive views don't have this prop)
+                : System.currentTimeMillis();
+        return initSchema();
+    }
+
+
+    @Override
     public List<Column> initSchema() {
         makeSureInitialized();
         List<Column> columns;
@@ -635,15 +653,15 @@ public class HMSExternalTable extends ExternalTable {
         }
     }
 
-    public void setPartitionUpdateTime(long updateTime) {
-        this.partitionUpdateTime = updateTime;
+    public void setEventUpdateTime(long updateTime) {
+        this.eventUpdateTime = updateTime;
     }
 
     @Override
-    // get the max value of `schemaUpdateTime` and `partitionUpdateTime`
-    // partitionUpdateTime will be refreshed after processing partition events with hms event listener enabled
+    // get the max value of `schemaUpdateTime` and `eventUpdateTime`
+    // eventUpdateTime will be refreshed after processing events with hms event listener enabled
     public long getUpdateTime() {
-        return Math.max(this.schemaUpdateTime, this.partitionUpdateTime);
+        return Math.max(this.schemaUpdateTime, this.eventUpdateTime);
     }
 
     @Override
