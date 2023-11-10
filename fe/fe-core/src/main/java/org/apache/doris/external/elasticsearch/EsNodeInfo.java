@@ -111,7 +111,7 @@ public class EsNodeInfo {
         int port = 80;
         if (scratch.length == 3) {
             String portStr = scratch[2];
-            if (portStr.contains("/")){
+            if (portStr.contains("/")) {
                 portStr = portStr.substring(0, portStr.indexOf('/'));
             }
             port = Integer.parseInt(portStr);
