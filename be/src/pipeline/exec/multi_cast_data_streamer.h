@@ -39,7 +39,7 @@ public:
               _profile(pool->add(new RuntimeProfile("MultiCastDataStreamSink"))),
               _cast_sender_count(cast_sender_count) {
         _sender_pos_to_read.resize(cast_sender_count, _multi_cast_blocks.end());
-        _dependencys.resize(cast_sender_count, nullptr);
+        _dependencies.resize(cast_sender_count, nullptr);
         _peak_mem_usage = ADD_COUNTER(profile(), "PeakMemUsage", TUnit::BYTES);
         _process_rows = ADD_COUNTER(profile(), "ProcessRows", TUnit::UNIT);
     };
@@ -71,8 +71,8 @@ public:
     }
 
     void set_dep_by_sender_idx(int sender_idx, MultiCastDependency* dep) {
-        _dependencys[sender_idx] = dep;
-        _has_dependencys = true;
+        _dependencies[sender_idx] = dep;
+        _has_dependencies = true;
         _block_reading(sender_idx);
     }
 
@@ -94,7 +94,7 @@ private:
     RuntimeProfile::Counter* _process_rows;
     RuntimeProfile::Counter* _peak_mem_usage;
 
-    std::vector<MultiCastDependency*> _dependencys;
-    bool _has_dependencys = false;
+    std::vector<MultiCastDependency*> _dependencies;
+    bool _has_dependencies = false;
 };
 } // namespace doris::pipeline
