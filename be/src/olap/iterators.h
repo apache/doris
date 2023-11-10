@@ -114,7 +114,7 @@ public:
     Version version;
     int32_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
-    phmap::flat_hash_map<std::string, PrimitiveType> suspended_eliminate_cast_slots;
+    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
 };
 
 class RowwiseIterator;

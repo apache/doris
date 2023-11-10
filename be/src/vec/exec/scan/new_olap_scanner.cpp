@@ -280,8 +280,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.output_columns =
             _parent ? ((NewOlapScanNode*)_parent)->_maybe_read_column_ids
                     : ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
-    _tablet_reader_params.suspended_eliminate_cast_slots =
-            _parent->_suspended_eliminate_cast_column;
+    _tablet_reader_params.target_cast_type_for_variants = _parent->_cast_types_for_variants;
     // Condition
     for (auto& filter : filters) {
         _tablet_reader_params.conditions.push_back(filter);

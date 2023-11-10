@@ -589,7 +589,7 @@ Status VerticalFifoMergeIterator::next_batch(Block* block) {
     if (UNLIKELY(_record_rowids)) {
         _block_row_locations.resize(row_idx);
     }
-    return Status::EndOfFile("no _tablet->tablet_schema()more data in segment");
+    return Status::EndOfFile("no more data in segment");
 }
 
 Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts) {

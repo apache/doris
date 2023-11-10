@@ -81,7 +81,7 @@ struct RowsetReaderContext {
     const std::set<int32_t>* output_columns = nullptr;
     RowsetId rowset_id;
     // slots that cast may be eliminated in storage layer
-    phmap::flat_hash_map<std::string, PrimitiveType> suspended_eliminate_cast_slots;
+    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
 };
 
 } // namespace doris

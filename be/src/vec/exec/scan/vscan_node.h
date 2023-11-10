@@ -247,7 +247,7 @@ protected:
     // For some conjunct there is chance to elimate cast operator
     // Eg. Variant's sub column could eliminate cast in storage layer if
     // cast dst column type equals storage column type
-    virtual void _caculate_suspended_eliminate_cast_column() {}
+    virtual void get_cast_types_for_variants() {}
 
     bool _is_pipeline_scan = false;
     bool _shared_scan_opt = false;
@@ -276,7 +276,7 @@ protected:
     std::vector<FunctionFilter> _push_down_functions;
 
     // colname -> cast dst type
-    phmap::flat_hash_map<std::string, PrimitiveType> _suspended_eliminate_cast_column;
+    std::map<std::string, PrimitiveType> _cast_types_for_variants;
 
     // slot id -> ColumnValueRange
     // Parsed from conjuncts

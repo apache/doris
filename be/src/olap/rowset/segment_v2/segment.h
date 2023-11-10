@@ -206,7 +206,8 @@ private:
     // map column unique id ---> it's inner data type
     std::map<int32_t, std::shared_ptr<const vectorized::IDataType>> _file_column_types;
 
-    // subcolumn tree of each subcolumn's unique id
+    // Each node in the tree represents the sub column reader and type
+    // for variants.
     SubcolumnColumnReaders _sub_column_tree;
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way

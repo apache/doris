@@ -349,12 +349,7 @@ vectorized::DataTypePtr Segment::get_data_type_of(const Field& field, bool ignor
                                        : std::make_shared<vectorized::DataTypeObject>();
         }
     }
-    if (field.unique_id() >= 0) {
-        auto it = _file_column_types.find(field.unique_id());
-        if (it != _file_column_types.end()) {
-            return it->second;
-        }
-    }
+    // TODO support other column types besides variant, unique_id -> type to _file_column_types
     return nullptr;
 }
 Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
@@ -363,11 +358,6 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
             column_path_to_footer_ordinal;
     for (uint32_t ordinal = 0; ordinal < footer.columns().size(); ++ordinal) {
         auto& column_pb = footer.columns(ordinal);
-        if (column_pb.has_type() && column_pb.has_column_id() && column_pb.has_default_value() &&
-            column_pb.has_frac() && column_pb.has_precision()) {
-            _file_column_types.emplace(column_pb.unique_id(),
-                                       get_data_type_from_column_meta(column_pb));
-        }
         if (column_pb.has_column_path_info()) {
             vectorized::PathInData path;
             path.from_protobuf(column_pb.column_path_info());

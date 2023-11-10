@@ -574,7 +574,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         if (runtime_predicate && _segment->can_apply_predicate_safely(
                                          runtime_predicate->column_id(), runtime_predicate.get(),
                                          *_schema, _opts.io_ctx.reader_type)) {
-            // int32_t cid = _opts.tablet_schema->column(runtime_predicate->column_id()).unique_id();
             AndBlockColumnPredicate and_predicate;
             auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
             and_predicate.add_column_predicate(single_predicate);
@@ -965,7 +964,6 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         bool need_remaining_after_evaluate = _column_has_fulltext_index(pred->column_id()) &&
                                              PredicateTypeTraits::is_equal_or_list(pred->type());
         roaring::Roaring bitmap = _row_bitmap;
-        // TODO handle variant
         Status res = pred->evaluate(_storage_name_and_type[pred->column_id()],
                                     _inverted_index_iterators[pred->column_id()].get(), num_rows(),
                                     &bitmap);
@@ -1642,10 +1640,9 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
     auto cid = predicate->column_id();
     FieldType field_type = _schema->column(cid)->type();
     if (field_type == FieldType::OLAP_FIELD_TYPE_VARIANT) {
-        // TODO handle variant
-        // Use suspended cast type
+        // Use variant cast dst type
         field_type = TabletColumn::get_field_type_by_type(
-                _opts.suspended_eliminate_cast_slots[_schema->column(cid)->name()]);
+                _opts.target_cast_type_for_variants[_schema->column(cid)->name()]);
     }
     switch (predicate->type()) {
     case PredicateType::EQ:
@@ -1692,7 +1689,6 @@ bool SegmentIterator::_has_char_type(const Field& column_desc) {
 };
 
 void SegmentIterator::_vec_init_char_column_id() {
-    // TODO handle variant
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         const Field* column_desc = _schema->column(cid);
@@ -2303,13 +2299,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         }
     }
 #endif
-    // VLOG_DEBUG << "dump block: " << block->dump_data();
-    // #ifndef NDEBUG
-    //     size_t rows = block->rows();
-    //     for (const auto& col : block->get_columns()) {
-    //         CHECK_EQ(rows, col->size());
-    //     }
-    // #endif
 
     if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
         _update_max_row(block);

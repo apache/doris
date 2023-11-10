@@ -420,8 +420,8 @@ Status VScanNode::_normalize_conjuncts() {
         init_value_range(slots[slot_idx], slots[slot_idx]->type().type);
     }
 
-    _caculate_suspended_eliminate_cast_column();
-    for (const auto& [colname, type] : _suspended_eliminate_cast_column) {
+    get_cast_types_for_variants();
+    for (const auto& [colname, type] : _cast_types_for_variants) {
         init_value_range(slots[_slot_id_to_slot_idx[_colname_to_slot_id[colname]]], type);
     }
 

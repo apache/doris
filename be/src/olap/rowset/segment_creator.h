@@ -196,7 +196,7 @@ private:
     SegmentFlusher _segment_flusher;
     std::unique_ptr<SegmentFlusher::Writer> _flush_writer;
 
-    // Buffer block to num rows before flushing
+    // Buffer block to num bytes before flushing
     vectorized::MutableBlock _buffer_block;
 };
 

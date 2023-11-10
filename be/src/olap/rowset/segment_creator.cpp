@@ -441,7 +441,7 @@ Status SegmentCreator::add_block(const vectorized::Block* block) {
     size_t row_offset = 0;
 
     if (_segment_flusher.need_buffering()) {
-        constexpr static int MAX_BUFFER_SIZE = 1024 * 1024 * 400; // 400M
+        const static int MAX_BUFFER_SIZE = config::flushing_block_buffer_size_bytes; // 400M
         if (_buffer_block.allocated_bytes() > MAX_BUFFER_SIZE) {
             vectorized::Block block = _buffer_block.to_block();
             RETURN_IF_ERROR(flush_single_block(&block));

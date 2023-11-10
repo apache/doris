@@ -213,7 +213,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.io_ctx.reader_type = _read_context->reader_type;
     _read_options.io_ctx.file_cache_stats = &_stats->file_cache_stats;
     _read_options.io_ctx.is_disposable = _read_context->reader_type != ReaderType::READER_QUERY;
-    _read_options.suspended_eliminate_cast_slots = _read_context->suspended_eliminate_cast_slots;
+    _read_options.target_cast_type_for_variants = _read_context->target_cast_type_for_variants;
     if (_read_context->runtime_state != nullptr) {
         _read_options.io_ctx.query_id = &_read_context->runtime_state->query_id();
         _read_options.io_ctx.read_file_cache =

@@ -419,7 +419,7 @@ std::string NewOlapScanNode::get_name() {
     return fmt::format("VNewOlapScanNode({0})", _olap_scan_node.table_name);
 }
 
-void NewOlapScanNode::_filter_and_collect_suspended_eliminate_cast_column(
+void NewOlapScanNode::_filter_and_collect_cast_type_for_variant(
         const VExpr* expr,
         phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types) {
     auto* cast_expr = dynamic_cast<const VCastExpr*>(expr);
@@ -439,24 +439,25 @@ void NewOlapScanNode::_filter_and_collect_suspended_eliminate_cast_column(
         }
     }
     for (const auto& child : expr->children()) {
-        _filter_and_collect_suspended_eliminate_cast_column(child.get(), colname_to_cast_types);
+        _filter_and_collect_cast_type_for_variant(child.get(), colname_to_cast_types);
     }
 }
 
-void NewOlapScanNode::_caculate_suspended_eliminate_cast_column() {
+void NewOlapScanNode::get_cast_types_for_variants() {
     phmap::flat_hash_map<std::string, std::vector<PrimitiveType>> colname_to_cast_types;
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
         auto& conjunct = *it;
         if (conjunct->root()) {
-            _filter_and_collect_suspended_eliminate_cast_column(conjunct->root().get(),
-                                                                colname_to_cast_types);
+            _filter_and_collect_cast_type_for_variant(conjunct->root().get(),
+                                                      colname_to_cast_types);
         }
         ++it;
     }
-    // cast to one certain type could be suspended eliminating
+    // cast to one certain type for variant could utilize fully predicates performance
+    // when storage layer type equals to cast type
     for (const auto& [slotid, types] : colname_to_cast_types) {
         if (types.size() == 1) {
-            _suspended_eliminate_cast_column[slotid] = types[0];
+            _cast_types_for_variants[slotid] = types[0];
         }
     }
 }

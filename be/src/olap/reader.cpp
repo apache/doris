@@ -266,7 +266,7 @@ TabletColumn TabletReader::materialize_column(const TabletColumn& orig) {
         return orig;
     }
     TabletColumn column_with_cast_type = orig;
-    auto cast_type = _reader_context.suspended_eliminate_cast_slots.at(orig.name());
+    auto cast_type = _reader_context.target_cast_type_for_variants.at(orig.name());
     column_with_cast_type.set_type(TabletColumn::get_field_type_by_type(cast_type));
     return column_with_cast_type;
 }
@@ -280,7 +280,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;
     _reader_context.runtime_state = read_params.runtime_state;
-    _reader_context.suspended_eliminate_cast_slots = read_params.suspended_eliminate_cast_slots;
+    _reader_context.target_cast_type_for_variants = read_params.target_cast_type_for_variants;
 
     RETURN_IF_ERROR(_init_conditions_param(read_params));
     _init_conditions_param_except_leafnode_of_andnode(read_params);
