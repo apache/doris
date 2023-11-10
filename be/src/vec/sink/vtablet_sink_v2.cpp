@@ -265,7 +265,7 @@ void VOlapTableSinkV2::_build_tablet_node_mapping() {
                     tablet.set_partition_id(partition->id);
                     tablet.set_index_id(index.index_id);
                     tablet.set_tablet_id(tablet_id);
-                    _tablets_for_node[node].emplace_back(tablet);
+                    _tablets_for_node[node].emplace(tablet_id, tablet);
                     if (known_indexes.contains(index.index_id)) [[likely]] {
                         continue;
                     }
@@ -308,14 +308,14 @@ Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, int64_t partition_id
         return Status::InternalError("unknown tablet location, tablet id = {}", tablet_id);
     }
     for (auto& node_id : location->node_ids) {
+        PTabletID tablet;
+        tablet.set_partition_id(partition_id);
+        tablet.set_index_id(index_id);
+        tablet.set_tablet_id(tablet_id);
+        _tablets_for_node[node_id].emplace(tablet_id, tablet);
         if (!_streams_for_node.contains(node_id)) {
             auto load_streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
                 _load_id, _backend_id, node_id, _stream_per_node, _num_local_sink);
-            PTabletID tablet;
-            tablet.set_partition_id(partition_id);
-            tablet.set_index_id(index_id);
-            tablet.set_tablet_id(tablet_id);
-            _tablets_for_node[node_id].emplace_back(tablet);
             _indexes_from_node[node_id].emplace_back(tablet);
             RETURN_IF_ERROR(_open_streams_to_backend(node_id, *load_streams));
             _streams_for_node[node_id] = load_streams;
@@ -506,7 +506,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
 Status VOlapTableSinkV2::_close_load(const Streams& streams) {
     auto node_id = streams[0]->dst_id();
     std::vector<PTabletID> tablets_to_commit;
-    for (auto tablet : _tablets_for_node[node_id]) {
+    for (auto [tablet_id, tablet] : _tablets_for_node[node_id]) {
         if (_tablet_finder->partition_ids().contains(tablet.partition_id())) {
             tablets_to_commit.push_back(tablet);
         }
