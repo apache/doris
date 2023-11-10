@@ -174,6 +174,4 @@ max_failure_num=0
 // used for exporting test
 s3ExportBucketName = ""
 
-
-
-externalEnvIp = "124.156.181.134"
+externalEnvIp="127.0.0.1"
