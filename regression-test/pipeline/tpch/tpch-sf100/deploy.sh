@@ -45,8 +45,8 @@ if [[ -z "${teamcity_build_checkoutDir}" ||
     exit 1
 fi
 if ${DEBUG:-false}; then
-    pull_request_id="26344"
-    commit_id="97ee15f75e88f5af6de308d948361eaa7c261602"
+    pull_request_id="26465"
+    commit_id="a532f7113f463e144e83918a37288f2649448482"
 fi
 
 echo "#### Deploy Doris ####"
@@ -124,8 +124,8 @@ echo "#### 6. check if need backup doris logs"
 if ${need_backup_doris_logs}; then
     print_doris_fe_log
     print_doris_be_log
-    if archive_doris_logs "${DORIS_HOME}/${pull_request_id}_${commit_id}_doris_logs.tar.gz"; then
-        upload_doris_log_to_oss "${DORIS_HOME}/${pull_request_id}_${commit_id}_doris_logs.tar.gz"
+    if file_name=$(archive_doris_logs "${pull_request_id}_${commit_id}_doris_logs.tar.gz"); then
+        upload_doris_log_to_oss "${file_name}"
     fi
 fi
 
