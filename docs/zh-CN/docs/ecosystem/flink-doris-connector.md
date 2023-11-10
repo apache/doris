@@ -449,8 +449,9 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--table-suffix** 同上，Doris表的后缀名。
 - **--including-tables** 需要同步的MySQL表，可以使用"|" 分隔多个表，并支持正则表达式。 比如--including-tables table1|tbl.*就是同步table1和所有以tbl开头的表。
 - **--excluding-tables** 不需要同步的表，用法同上。
-- **--mysql-conf** MySQL CDCSource 配置，例如--mysql-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html)查看所有配置MySQL-CDC，其中hostname/username/password/database-name 是必需的。
-- **--oracle-conf** Oracle CDCSource 配置，例如--oracle-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html)查看所有配置Oracle-CDC，其中hostname/username/password/database-name/schema-name 是必需的。
+- **--mysql-conf** MySQL CDCSource 配置，例如--mysql-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html)查看所有配置MySQL-CDC，其中hostname/username/password/database-name 是必需的。同步的库表中含有非主键表时，必须设置 `scan.incremental.snapshot.chunk.key-column`，且只能选择非空类型的一个字段。
+例如：`scan.incremental.snapshot.chunk.key-column=database.table:column,database.table1:column...`，不同的库表列之间用`,`隔开。
+- **--oracle-conf** Oracle CDCSource 配置，例如--oracle-conf hostname=127.0.0.1，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html)查看所有配置Oracle-CDC，其中hostname/username/password/database-name/schema-name 是必需的。
 - **--postgres-conf** Postgres CDCSource 配置，例如--postgres-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html)查看所有配置Postgres-CDC，其中hostname/username/password/database-name/schema-name/slot.name 是必需的。
 - **--sqlserver-conf** SQLServer CDCSource 配置，例如--sqlserver-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html)查看所有配置SQLServer-CDC，其中hostname/username/password/database-name/schema-name 是必需的。
 - **--sink-conf** Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。
@@ -474,29 +475,6 @@ insert into doris_sink select id,name from cdc_mysql_source;
     --mysql-conf username=root \
     --mysql-conf password=123456 \
     --mysql-conf database-name=mysql_db \
-    --including-tables "tbl1|test.*" \
-    --sink-conf fenodes=127.0.0.1:8030 \
-    --sink-conf username=root \
-    --sink-conf password=123456 \
-    --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
-    --sink-conf sink.label-prefix=label \
-    --table-conf replication_num=1 
-```
-同步的库表中含有非主键表时,必须设置 `scan.incremental.snapshot.chunk.key-column`，且只能选择非空类型的一个字段。
-```
-<FLINK_HOME>bin/flink run \
-    -Dexecution.checkpointing.interval=10s \
-    -Dparallelism.default=1 \
-    -c org.apache.doris.flink.tools.cdc.CdcTools \
-    lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
-    mysql-sync-database \
-    --database test_db \
-    --mysql-conf hostname=127.0.0.1 \
-    --mysql-conf port=3306 \
-    --mysql-conf username=root \
-    --mysql-conf password=123456 \
-    --mysql-conf database-name=mysql_db \
-    --mysql-conf scan.incremental.snapshot.chunk.key-column=db.table:column,db.table1:column1 \
     --including-tables "tbl1|test.*" \
     --sink-conf fenodes=127.0.0.1:8030 \
     --sink-conf username=root \
