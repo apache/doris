@@ -446,7 +446,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--table-suffix** Same as above, the suffix name of the Doris table.
 - **--including-tables** MySQL tables that need to be synchronized, you can use "|" to separate multiple tables, and support regular expressions. For example --including-tables table1|tbl.* is to synchronize table1 and all tables beginning with tbl.
 - **--excluding-tables** Tables that do not need to be synchronized, the usage is the same as above.
-- **--mysql-conf** MySQL CDCSource configuration, eg --mysql-conf hostname=127.0.0.1 , you can see all configuration MySQL-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html), where hostname/username/password/database-name is required.
+- **--mysql-conf** MySQL CDCSource configuration, eg --mysql-conf hostname=127.0.0.1 , you can see all configuration MySQL-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html), where hostname/username/password/database-name is required.To synchronize tables without primary keys, you must configure `scan.incremental.snapshot.chunk.key-column` the option, and specify only one non-null field. For example, `scan.incremental.snapshot.chunk.key-column=database.table:column,database.table1.column...`,columns are separated by `,`.
 - **--oracle-conf** Oracle CDCSource configuration, for example --oracle-conf hostname=127.0.0.1, you can view all configurations of Oracle-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html), where hostname/username/password/database-name/schema-name is required.
 - **--postgres-conf** Postgres CDCSource configuration，for example --postgres-conf hostname=127.0.0.1 ，you can see all configuration of Postgres-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html)，where hostname/username/password/database-name/schema-name/slot.name  is required.
 - **--sqlserver-conf** SQLServer CDCSource configuration，for example --sqlserver-conf hostname=127.0.0.1 ，you can see all configuration of SQLServer-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html)，where hostname/username/password/database-name/schema-name is required.
@@ -531,29 +531,6 @@ insert into doris_sink select id,name from cdc_mysql_source;
      --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
      --sink-conf sink.label-prefix=label \
      --table-conf replication_num=1
-```
-To synchronize tables without primary keys, you must configure `scan.incremental.snapshot.chunk.key-column` the option, and specify only one non-null field.
-```shell
-<FLINK_HOME>bin/flink run \
-    -Dexecution.checkpointing.interval=10s \
-    -Dparallelism.default=1 \
-    -c org.apache.doris.flink.tools.cdc.CdcTools \
-    lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
-    mysql-sync-database \
-    --database test_db \
-    --mysql-conf hostname=127.0.0.1 \
-    --mysql-conf port=3306 \
-    --mysql-conf username=root \
-    --mysql-conf password=123456 \
-    --mysql-conf database-name=mysql_db \
-    --mysql-conf scan.incremental.snapshot.chunk.key-column=db.table:column,db.table1:column1 \
-    --including-tables "tbl1|test.*" \
-    --sink-conf fenodes=127.0.0.1:8030 \
-    --sink-conf username=root \
-    --sink-conf password=123456 \
-    --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
-    --sink-conf sink.label-prefix=label \
-    --table-conf replication_num=1 
 ```
 
 ### SQLServer synchronization example
