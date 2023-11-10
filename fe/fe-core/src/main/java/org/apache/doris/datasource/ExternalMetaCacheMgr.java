@@ -85,14 +85,14 @@ public class ExternalMetaCacheMgr {
         return icebergMetadataCacheMgr.getIcebergMetadataCache();
     }
 
-    public void removeCache(String catalogId) {
+    public void removeCache(long catalogId) {
         if (cacheMap.remove(catalogId) != null) {
             LOG.info("remove hive metastore cache for catalog {}" + catalogId);
         }
         if (schemaCacheMap.remove(catalogId) != null) {
             LOG.info("remove schema cache for catalog {}" + catalogId);
         }
-        icebergMetadataCacheMgr.removeCache(Long.valueOf(catalogId));
+        icebergMetadataCacheMgr.removeCache(catalogId);
     }
 
     public void invalidateTableCache(long catalogId, String dbName, String tblName) {
