@@ -451,6 +451,12 @@ public class BinaryPredicate extends Predicate implements Writable {
             return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false,
                     SessionVariable.getEnableDecimal256());
         }
+
+        if (t1 == PrimitiveType.DECIMALV2 && t2 == PrimitiveType.DECIMALV2) {
+            return ScalarType.getAssignmentCompatibleDecimalV2Type((ScalarType) getChild(0).getType(),
+                    (ScalarType) getChild(1).getType());
+        }
+
         if ((t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.DECIMALV2)
                 || (t2 == PrimitiveType.BIGINT && t1 == PrimitiveType.DECIMALV2)
                 || (t1 == PrimitiveType.LARGEINT && t2 == PrimitiveType.DECIMALV2)
