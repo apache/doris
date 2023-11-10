@@ -90,7 +90,6 @@ Status ColdDataCompaction::modify_rowsets(const Merger::Statistics* stats) {
         // TODO(plat1ko): process primary key
         _tablet->tablet_meta()->set_cooldown_meta_id(cooldown_meta_id);
     }
-    Tablet::erase_pending_remote_rowset(_output_rowset->rowset_id().to_string());
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         _tablet->save_meta();

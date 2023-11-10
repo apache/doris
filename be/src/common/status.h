@@ -597,18 +597,15 @@ using ResultError = unexpected<Status>;
         }                                           \
     } while (false)
 
-// clang-format off
-#define DORIS_TRY(stmt)                                              \
-    ({                                                               \
-        auto&& res = (stmt);                                         \
-        using T = std::decay_t<decltype(res)>;                       \
-        static_assert(tl::detail::is_expected<T>::value);            \
-        if (!res.has_value()) [[unlikely]] {                         \
-            return std::forward<T>(res).error();                     \
-        }                                                            \
-        std::forward<T>(res).value();                                \
+#define DORIS_TRY(stmt)                          \
+    ({                                           \
+        auto&& res = (stmt);                     \
+        using T = std::decay_t<decltype(res)>;   \
+        if (!res.has_value()) [[unlikely]] {     \
+            return std::forward<T>(res).error(); \
+        }                                        \
+        std::forward<T>(res).value();            \
     });
-// clang-format on
 
 } // namespace doris
 

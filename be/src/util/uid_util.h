@@ -45,14 +45,14 @@ void to_hex(T val, char* buf) {
 }
 
 template <typename T>
-void from_hex(T* ret, const std::string& buf) {
+void from_hex(T* ret, std::string_view buf) {
     T val = 0;
-    for (int i = 0; i < buf.length(); ++i) {
+    for (char i : buf) {
         int buf_val = 0;
-        if (buf.c_str()[i] >= '0' && buf.c_str()[i] <= '9') {
-            buf_val = buf.c_str()[i] - '0';
+        if (i >= '0' && i <= '9') {
+            buf_val = i - '0';
         } else {
-            buf_val = buf.c_str()[i] - 'a' + 10;
+            buf_val = i - 'a' + 10;
         }
         val <<= 4;
         val = val | buf_val;
