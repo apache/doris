@@ -15,7 +15,10 @@
 # specific language governing permissions and limitations
 # under the License.
 
-DIR=$(cd $(dirname $0);pwd)
+DIR=$(
+    cd $(dirname $0)
+    pwd
+)
 
 source $DIR/common.sh
 
@@ -34,7 +37,7 @@ add_backend() {
             continue
         fi
 
-        output=`mysql -P $FE_QUERY_PORT -h $MASTER_FE_IP -u root --execute "ALTER SYSTEM ADD BACKEND '$MY_IP:$BE_HEARTBEAT_PORT';" 2>&1`
+        output=$(mysql -P $FE_QUERY_PORT -h $MASTER_FE_IP -u root --execute "ALTER SYSTEM ADD BACKEND '$MY_IP:$BE_HEARTBEAT_PORT';" 2>&1)
         res=$?
         health_log "$output"
         [ $res -eq 0 ] && break
@@ -45,7 +48,15 @@ add_backend() {
     touch $REGISTER_FILE
 }
 
+stop_grace() {
+    health_log "begin stop grace"
+    bash $DORIS_HOME/bin/stop_be.sh --grace >>$LOG_FILE
+}
+
 main() {
+    if [ "$STOP_GRACE" == "1" ]; then
+        trap stop_grace SIGTERM
+    fi
     if [ ! -f $REGISTER_FILE ]; then
         add_backend &
     fi

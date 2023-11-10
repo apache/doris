@@ -17,14 +17,15 @@
 
 export MASTER_FE_IP=""
 export MASTER_FE_IP_FILE=$DORIS_HOME/status/master_fe_ip
+export LOG_FILE=$DORIS_HOME/log/health.out
 
 health_log() {
-    date >> "$DORIS_HOME/log/health.out"
-    echo "$@" >> "$DORIS_HOME/log/health.out"
+    date >>$LOG_FILE
+    echo "$@" >>$LOG_FILE
 }
 
 read_master_fe_ip() {
-    MASTER_FE_IP=`cat $MASTER_FE_IP_FILE`
+    MASTER_FE_IP=$(cat $MASTER_FE_IP_FILE)
     if [ $? -eq 0 ]; then
         health_log "master fe ${MASTER_FE_IP} has ready."
         return 0
@@ -33,4 +34,3 @@ read_master_fe_ip() {
         return 1
     fi
 }
-

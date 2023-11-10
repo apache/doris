@@ -275,9 +275,8 @@ class UpCommand(Command):
             master_fe_ip = open(master_fe_ip_file, "r").read().strip()
         else:
             master_fe_ip = cluster.get_node(CLUSTER.Node.TYPE_FE, 1).get_ip()
-        LOG.info(
-            utils.render_green("Master fe query address: '{}:{}'".format(
-                master_fe_ip, CLUSTER.FE_QUERY_PORT)) + "\n")
+        LOG.info("Master fe query address: " + utils.render_green(
+            "{}:{}".format(master_fe_ip, CLUSTER.FE_QUERY_PORT)) + "\n")
 
         if not args.start:
             LOG.info(

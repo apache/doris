@@ -247,6 +247,9 @@ class Node(object):
                     "output=file,append=true,destfile=" + outfile
             elif self.node_type() == Node.TYPE_BE:
                 envs["LLVM_PROFILE_FILE"] = outfile
+            envs["STOP_GRACE"] = "1"
+        else:
+            envs["STOP_GRACE"] = "0"
 
         return envs
 
