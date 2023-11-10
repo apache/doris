@@ -254,9 +254,8 @@ Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
         RowCursor cursor;
         RETURN_IF_ERROR(cursor.init_scan_key(_tablet->tablet_schema(), olap_tuples[i].values()));
         RETURN_IF_ERROR(cursor.from_tuple(olap_tuples[i]));
-        encode_key_with_padding<RowCursor, true, true>(&_row_read_ctxs[i]._primary_key, cursor,
-                                                       _tablet->tablet_schema()->num_key_columns(),
-                                                       true);
+        encode_key_with_padding<RowCursor, true>(&_row_read_ctxs[i]._primary_key, cursor,
+                                                 _tablet->tablet_schema()->num_key_columns(), true);
     }
     return Status::OK();
 }
