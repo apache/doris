@@ -18,9 +18,9 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
-----PhysicalQuickSort
+----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute
---------PhysicalQuickSort
+--------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 53)))otherCondition=()
 --------------PhysicalDistribute

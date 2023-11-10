@@ -2,9 +2,9 @@
 -- !ds_shape_58 --
 PhysicalResultSink
 --PhysicalProject
-----PhysicalTopN
+----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute
---------PhysicalTopN
+--------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN] hashCondition=((ss_items.item_id = cs_items.item_id))otherCondition=((cast(cs_item_rev as DOUBLE) <= cast((1.1 * ss_item_rev) as DOUBLE)) and (cast(cs_item_rev as DOUBLE) <= cast((1.1 * ws_item_rev) as DOUBLE)) and (cast(cs_item_rev as DOUBLE) >= cast((0.9 * ss_item_rev) as DOUBLE)) and (cast(cs_item_rev as DOUBLE) >= cast((0.9 * ws_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) <= cast((1.1 * cs_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) >= cast((0.9 * cs_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) <= cast((1.1 * cs_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) >= cast((0.9 * cs_item_rev) as DOUBLE)))
 --------------PhysicalProject

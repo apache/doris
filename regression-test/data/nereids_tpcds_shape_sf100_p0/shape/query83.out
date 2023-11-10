@@ -2,9 +2,9 @@
 -- !ds_shape_83 --
 PhysicalResultSink
 --PhysicalProject
-----PhysicalTopN
+----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute
---------PhysicalTopN
+--------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN] hashCondition=((sr_items.item_id = cr_items.item_id))otherCondition=()
 --------------PhysicalProject

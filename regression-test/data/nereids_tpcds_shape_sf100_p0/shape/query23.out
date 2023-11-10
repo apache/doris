@@ -54,8 +54,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[customer]
 ----PhysicalResultSink
-------PhysicalLimit
---------PhysicalLimit
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute
 --------------hashAgg[LOCAL]

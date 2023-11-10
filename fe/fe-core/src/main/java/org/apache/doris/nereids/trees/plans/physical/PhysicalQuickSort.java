@@ -100,6 +100,11 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
     }
 
     @Override
+    public String shapeInfo() {
+        return this.getClass().getSimpleName() + "[" + phase + "]";
+    }
+
+    @Override
     public String toString() {
         return Utils.toSqlString("PhysicalQuickSort[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "orderKeys", orderKeys,

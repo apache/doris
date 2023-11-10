@@ -2,8 +2,8 @@
 -- !ds_shape_61 --
 PhysicalResultSink
 --PhysicalProject
-----PhysicalTopN
-------PhysicalTopN
+----PhysicalTopN[MERGE_SORT]
+------PhysicalTopN[LOCAL_SORT]
 --------NestedLoopJoin[CROSS_JOIN]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute

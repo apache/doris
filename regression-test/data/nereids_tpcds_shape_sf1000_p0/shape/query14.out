@@ -87,9 +87,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
 ------------------------PhysicalOlapScan[date_dim]
 ----PhysicalResultSink
-------PhysicalTopN
+------PhysicalTopN[MERGE_SORT]
 --------PhysicalDistribute
-----------PhysicalTopN
+----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute
@@ -254,9 +254,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
 ------------------------PhysicalOlapScan[date_dim]
 ----PhysicalResultSink
-------PhysicalTopN
+------PhysicalTopN[MERGE_SORT]
 --------PhysicalDistribute
-----------PhysicalTopN
+----------PhysicalTopN[LOCAL_SORT]
 ------------hashJoin[INNER_JOIN] hashCondition=((ty_brand = ly_brand) and (ty_category = ly_category) and (ty_class = ly_class))otherCondition=()
 --------------PhysicalProject
 ----------------NestedLoopJoin[INNER_JOIN](cast(ty_sales as DOUBLE) > cast(average_sales as DOUBLE))
