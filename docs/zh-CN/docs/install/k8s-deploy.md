@@ -29,8 +29,10 @@ under the License.
 <version since="dev"></version>
 Doris-Operator 是按照 Kubernetes 原则构建的在 Kubernetes 平台之上管理运维 Doris 集群的管理软件，允许用户按照资源定义的方式在 Kubernetes 平台之上部署管理 Doris 服务。Doris-Operator 能够管理 Doris 的所有部署形态，能够实现 Doris 大规模形态下智能化和并行化管理。
 ### 环境准备
-使用 Doris-Operator 部署 Doris 前提需要一个 Kubernetes (简称 K8S)集群，如果已拥有可直接跳过环境准备阶段。
-#### 创建 K8S 集群
+使用 Doris-Operator 部署 Doris 前提需要一个 Kubernetes (简称 K8S)集群，如果已拥有可直接跳过环境准备阶段。  
+  
+**创建 K8S 集群**  
+  
 用户可在喜欢的云平台上申请云托管的 K8S 集群服务，例如：[阿里云的 ACK ](https://www.aliyun.com/product/kubernetes)或者[ 腾讯的 TKE ](https://cloud.tencent.com/product/tke)等等，也可以按照 [Kubernetes](https://kubernetes.io/docs/setup/) 官方推荐的方式手动搭建 K8S 集群。 
 - 创建 ACK 集群  
 您可按照阿里云官方文档在阿里云平台创建 [ACK 集群](https://help.aliyun.com/zh/ack/ack-managed-and-ack-dedicated/getting-started/getting-started/)。
@@ -51,8 +53,8 @@ kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/maste
    kubectl apply -f https://raw.githubusercontent.com/selectdb/doris-operator/master/config/operator/operator.yaml
    ```
    **方式二：自定义部署**  
-   [operator.yaml](https://github.com/selectdb/doris-operator/blob/master/config/operator/operator.yaml)中各个配置是部署 Operator 服务的最低要求。为提高管理效率或者有定制化的需求，下载 operator.yaml 进行自定义部署。  
-   - 下载 Operator 的部署范例[operator.yaml](https://raw.githubusercontent.com/selectdb/doris-operator/master/config/operator/operator.yaml)，可直接通过 wget 进行下载。
+   [operator.yaml](https://github.com/selectdb/doris-operator/blob/master/config/operator/operator.yaml) 中各个配置是部署 Operator 服务的最低要求。为提高管理效率或者有定制化的需求，下载 operator.yaml 进行自定义部署。  
+   - 下载 Operator 的部署范例 [operator.yaml](https://raw.githubusercontent.com/selectdb/doris-operator/master/config/operator/operator.yaml)，可直接通过 wget 进行下载。
    - 按期望更新 operator.yaml 中各种配置信息。
    - 通过如下命令部署 Doris-Operator 服务。
    ```shell
@@ -101,12 +103,16 @@ doriscluster-sample-be-internal   ClusterIP   None             <none>           
 doriscluster-sample-be-service    ClusterIP   10.152.183.141   <none>                                                9060/TCP,8040/TCP,9050/TCP,8060/TCP   29m
 ```
 Doris-Operator 部署的 Service 分为两类，后缀`-internal`为集群内部组件通信使用的 Service，后缀`-service`为用户可使用的 Service。 
-#### 集群内部访问  
+  
+**集群内部访问**  
+  
 在 K8S 内部可通过 Service 的`CLUSTER-IP`访问对应的组件。如上图可使用访问 FE 的 Service`doriscluster-sample-fe-service`对应的 CLUSTER-IP 为`10.152.183.37`，使用如下命令连接 FE 服务。
 ```shell
 mysql -h 10.152.183.37 -uroot -P9030
 ```
-#### 集群外部访问  
+  
+**集群外部访问**  
+  
 Doris 集群部署默认不提供 K8S 外部访问，如果集群需要被集群外部访问，需要集群能够申请 lb 资源。具备前提后，参考 [api.md](https://github.com/selectdb/doris-operator/blob/master/doc/api.md) 文档配置相关组件`service`字段，部署后通过对应 Service 的`EXTERNAL-IP`进行访问。以上图中 FE 为例，使用如下命令连接：
 ```shell
 mysql -h a7509284bf3784983a596c6eec7fc212-618xxxxxx.com -uroot -P9030
