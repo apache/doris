@@ -172,7 +172,7 @@ get_doris_args() {
 #    ie: docker_process_sql --database=mydb <my-file.sql
 docker_process_sql() {
     set +e
-    mysql -uroot -P9030 -h${MASTER_FE_IP} --comments "$@" 2>&1 
+    mysql -uroot -P9030 -h${MASTER_FE_IP} --comments "$@" 2>&1
 }
 
 check_be_status() {
