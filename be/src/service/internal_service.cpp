@@ -1531,7 +1531,8 @@ void PInternalServiceImpl::_response_pull_slave_rowset(const std::string& remote
     closure->cntl_->set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
     closure->cntl_->ignore_eovercrowded();
     stub->response_slave_tablet_pull_rowset(closure->cntl_.get(), closure->request_.get(),
-                                            closure->response_.get(), closure.release());
+                                            closure->response_.get(), closure.get());
+    closure.release();
 
     pull_rowset_callback->join();
     if (pull_rowset_callback->cntl_->Failed()) {

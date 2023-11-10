@@ -379,7 +379,7 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     // the real transmission here. the corresponding BE's load mgr will open load channel for it.
     _stub->tablet_writer_open(open_closure->cntl_.get(), open_closure->request_.get(),
                               open_closure->response_.get(), open_closure.get());
-    open_closure.reset();
+    open_closure.release();
     _open_callbacks.push_back(open_callback);
 
     static_cast<void>(request->release_id());
@@ -693,7 +693,8 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _brpc_http_stub->tablet_writer_add_block_by_http(
                     send_block_closure->cntl_.get(), nullptr, send_block_closure->response_.get(),
-                    send_block_closure.release());
+                    send_block_closure.get());
+            send_block_closure.release();
         }
     } else {
         _send_block_callback->cntl_->http_request().Clear();
@@ -701,7 +702,8 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _stub->tablet_writer_add_block(
                     send_block_closure->cntl_.get(), send_block_closure->request_.get(),
-                    send_block_closure->response_.get(), send_block_closure.release());
+                    send_block_closure->response_.get(), send_block_closure.get());
+            send_block_closure.release()
         }
     }
 
@@ -843,7 +845,8 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
         closure->cntl_->ignore_eovercrowded();
     }
     _stub->tablet_writer_cancel(closure->cntl_.get(), closure->request_.get(),
-                                closure->response_.get(), closure.release());
+                                closure->response_.get(), closure.get());
+    closure.release();
     static_cast<void>(request->release_id());
 }
 

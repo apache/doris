@@ -63,7 +63,8 @@ template <typename Closure>
 void transmit_blockv2(PBackendService_Stub& stub, std::unique_ptr<Closure> closure) {
     closure->cntl_->http_request().Clear();
     stub.transmit_block(closure->cntl_.get(), closure->request_.get(), closure->response_.get(),
-                        closure.release());
+                        closure.get());
+    closure.release();
 }
 
 template <typename Closure>
@@ -81,7 +82,8 @@ Status transmit_block_httpv2(ExecEnv* exec_env, std::unique_ptr<Closure> closure
     closure->cntl_->http_request().set_method(brpc::HTTP_METHOD_POST);
     closure->cntl_->http_request().set_content_type("application/json");
     brpc_http_stub->transmit_block_by_http(closure->cntl_.get(), nullptr, closure->response_.get(),
-                                           closure.release());
+                                           closure.get());
+    closure.release();
 
     return Status::OK();
 }
