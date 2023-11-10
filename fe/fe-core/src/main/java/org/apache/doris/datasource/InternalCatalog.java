@@ -478,6 +478,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
+        LOG.info("begin drop database[{}], is force : {}", dbName, stmt.isForceDrop());
 
         // 1. check if database exists
         if (!tryLock(false)) {
@@ -536,12 +537,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                     MetaLockUtils.writeUnlockTables(tableList);
                 }
 
-                if (!stmt.isForceDrop()) {
-                    Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, 0);
-                    recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(db.getId());
-                } else {
-                    Env.getCurrentEnv().eraseDatabase(db.getId(), false);
-                }
+                Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, stmt.isForceDrop(), 0);
+                recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(db.getId());
             } finally {
                 db.writeUnlock();
             }
@@ -588,11 +585,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } finally {
                     MetaLockUtils.writeUnlockTables(tableList);
                 }
-                if (!isForceDrop) {
-                    Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, true, recycleTime);
-                } else {
-                    Env.getCurrentEnv().eraseDatabase(db.getId(), false);
-                }
+                Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, true, isForceDrop, recycleTime);
                 Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getInternalCatalog().getId(), db.getId());
             } finally {
                 db.writeUnlock();
@@ -861,6 +854,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void dropTable(DropTableStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
+        LOG.info("begin to drop table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
 
         // check database
         Database db = (Database) getDbOrDdlException(dbName);
@@ -943,13 +937,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         db.dropTable(table.getName());
-        if (!isForceDrop) {
-            Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, recycleTime);
-        } else {
-            if (table.getType() == TableType.OLAP) {
-                Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, isReplay);
-            }
-        }
+        Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
         LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
         return true;
     }
@@ -1370,7 +1358,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             } finally {
                 table.readUnlock();
             }
-            addPartition(db, tableName, clause, false);
+            addPartition(db, tableName, clause);
 
         } catch (UserException e) {
             throw new DdlException("Failed to ADD PARTITION " + addPartitionLikeClause.getPartitionName()
@@ -1378,10 +1366,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    // if skipLock = true. there's not any lock operation. In generally it means we
-    // have a relative process outside and under a same huge lock.
-    public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause, boolean skipLock)
-            throws DdlException {
+    public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
         SinglePartitionDesc singlePartitionDesc = addPartitionClause.getSingeRangePartitionDesc();
         DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
         boolean isTempPartition = addPartitionClause.isTempPartition();
@@ -1394,9 +1379,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
-        if (!skipLock) {
-            olapTable.readLock();
-        }
+        olapTable.readLock();
         try {
             olapTable.checkNormalStateForAlter();
             // check partition type
@@ -1528,11 +1511,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         } finally {
-            if (!skipLock) {
-                olapTable.readUnlock();
-            }
+            olapTable.readUnlock();
         }
-        // now we still hold the read lock.
 
         Preconditions.checkNotNull(distributionInfo);
         Preconditions.checkNotNull(olapTable);
@@ -1546,7 +1526,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long bucketNum = distributionInfo.getBucketNum();
         long replicaNum = singlePartitionDesc.getReplicaAlloc().getTotalReplicaNum();
         long totalReplicaNum = indexNum * bucketNum * replicaNum;
-        if (totalReplicaNum >= db.getReplicaQuotaLeftWithoutLock()) { // this may have a little risk
+        if (totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
             throw new DdlException("Database " + db.getFullName() + " table " + tableName + " add partition increasing "
                     + totalReplicaNum + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
         }
@@ -1574,12 +1554,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.storeRowColumn(),
                     binlogConfig, dataProperty.isStorageMediumSpecified());
 
-            // check again.
-            // if we have lock outside, skip the check cuz the table wouldn'tbe delete.
-            if (!skipLock) {
-                olapTable = db.getOlapTableOrDdlException(tableName);
-                olapTable.writeLockOrDdlException();
-            }
+            // check again
+            olapTable = db.getOlapTableOrDdlException(tableName);
+            olapTable.writeLockOrDdlException();
             try {
                 olapTable.checkNormalStateForAlter();
                 // check partition name
@@ -1634,6 +1611,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                 }
 
+
+
                 if (metaChanged) {
                     throw new DdlException("Table[" + tableName + "]'s meta has been changed. try again.");
                 }
@@ -1672,9 +1651,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 LOG.info("succeed in creating partition[{}], temp: {}", partitionId, isTempPartition);
             } finally {
-                if (!skipLock) {
-                    olapTable.writeUnlock();
-                }
+                olapTable.writeUnlock();
             }
         } catch (DdlException e) {
             for (Long tabletId : tabletIdSet) {

@@ -80,32 +80,30 @@ inline constexpr __int128 exp10_i128(int x) {
     return exp_details::get_exp<__int128, 10, 39>(x);
 }
 
-using wide::Int256;
-inline Int256 exp10_i256(int x) {
+inline wide::Int256 exp10_i256(int x) {
     if (x < 0) return 0;
-    if (x > 76) return std::numeric_limits<Int256>::max();
+    if (x > 76) return std::numeric_limits<wide::Int256>::max();
 
-    using Int256 = Int256;
-    static constexpr Int256 i10e18 {1000000000000000000ll};
-    static const Int256 values[] = {
-            static_cast<Int256>(1ll),
-            static_cast<Int256>(10ll),
-            static_cast<Int256>(100ll),
-            static_cast<Int256>(1000ll),
-            static_cast<Int256>(10000ll),
-            static_cast<Int256>(100000ll),
-            static_cast<Int256>(1000000ll),
-            static_cast<Int256>(10000000ll),
-            static_cast<Int256>(100000000ll),
-            static_cast<Int256>(1000000000ll),
-            static_cast<Int256>(10000000000ll),
-            static_cast<Int256>(100000000000ll),
-            static_cast<Int256>(1000000000000ll),
-            static_cast<Int256>(10000000000000ll),
-            static_cast<Int256>(100000000000000ll),
-            static_cast<Int256>(1000000000000000ll),
-            static_cast<Int256>(10000000000000000ll),
-            static_cast<Int256>(100000000000000000ll),
+    static constexpr wide::Int256 i10e18 {1000000000000000000ll};
+    static const wide::Int256 values[] = {
+            static_cast<wide::Int256>(1ll),
+            static_cast<wide::Int256>(10ll),
+            static_cast<wide::Int256>(100ll),
+            static_cast<wide::Int256>(1000ll),
+            static_cast<wide::Int256>(10000ll),
+            static_cast<wide::Int256>(100000ll),
+            static_cast<wide::Int256>(1000000ll),
+            static_cast<wide::Int256>(10000000ll),
+            static_cast<wide::Int256>(100000000ll),
+            static_cast<wide::Int256>(1000000000ll),
+            static_cast<wide::Int256>(10000000000ll),
+            static_cast<wide::Int256>(100000000000ll),
+            static_cast<wide::Int256>(1000000000000ll),
+            static_cast<wide::Int256>(10000000000000ll),
+            static_cast<wide::Int256>(100000000000000ll),
+            static_cast<wide::Int256>(1000000000000000ll),
+            static_cast<wide::Int256>(10000000000000000ll),
+            static_cast<wide::Int256>(100000000000000000ll),
             i10e18,
             i10e18 * 10ll,
             i10e18 * 100ll,

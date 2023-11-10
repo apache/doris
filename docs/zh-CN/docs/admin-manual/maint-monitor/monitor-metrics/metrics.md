@@ -196,7 +196,7 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_be_cache_lookup_count`| |  | 记录指定 LRU Cache 被查找的次数 | |
 |`doris_be_cache_hit_count`| |  | 记录指定 LRU Cache 的命中次数 | |
 |`doris_be_cache_hit_ratio`| |  | 记录指定 LRU Cache 的命中率 | 用于观测cache是否有效 | P0|
-|| {name="DataPageCache"} | 字节 | DataPageCache 用于缓存数据的 Data Page | 数据Cache，直接影响查询效率 | P0|
+|| {name="DataPageCache"} | Num | DataPageCache 用于缓存数据的 Data Page | 数据Cache，直接影响查询效率 | P0|
 || {name="IndexPageCache"} | Num| IndexPageCache 用于缓存数据的 Index Page | 索引Cache，直接影响查询效率 | P0|
 || {name="LastestSuccessChannelCache"} | Num| LastestSuccessChannelCache 用于缓存导入接收端的 LoadChannel | |
 || {name="SegmentCache"} | Num | SegmentCache 用于缓存已打开的 Segment，如索引信息 | |

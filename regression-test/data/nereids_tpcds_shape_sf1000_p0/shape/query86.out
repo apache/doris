@@ -2,12 +2,12 @@
 -- !ds_shape_86 --
 PhysicalResultSink
 --PhysicalProject
-----PhysicalTopN
+----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute
---------PhysicalTopN
+--------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
 ------------PhysicalWindow
---------------PhysicalQuickSort
+--------------PhysicalQuickSort[LOCAL_SORT]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------hashAgg[GLOBAL]

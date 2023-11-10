@@ -217,12 +217,12 @@ separated by commas.
 
 10. Simple mode, import json data
     Table Structure:
-
+    ```
     `category` varchar(512) NULL COMMENT "",
     `author` varchar(512) NULL COMMENT "",
     `title` varchar(512) NULL COMMENT "",
     `price` double NULL COMMENT ""
-
+    ```
     json data format:
     ````
     {"category":"C++","author":"avc","title":"C++ primer","price":895}

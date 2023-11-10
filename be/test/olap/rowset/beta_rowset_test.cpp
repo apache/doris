@@ -109,8 +109,8 @@ public:
     }
 
     static void TearDownTestSuite() {
-        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         k_engine.reset();
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
 protected:

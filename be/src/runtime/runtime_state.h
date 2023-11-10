@@ -35,14 +35,12 @@
 #include <vector>
 
 #include "cctz/time_zone.h"
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 
 namespace doris {
 
@@ -72,9 +70,9 @@ public:
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
 
-    RuntimeState(const TPipelineInstanceParams& pipeline_params, const TUniqueId& query_id,
-                 int32 fragment_id, const TQueryOptions& query_options,
-                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
+                 const TQueryOptions& query_options, const TQueryGlobals& query_globals,
+                 ExecEnv* exec_env);
 
     // Used by pipelineX. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
@@ -92,6 +90,8 @@ public:
     // Set per-query state.
     Status init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+
+    void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params) const;
 
     // for ut and non-query.
     void set_exec_env(ExecEnv* exec_env) { _exec_env = exec_env; }
@@ -307,6 +307,18 @@ public:
 
     int num_per_fragment_instances() const { return _num_per_fragment_instances; }
 
+    void set_load_stream_per_node(int load_stream_per_node) {
+        _load_stream_per_node = load_stream_per_node;
+    }
+
+    int load_stream_per_node() const { return _load_stream_per_node; }
+
+    void set_total_load_streams(int total_load_streams) {
+        _total_load_streams = total_load_streams;
+    }
+
+    int total_load_streams() const { return _total_load_streams; }
+
     bool disable_stream_preaggregations() const {
         return _query_options.disable_stream_preaggregations;
     }
@@ -328,6 +340,10 @@ public:
     bool enable_pipeline_exec() const {
         return _query_options.__isset.enable_pipeline_engine &&
                _query_options.enable_pipeline_engine;
+    }
+    bool enable_pipeline_x_exec() const {
+        return _query_options.__isset.enable_pipeline_x_engine &&
+               _query_options.enable_pipeline_x_engine;
     }
     bool enable_local_shuffle() const {
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
@@ -410,10 +426,6 @@ public:
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
     }
-
-    OpentelemetryTracer get_tracer() { return _tracer; }
-
-    void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
@@ -539,6 +551,8 @@ private:
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;
+    int _load_stream_per_node = 0;
+    int _total_load_streams = 0;
 
     // The backend id on which this fragment instance runs
     int64_t _backend_id = -1;
@@ -586,8 +600,6 @@ private:
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
-
-    OpentelemetryTracer _tracer = telemetry::get_noop_tracer();
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

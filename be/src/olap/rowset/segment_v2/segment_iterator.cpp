@@ -30,7 +30,6 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/consts.h"
@@ -38,7 +37,6 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "io/io_common.h"
-#include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/field.h"
 #include "olap/iterators.h"
@@ -1186,7 +1184,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     std::string index_key;
     // when is_include is false, we shoudle append KEY_NORMAL_MARKER to the
     // encode key. Otherwise, we will get an incorrect upper bound.
-    encode_key_with_padding<RowCursor, true, true>(
+    encode_key_with_padding<RowCursor, true>(
             &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include, true);
     if (index_key < _segment->min_key()) {
         *rowid = 0;
@@ -2059,7 +2057,9 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts_and_filter_block(
             _common_expr_ctxs_push_down, block, _columns_to_filter, prev_columns, filter));
 
+    const auto origin_size = selected_size;
     selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
+    _opts.stats->rows_common_expr_filtered += (origin_size - selected_size);
     return Status::OK();
 }
 

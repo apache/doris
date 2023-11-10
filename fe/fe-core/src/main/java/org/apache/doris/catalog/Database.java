@@ -274,24 +274,23 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public long getUsedDataQuotaWithLock() {
         long usedDataQuota = 0;
         readLock();
-        try {
-            for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
-                    continue;
-                }
+        List<Table> tables = new ArrayList<>(this.idToTable.values());
+        readUnlock();
 
-                OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    usedDataQuota = usedDataQuota + olapTable.getDataSize();
-                } finally {
-                    olapTable.readUnlock();
-                }
+        for (Table table : tables) {
+            if (table.getType() != TableType.OLAP) {
+                continue;
             }
-            return usedDataQuota;
-        } finally {
-            readUnlock();
+
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.readLock();
+            try {
+                usedDataQuota = usedDataQuota + olapTable.getDataSize();
+            } finally {
+                olapTable.readUnlock();
+            }
         }
+        return usedDataQuota;
     }
 
     public long getReplicaCountWithLock() {
@@ -319,29 +318,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public long getReplicaQuotaLeftWithLock() {
         long leftReplicaQuota = replicaQuotaSize - getReplicaCountWithLock();
-        return Math.max(leftReplicaQuota, 0L);
-    }
-
-    public long getReplicaCountWithoutLock() {
-        readLock();
-        try {
-            long usedReplicaCount = 0;
-            for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
-                    continue;
-                }
-
-                OlapTable olapTable = (OlapTable) table;
-                usedReplicaCount = usedReplicaCount + olapTable.getReplicaCount();
-            }
-            return usedReplicaCount;
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public long getReplicaQuotaLeftWithoutLock() {
-        long leftReplicaQuota = replicaQuotaSize - getReplicaCountWithoutLock();
         return Math.max(leftReplicaQuota, 0L);
     }
 

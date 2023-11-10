@@ -22,7 +22,6 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
-#include <opentelemetry/trace/tracer.h>
 #include <stdio.h>
 
 #include <algorithm>
@@ -134,6 +133,8 @@ Status NewOlapScanNode::_init_profile() {
             ADD_COUNTER(_segment_profile, "RowsVectorPredInput", TUnit::UNIT);
     _rows_short_circuit_cond_input_counter =
             ADD_COUNTER(_segment_profile, "RowsShortCircuitPredInput", TUnit::UNIT);
+    _rows_common_expr_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsCommonExprFiltered", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
     _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
     _expr_filter_timer = ADD_TIMER(_segment_profile, "ExprFilterEvalTime");
@@ -409,7 +410,6 @@ void NewOlapScanNode::set_scan_ranges(RuntimeState* state,
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
         COUNTER_UPDATE(_tablet_counter, 1);
     }
-    // telemetry::set_current_span_attribute(_tablet_counter);
 }
 
 std::string NewOlapScanNode::get_name() {
@@ -422,7 +422,6 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         return Status::OK();
     }
     SCOPED_TIMER(_scanner_init_timer);
-    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
 
     if (!_conjuncts.empty()) {
         std::string message;

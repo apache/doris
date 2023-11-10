@@ -88,9 +88,10 @@ void QueryStatistics::merge(QueryStatisticsRecvr* recvr) {
 }
 
 void QueryStatistics::merge(QueryStatisticsRecvr* recvr, int sender_id) {
-    auto it = recvr->_query_statistics.find(sender_id);
-    if (it != recvr->_query_statistics.end()) {
-        merge(*it->second);
+    DCHECK(recvr != nullptr);
+    auto QueryStatisticsptr = recvr->find(sender_id);
+    if (QueryStatisticsptr) {
+        merge(*QueryStatisticsptr);
     }
 }
 
@@ -118,6 +119,15 @@ void QueryStatisticsRecvr::insert(QueryStatisticsPtr statistics, int sender_id) 
     if (_query_statistics.contains(sender_id)) return;
     std::lock_guard<SpinLock> l(_lock);
     _query_statistics[sender_id] = statistics;
+}
+
+QueryStatisticsPtr QueryStatisticsRecvr::find(int sender_id) {
+    std::lock_guard<SpinLock> l(_lock);
+    auto it = _query_statistics.find(sender_id);
+    if (it != _query_statistics.end()) {
+        return it->second;
+    }
+    return nullptr;
 }
 
 } // namespace doris

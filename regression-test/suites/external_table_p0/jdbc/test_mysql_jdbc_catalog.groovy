@@ -54,11 +54,15 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         String ex_tb18 = "ex_tb18";
         String ex_tb19 = "ex_tb19";
         String ex_tb20 = "ex_tb20";
+        String ex_tb21 = "test_key_word";
         String test_insert = "test_insert";
         String test_insert2 = "test_insert2";
+        String test_insert_all_types = "test_insert_all_types";
+        String test_ctas = "test_ctas";
         String auto_default_t = "auto_default_t";
         String dt = "dt";
         String dt_null = "dt_null";
+        String test_zd = "test_zd"
 
         try_sql("DROP USER ${user}")
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
@@ -83,6 +87,46 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
                 `id` INT NULL COMMENT "主键id",
                 `name` string NULL COMMENT "名字"
                 ) DISTRIBUTED BY HASH(id) BUCKETS 10
+                PROPERTIES("replication_num" = "1");
+        """
+
+        // used for testing all types
+        sql  """ drop table if exists ${internal_db_name}.${test_insert_all_types} """
+        sql  """
+                CREATE TABLE ${internal_db_name}.${test_insert_all_types} (
+                    `tinyint_u` SMALLINT,
+                    `smallint_u` INT,
+                    `mediumint_u` INT,
+                    `int_u` BIGINT,
+                    `bigint_u` LARGEINT,
+                    `decimal_u` DECIMAL(18, 5),
+                    `double_u` DOUBLE,
+                    `float_u` FLOAT,
+                    `boolean` TINYINT,
+                    `tinyint` TINYINT,
+                    `smallint` SMALLINT,
+                    `year` SMALLINT,
+                    `mediumint` INT,
+                    `int` INT,
+                    `bigint` BIGINT,
+                    `date` DATE,
+                    `timestamp` DATETIME(4) null,
+                    `datetime` DATETIME,
+                    `float` FLOAT,
+                    `double` DOUBLE,
+                    `decimal` DECIMAL(12, 4),
+                    `char` CHAR(5),
+                    `varchar` VARCHAR(10),
+                    `time` STRING,
+                    `text` STRING,
+                    `blob` STRING,
+                    `json` JSON,
+                    `set` STRING,
+                    `bit` STRING,
+                    `binary` STRING,
+                    `varbinary` STRING,
+                    `enum` STRING
+                ) DISTRIBUTED BY HASH(tinyint_u) BUCKETS 10
                 PROPERTIES("replication_num" = "1");
         """
 
@@ -115,10 +159,12 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
         order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
+        order_qt_ex_tb21  """ select `key`, `id` from ${ex_tb21} where `key` = 2 order by id;"""
         order_qt_information_schema """ show tables from information_schema; """
         order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
         order_qt_dt """select * from ${dt}; """
         order_qt_dt_null """select * from ${dt_null} order by 1; """
+        order_qt_test_dz """select * from ${test_zd} order by 1; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
@@ -246,6 +292,21 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         sql """use doris_test;"""
         qt_mysql_all_types """select * from all_types order by tinyint_u;"""
 
+        // test insert into internal.db.table select * from all_types
+        sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * from all_types; """
+        order_qt_select_insert_all_types """ select * from internal.${internal_db_name}.${test_insert_all_types} order by tinyint_u; """
+
+        // test CTAS
+        sql  """ drop table if exists internal.${internal_db_name}.${test_ctas} """
+        sql """ create table internal.${internal_db_name}.${test_ctas}
+                PROPERTIES("replication_num" = "1")
+                AS select * from all_types;
+            """
+
+        order_qt_ctas """select * from internal.${internal_db_name}.${test_ctas} order by tinyint_u;"""
+
+        order_qt_ctas_desc """desc internal.${internal_db_name}.${test_ctas};"""
+        
         sql """ drop catalog if exists ${catalog_name} """
 
         // test mysql view
@@ -308,7 +369,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         explain {
             sql ("select k6, k8 from test1 where nvl(k6, null) = 1 and k8 = 1;")
 
-            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (k8 = 1)"
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (`k8` = 1)"
         }
         sql """ admin set frontend config ("enable_func_pushdown" = "true"); """
         sql """ drop catalog if exists mysql_fun_push_catalog; """

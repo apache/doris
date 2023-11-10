@@ -365,9 +365,6 @@ private:
                                 VExprSPtr& output_expr);
     Status _eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt);
 
-    Status _normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
-                                   PushDownType* pdt);
-
     Status _normalize_bitmap_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
                                     PushDownType* pdt);
 

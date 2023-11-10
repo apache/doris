@@ -80,7 +80,9 @@ public:
         return TPrimitiveType::DATETIME;
     }
 
-    bool can_be_inside_nullable() const override { return true; }
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_DATETIME;
+    }
 
     bool equals(const IDataType& rhs) const override;
 

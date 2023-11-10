@@ -107,8 +107,6 @@
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "util/string_util.h"
-#include "util/telemetry/brpc_carrier.h"
-#include "util/telemetry/telemetry.h"
 #include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -303,8 +301,6 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
 void PInternalServiceImpl::_exec_plan_fragment_in_pthread(
         google::protobuf::RpcController* controller, const PExecPlanFragmentRequest* request,
         PExecPlanFragmentResult* response, google::protobuf::Closure* done) {
-    auto span = telemetry::start_rpc_server_span("exec_plan_fragment", controller);
-    auto scope = OpentelemetryScope {span};
     brpc::ClosureGuard closure_guard(done);
     auto st = Status::OK();
     bool compact = request->has_compact() ? request->compact() : false;
@@ -337,13 +333,11 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
     }
 }
 
-void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcController* controller,
+void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcController* /*controller*/,
                                                     const PExecPlanFragmentStartRequest* request,
                                                     PExecPlanFragmentResult* result,
                                                     google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, result, done]() {
-        auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", controller);
-        auto scope = OpentelemetryScope {span};
+    bool ret = _light_work_pool.try_offer([this, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->fragment_mgr()->start_query_execution(request);
         st.to_protobuf(result->mutable_status());
@@ -355,8 +349,8 @@ void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcControl
 }
 
 void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* controller,
-                                            const POpenStreamSinkRequest* request,
-                                            POpenStreamSinkResponse* response,
+                                            const POpenLoadStreamRequest* request,
+                                            POpenLoadStreamResponse* response,
                                             google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
         signal::set_signal_task_id(request->load_id());
@@ -401,7 +395,6 @@ void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* con
             return;
         }
 
-        load_stream->add_rpc_stream();
         VLOG_DEBUG << "get streamid =" << streamid;
         st.to_protobuf(response->mutable_status());
     });
@@ -557,13 +550,11 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
     }
 }
 
-void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController* controller,
+void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController* /*controller*/,
                                                 const PCancelPlanFragmentRequest* request,
                                                 PCancelPlanFragmentResult* result,
                                                 google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, result, done]() {
-        auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", controller);
-        auto scope = OpentelemetryScope {span};
+    bool ret = _light_work_pool.try_offer([this, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId tid;
         tid.__set_hi(request->finst_id().hi());
@@ -718,23 +709,19 @@ void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcContro
                                                      google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
-        RowDescriptor row_desc = ExecEnv::GetInstance()->result_mgr()->find_row_descriptor(
-                UniqueId(request->finst_id()).to_thrift());
-        if (row_desc.equals(RowDescriptor())) {
-            auto st = Status::NotFound("not found row descriptor");
-            st.to_protobuf(result->mutable_status());
-            return;
-        }
-
-        std::shared_ptr<arrow::Schema> schema;
-        auto st = convert_to_arrow_schema(row_desc, &schema);
-        if (UNLIKELY(!st.ok())) {
+        std::shared_ptr<arrow::Schema> schema =
+                ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
+                        UniqueId(request->finst_id()).to_thrift());
+        if (schema == nullptr) {
+            LOG(INFO) << "not found arrow flight schema, maybe query has been canceled";
+            auto st = Status::NotFound(
+                    "not found arrow flight schema, maybe query has been canceled");
             st.to_protobuf(result->mutable_status());
             return;
         }
 
         std::string schema_str;
-        st = serialize_arrow_schema(row_desc, &schema, &schema_str);
+        auto st = serialize_arrow_schema(&schema, &schema_str);
         if (st.ok()) {
             result->set_schema(std::move(schema_str));
         }
@@ -1390,6 +1377,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         RowsetId remote_rowset_id = rowset_meta->rowset_id();
         // change rowset id because it maybe same as other local rowset
         RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
+        auto pending_rs_guard =
+                StorageEngine::instance()->pending_local_rowsets().add(new_rowset_id);
         rowset_meta->set_rowset_id(new_rowset_id);
         rowset_meta->set_tablet_uid(tablet->tablet_uid());
         VLOG_CRITICAL << "succeed to init rowset meta for slave replica. rowset_id="
@@ -1489,7 +1478,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
                 tablet->data_dir()->get_meta(), rowset_meta->partition_id(), rowset_meta->txn_id(),
                 rowset_meta->tablet_id(), tablet->tablet_uid(), rowset_meta->load_id(), rowset,
-                false);
+                std::move(pending_rs_guard), false);
         if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
             LOG(WARNING) << "failed to add committed rowset for slave replica. rowset_id="
                          << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
@@ -1853,9 +1842,10 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
             }
         }
         st.to_protobuf(response->mutable_status());
+        _exec_env->new_load_stream_mgr()->remove(load_id);
     });
-    _exec_env->new_load_stream_mgr()->remove(load_id);
     if (!ret) {
+        _exec_env->new_load_stream_mgr()->remove(load_id);
         offer_failed(response, done, _light_work_pool);
         return;
     }
