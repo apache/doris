@@ -46,4 +46,4 @@ from int_t where property in ('prime','square');
 
 ### keywords
 
-    WINDOW,FUNCTION,MAX
+​    WINDOW,FUNCTION,MAX

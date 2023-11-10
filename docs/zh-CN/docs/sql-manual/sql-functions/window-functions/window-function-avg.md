@@ -50,4 +50,4 @@ from int_t where property in ('odd','even');
 
 ### keywords
 
-    WINDOW,FUNCTION,AVG
+​    WINDOW,FUNCTION,AVG
