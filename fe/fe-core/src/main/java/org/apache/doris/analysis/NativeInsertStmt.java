@@ -50,24 +50,14 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.GroupCommitOlapTableSink;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
-import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.planner.external.jdbc.JdbcTableSink;
-import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.tablefunction.GroupCommitTableValuedFunction;
-import org.apache.doris.task.StreamLoadTask;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TExecPlanFragmentParamsList;
-import org.apache.doris.thrift.TFileCompressType;
-import org.apache.doris.thrift.TFileFormatType;
-import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TMergeType;
 import org.apache.doris.thrift.TQueryOptions;
-import org.apache.doris.thrift.TScanRangeParams;
-import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -84,10 +74,8 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
-import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -167,6 +155,7 @@ public class NativeInsertStmt extends InsertStmt {
     // true if be generates an insert from group commit tvf stmt and executes to load data
     public boolean isGroupCommitTvf = false;
     public boolean isGroupCommitStreamLoadSql = false;
+    private GroupCommitPlanner groupCommitPlanner;
 
     private boolean isFromDeleteOrUpdateStmt = false;
 
@@ -1134,10 +1123,10 @@ public class NativeInsertStmt extends InsertStmt {
         return isGroupCommit;
     }
 
-    public void planForGroupCommit(TUniqueId queryId) throws UserException, TException {
+    public GroupCommitPlanner planForGroupCommit(TUniqueId queryId) throws UserException, TException {
         OlapTable olapTable = (OlapTable) getTargetTable();
         if (execPlanFragmentParamsBytes != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
-            return;
+            return groupCommitPlanner;
         }
         if (!targetColumns.isEmpty()) {
             Analyzer analyzerTmp = analyzer;
@@ -1145,45 +1134,11 @@ public class NativeInsertStmt extends InsertStmt {
             this.analyzer = analyzerTmp;
         }
         analyzeSubquery(analyzer, true);
-        TStreamLoadPutRequest streamLoadPutRequest = new TStreamLoadPutRequest();
-        if (targetColumnNames != null) {
-            streamLoadPutRequest.setColumns(String.join(",", targetColumnNames));
-            if (targetColumnNames.stream().anyMatch(col -> col.equalsIgnoreCase(Column.SEQUENCE_COL))) {
-                streamLoadPutRequest.setSequenceCol(Column.SEQUENCE_COL);
-            }
-        }
-        streamLoadPutRequest.setDb(db.getFullName()).setMaxFilterRatio(1)
-                .setTbl(getTbl())
-                .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
-                .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(queryId)
-                .setGroupCommit(true);
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(streamLoadPutRequest);
-        StreamLoadPlanner planner = new StreamLoadPlanner((Database) getDbObj(), olapTable, streamLoadTask);
-        // Will using load id as query id in fragment
-        TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-        for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
-            for (TScanRangeParams scanRangeParams : entry.getValue()) {
-                scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
-                        TFileFormatType.FORMAT_PROTO);
-                scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
-                        TFileCompressType.PLAIN);
-            }
-        }
-        List<TScanRangeParams> scanRangeParams = tRequest.params.per_node_scan_ranges.values().stream()
-                .flatMap(Collection::stream).collect(Collectors.toList());
-        Preconditions.checkState(scanRangeParams.size() == 1);
+        groupCommitPlanner = new GroupCommitPlanner((Database) db, olapTable, targetColumnNames, queryId);
         // save plan message to be reused for prepare stmt
         loadId = queryId;
         baseSchemaVersion = olapTable.getBaseSchemaVersion();
-        // see BackendServiceProxy#execPlanFragmentsAsync
-        TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
-        paramsList.addToParamsList(tRequest);
-        execPlanFragmentParamsBytes = ByteString.copyFrom(new TSerializer().serialize(paramsList));
-    }
-
-    public InternalService.PExecPlanFragmentRequest getExecPlanFragmentRequest() {
-        return InternalService.PExecPlanFragmentRequest.newBuilder().setRequest(execPlanFragmentParamsBytes)
-                .setCompact(false).setVersion(InternalService.PFragmentRequestVersion.VERSION_2).build();
+        return groupCommitPlanner;
     }
 
     public TUniqueId getLoadId() {
