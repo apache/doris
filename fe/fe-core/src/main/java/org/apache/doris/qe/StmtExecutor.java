@@ -1704,7 +1704,9 @@ public class StmtExecutor {
         if (selectStmt.getValueList() != null) {
             Table tbl = txnEntry.getTable();
             int schemaSize =
-                    (parsedStmt instanceof NativeInsertStmt && ((NativeInsertStmt) parsedStmt).getTargetColumnNames()
+                    (parsedStmt instanceof NativeInsertStmt
+                            && ((NativeInsertStmt) parsedStmt).getTargetColumnNames() != null
+                            && ((NativeInsertStmt) parsedStmt).getTargetColumnNames()
                             .contains(Column.SEQUENCE_COL)) ? tbl.getBaseSchema(false).size() + 1
                             : tbl.getBaseSchema(false).size();
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
@@ -1780,7 +1782,8 @@ public class StmtExecutor {
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId())
                 .setExecMemLimit(maxExecMemByte).setTimeout((int) timeoutSecond)
                 .setTimezone(timeZone).setSendBatchParallelism(sendBatchParallelism);
-        if (parsedStmt instanceof NativeInsertStmt && ((NativeInsertStmt) parsedStmt).getTargetColumnNames()
+        if (parsedStmt instanceof NativeInsertStmt && ((NativeInsertStmt) parsedStmt).getTargetColumnNames() != null
+                && ((NativeInsertStmt) parsedStmt).getTargetColumnNames()
                 .contains(Column.SEQUENCE_COL)) {
             request.setSequenceCol(Column.SEQUENCE_COL);
             StringBuilder allCols = new StringBuilder();
