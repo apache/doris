@@ -375,6 +375,37 @@ suite("test_stream_load_properties", "p0") {
         sql new File("""${context.file.parent}/ddl/dup_tbl_basic_drop_random_bucket.sql""").text
     }
 
+    try {
+        sql new File("""${context.file.parent}/ddl/dup_tbl_basic_drop_random_bucket.sql""").text
+        sql new File("""${context.file.parent}/ddl/dup_tbl_basic_create_random_bucket.sql""").text
+
+        streamLoad {
+            table 'stream_load_dup_tbl_basic_random_bucket'
+            set 'column_separator', '|'
+            set 'columns', columns[0]
+            set 'load_to_single_tablet', 'false'
+            file files[0]
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(20, json.NumberTotalRows)
+                assertEquals(20, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
+        // def res = sql "show tablets from stream_load_dup_tbl_basic_random_bucket"
+        // assertEquals(res[0][10].toString(), "20")
+    } finally {
+        sql new File("""${context.file.parent}/ddl/dup_tbl_basic_drop_random_bucket.sql""").text
+    }
+
     // sequence
     try {
             sql new File("""${context.file.parent}/ddl/uniq_tbl_basic_drop_sequence.sql""").text
