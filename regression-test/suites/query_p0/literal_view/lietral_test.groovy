@@ -140,4 +140,10 @@ suite("literal_view_test") {
         sql "select * from (select null as top) t where top = 5"
         result ([])
     }
+
+    sql """set enable_nereids_planner=false;"""
+    explain {
+        sql """ select c.* from ( select a.*, '' x from test_insert a left join test_insert b on true ) c where c.x is null; """
+        notContains("VEMPTYSET")
+    }
 }

@@ -252,6 +252,23 @@ class GraphSimplifierTest {
 
     @Disabled
     @Test
+    void test64Clique() {
+        HyperGraph hyperGraph = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN))
+                .randomBuildWith(64, 67);
+        Counter counter = new Counter();
+        SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
+        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        graphSimplifier.simplifyGraph(1);
+
+        for (Edge edge : hyperGraph.getEdges()) {
+            System.out.println(edge);
+        }
+        Assertions.assertTrue(subgraphEnumerator.enumerate());
+        System.out.println(counter.getEmitCount());
+    }
+
+    @Disabled
+    @Test
     void benchGraphSimplifier() {
         int tableNum = 64;
         int edgeNum = 64 * 63 / 2;

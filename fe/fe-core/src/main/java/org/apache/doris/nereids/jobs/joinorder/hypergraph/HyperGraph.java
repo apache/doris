@@ -316,10 +316,16 @@ public class HyperGraph {
         // For these nodes that are only in the old edge, we need remove the edge from them
         // For these nodes that are only in the new edge, we need to add the edge to them
         Edge edge = edges.get(edgeIndex);
+        if (treeEdgesCache.containsKey(edge.getReferenceNodes())) {
+            treeEdgesCache.get(edge.getReferenceNodes()).set(edgeIndex, false);
+        }
         updateEdges(edge, edge.getLeftExtendedNodes(), newLeft);
         updateEdges(edge, edge.getRightExtendedNodes(), newRight);
         edges.get(edgeIndex).setLeftExtendedNodes(newLeft);
         edges.get(edgeIndex).setRightExtendedNodes(newRight);
+        if (treeEdgesCache.containsKey(edge.getReferenceNodes())) {
+            treeEdgesCache.get(edge.getReferenceNodes()).set(edgeIndex, true);
+        }
     }
 
     private void updateEdges(Edge edge, long oldNodes, long newNodes) {

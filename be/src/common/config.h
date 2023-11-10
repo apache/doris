@@ -110,7 +110,7 @@ DECLARE_Int32(brpc_num_threads);
 // If no ip match this rule, will choose one randomly.
 DECLARE_String(priority_networks);
 
-// performance moderate or or compact, only tcmalloc compile
+// performance moderate or compact, only tcmalloc compile
 DECLARE_String(memory_mode);
 
 // process memory limit specified as number of bytes
@@ -799,8 +799,6 @@ DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
 // share delta writers when memtable_on_sink_node = true
 DECLARE_Bool(share_delta_writers);
-// number of brpc stream per load
-DECLARE_Int32(num_streams_per_load);
 // timeout for open load stream rpc in ms
 DECLARE_Int64(open_load_stream_timeout_ms);
 
@@ -1055,8 +1053,6 @@ DECLARE_Int32(max_depth_in_bkd_tree);
 DECLARE_Bool(inverted_index_compaction_enable);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
-// semi-structure configs
-DECLARE_Bool(enable_parse_multi_dimession_array);
 
 // max depth of expression tree allowed.
 DECLARE_Int32(max_depth_of_expr_tree);
@@ -1134,6 +1130,12 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
+// Whether flatten nested arrays in variant column
+// Notice: TEST ONLY
+DECLARE_mBool(enable_flatten_nested_for_variant);
+// Threshold of a column as sparse column
+// Notice: TEST ONLY
+DECLARE_mDouble(ratio_of_defaults_as_sparse_column);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 
@@ -1179,6 +1181,8 @@ DECLARE_mBool(exit_on_exception);
 
 // cgroup
 DECLARE_String(doris_cgroup_cpu_path);
+DECLARE_Bool(enable_cgroup_cpu_soft_limit);
+
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
 
@@ -1190,6 +1194,9 @@ DECLARE_String(default_tzfiles_path);
 
 // Max size(bytes) of group commit queues, used for mem back pressure.
 DECLARE_Int32(group_commit_max_queue_size);
+
+// Max size(bytes) of wal disk using, used for disk space back pressure.
+DECLARE_Int32(wal_max_disk_size);
 
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);

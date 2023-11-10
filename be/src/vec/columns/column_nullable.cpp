@@ -44,10 +44,6 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
         nested_column = assert_cast<ColumnNullable&>(*nested_column).get_nested_column_ptr();
     }
 
-    if (!get_nested_column().can_be_inside_nullable()) {
-        LOG(FATAL) << get_nested_column().get_name() << " cannot be inside Nullable column";
-    }
-
     if (is_column_const(*null_map)) {
         LOG(FATAL) << "ColumnNullable cannot have constant null map";
     }
@@ -564,9 +560,7 @@ bool ColumnNullable::has_null(size_t size) const {
 }
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable) {
-    if (is_column_nullable(*column)) {
-        return column;
-    }
+    if (is_column_nullable(*column)) return column;
 
     if (is_column_const(*column)) {
         return ColumnConst::create(

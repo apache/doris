@@ -97,5 +97,5 @@ If the `curl 77: Problem with the SSL CA cert` error appears in the be.INFO log.
 
 ### Q7. import error："Message": "[INTERNAL_ERROR]single replica load is disabled on BE."
 
-1. Add parameters in be.conf : enable_single_replica_load = true
+1. Make sure this parameters `enable_single_replica_load` in be.conf is set true
 2.  Restart the BE node.

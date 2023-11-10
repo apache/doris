@@ -65,6 +65,8 @@ public:
 
     void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
 
+    void update_by_least_common_schema(const TabletSchemaSPtr& update_schema);
+
     TabletSchemaSPtr tablet_schema() const {
         std::shared_lock rlock(_meta_lock);
         return _max_version_schema;

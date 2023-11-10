@@ -151,10 +151,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // we need run the following 2 rules to make AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
                     bottomUp(new PullUpProjectUnderApply()),
                     topDown(new PushdownFilterThroughProject()),
-                    costBased(
-                            custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
-                                    AggScalarSubQueryToWindowFunction::new)
-                    ),
+                    custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
+                            AggScalarSubQueryToWindowFunction::new),
                     bottomUp(
                             new EliminateUselessPlanUnderApply(),
                             // CorrelateApplyToUnCorrelateApply and ApplyToJoin

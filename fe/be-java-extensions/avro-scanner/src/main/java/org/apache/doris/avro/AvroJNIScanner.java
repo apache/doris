@@ -21,12 +21,9 @@ import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
-import org.apache.doris.common.jni.vec.TableSchema.SchemaColumn;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TPrimitiveType;
 
 import org.apache.avro.Schema;
-import org.apache.avro.Schema.Field;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.common.JavaUtils;
@@ -40,10 +37,7 @@ import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
@@ -193,54 +187,6 @@ public class AvroJNIScanner extends JniScanner {
     @Override
     protected TableSchema parseTableSchema() throws UnsupportedOperationException {
         Schema schema = avroReader.getSchema();
-        List<Field> schemaFields = schema.getFields();
-        List<SchemaColumn> schemaColumns = new ArrayList<>();
-        for (Field schemaField : schemaFields) {
-            Schema avroSchema = schemaField.schema();
-            String columnName = schemaField.name().toLowerCase(Locale.ROOT);
-
-            SchemaColumn schemaColumn = new SchemaColumn();
-            TPrimitiveType tPrimitiveType = serializeSchemaType(avroSchema, schemaColumn);
-            schemaColumn.setName(columnName);
-            schemaColumn.setType(tPrimitiveType);
-            schemaColumns.add(schemaColumn);
-        }
-        return new TableSchema(schemaColumns);
+        return AvroTypeUtils.parseTableSchema(schema);
     }
-
-    private TPrimitiveType serializeSchemaType(Schema avroSchema, SchemaColumn schemaColumn)
-            throws UnsupportedOperationException {
-        Schema.Type type = avroSchema.getType();
-        switch (type) {
-            case NULL:
-                return TPrimitiveType.NULL_TYPE;
-            case STRING:
-                return TPrimitiveType.STRING;
-            case INT:
-                return TPrimitiveType.INT;
-            case BOOLEAN:
-                return TPrimitiveType.BOOLEAN;
-            case LONG:
-                return TPrimitiveType.BIGINT;
-            case FLOAT:
-                return TPrimitiveType.FLOAT;
-            case BYTES:
-                return TPrimitiveType.BINARY;
-            case DOUBLE:
-                return TPrimitiveType.DOUBLE;
-            case ARRAY:
-                SchemaColumn arrayChildColumn = new SchemaColumn();
-                schemaColumn.addChildColumn(arrayChildColumn);
-                arrayChildColumn.setType(serializeSchemaType(avroSchema.getElementType(), arrayChildColumn));
-                return TPrimitiveType.ARRAY;
-            case MAP:
-                SchemaColumn mapChildColumn = new SchemaColumn();
-                schemaColumn.addChildColumn(mapChildColumn);
-                mapChildColumn.setType(serializeSchemaType(avroSchema.getValueType(), mapChildColumn));
-                return TPrimitiveType.MAP;
-            default:
-                throw new UnsupportedOperationException("avro format: " + type.getName() + " is not supported.");
-        }
-    }
-
 }

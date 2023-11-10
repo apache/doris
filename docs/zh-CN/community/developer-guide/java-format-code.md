@@ -1,7 +1,7 @@
 ---
 {
-  "title": "Java 代码格式化",
-  "language": "zh-CN"
+    "title": "Java 代码格式化",
+    "language": "zh-CN"
 }
 ---
 
@@ -42,6 +42,13 @@ standard java package
 * 禁止使用 `import *`
 * 禁止使用 `import static`
 
+## 编译时检查
+
+现在，在使用`maven`进行编译时，会默认进行`CheckStyle`检查。此检查会略微降低编译速度。如果想跳过此检查，请使用如下命令进行编译
+```
+mvn clean install -DskipTests -Dcheckstyle.skip
+```
+
 ## Checkstyle 插件
 
 现在的 `CI` 之中会有 `formatter-check` 进行代码格式化检测。
@@ -79,13 +86,6 @@ Checkstyle 会按照 [Class and Interface Declarations](https://www.oracle.com/j
 在导入上面的 `build-support/IntelliJ-code-format.xml` 文件后，使用 `Code/Rearrange Code` 自动完成排序
 
 ![](/images/idea-rearrange-code.png)
-
-## Spotless 插件
-
-通过 mvn spotless:check 检查项目代码时发现错误，接着使用 mvn spotless:apply 进行代码格式化；再次检查时，格式化错误消失。
-
-提示：我们使用增量代码格式，spotless 仅适用于自“origin/master”以来已更改的文件。如果提示“No such reference”错误，请在调用 Spotless 之前调用“git fetch origin master”。
-请参考 [how-can-i-enforce-formatting-gradually-aka-ratchet](https://github.com/diffplug/spotless/tree/main/plugin-maven#how-can-i-enforce-formatting-gradually-aka-ratchet)。
 
 ## Remove unused header
 
