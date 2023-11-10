@@ -17,6 +17,7 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -203,6 +204,8 @@ public abstract class AbstractJob implements Writable {
         } else {
             out.writeBoolean(false);
         }
+        Text.writeString(out, status.getErrCode().name());
+        Text.writeString(out, status.getErrMsg());
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -228,6 +231,11 @@ public abstract class AbstractJob implements Writable {
                 String msg = Text.readString(in);
                 taskErrMsg.put(taskId, msg);
             }
+        }
+        if (Env.getCurrentEnvJournalVersion() >= org.apache.doris.common.FeMetaVersion.VERSION_127) {
+            ErrCode errCode = ErrCode.valueOf(Text.readString(in));
+            String errMsg = Text.readString(in);
+            status = new Status(errCode, errMsg);
         }
     }
 

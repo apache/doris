@@ -84,6 +84,9 @@ public class BackupJobInfo implements Writable {
     // only include olap table
     @SerializedName("backup_objects")
     public Map<String, BackupOlapTableInfo> backupOlapTableObjects = Maps.newHashMap();
+    // only include olap table
+    @SerializedName("backup_tables_error_ignore")
+    public List<String> backupTablesErrorIgnore = new java.util.ArrayList<>();
     // include other objects: view, external table
     @SerializedName("new_backup_objects")
     public NewBackupObjects newBackupObjects = new NewBackupObjects();
@@ -585,7 +588,8 @@ public class BackupJobInfo implements Writable {
 
     public static BackupJobInfo fromCatalog(long backupTime, String label, String dbName, long dbId,
                                             BackupContent content, BackupMeta backupMeta,
-                                            Map<Long, SnapshotInfo> snapshotInfos, Map<Long, Long> tableCommitSeqMap) {
+                                            Map<Long, SnapshotInfo> snapshotInfos, Map<Long, Long> tableCommitSeqMap,
+                                            Set<String> backupTablesErrorIgnore) {
 
         BackupJobInfo jobInfo = new BackupJobInfo();
         jobInfo.backupTime = backupTime;
@@ -598,6 +602,7 @@ public class BackupJobInfo implements Writable {
         jobInfo.majorVersion = Version.DORIS_BUILD_VERSION_MAJOR;
         jobInfo.minorVersion = Version.DORIS_BUILD_VERSION_MINOR;
         jobInfo.patchVersion = Version.DORIS_BUILD_VERSION_PATCH;
+        jobInfo.backupTablesErrorIgnore.addAll(backupTablesErrorIgnore);
 
         Collection<Table> tbls = backupMeta.getTables().values();
         // tbls

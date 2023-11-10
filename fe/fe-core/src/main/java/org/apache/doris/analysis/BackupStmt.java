@@ -30,6 +30,7 @@ import java.util.Map;
 public class BackupStmt extends AbstractBackupStmt {
     private static final String PROP_TYPE = "type";
     public static final String PROP_CONTENT = "content";
+    public static final String PROP_BACKUP_TABLES_ERROR_IGNORE_RATIO = "backup_tables_error_ignore_ratio";
 
     public enum BackupType {
         INCREMENTAL, FULL
@@ -42,6 +43,7 @@ public class BackupStmt extends AbstractBackupStmt {
     private BackupType type = BackupType.FULL;
     private BackupContent content = BackupContent.ALL;
 
+    private double backupTablesErrorIgnoreRatio = 0.0;
 
     public BackupStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause abstractBackupTableRefClause,
                       Map<String, String> properties) {
@@ -58,6 +60,10 @@ public class BackupStmt extends AbstractBackupStmt {
 
     public BackupContent getContent() {
         return content;
+    }
+
+    public double getBackupTablesErrorIgnoreRatio() {
+        return backupTablesErrorIgnoreRatio;
     }
 
     @Override
@@ -101,6 +107,22 @@ public class BackupStmt extends AbstractBackupStmt {
                         "Invalid backup job content:" + contentProp);
             }
             copiedProperties.remove(PROP_CONTENT);
+        }
+        // backup_tables_error_ignore_ratio
+        if (copiedProperties.containsKey(PROP_BACKUP_TABLES_ERROR_IGNORE_RATIO)) {
+            try {
+                backupTablesErrorIgnoreRatio =
+                                Double.parseDouble(copiedProperties.get(PROP_BACKUP_TABLES_ERROR_IGNORE_RATIO));
+                if (backupTablesErrorIgnoreRatio < 0.0 || backupTablesErrorIgnoreRatio >= 1.0) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                            "Invalid backup_tables_error_ignore_ratio: " + backupTablesErrorIgnoreRatio);
+                }
+            } catch (IllegalArgumentException e) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid backup_tables_error_ignore_ratio: "
+                        + copiedProperties.get(PROP_BACKUP_TABLES_ERROR_IGNORE_RATIO));
+            }
+            copiedProperties.remove(PROP_BACKUP_TABLES_ERROR_IGNORE_RATIO);
         }
 
         if (!copiedProperties.isEmpty()) {

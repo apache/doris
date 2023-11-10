@@ -64,6 +64,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -87,7 +88,8 @@ public class BackupJob extends AbstractJob {
         SAVE_META, // Save copied meta info to local file. When finished, transfer to UPLOAD_INFO
         UPLOAD_INFO, // Upload meta and job info file to repository. When finished, transfer to FINISHED
         FINISHED, // Job is finished.
-        CANCELLED // Job is cancelled.
+        CANCELLED, // Job is cancelled.
+        PARTIAL_FINISHED // Job is finished.
     }
 
     // all objects which need backup
@@ -119,16 +121,20 @@ public class BackupJob extends AbstractJob {
     private byte[] metaInfoBytes = null;
     private byte[] jobInfoBytes = null;
 
+    private final Map<String, String> backupTablesErrorIgnore = Maps.newHashMap();
+    private double backupTablesErrorIgnoreRatio = 0.0;
+
     public BackupJob() {
         super(JobType.BACKUP);
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
-                     BackupContent content, Env env, long repoId) {
+                     BackupContent content, Env env, long repoId, double backupTablesErrorIgnoreRatio) {
         super(JobType.BACKUP, label, dbId, dbName, timeoutMs, env, repoId);
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
         properties.put(BackupStmt.PROP_CONTENT, content.name());
+        this.backupTablesErrorIgnoreRatio = backupTablesErrorIgnoreRatio;
     }
 
     public BackupJobState getState() {
@@ -275,7 +281,9 @@ public class BackupJob extends AbstractJob {
     // Polling the job state and do the right things.
     @Override
     public synchronized void run() {
-        if (state == BackupJobState.FINISHED || state == BackupJobState.CANCELLED) {
+        if (state == BackupJobState.FINISHED
+                || state == BackupJobState.CANCELLED
+                || state == BackupJobState.PARTIAL_FINISHED) {
             return;
         }
 
@@ -322,6 +330,11 @@ public class BackupJob extends AbstractJob {
                 break;
         }
 
+        if (!isStrictBackup() && isTooManyBackupTablesErrorIgnoreToCancel()) {
+            status = new Status(ErrCode.COMMON_ERROR,
+                        "too many tables error to cancel: " + backupTablesErrorIgnore.keySet());
+        }
+
         // we don't want to cancel the job if we already in state UPLOAD_INFO,
         // which is the final step of backup job. just retry it.
         // if it encounters some unrecoverable errors, just retry it until timeout.
@@ -345,7 +358,24 @@ public class BackupJob extends AbstractJob {
 
     @Override
     public synchronized boolean isDone() {
-        return state == BackupJobState.FINISHED || state == BackupJobState.CANCELLED;
+        return state == BackupJobState.FINISHED
+            || state == BackupJobState.CANCELLED
+            || state == BackupJobState.PARTIAL_FINISHED;
+    }
+
+    private void addBackupTablesErrorIgnore(String tblName, String errMsg) {
+        backupTablesErrorIgnore.put(tblName, errMsg);
+        LOG.warn("add backup table error ignore. table: {}, error: {}", tblName, errMsg);
+    }
+
+    private boolean isTooManyBackupTablesErrorIgnoreToCancel() {
+        return BigDecimal.valueOf(backupTablesErrorIgnoreRatio).compareTo(BigDecimal.valueOf(0.0)) != 0
+                && backupTablesErrorIgnore.size()
+                            >= tableRefs.size() * backupTablesErrorIgnoreRatio;
+    }
+
+    private boolean isStrictBackup() {
+        return BigDecimal.valueOf(backupTablesErrorIgnoreRatio).compareTo(BigDecimal.valueOf(0.0)) == 0;
     }
 
     private void prepareAndSendSnapshotTask() {
@@ -368,46 +398,78 @@ public class BackupJob extends AbstractJob {
             String tblName = tableRef.getName().getTbl();
             Table tbl = db.getTableNullable(tblName);
             if (tbl == null) {
-                status = new Status(ErrCode.NOT_FOUND, "table " + tblName + " does not exist");
-                return;
+                if (!isStrictBackup()) {
+                    addBackupTablesErrorIgnore(tblName, "table " + tblName + " does not exist");
+                    continue;
+                } else {
+                    status = new Status(ErrCode.NOT_FOUND, "table " + tblName + " does not exist");
+                    return;
+                }
             }
             tbl.readLock();
             try {
                 switch (tbl.getType()) {
                     case OLAP:
                         OlapTable olapTable = (OlapTable) tbl;
-                        if (!checkOlapTable(olapTable, tableRef).ok()) {
-                            return;
-                        }
-                        if (getContent() == BackupContent.ALL) {
-                            if (!prepareSnapshotTaskForOlapTableWithoutLock(
-                                                    db, (OlapTable) tbl, tableRef, batchTask).ok()) {
+                        if (!checkOlapTable(olapTable, tableRef)) {
+                            if (!isStrictBackup()) {
+                                continue;
+                            } else {
                                 return;
                             }
                         }
-                        if (!prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables).ok()) {
-                            return;
+                        if (getContent() == BackupContent.ALL) {
+                            if (!prepareSnapshotTaskForOlapTableWithoutLock(db, (OlapTable) tbl, tableRef, batchTask)) {
+                                if (!isStrictBackup()) {
+                                    continue;
+                                } else {
+                                    return;
+                                }
+                            }
+                        }
+                        if (!prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables)) {
+                            if (!isStrictBackup()) {
+                                continue;
+                            } else {
+                                return;
+                            }
                         }
                         break;
                     case VIEW:
-                        if (!prepareBackupMetaForViewWithoutLock((View) tbl, copiedTables).ok()) {
-                            return;
+                        if (!prepareBackupMetaForViewWithoutLock((View) tbl, copiedTables)) {
+                            if (!isStrictBackup()) {
+                                continue;
+                            } else {
+                                return;
+                            }
                         }
                         break;
                     case ODBC:
-                        if (!prepareBackupMetaForOdbcTableWithoutLock(
-                                                    (OdbcTable) tbl, copiedTables, copiedResources).ok()) {
-                            return;
+                        if (!prepareBackupMetaForOdbcTableWithoutLock((OdbcTable) tbl, copiedTables, copiedResources)) {
+                            if (!isStrictBackup()) {
+                                continue;
+                            } else {
+                                return;
+                            }
                         }
                         break;
                     default:
-                        status = new Status(ErrCode.COMMON_ERROR,
-                                "backup job does not support this type of table " + tblName);
-                        return;
+                        if (!isStrictBackup()) {
+                            addBackupTablesErrorIgnore(tblName,
+                                    "backup job does not support this type of table " + tblName);
+                        } else {
+                            status = new Status(ErrCode.COMMON_ERROR,
+                                    "backup job does not support this type of table " + tblName);
+                            return;
+                        }
                 }
             } finally {
                 tbl.readUnlock();
             }
+        }
+
+        if (!isStrictBackup() && isTooManyBackupTablesErrorIgnoreToCancel()) {
+            return;
         }
 
         backupMeta = new BackupMeta(copiedTables, copiedResources);
@@ -425,7 +487,7 @@ public class BackupJob extends AbstractJob {
         LOG.info("finished to send snapshot tasks to backend. {}", this);
     }
 
-    private Status checkOlapTable(OlapTable olapTable, TableRef backupTableRef) {
+    private boolean checkOlapTable(OlapTable olapTable, TableRef backupTableRef) {
         olapTable.readLock();
         try {
             // check backup table again
@@ -433,19 +495,24 @@ public class BackupJob extends AbstractJob {
                 for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
-                        status = new Status(ErrCode.NOT_FOUND, "partition " + partName
-                                + " does not exist  in table" + backupTableRef.getName().getTbl());
-                        return status;
+                        if (!isStrictBackup()) {
+                            addBackupTablesErrorIgnore(olapTable.getName(), "partition " + partName
+                                    + " does not exist  in table" + backupTableRef.getName().getTbl());
+                        } else {
+                            status = new Status(ErrCode.NOT_FOUND, "partition " + partName
+                                    + " does not exist  in table" + backupTableRef.getName().getTbl());
+                        }
+                        return false;
                     }
                 }
             }
         }  finally {
             olapTable.readUnlock();
         }
-        return Status.OK;
+        return true;
     }
 
-    private Status prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
+    private boolean prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
             TableRef backupTableRef, AgentBatchTask batchTask) {
         // Add barrier editolog for barrier commit seq
         long dbId = db.getId();
@@ -463,9 +530,14 @@ public class BackupJob extends AbstractJob {
             for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
                 Partition partition = olapTable.getPartition(partName);
                 if (partition == null) {
-                    status = new Status(ErrCode.NOT_FOUND, "partition " + partName
-                            + " does not exist  in table" + backupTableRef.getName().getTbl());
-                    return status;
+                    if (!isStrictBackup()) {
+                        addBackupTablesErrorIgnore(backupTableRef.getName().getTbl(), "partition " + partName
+                                + " does not exist  in table" + backupTableRef.getName().getTbl());
+                    } else {
+                        status = new Status(ErrCode.NOT_FOUND, "partition " + partName
+                                + " does not exist  in table" + backupTableRef.getName().getTbl());
+                    }
+                    return false;
                 }
             }
         }
@@ -481,6 +553,8 @@ public class BackupJob extends AbstractJob {
             }
         }
 
+        AgentBatchTask tmpBatchTask = new AgentBatchTask();
+        Map<Long, Long> tmpUnfinishedTaskIds = Maps.newConcurrentMap();
         // snapshot partitions
         for (Partition partition : partitions) {
             long visibleVersion = partition.getVisibleVersion();
@@ -491,25 +565,35 @@ public class BackupJob extends AbstractJob {
                 for (Tablet tablet : tablets) {
                     Replica replica = chooseReplica(tablet, visibleVersion);
                     if (replica == null) {
-                        status = new Status(ErrCode.COMMON_ERROR,
-                                "failed to choose replica to make snapshot for tablet " + tablet.getId()
-                                        + ". visible version: " + visibleVersion);
-                        return status;
+                        if (!isStrictBackup()) {
+                            addBackupTablesErrorIgnore(backupTableRef.getName().getTbl(),
+                                    "failed to choose replica to make snapshot for tablet " + tablet.getId()
+                                            + ". visible version: " + visibleVersion);
+                        } else {
+                            status = new Status(ErrCode.COMMON_ERROR,
+                                    "failed to choose replica to make snapshot for tablet " + tablet.getId()
+                                            + ". visible version: " + visibleVersion);
+                        }
+                        return false;
                     }
                     SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
                             jobId, dbId, olapTable.getId(), partition.getId(),
                             index.getId(), tablet.getId(),
                             visibleVersion,
                             schemaHash, timeoutMs, false /* not restore task */);
-                    batchTask.addTask(task);
-                    unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
+                    tmpBatchTask.addTask(task);
+                    tmpUnfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
                 }
             }
 
             LOG.info("snapshot for partition {}, version: {}",
                     partition.getId(), visibleVersion);
         }
-        return Status.OK;
+        for (AgentTask task : tmpBatchTask.getAllTasks()) {
+            batchTask.addTask(task);
+        }
+        unfinishedTaskIds.putAll(tmpUnfinishedTaskIds);
+        return true;
     }
 
     private void checkResourceForOdbcTable(OdbcTable odbcTable) {
@@ -525,52 +609,72 @@ public class BackupJob extends AbstractJob {
         }
     }
 
-    private Status prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
+    private boolean prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
                                                           List<Table> copiedTables) {
         // only copy visible indexes
         List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
                 : tableRef.getPartitionNames().getPartitionNames();
         OlapTable copiedTbl = olapTable.selectiveCopy(reservedPartitions, IndexExtState.VISIBLE, true);
         if (copiedTbl == null) {
-            status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + olapTable.getName());
-            return status;
+            if (!isStrictBackup()) {
+                addBackupTablesErrorIgnore(olapTable.getName(),
+                        "failed to copy table: " + olapTable.getName());
+            } else {
+                status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + olapTable.getName());
+            }
+            return false;
         }
 
         removeUnsupportProperties(copiedTbl);
         copiedTables.add(copiedTbl);
-        return Status.OK;
+        return true;
     }
 
-    private Status prepareBackupMetaForViewWithoutLock(View view, List<Table> copiedTables) {
+    private boolean prepareBackupMetaForViewWithoutLock(View view, List<Table> copiedTables) {
         View copiedView = view.clone();
         if (copiedView == null) {
-            status = new Status(ErrCode.COMMON_ERROR, "failed to copy view: " + view.getName());
-            return status;
+            if (!isStrictBackup()) {
+                addBackupTablesErrorIgnore(view.getName(), "failed to copy view: " + view.getName());
+            } else {
+                status = new Status(ErrCode.COMMON_ERROR, "failed to copy view: " + view.getName());
+            }
+            return false;
         }
         copiedTables.add(copiedView);
-        return Status.OK;
+        return true;
     }
 
-    private Status prepareBackupMetaForOdbcTableWithoutLock(OdbcTable odbcTable, List<Table> copiedTables,
+    private boolean prepareBackupMetaForOdbcTableWithoutLock(OdbcTable odbcTable, List<Table> copiedTables,
             List<Resource> copiedResources) {
         OdbcTable copiedOdbcTable = odbcTable.clone();
         if (copiedOdbcTable == null) {
-            status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc table: " + odbcTable.getName());
-            return status;
+            if (!isStrictBackup()) {
+                addBackupTablesErrorIgnore(odbcTable.getName(),
+                        "failed to copy odbc table: " + odbcTable.getName());
+            } else {
+                status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc table: " + odbcTable.getName());
+            }
+            return false;
         }
-        copiedTables.add(copiedOdbcTable);
+
         if (copiedOdbcTable.getOdbcCatalogResourceName() != null) {
             Resource resource = Env.getCurrentEnv().getResourceMgr()
                     .getResource(copiedOdbcTable.getOdbcCatalogResourceName());
             Resource copiedResource = resource.clone();
             if (copiedResource == null) {
-                status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc resource: "
-                        + resource.getName());
-                return status;
+                if (!isStrictBackup()) {
+                    addBackupTablesErrorIgnore(odbcTable.getName(), "failed to copy odbc resource: "
+                                                + resource.getName());
+                } else {
+                    status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc resource: "
+                                                + resource.getName());
+                }
+                return false;
             }
             copiedResources.add(copiedResource);
         }
-        return Status.OK;
+        copiedTables.add(copiedOdbcTable);
+        return true;
     }
 
     private void removeUnsupportProperties(OlapTable tbl) {
@@ -725,7 +829,7 @@ public class BackupJob extends AbstractJob {
                 }
             }
             jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId,
-                    getContent(), backupMeta, snapshotInfos, tableCommitSeqMap);
+                    getContent(), backupMeta, snapshotInfos, tableCommitSeqMap, backupTablesErrorIgnore.keySet());
             LOG.debug("job info: {}. {}", jobInfo, this);
             File jobInfoFile = new File(jobDir, Repository.PREFIX_JOB_INFO + createTimeStr);
             if (!jobInfoFile.createNewFile()) {
@@ -779,6 +883,9 @@ public class BackupJob extends AbstractJob {
     private void uploadMetaAndJobInfoFile() {
         if (repoId == Repository.KEEP_ON_LOCAL_REPO_ID) {
             state = BackupJobState.FINISHED;
+            if (!isStrictBackup() && this.backupTablesErrorIgnore.size() > 0) {
+                state = BackupJobState.PARTIAL_FINISHED;
+            }
             Snapshot snapshot = new Snapshot(label, metaInfoBytes, jobInfoBytes);
             env.getBackupHandler().addSnapshot(label, snapshot);
             return;
@@ -796,6 +903,9 @@ public class BackupJob extends AbstractJob {
 
         finishedTime = System.currentTimeMillis();
         state = BackupJobState.FINISHED;
+        if (!isStrictBackup() && this.backupTablesErrorIgnore.size() > 0) {
+            state = BackupJobState.PARTIAL_FINISHED;
+        }
 
         // log
         env.getEditLog().logBackupJob(this);
@@ -893,6 +1003,9 @@ public class BackupJob extends AbstractJob {
         info.add(dbName);
         info.add(state.name());
         info.add(getBackupObjs());
+        info.add(String.valueOf(backupTablesErrorIgnoreRatio));
+        info.add(Joiner.on(", ").join(backupTablesErrorIgnore.entrySet().stream().map(
+                        n -> "[" + n.getKey() + ": " + n.getValue() + "]").collect(Collectors.toList())));
         info.add(TimeUtils.longToTimeString(createTime));
         info.add(TimeUtils.longToTimeString(snapshotFinishedTime));
         info.add(TimeUtils.longToTimeString(snapshotUploadFinishedTime));
@@ -909,6 +1022,11 @@ public class BackupJob extends AbstractJob {
     }
 
     private String getBackupObjs() {
+        List<String> list = tableRefs.stream().map(n -> "[" + n.toString() + "]").collect(Collectors.toList());
+        return Joiner.on(", ").join(list);
+    }
+
+    private String getBackupOlapTableObjectsErrorIgnore() {
         List<String> list = tableRefs.stream().map(n -> "[" + n.toString() + "]").collect(Collectors.toList());
         return Joiner.on(", ").join(list);
     }
@@ -973,6 +1091,14 @@ public class BackupJob extends AbstractJob {
             Text.writeString(out, entry.getKey());
             Text.writeString(out, entry.getValue());
         }
+
+        // write ignore error tables
+        out.writeDouble(backupTablesErrorIgnoreRatio);
+        out.writeInt(backupTablesErrorIgnore.size());
+        for (Map.Entry<String, String> entry : backupTablesErrorIgnore.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            Text.writeString(out, entry.getValue());
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -1022,6 +1148,17 @@ public class BackupJob extends AbstractJob {
             String key = Text.readString(in);
             String value = Text.readString(in);
             properties.put(key, value);
+        }
+
+        if (Env.getCurrentEnvJournalVersion() >= org.apache.doris.common.FeMetaVersion.VERSION_127) {
+            // read ignore error tables
+            backupTablesErrorIgnoreRatio = in.readDouble();
+            size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                String key = Text.readString(in);
+                String value = Text.readString(in);
+                backupTablesErrorIgnore.put(key, value);
+            }
         }
     }
 
