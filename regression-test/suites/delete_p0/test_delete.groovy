@@ -285,6 +285,7 @@ PROPERTIES
     ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'false');
     """
 
+    sql "drop table if exists test"
     sql """
     CREATE TABLE `test`  
     (
