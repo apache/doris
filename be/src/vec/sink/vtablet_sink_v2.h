@@ -129,6 +129,8 @@ private:
 
     Status _open_streams_to_backend(int64_t dst_id, ::doris::stream_load::LoadStreams& streams);
 
+    Status _incremental_open_streams(const std::vector<TOlapTablePartition>& partitions);
+
     void _build_tablet_node_mapping();
 
     void _generate_rows_for_tablet(std::vector<RowPartTabletIds>& row_part_tablet_ids,

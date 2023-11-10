@@ -83,12 +83,51 @@ Status VOlapTableSinkV2::on_partitions_created(TCreatePartitionResult* result) {
     _nodes_info->add_nodes(result->nodes);
 
     // incremental open stream
+    RETURN_IF_ERROR(_incremental_open_streams(result->partitions));
 
     return Status::OK();
 }
 
 static Status on_partitions_created(void* writer, TCreatePartitionResult* result) {
     return static_cast<VOlapTableSinkV2*>(writer)->on_partitions_created(result);
+}
+
+Status VOlapTableSinkV2::_incremental_open_streams(
+        const std::vector<TOlapTablePartition>& partitions) {
+    // do what we did in prepare() for partitions. indexes which don't change when we create new partition is orthogonal to partitions.
+    std::unordered_set<int64_t> known_indexes;
+    std::unordered_set<int64_t> new_backends;
+    for (const auto& t_partition : partitions) {
+        VOlapTablePartition* partition = nullptr;
+        RETURN_IF_ERROR(_vpartition->generate_partition_from(t_partition, partition));
+        for (const auto& index : partition->indexes) {
+            for (const auto& tablet_id : index.tablets) {
+                auto nodes = _location->find_tablet(tablet_id)->node_ids;
+                for (auto& node : nodes) {
+                    PTabletID tablet;
+                    tablet.set_partition_id(partition->id);
+                    tablet.set_index_id(index.index_id);
+                    tablet.set_tablet_id(tablet_id);
+                    if (!_streams_for_node.contains(node)) {
+                        new_backends.insert(node);
+                    }
+                    _tablets_for_node[node].emplace(tablet_id, tablet);
+                    if (known_indexes.contains(index.index_id)) [[likely]] {
+                        continue;
+                    }
+                    _indexes_from_node[node].emplace_back(tablet);
+                    known_indexes.insert(index.index_id);
+                }
+            }
+        }
+    }
+    for (int64_t node_id : new_backends) {
+        auto load_streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
+                _load_id, _backend_id, node_id, _stream_per_node, _num_local_sink);
+        RETURN_IF_ERROR(_open_streams_to_backend(node_id, *load_streams));
+        _streams_for_node[node_id] = load_streams;
+    }
+    return Status::OK();
 }
 
 Status VOlapTableSinkV2::_init_row_distribution() {
@@ -313,13 +352,6 @@ Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, int64_t partition_id
         tablet.set_index_id(index_id);
         tablet.set_tablet_id(tablet_id);
         _tablets_for_node[node_id].emplace(tablet_id, tablet);
-        if (!_streams_for_node.contains(node_id)) {
-            auto load_streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                _load_id, _backend_id, node_id, _stream_per_node, _num_local_sink);
-            _indexes_from_node[node_id].emplace_back(tablet);
-            RETURN_IF_ERROR(_open_streams_to_backend(node_id, *load_streams));
-            _streams_for_node[node_id] = load_streams;
-        }
         streams.emplace_back(_streams_for_node.at(node_id)->streams().at(_stream_index));
         RETURN_IF_ERROR(streams[0]->wait_for_schema(partition_id, index_id, tablet_id));
     }
