@@ -26,7 +26,6 @@
 #include <unordered_map>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -534,8 +533,8 @@ Status VerticalSegmentWriter::_fill_missing_columns(
                 read_index[id_and_pos.pos] = read_idx++;
             }
             if (has_row_column) {
-                auto st = tablet->fetch_value_through_row_column(rowset, seg_it.first, rids,
-                                                                 missing_cids, old_value_block);
+                auto st = tablet->fetch_value_through_row_column(
+                        rowset, *_tablet_schema, seg_it.first, rids, missing_cids, old_value_block);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value through row column";
                     return st;
