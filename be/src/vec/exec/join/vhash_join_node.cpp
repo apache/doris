@@ -91,7 +91,6 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _hash_output_slot_ids(tnode.hash_join_node.__isset.hash_output_slot_ids
                                         ? tnode.hash_join_node.hash_output_slot_ids
                                         : std::vector<SlotId> {}),
-          _build_block_idx(0),
           _build_side_mem_used(0),
           _build_side_last_mem_used(0) {
     _runtime_filter_descs = tnode.runtime_filters;
@@ -453,7 +452,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     if (!st) {
         return st;
     }
-    RETURN_IF_ERROR(_filter_data_and_build_output(state, output_block, eos, &temp_block));
+    RETURN_IF_ERROR(_filter_data_and_build_output(state, output_block, eos, &temp_block, false));
     // Here make _join_block release the columns' ptr
     _join_block.set_columns(_join_block.clone_empty_columns());
     mutable_join_block.clear();
@@ -947,6 +946,14 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
     RETURN_IF_ERROR(_do_evaluate(block, _build_expr_ctxs, *_build_expr_call_timer, res_col_ids));
     if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
         _convert_block_to_null(block);
+        // first row is mocked
+        for (int i = 0; i < block.columns(); i++) {
+            assert_cast<ColumnNullable*>(
+                    (*std::move(block.safe_get_by_position(i).column)).mutate().get())
+                    ->get_null_map_column()
+                    .get_data()
+                    .data()[0] = 1;
+        }
     }
     // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
     //  so we have to initialize this flag by the first build block.

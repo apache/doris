@@ -85,11 +85,8 @@ struct MethodBase {
             return;
         }
         for (uint32_t k = 0; k < num_rows; ++k) {
-            if (null_map[k]) {
-                continue;
-            }
-
-            bucket_nums[k] = hash_table->hash(keys[k]) & (bucket_size - 1);
+            bucket_nums[k] =
+                    null_map[k] ? bucket_size : hash_table->hash(keys[k]) & (bucket_size - 1);
         }
     }
 

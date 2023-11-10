@@ -227,7 +227,7 @@ public:
     void prepare_build(size_t num_elem, int batch_size) {
         max_batch_size = batch_size;
         bucket_size = calc_bucket_size(num_elem + 1);
-        first.resize(bucket_size, 0);
+        first.resize(bucket_size + 1);
         next.resize(num_elem);
 
         if constexpr (JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
@@ -252,6 +252,7 @@ public:
             next[i] = first[bucket_num];
             first[bucket_num] = i;
         }
+        first[bucket_size] = 0; // index = bucket_num means null
     }
 
     template <int JoinOpType, bool with_other_conjuncts>
@@ -408,10 +409,19 @@ private:
             if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                           JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
                 // `(!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)` means not match one build side
-                if (!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx) {
-                    probe_idxs[matched_cnt] = probe_idx;
-                    build_idxs[matched_cnt] = 0;
-                    matched_cnt++;
+
+                if constexpr (with_other_conjuncts) {
+                    if (!build_idx) {
+                        probe_idxs[matched_cnt] = probe_idx;
+                        build_idxs[matched_cnt] = 0;
+                        matched_cnt++;
+                    }
+                } else {
+                    if (!build_idx && (!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)) {
+                        probe_idxs[matched_cnt] = probe_idx;
+                        build_idxs[matched_cnt] = 0;
+                        matched_cnt++;
+                    }
                 }
             }
             probe_idx++;
@@ -427,18 +437,20 @@ private:
             do_the_probe();
         }
 
-        probe_idx -= (matched_cnt == batch_size && build_idx);
+        probe_idx -=
+                (matched_cnt >= batch_size &&
+                 build_idx); // FULL_OUTER_JOIN may over batch_size when emplace 0 into build_idxs
         return std::tuple {probe_idx, build_idx, matched_cnt};
     }
 
     const Key* __restrict build_keys;
     std::vector<uint8_t> visited;
 
-    uint32_t bucket_size = 0;
-    int max_batch_size = 0;
+    uint32_t bucket_size = 1;
+    int max_batch_size = 4064;
 
-    std::vector<uint32_t> first;
-    std::vector<uint32_t> next;
+    std::vector<uint32_t> first = {0};
+    std::vector<uint32_t> next = {0};
 
     // use in iter hash map
     mutable uint32_t iter_idx = 1;
