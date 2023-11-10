@@ -52,14 +52,15 @@ suite("test_grouping_sets", "p0") {
         exception "errCode = 2, detailMessage = column: `k3` cannot both in select list and aggregate functions"
     }
 
+    sql """set enable_nereids_planner=true;"""
     test {
         sql """
-              SELECT /*+ SET_VAR(enable_nereids_planner=true) */ k1, k2, SUM(k3) FROM test_query_db.test
+              SELECT k1, k2, SUM(k3) FROM test_query_db.test
               GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
             """
         exception "errCode = 2, detailMessage = column: k3 cannot both in select list and aggregate functions"
     }
-
+    sql """set enable_nereids_planner=false;"""
     test {
         sql """
               SELECT /*+ SET_VAR(enable_nereids_planner=false) */ k1, k2, SUM(k3)/(SUM(k3)+1) FROM test_query_db.test
@@ -68,13 +69,15 @@ suite("test_grouping_sets", "p0") {
         exception "errCode = 2, detailMessage = column: `k3` cannot both in select list and aggregate functions"
     }
 
+    sql """set enable_nereids_planner=true;"""
     test {
         sql """
-              SELECT /*+ SET_VAR(enable_nereids_planner=true) */ k1, k2, SUM(k3)/(SUM(k3)+1) FROM test_query_db.test
+              SELECT k1, k2, SUM(k3)/(SUM(k3)+1) FROM test_query_db.test
               GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
             """
         exception "errCode = 2, detailMessage = column: k3 cannot both in select list and aggregate functions"
     }
+    sql """set enable_nereids_planner=false;"""
 
     qt_select7 """ select k1,k2,sum(k3) from test_query_db.test where 1 = 2 group by grouping sets((k1), (k1,k2)) """
 
@@ -183,11 +186,12 @@ suite("test_grouping_sets", "p0") {
         sql "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ k1 ,GROUPING(k2) FROM test_query_db.test GROUP BY CUBE (k1) ORDER BY k1"
         exception "Column `k2` in GROUP_ID() does not exist in GROUP BY clause"
     }
-
+    sql """set enable_nereids_planner=true;"""
     test {
-        sql "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ k1 ,GROUPING(k2) FROM test_query_db.test GROUP BY CUBE (k1) ORDER BY k1"
+        sql "SELECT k1 ,GROUPING(k2) FROM test_query_db.test GROUP BY CUBE (k1) ORDER BY k1"
         exception "Column in Grouping does not exist in GROUP BY clause"
     }
+    sql """set enable_nereids_planner=false;"""
 
     // test grouping sets id contain null data
     sql """drop table if exists test_query_db.test_grouping_sets_id_null"""
@@ -256,9 +260,10 @@ suite("test_grouping_sets", "p0") {
         exception "`k1` cannot both in select list and aggregate functions " +
                 "when using GROUPING SETS/CUBE/ROLLUP, please use union instead."
     }
+    sql """set enable_nereids_planner=true;"""
 
     test {
-        sql "select /*+ SET_VAR(enable_nereids_planner=true) */ k1, if(grouping(k1)=1, count(k1), 0) from test_query_db.test group by grouping sets((k1))"
+        sql "select k1, if(grouping(k1)=1, count(k1), 0) from test_query_db.test group by grouping sets((k1))"
         exception "k1 cannot both in select list and aggregate functions " +
                 "when using GROUPING SETS/CUBE/ROLLUP, please use union instead."
     }
