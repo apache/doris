@@ -17,7 +17,6 @@
 
 #include "olap/tablet.h"
 
-#include <assert.h>
 #include <butil/logging.h>
 #include <bvar/reducer.h>
 #include <bvar/window.h>
@@ -32,8 +31,6 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
-#include <stdlib.h>
-#include <time.h>
 
 #include <algorithm>
 #include <atomic>
@@ -96,6 +93,7 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
+#include "olap/rowset/vertical_beta_rowset_writer.h"
 #include "olap/schema_change.h"
 #include "olap/single_replica_compaction.h"
 #include "olap/storage_engine.h"
@@ -1254,34 +1252,6 @@ bool Tablet::check_path(const std::string& path_to_check) const {
     return false;
 }
 
-// check rowset id in tablet-meta and in rowset-meta atomicly
-// for example, during publish version stage, it will first add rowset meta to tablet meta and then
-// remove it from rowset meta manager. If we check tablet meta first and then check rowset meta using 2 step unlocked
-// the sequence maybe: 1. check in tablet meta [return false]  2. add to tablet meta  3. remove from rowset meta manager
-// 4. check in rowset meta manager return false. so that the rowset maybe checked return false it means it is useless and
-// will be treated as a garbage.
-bool Tablet::check_rowset_id(const RowsetId& rowset_id) {
-    std::shared_lock rdlock(_meta_lock);
-    if (StorageEngine::instance()->rowset_id_in_use(rowset_id)) {
-        return true;
-    }
-    for (auto& version_rowset : _rs_version_map) {
-        if (version_rowset.second->rowset_id() == rowset_id) {
-            return true;
-        }
-    }
-    for (auto& stale_version_rowset : _stale_rs_version_map) {
-        if (stale_version_rowset.second->rowset_id() == rowset_id) {
-            return true;
-        }
-    }
-    Status s = RowsetMetaManager::exists(_data_dir->get_meta(), tablet_uid(), rowset_id);
-    if (!s.is<META_KEY_NOT_FOUND>()) {
-        return true;
-    }
-    return false;
-}
-
 void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions) const {
     std::stringstream ss;
     ss << tablet_id() << " has " << missed_versions.size() << " missed version:";
@@ -1970,66 +1940,37 @@ void Tablet::reset_compaction(CompactionType compaction_type) {
 }
 
 Status Tablet::create_initial_rowset(const int64_t req_version) {
-    Status res = Status::OK();
     if (req_version < 1) {
         return Status::Error<CE_CMD_PARAMS_ERROR>(
                 "init version of tablet should at least 1. req.ver={}", req_version);
     }
     Version version(0, req_version);
     RowsetSharedPtr new_rowset;
-    do {
-        // there is no data in init rowset, so overlapping info is unknown.
-        std::unique_ptr<RowsetWriter> rs_writer;
-        RowsetWriterContext context;
-        context.version = version;
-        context.rowset_state = VISIBLE;
-        context.segments_overlap = OVERLAP_UNKNOWN;
-        context.tablet_schema = tablet_schema();
-        context.newest_write_timestamp = UnixSeconds();
-
-        if (!(res = create_rowset_writer(context, &rs_writer)).ok()) {
-            LOG(WARNING) << "failed to init rowset writer for tablet " << tablet_id();
-            break;
-        }
-
-        if (!(res = rs_writer->flush()).ok()) {
-            LOG(WARNING) << "failed to flush rowset writer for tablet " << tablet_id();
-            break;
-        }
-
-        if (!(res = rs_writer->build(new_rowset)).ok()) {
-            LOG(WARNING) << "failed to build rowset for tablet " << tablet_id();
-            break;
-        }
-
-        if (!(res = add_rowset(new_rowset)).ok()) {
-            LOG(WARNING) << "failed to add rowset for tablet " << tablet_id();
-            break;
-        }
-    } while (false);
-
-    // Unregister index and delete files(index and data) if failed
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to create initial rowset. res=" << res << " version=" << req_version;
-        StorageEngine::instance()->add_unused_rowset(new_rowset);
-        return res;
-    }
+    // there is no data in init rowset, so overlapping info is unknown.
+    RowsetWriterContext context;
+    context.version = version;
+    context.rowset_state = VISIBLE;
+    context.segments_overlap = OVERLAP_UNKNOWN;
+    context.tablet_schema = tablet_schema();
+    context.newest_write_timestamp = UnixSeconds();
+    auto rs_writer = DORIS_TRY(create_rowset_writer(context, false));
+    RETURN_IF_ERROR(rs_writer->flush());
+    RETURN_IF_ERROR(rs_writer->build(new_rowset));
+    RETURN_IF_ERROR(add_rowset(std::move(new_rowset)));
     set_cumulative_layer_point(req_version + 1);
-    return res;
+    return Status::OK();
 }
 
-Status Tablet::create_vertical_rowset_writer(RowsetWriterContext& context,
-                                             std::unique_ptr<RowsetWriter>* rowset_writer) {
+Result<std::unique_ptr<RowsetWriter>> Tablet::create_rowset_writer(RowsetWriterContext& context,
+                                                                   bool vertical) {
     context.rowset_id = StorageEngine::instance()->next_rowset_id();
     _init_context_common_fields(context);
-    return RowsetFactory::create_rowset_writer(context, true, rowset_writer);
-}
-
-Status Tablet::create_rowset_writer(RowsetWriterContext& context,
-                                    std::unique_ptr<RowsetWriter>* rowset_writer) {
-    context.rowset_id = StorageEngine::instance()->next_rowset_id();
-    _init_context_common_fields(context);
-    return RowsetFactory::create_rowset_writer(context, false, rowset_writer);
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    if (auto st = RowsetFactory::create_rowset_writer(context, vertical, &rowset_writer); !st.ok())
+            [[unlikely]] {
+        return unexpected(std::move(st));
+    }
+    return rowset_writer;
 }
 
 // create a rowset writer with rowset_id and seg_id
@@ -2151,11 +2092,10 @@ Status Tablet::_cooldown_data() {
         return Status::OK();
     }
     RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
-    add_pending_remote_rowset(new_rowset_id.to_string());
+    auto pending_rs_guard = StorageEngine::instance()->pending_remote_rowsets().add(new_rowset_id);
     Status st;
     Defer defer {[&] {
         if (!st.ok()) {
-            erase_pending_remote_rowset(new_rowset_id.to_string());
             // reclaim the incomplete rowset data in remote storage
             record_unused_remote_rowset(new_rowset_id, dest_fs->id(), old_rowset->num_segments());
         }
@@ -2192,7 +2132,6 @@ Status Tablet::_cooldown_data() {
             _tablet_meta->set_cooldown_meta_id(cooldown_meta_id);
         }
     }
-    erase_pending_remote_rowset(new_rowset_id.to_string());
     {
         std::shared_lock meta_rlock(_meta_lock);
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
@@ -2520,18 +2459,6 @@ Status Tablet::remove_all_remote_rowsets() {
                                       gc_pb.SerializeAsString());
 }
 
-static std::unordered_set<std::string> s_pending_remote_rowsets;
-static std::mutex s_pending_remote_rowsets_mtx;
-
-void Tablet::add_pending_remote_rowset(std::string rowset_id) {
-    std::lock_guard lock(s_pending_remote_rowsets_mtx);
-    s_pending_remote_rowsets.insert(std::move(rowset_id));
-}
-void Tablet::erase_pending_remote_rowset(const std::string& rowset_id) {
-    std::lock_guard lock(s_pending_remote_rowsets_mtx);
-    s_pending_remote_rowsets.erase(rowset_id);
-}
-
 void Tablet::remove_unused_remote_files() {
     auto tablets = StorageEngine::instance()->tablet_manager()->get_all_tablet([](Tablet* t) {
         return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
@@ -2585,17 +2512,13 @@ void Tablet::remove_unused_remote_files() {
             return;
         }
         // get all cooldowned rowsets
-        std::unordered_set<std::string> cooldowned_rowsets;
-        {
-            std::lock_guard lock(s_pending_remote_rowsets_mtx);
-            cooldowned_rowsets = s_pending_remote_rowsets;
-        }
+        RowsetIdUnorderedSet cooldowned_rowsets;
         UniqueId cooldown_meta_id;
         {
             std::shared_lock rlock(t->_meta_lock);
-            for (auto& rs_meta : t->_tablet_meta->all_rs_metas()) {
+            for (auto&& rs_meta : t->_tablet_meta->all_rs_metas()) {
                 if (!rs_meta->is_local()) {
-                    cooldowned_rowsets.insert(rs_meta->rowset_id().to_string());
+                    cooldowned_rowsets.insert(rs_meta->rowset_id());
                 }
             }
             cooldown_meta_id = t->_tablet_meta->cooldown_meta_id();
@@ -2608,31 +2531,19 @@ void Tablet::remove_unused_remote_files() {
         std::string remote_meta_path =
                 fmt::format("{}.{}.meta", cooldown_replica_id, cooldown_term);
         // filter out the paths that should be reserved
-        // clang-format off
-        files.erase(std::remove_if(files.begin(), files.end(), [&](io::FileInfo& info) {
-            const std::string& path_str = info.file_name;
-            if (StringPiece(path_str).ends_with(".meta")) {
-                return path_str == remote_meta_path;
+        auto filter = [&](io::FileInfo& info) {
+            std::string_view filename = info.file_name;
+            if (filename.ends_with(".meta")) {
+                return filename == remote_meta_path;
             }
-            if (StringPiece(path_str).ends_with(".dat")) {
-                // extract rowset id. filename format: {rowset_id}_{segment_num}.dat
-                auto end = path_str.rfind('_');
-                if (UNLIKELY(end == std::string::npos)) {
-                    return false;
-                }
-                return !!cooldowned_rowsets.count(path_str.substr(0, end)); 
+            auto rowset_id = extract_rowset_id(filename);
+            if (rowset_id.hi == 0) {
+                return false;
             }
-            if (StringPiece(path_str).ends_with(".idx")) {
-                // extract rowset id. filename format: {rowset_id}_{segment_num}_{index_id}.idx
-                auto end = path_str.find('_');
-                if (UNLIKELY(end == std::string::npos)) {
-                    return false;
-                }
-                return !!cooldowned_rowsets.count(path_str.substr(0, end));
-            }
-            return false;
-        }), files.end());
-        // clang-format on
+            return cooldowned_rowsets.contains(rowset_id) ||
+                   StorageEngine::instance()->pending_remote_rowsets().contains(rowset_id);
+        };
+        files.erase(std::remove_if(files.begin(), files.end(), std::move(filter)), files.end());
         if (files.empty()) {
             return;
         }

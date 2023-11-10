@@ -46,7 +46,7 @@
 namespace doris {
 using namespace ErrorCode;
 
-std::string BetaRowset::segment_file_path(int segment_id) {
+std::string BetaRowset::segment_file_path(int segment_id) const {
     return segment_file_path(_rowset_dir, rowset_id(), segment_id);
 }
 

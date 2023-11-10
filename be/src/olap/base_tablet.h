@@ -74,8 +74,8 @@ public:
 
     virtual bool exceed_version_limit(int32_t limit) const = 0;
 
-    virtual Status create_rowset_writer(RowsetWriterContext& context,
-                                        std::unique_ptr<RowsetWriter>* rowset_writer) = 0;
+    virtual Result<std::unique_ptr<RowsetWriter>> create_rowset_writer(RowsetWriterContext& context,
+                                                                       bool vertical) = 0;
 
     virtual Status capture_rs_readers(const Version& spec_version,
                                       std::vector<RowSetSplits>* rs_splits,

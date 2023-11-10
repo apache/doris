@@ -105,10 +105,6 @@ public:
     // load data from meta and data files
     Status load();
 
-    // this function scans the paths in data dir to collect the paths to check
-    // this is a producer function. After scan, it will notify the perform_path_gc function to gc
-    Status perform_path_scan();
-
     void perform_path_gc();
 
     void perform_remote_rowset_gc();
@@ -158,13 +154,11 @@ private:
     // process will log fatal.
     Status _check_incompatible_old_format_tablet();
 
-    void _process_garbage_path(const std::string& path);
+    std::vector<std::string> _perform_path_scan();
 
-    void _remove_check_paths(const std::set<std::string>& paths);
+    void _perform_path_gc_by_tablet(std::vector<std::string>& tablet_paths);
 
-    void _perform_path_gc_by_tablet();
-
-    void _perform_path_gc_by_rowsetid();
+    void _perform_path_gc_by_rowset(const std::vector<std::string>& tablet_paths);
 
 private:
     std::atomic<bool> _stop_bg_worker = false;
@@ -197,11 +191,6 @@ private:
 
     OlapMeta* _meta = nullptr;
     RowsetIdGenerator* _id_generator = nullptr;
-
-    std::mutex _check_path_mutex;
-    std::condition_variable _check_path_cv;
-    std::set<std::string> _all_check_paths;
-    std::set<std::string> _all_tablet_schemahash_paths;
 
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;
     IntGauge* disks_total_capacity;

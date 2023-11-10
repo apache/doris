@@ -32,11 +32,13 @@
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "gutil/strings/numbers.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/calc_delete_bitmap_executor.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
@@ -199,9 +201,8 @@ Status RowsetBuilder::init() {
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
-    std::unique_ptr<RowsetWriter> rowset_writer;
-    RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &rowset_writer));
-    _rowset_writer = std::move(rowset_writer);
+    _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
+    _pending_rs_guard = StorageEngine::instance()->pending_local_rowsets().add(context.rowset_id);
 
     if (config::cloud_mode) {
         // TODO(plat1ko)
@@ -309,8 +310,10 @@ Status RowsetBuilder::commit_txn() {
         const RowsetWriterContext& rw_ctx = _rowset_writer->context();
         _tablet->update_by_least_common_schema(rw_ctx.tablet_schema);
     }
+    // Transfer ownership of `PendingRowsetGuard` to `TxnManager`
     Status res = storage_engine->txn_manager()->commit_txn(_req.partition_id, *tablet, _req.txn_id,
-                                                           _req.load_id, _rowset, false);
+                                                           _req.load_id, _rowset,
+                                                           std::move(_pending_rs_guard), false);
 
     if (!res && !res.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         LOG(WARNING) << "Failed to commit txn: " << _req.txn_id

@@ -312,60 +312,36 @@ Status SingleReplicaCompaction::_fetch_rowset(const TReplicaInfo& addr, const st
     std::string local_path = local_data_path + "/";
     std::string snapshot_path;
     int timeout_s = 0;
-    Status status = Status::OK();
     // 1: make snapshot
-    auto st = _make_snapshot(addr.host, addr.be_port, _tablet->tablet_id(), _tablet->schema_hash(),
-                             timeout_s, rowset_version, &snapshot_path);
-    if (st.ok()) {
-        status = Status::OK();
-    } else {
-        LOG(WARNING) << "fail to make snapshot from " << addr.host
-                     << ", tablet id: " << _tablet->tablet_id();
-        status = Status::InternalError("Failed to make snapshot");
-        return status;
-    }
+    RETURN_IF_ERROR(_make_snapshot(addr.host, addr.be_port, _tablet->tablet_id(),
+                                   _tablet->schema_hash(), timeout_s, rowset_version,
+                                   &snapshot_path));
+    Defer defer {[&, this] {
+        // TODO(plat1ko): Async release snapshot
+        auto st = _release_snapshot(addr.host, addr.be_port, snapshot_path);
+        if (!st.ok()) [[unlikely]] {
+            LOG_WARNING("failed to release snapshot in remote BE")
+                    .tag("host", addr.host)
+                    .tag("port", addr.be_port)
+                    .tag("snapshot_path", snapshot_path)
+                    .error(st);
+        }
+    }};
+    // 2: download snapshot
     std::string remote_url_prefix;
     {
         std::stringstream ss;
         ss << "http://" << addr.host << ":" << addr.http_port << HTTP_REQUEST_PREFIX
            << HTTP_REQUEST_TOKEN_PARAM << token << HTTP_REQUEST_FILE_PARAM << snapshot_path << "/"
            << _tablet->tablet_id() << "/" << _tablet->schema_hash() << "/";
-
         remote_url_prefix = ss.str();
     }
-
-    // 2: download snapshot
-    st = _download_files(_tablet->data_dir(), remote_url_prefix, local_path);
-    if (!st.ok()) {
-        LOG(WARNING) << "fail to download and convert tablet, remote=" << remote_url_prefix
-                     << ", error=" << st.to_string();
-        status = Status::InternalError("Fail to download and convert tablet");
-        // when there is an error, keep this program executing to release snapshot
-    }
-    if (status.ok()) {
-        // change all rowset ids because they maybe its id same with local rowset
-        auto olap_st = SnapshotManager::instance()->convert_rowset_ids(
-                local_path, _tablet->tablet_id(), _tablet->replica_id(), _tablet->partition_id(),
-                _tablet->schema_hash());
-        if (!olap_st.ok()) {
-            LOG(WARNING) << "fail to convert rowset ids, path=" << local_path
-                         << ", tablet_id=" << _tablet->tablet_id() << ", error=" << olap_st;
-            status = Status::InternalError("Failed to convert rowset ids");
-        }
-    }
-
-    //  3: releasse_snapshot
-    st = _release_snapshot(addr.host, addr.be_port, snapshot_path);
-    if (status.ok()) {
-        //  4:  finish_clone: create output_rowset and link file
-        Status olap_status = _finish_clone(local_data_path, rowset_version);
-        if (!olap_status.ok()) {
-            LOG(WARNING) << "failed to finish clone. [table=" << _tablet->tablet_id()
-                         << " res=" << olap_status << "]";
-            status = Status::InternalError("Failed to finish clone");
-        }
-    }
-    return status;
+    RETURN_IF_ERROR(_download_files(_tablet->data_dir(), remote_url_prefix, local_path));
+    _pending_rs_guards = DORIS_TRY(SnapshotManager::instance()->convert_rowset_ids(
+            local_path, _tablet->tablet_id(), _tablet->replica_id(), _tablet->partition_id(),
+            _tablet->schema_hash()));
+    // 4: finish_clone: create output_rowset and link file
+    return _finish_clone(local_data_path, rowset_version);
 }
 
 Status SingleReplicaCompaction::_make_snapshot(const std::string& ip, int port, TTableId tablet_id,

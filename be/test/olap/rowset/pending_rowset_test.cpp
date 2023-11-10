@@ -15,20 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/unique_rowset_id_generator.h"
+#include <gtest/gtest.h>
+
+#include "olap/rowset/pending_rowset_helper.h"
 
 namespace doris {
 
-UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(const UniqueId& backend_uid)
-        : _backend_uid(backend_uid), _inc_id(1) {}
-
-UniqueRowsetIdGenerator::~UniqueRowsetIdGenerator() = default;
-
-RowsetId UniqueRowsetIdGenerator::next_id() {
+TEST(PendingRowsetTest, PendingRowsetGuard) {
+    PendingRowsetSet set;
     RowsetId rowset_id;
-    rowset_id.init(_version, _inc_id.fetch_add(1, std::memory_order_relaxed), _backend_uid.hi,
-                   _backend_uid.lo);
-    return rowset_id;
+    rowset_id.init(123);
+    EXPECT_FALSE(set.contains(rowset_id));
+    {
+        auto guard = set.add(rowset_id);
+        EXPECT_TRUE(set.contains(rowset_id));
+    }
+    EXPECT_FALSE(set.contains(rowset_id));
+    auto guard = set.add(rowset_id);
+    {
+        auto guard1 = set.add(rowset_id);
+        EXPECT_TRUE(set.contains(rowset_id));
+        guard = std::move(guard1);
+        EXPECT_TRUE(set.contains(rowset_id));
+    }
+    EXPECT_TRUE(set.contains(rowset_id));
 }
 
 } // namespace doris

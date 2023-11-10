@@ -15,20 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/unique_rowset_id_generator.h"
+#include "olap/rowset/pending_rowset_helper.h"
 
 namespace doris {
 
-UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(const UniqueId& backend_uid)
-        : _backend_uid(backend_uid), _inc_id(1) {}
+PendingRowsetGuard::~PendingRowsetGuard() {
+    if (_pending_rowset_set) {
+        _pending_rowset_set->remove(_rowset_id);
+    }
+}
 
-UniqueRowsetIdGenerator::~UniqueRowsetIdGenerator() = default;
+PendingRowsetGuard::PendingRowsetGuard(const RowsetId& rowset_id, PendingRowsetSet* set)
+        : _rowset_id(rowset_id), _pending_rowset_set(set) {}
 
-RowsetId UniqueRowsetIdGenerator::next_id() {
-    RowsetId rowset_id;
-    rowset_id.init(_version, _inc_id.fetch_add(1, std::memory_order_relaxed), _backend_uid.hi,
-                   _backend_uid.lo);
-    return rowset_id;
+bool PendingRowsetSet::contains(const RowsetId& rowset_id) {
+    std::lock_guard lock(_mtx);
+    return _set.contains(rowset_id);
+}
+
+PendingRowsetGuard PendingRowsetSet::add(const RowsetId& rowset_id) {
+    {
+        std::lock_guard lock(_mtx);
+        _set.insert(rowset_id);
+    }
+    return PendingRowsetGuard {rowset_id, this};
+}
+
+void PendingRowsetSet::remove(const RowsetId& rowset_id) {
+    std::lock_guard lock(_mtx);
+    _set.erase(rowset_id);
 }
 
 } // namespace doris

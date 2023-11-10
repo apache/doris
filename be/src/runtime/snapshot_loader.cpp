@@ -696,14 +696,14 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     }
 
     // rename the rowset ids and tabletid info in rowset meta
-    Status convert_status = SnapshotManager::instance()->convert_rowset_ids(
+    auto res = SnapshotManager::instance()->convert_rowset_ids(
             snapshot_path, tablet_id, tablet->replica_id(), tablet->partition_id(), schema_hash);
-    if (!convert_status.ok()) {
-        std::stringstream ss;
-        ss << "failed to convert rowsetids in snapshot: " << snapshot_path
-           << ", tablet path: " << tablet_path;
-        LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
+    if (!res.has_value()) [[unlikely]] {
+        auto err_msg =
+                fmt::format("failed to convert rowsetids in snapshot: {}, tablet path: {}, err: {}",
+                            snapshot_path, tablet_path, res.error());
+        LOG(WARNING) << err_msg;
+        return Status::InternalError(err_msg);
     }
 
     if (overwrite) {

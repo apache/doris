@@ -64,7 +64,6 @@ class BaseCompaction;
 class FullCompaction;
 class SingleReplicaCompaction;
 class RowsetWriter;
-struct TabletTxnInfo;
 struct RowsetWriterContext;
 class RowIdConversion;
 class TTabletInfo;
@@ -264,7 +263,6 @@ public:
     void check_tablet_path_exists();
 
     bool check_path(const std::string& check_path) const;
-    bool check_rowset_id(const RowsetId& rowset_id);
 
     TabletInfo get_tablet_info() const;
 
@@ -341,17 +339,14 @@ public:
 
     const TabletSchemaSPtr& tablet_schema_unlocked() const { return _max_version_schema; }
 
-    Status create_rowset_writer(RowsetWriterContext& context,
-                                std::unique_ptr<RowsetWriter>* rowset_writer) override;
+    Result<std::unique_ptr<RowsetWriter>> create_rowset_writer(RowsetWriterContext& context,
+                                                               bool vertical) override;
 
     Status create_transient_rowset_writer(RowsetSharedPtr rowset_ptr,
                                           std::unique_ptr<RowsetWriter>* rowset_writer,
                                           std::shared_ptr<PartialUpdateInfo> partial_update_info);
     Status create_transient_rowset_writer(RowsetWriterContext& context, const RowsetId& rowset_id,
                                           std::unique_ptr<RowsetWriter>* rowset_writer);
-
-    Status create_vertical_rowset_writer(RowsetWriterContext& context,
-                                         std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset);
 
@@ -398,12 +393,6 @@ public:
                                      int64_t num_segments);
 
     static void remove_unused_remote_files();
-
-    // If a rowset is to be written to remote filesystem, MUST add it to `pending_remote_rowsets` before uploading,
-    // and then erase it from `pending_remote_rowsets` after it has been insert to the Tablet.
-    // `remove_unused_remote_files` MUST NOT delete files of these pending rowsets.
-    static void add_pending_remote_rowset(std::string rowset_id);
-    static void erase_pending_remote_rowset(const std::string& rowset_id);
 
     uint32_t calc_cold_data_compaction_score() const;
 
@@ -522,9 +511,14 @@ public:
 
     RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
 
-    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor) {
+    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
+                          bool include_stale = false) {
         std::shared_lock rlock(_meta_lock);
         for (auto& [v, rs] : _rs_version_map) {
+            visitor(rs);
+        }
+        if (!include_stale) return;
+        for (auto& [v, rs] : _stale_rs_version_map) {
             visitor(rs);
         }
     }
