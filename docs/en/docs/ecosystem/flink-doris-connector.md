@@ -434,6 +434,8 @@ insert into doris_sink select id,name from cdc_mysql_source;
      [--excluding-tables <mysql-table-name|name-regular-expr>] \
      --mysql-conf <mysql-cdc-source-conf> [--mysql-conf <mysql-cdc-source-conf> ...] \
      --oracle-conf <oracle-cdc-source-conf> [--oracle-conf <oracle-cdc-source-conf> ...] \
+     --postgres-conf <postgres-cdc-source-conf> [--postgres-conf <postgres-cdc-source-conf> ...] \
+     --sqlserver-conf <sqlserver-cdc-source-conf> [--sqlserver-conf <sqlserver-cdc-source-conf> ...] \
      --sink-conf <doris-sink-conf> [--table-conf <doris-sink-conf> ...] \
      [--table-conf <doris-table-conf> [--table-conf <doris-table-conf> ...]]
 ```
@@ -446,6 +448,8 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--excluding-tables** Tables that do not need to be synchronized, the usage is the same as above.
 - **--mysql-conf** MySQL CDCSource configuration, eg --mysql-conf hostname=127.0.0.1 , you can see all configuration MySQL-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html), where hostname/username/password/database-name is required.
 - **--oracle-conf** Oracle CDCSource configuration, for example --oracle-conf hostname=127.0.0.1, you can view all configurations of Oracle-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html), where hostname/username/password/database-name/schema-name is required.
+- **--postgres-conf** Postgres CDCSource configuration，for example --postgres-conf hostname=127.0.0.1 ，you can see all configuration of Postgres-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html)，where hostname/username/password/database-name/schema-name/slot.name  is required.
+- **--sqlserver-conf** SQLServer CDCSource configuration，for example --sqlserver-conf hostname=127.0.0.1 ，you can see all configuration of SQLServer-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html)，where hostname/username/password/database-name/schema-name is required.
 - **--sink-conf** All configurations of Doris Sink, you can view the complete configuration items in [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9).
 - **--table-conf** The configuration item of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1
 - **--ignore-default-value** Turn off the default for synchronizing mysql table structures. It is suitable for synchronizing mysql data to doris, the field has a default value, but the actual inserted data is null. refer to[#152](https://github.com/apache/doris-flink-connector/pull/152)
@@ -527,6 +531,29 @@ insert into doris_sink select id,name from cdc_mysql_source;
      --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
      --sink-conf sink.label-prefix=label \
      --table-conf replication_num=1
+```
+If the table in the synchronized database contains a non-primary key, `scan.incremental.snapshot.chunk.key-column` must be set, and only one field of non-null type can be selected.
+```shell
+<FLINK_HOME>bin/flink run \
+    -Dexecution.checkpointing.interval=10s \
+    -Dparallelism.default=1 \
+    -c org.apache.doris.flink.tools.cdc.CdcTools \
+    lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
+    mysql-sync-database \
+    --database test_db \
+    --mysql-conf hostname=127.0.0.1 \
+    --mysql-conf port=3306 \
+    --mysql-conf username=root \
+    --mysql-conf password=123456 \
+    --mysql-conf database-name=mysql_db \
+    --mysql-conf scan.incremental.snapshot.chunk.key-column=db.table:column,db.table1:column1 \
+    --including-tables "tbl1|test.*" \
+    --sink-conf fenodes=127.0.0.1:8030 \
+    --sink-conf username=root \
+    --sink-conf password=123456 \
+    --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
+    --sink-conf sink.label-prefix=label \
+    --table-conf replication_num=1 
 ```
 
 ### SQLServer synchronization example
