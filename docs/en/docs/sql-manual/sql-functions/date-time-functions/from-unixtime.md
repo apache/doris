@@ -28,15 +28,17 @@ under the License.
 ### description
 #### syntax
 
-`DATETIME FROM UNIXTIME (INT unix timestamp [, VARCHAR string format]`
+`DATETIME FROM UNIXTIME (BIGINT unix timestamp [, VARCHAR string format]`
 
 Convert the UNIX timestamp to the corresponding time format of bits, and the format returned is specified by `string_format`
 
-Input is an integer and return is a string type
+Input is an big integer and return is a string type
 
 Support `date_format`'s format, and default is `%Y-%m-%d %H:%i:%s`
 
 Other `string_format` is illegal and will returns NULL.
+
+The current supported range for `unix_timestamp` is `[0, 32536771199]`. `unix_timestamp` values that fall outside of this range will be returned as NULL
 
 ### example
 

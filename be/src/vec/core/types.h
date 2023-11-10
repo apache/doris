@@ -32,8 +32,6 @@
 #include "vec/core/wide_integer.h"
 #include "vec/core/wide_integer_to_string.h"
 
-using wide::Int256;
-
 namespace doris {
 
 class BitmapValue;
@@ -99,6 +97,8 @@ enum class TypeIndex {
     Time = 43,
     AggState = 44,
     Decimal256 = 45,
+    IPv4 = 46,
+    IPv6 = 47,
     Int256
 };
 
@@ -277,6 +277,10 @@ struct TypeId<String> {
 using Strings = std::vector<String>;
 
 using Int128 = __int128;
+
+using IPv4 = UInt32;
+using IPv6 = Int128;
+
 template <>
 inline constexpr bool IsNumber<Int128> = true;
 template <>
@@ -284,9 +288,9 @@ struct TypeName<Int128> {
     static const char* get() { return "Int128"; }
 };
 template <>
-inline constexpr bool IsNumber<Int256> = true;
+inline constexpr bool IsNumber<wide::Int256> = true;
 template <>
-struct TypeName<Int256> {
+struct TypeName<wide::Int256> {
     static const char* get() { return "Int256"; }
 };
 template <>
@@ -295,7 +299,7 @@ struct TypeId<Int128> {
 };
 
 template <>
-struct TypeId<Int256> {
+struct TypeId<wide::Int256> {
     static constexpr const TypeIndex value = TypeIndex::Int256;
 };
 
@@ -320,7 +324,7 @@ inline constexpr Int128 decimal_scale_multiplier<Int128>(UInt32 scale) {
 }
 // gcc report error if add constexpr in declaration
 template <>
-inline Int256 decimal_scale_multiplier<Int256>(UInt32 scale) {
+inline wide::Int256 decimal_scale_multiplier<wide::Int256>(UInt32 scale) {
     return common::exp10_i256(scale);
 }
 
@@ -339,7 +343,7 @@ struct Decimal {
 #define DECLARE_NUMERIC_CTOR(TYPE) \
     Decimal(const TYPE& value_) : value(value_) {}
 
-    DECLARE_NUMERIC_CTOR(Int256)
+    DECLARE_NUMERIC_CTOR(wide::Int256)
     DECLARE_NUMERIC_CTOR(Int128)
     DECLARE_NUMERIC_CTOR(Int32)
     DECLARE_NUMERIC_CTOR(Int64)
@@ -428,7 +432,7 @@ struct Decimal {
 
     std::string to_string(UInt32 scale) const {
         if (value == std::numeric_limits<T>::min()) {
-            if constexpr (std::is_same_v<T, Int256>) {
+            if constexpr (std::is_same_v<T, wide::Int256>) {
                 std::string res {wide::to_string(value)};
                 res.insert(res.size() - scale, ".");
                 return res;
@@ -469,7 +473,7 @@ struct Decimal {
             whole_part = abs_value / decimal_scale_multiplier<T>(scale);
             frac_part = abs_value % decimal_scale_multiplier<T>(scale);
         }
-        if constexpr (std::is_same_v<T, Int256>) {
+        if constexpr (std::is_same_v<T, wide::Int256>) {
             std::string num_str {wide::to_string(whole_part)};
             auto end = fmt::format_to(str.data() + pos, "{}", num_str);
             pos = end - str.data();
@@ -500,7 +504,7 @@ struct Decimal {
     __attribute__((always_inline)) size_t to_string(char* dst, UInt32 scale,
                                                     const T& scale_multiplier) const {
         if (UNLIKELY(value == std::numeric_limits<T>::min())) {
-            if constexpr (std::is_same_v<T, Int256>) {
+            if constexpr (std::is_same_v<T, wide::Int256>) {
                 // handle scale?
                 std::string num_str {wide::to_string(value)};
                 auto end = fmt::format_to(dst, "{}", num_str);
@@ -526,7 +530,7 @@ struct Decimal {
             whole_part = abs_value / scale_multiplier;
             frac_part = abs_value % scale_multiplier;
         }
-        if constexpr (std::is_same_v<T, Int256>) {
+        if constexpr (std::is_same_v<T, wide::Int256>) {
             std::string num_str {wide::to_string(whole_part)};
             auto end = fmt::format_to(dst + pos, "{}", num_str);
             pos = end - dst;
@@ -553,7 +557,7 @@ struct Decimal {
                 pos += scale - low_scale;
             }
             if (frac_part) {
-                if constexpr (std::is_same_v<T, Int256>) {
+                if constexpr (std::is_same_v<T, wide::Int256>) {
                     std::string num_str {wide::to_string(whole_part)};
                     auto end = fmt::format_to(&dst[pos], "{}", num_str);
                     pos = end - dst;
@@ -576,7 +580,7 @@ struct Decimal128I : public Decimal<Int128> {
 #define DECLARE_NUMERIC_CTOR(TYPE) \
     Decimal128I(const TYPE& value_) : Decimal<Int128>(value_) {}
 
-    DECLARE_NUMERIC_CTOR(Int256)
+    DECLARE_NUMERIC_CTOR(wide::Int256)
     DECLARE_NUMERIC_CTOR(Int128)
     DECLARE_NUMERIC_CTOR(Int32)
     DECLARE_NUMERIC_CTOR(Int64)
@@ -593,9 +597,9 @@ struct Decimal128I : public Decimal<Int128> {
 };
 
 template <>
-struct Decimal<Int256> {
-    using T = Int256;
-    using NativeType = Int256;
+struct Decimal<wide::Int256> {
+    using T = wide::Int256;
+    using NativeType = wide::Int256;
 
     Decimal() = default;
     Decimal(Decimal<T>&&) = default;
@@ -604,7 +608,7 @@ struct Decimal<Int256> {
 #define DECLARE_NUMERIC_CTOR(TYPE) \
     explicit Decimal(const TYPE& value_) : value(value_) {}
 
-    DECLARE_NUMERIC_CTOR(Int256)
+    DECLARE_NUMERIC_CTOR(wide::Int256)
     DECLARE_NUMERIC_CTOR(Int128)
     DECLARE_NUMERIC_CTOR(Int32)
     DECLARE_NUMERIC_CTOR(Int64)
@@ -688,7 +692,7 @@ struct Decimal<Int256> {
 
     std::string to_string(UInt32 scale) const {
         if (value == std::numeric_limits<T>::min()) {
-            if constexpr (std::is_same_v<T, Int256>) {
+            if constexpr (std::is_same_v<T, wide::Int256>) {
                 std::string res {wide::to_string(value)};
                 res.insert(res.size() - scale, ".");
                 return res;
@@ -729,7 +733,7 @@ struct Decimal<Int256> {
             whole_part = abs_value / decimal_scale_multiplier<T>(scale);
             frac_part = abs_value % decimal_scale_multiplier<T>(scale);
         }
-        if constexpr (std::is_same_v<T, Int256>) {
+        if constexpr (std::is_same_v<T, wide::Int256>) {
             std::string num_str {wide::to_string(whole_part)};
             auto end = fmt::format_to(str.data() + pos, "{}", num_str);
             pos = end - str.data();
@@ -760,7 +764,7 @@ struct Decimal<Int256> {
     __attribute__((always_inline)) size_t to_string(char* dst, UInt32 scale,
                                                     const T& scale_multiplier) const {
         if (UNLIKELY(value == std::numeric_limits<T>::min())) {
-            if constexpr (std::is_same_v<T, Int256>) {
+            if constexpr (std::is_same_v<T, wide::Int256>) {
                 std::string num_str {wide::to_string(value)};
                 auto end = fmt::format_to(dst, "{}", num_str);
                 return end - dst;
@@ -785,7 +789,7 @@ struct Decimal<Int256> {
             whole_part = abs_value / scale_multiplier;
             frac_part = abs_value % scale_multiplier;
         }
-        if constexpr (std::is_same_v<T, Int256>) {
+        if constexpr (std::is_same_v<T, wide::Int256>) {
             std::string num_str {wide::to_string(whole_part)};
             auto end = fmt::format_to(dst + pos, "{}", num_str);
             pos = end - dst;
@@ -812,7 +816,7 @@ struct Decimal<Int256> {
                 pos += scale - low_scale;
             }
             if (frac_part) {
-                if constexpr (std::is_same_v<T, Int256>) {
+                if constexpr (std::is_same_v<T, wide::Int256>) {
                     std::string num_str {wide::to_string(frac_part)};
                     auto end = fmt::format_to(dst + pos, "{}", num_str);
                     pos = end - dst;
@@ -832,7 +836,7 @@ struct Decimal<Int256> {
 using Decimal32 = Decimal<Int32>;
 using Decimal64 = Decimal<Int64>;
 using Decimal128 = Decimal<Int128>;
-using Decimal256 = Decimal<Int256>;
+using Decimal256 = Decimal<wide::Int256>;
 template <typename T>
 inline Decimal<T> operator-(const Decimal<T>& x) {
     return -x.value;
@@ -987,7 +991,7 @@ struct NativeType<Decimal128I> {
 };
 template <>
 struct NativeType<Decimal256> {
-    using Type = Int256;
+    using Type = wide::Int256;
 };
 
 inline const char* getTypeName(TypeIndex idx) {
@@ -1015,7 +1019,7 @@ inline const char* getTypeName(TypeIndex idx) {
     case TypeIndex::Int128:
         return TypeName<Int128>::get();
     case TypeIndex::Int256:
-        return TypeName<Int256>::get();
+        return TypeName<wide::Int256>::get();
     case TypeIndex::Float32:
         return TypeName<Float32>::get();
     case TypeIndex::Float64:
@@ -1030,6 +1034,10 @@ inline const char* getTypeName(TypeIndex idx) {
         return "DateTimeV2";
     case TypeIndex::TimeV2:
         return "TimeV2";
+    case TypeIndex::IPv4:
+        return "IPv4";
+    case TypeIndex::IPv6:
+        return "IPv6";
     case TypeIndex::String:
         return TypeName<String>::get();
     case TypeIndex::FixedString:

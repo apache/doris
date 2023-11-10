@@ -38,6 +38,8 @@ import java.util.Comparator;
 public class Replica implements Writable {
     private static final Logger LOG = LogManager.getLogger(Replica.class);
     public static final VersionComparator<Replica> VERSION_DESC_COMPARATOR = new VersionComparator<Replica>();
+    public static final LastSuccessVersionComparator<Replica> LAST_SUCCESS_VERSION_COMPARATOR =
+            new LastSuccessVersionComparator<Replica>();
     public static final IdComparator<Replica> ID_COMPARATOR = new IdComparator<Replica>();
 
     public enum ReplicaState {
@@ -675,6 +677,22 @@ public class Replica implements Writable {
             if (replica1.getVersion() < replica2.getVersion()) {
                 return 1;
             } else if (replica1.getVersion() == replica2.getVersion()) {
+                return 0;
+            } else {
+                return -1;
+            }
+        }
+    }
+
+    private static class LastSuccessVersionComparator<T extends Replica> implements Comparator<T> {
+        public LastSuccessVersionComparator() {
+        }
+
+        @Override
+        public int compare(T replica1, T replica2) {
+            if (replica1.getLastSuccessVersion() < replica2.getLastSuccessVersion()) {
+                return 1;
+            } else if (replica1.getLastSuccessVersion() == replica2.getLastSuccessVersion()) {
                 return 0;
             } else {
                 return -1;

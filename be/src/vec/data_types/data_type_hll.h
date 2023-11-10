@@ -61,6 +61,10 @@ public:
         return TPrimitiveType::HLL;
     }
 
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_HLL;
+    }
+
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
@@ -81,8 +85,6 @@ public:
     }
     bool have_maximum_size_of_value() const override { return false; }
 
-    bool can_be_inside_nullable() const override { return true; }
-
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
     bool can_be_inside_low_cardinality() const override { return false; }
@@ -101,7 +103,9 @@ public:
 
     static void deserialize_as_stream(HyperLogLog& value, BufferReadable& buf);
 
-    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeHLLSerDe>(); };
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeHLLSerDe>(nesting_level);
+    };
 };
 
 } // namespace doris::vectorized

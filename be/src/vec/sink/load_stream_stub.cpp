@@ -101,12 +101,12 @@ LoadStreamStub::~LoadStreamStub() {
     }
 }
 
-// open_stream_sink
-// tablets means
+// open_load_stream
 Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const NodeInfo& node_info, int64_t txn_id,
                             const OlapTableSchemaParam& schema,
-                            const std::vector<PTabletID>& tablets_for_schema, bool enable_profile) {
+                            const std::vector<PTabletID>& tablets_for_schema, int total_streams,
+                            bool enable_profile) {
     _num_open++;
     std::unique_lock<bthread::Mutex> lock(_mutex);
     if (_is_init.load()) {
@@ -124,21 +124,22 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     if (int ret = StreamCreate(&_stream_id, cntl, &opt)) {
         return Status::Error<true>(ret, "Failed to create stream");
     }
-    cntl.set_timeout_ms(config::open_stream_sink_timeout_ms);
-    POpenStreamSinkRequest request;
+    cntl.set_timeout_ms(config::open_load_stream_timeout_ms);
+    POpenLoadStreamRequest request;
     *request.mutable_load_id() = _load_id;
     request.set_src_id(_src_id);
     request.set_txn_id(txn_id);
     request.set_enable_profile(enable_profile);
+    request.set_total_streams(total_streams);
     schema.to_protobuf(request.mutable_schema());
     for (auto& tablet : tablets_for_schema) {
         *request.add_tablets() = tablet;
     }
-    POpenStreamSinkResponse response;
+    POpenLoadStreamResponse response;
     // use "pooled" connection to avoid conflicts between streaming rpc and regular rpc,
     // see: https://github.com/apache/brpc/issues/392
     const auto& stub = client_cache->get_new_client_no_cache(host_port, "baidu_std", "pooled");
-    stub->open_stream_sink(&cntl, &request, &response, nullptr);
+    stub->open_load_stream(&cntl, &request, &response, nullptr);
     for (const auto& resp : response.tablet_schemas()) {
         auto tablet_schema = std::make_unique<TabletSchema>();
         tablet_schema->init_from_pb(resp.tablet_schema());
@@ -174,7 +175,7 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
 
 // ADD_SEGMENT
 Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int64_t segment_id, SegmentStatistics& segment_stat) {
+                                   int64_t segment_id, const SegmentStatistics& segment_stat) {
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;

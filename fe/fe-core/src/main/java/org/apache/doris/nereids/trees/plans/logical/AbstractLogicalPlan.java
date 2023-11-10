@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -35,7 +36,7 @@ import java.util.Optional;
  */
 public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan, Explainable {
     protected AbstractLogicalPlan(PlanType type, List<Plan> children) {
-        super(type, children);
+        this(type, Optional.empty(), Optional.empty(), children);
     }
 
     protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
@@ -46,6 +47,12 @@ public abstract class AbstractLogicalPlan extends AbstractPlan implements Logica
     protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         super(type, groupExpression, logicalProperties, null, children);
+    }
+
+    // Don't generate ObjectId for LogicalPlan
+    protected AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
+            Supplier<LogicalProperties> logicalPropertiesSupplier, List<Plan> children, boolean useZeroId) {
+        super(type, groupExpression, logicalPropertiesSupplier, null, children, useZeroId);
     }
 
     @Override

@@ -49,7 +49,8 @@ public:
     Status close(RuntimeState* state) override;
 
     // No use
-    Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    Status set_scan_ranges(RuntimeState* state,
+                           const std::vector<TScanRangeParams>& scan_ranges) override;
 
 private:
     // Write debug string of this into out.

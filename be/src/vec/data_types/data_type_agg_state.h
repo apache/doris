@@ -82,6 +82,10 @@ public:
         return TPrimitiveType::AGG_STATE;
     }
 
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_AGG_STATE;
+    }
+
     std::string to_string(const IColumn& column, size_t row_num) const override {
         std::string res = "binary(";
         StringRef str = column.get_data_at(row_num);
@@ -126,7 +130,9 @@ public:
         return _agg_function->create_serialize_column();
     }
 
-    DataTypeSerDeSPtr get_serde() const override { return _agg_serialized_type->get_serde(); };
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return _agg_serialized_type->get_serde(nesting_level);
+    };
 
     DataTypePtr get_serialized_type() const { return _agg_serialized_type; }
 

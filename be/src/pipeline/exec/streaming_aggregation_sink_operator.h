@@ -94,10 +94,6 @@ private:
                                         doris::vectorized::Block* out_block);
     bool _should_expand_preagg_hash_tables();
 
-    vectorized::Block _preagg_block = vectorized::Block();
-
-    vectorized::PODArray<vectorized::AggregateDataPtr> _places;
-
     RuntimeProfile::Counter* _queue_byte_size_counter;
     RuntimeProfile::Counter* _queue_size_counter;
     RuntimeProfile::Counter* _streaming_agg_timer;

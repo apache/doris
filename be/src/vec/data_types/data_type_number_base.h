@@ -123,6 +123,32 @@ public:
         LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
+
+    doris::FieldType get_storage_field_type() const override {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_TINYINT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int16>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_SMALLINT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int32>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_INT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int64>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_BIGINT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_LARGEINT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Float32>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_FLOAT;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_DOUBLE;
+        }
+        __builtin_unreachable();
+    }
+
     Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override;
@@ -154,8 +180,8 @@ public:
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     bool is_null_literal() const override { return _is_null_literal; }
     void set_null_literal(bool flag) { _is_null_literal = flag; }
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeNumberSerDe<T>>();
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeNumberSerDe<T>>(nesting_level);
     };
 
 private:

@@ -65,7 +65,7 @@ enum CompressionTypePB : int;
 namespace pipeline {
 class ExchangeSinkOperator;
 class ExchangeSinkOperatorX;
-class ChannelDependency;
+class LocalExchangeChannelDependency;
 } // namespace pipeline
 
 namespace vectorized {
@@ -278,8 +278,7 @@ public:
     virtual Status send_remote_block(PBlock* block, bool eos = false,
                                      Status exec_status = Status::OK());
 
-    virtual Status send_broadcast_block(BroadcastPBlockHolder* block, [[maybe_unused]] bool* sent,
-                                        bool eos = false) {
+    virtual Status send_broadcast_block(BroadcastPBlockHolder* block, bool eos = false) {
         return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
     }
 
@@ -309,11 +308,6 @@ public:
     }
 
     bool is_local() const { return _is_local; }
-
-    VDataStreamRecvr* local_recvr() {
-        DCHECK(_is_local && _local_recvr != nullptr);
-        return _local_recvr.get();
-    }
 
     virtual void ch_roll_pb_block();
 
@@ -499,18 +493,17 @@ public:
         return Status::OK();
     }
 
-    Status send_broadcast_block(BroadcastPBlockHolder* block, [[maybe_unused]] bool* sent,
-                                bool eos = false) override {
+    Status send_broadcast_block(BroadcastPBlockHolder* block, bool eos = false) override {
         COUNTER_UPDATE(Channel<Parent>::_parent->blocks_sent_counter(), 1);
         if (eos) {
             if (_eos_send) {
+                block->unref();
                 return Status::OK();
-            } else {
-                _eos_send = true;
             }
+            _eos_send = true;
         }
         if (eos || block->get_block()->column_metas_size()) {
-            RETURN_IF_ERROR(_buffer->add_block({this, block, eos}, sent));
+            RETURN_IF_ERROR(_buffer->add_block({this, block, eos}));
         }
         return Status::OK();
     }
@@ -558,11 +551,12 @@ public:
         return _closure.get();
     }
 
-    void set_dependency(std::shared_ptr<pipeline::ChannelDependency> dependency) {
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency() {
         if (!Channel<Parent>::_local_recvr) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "_local_recvr is null");
         }
-        Channel<Parent>::_local_recvr->set_dependency(dependency);
+        return Channel<Parent>::_local_recvr->get_local_channel_dependency(
+                Channel<Parent>::_parent->sender_id());
     }
 
 private:

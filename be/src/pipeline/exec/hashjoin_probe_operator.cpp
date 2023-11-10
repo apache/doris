@@ -32,7 +32,7 @@ HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXB
 
 Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(JoinProbeLocalState::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
     _shared_state->probe_ignore_null = p._probe_ignore_null;
@@ -60,7 +60,7 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
 }
 
 Status HashJoinProbeLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinProbeLocalState::open(state));
 
@@ -122,7 +122,7 @@ vectorized::DataTypes HashJoinProbeLocalState::left_table_data_types() {
 }
 
 Status HashJoinProbeLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
@@ -537,20 +537,18 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
         DCHECK(_have_other_join_conjunct);
     }
 
-    std::vector<SlotId> hash_output_slot_ids;
     // init left/right output slots flags, only column of slot_id in _hash_output_slot_ids need
     // insert to output block of hash join.
     // _left_output_slots_flags : column of left table need to output set flag = true
     // _rgiht_output_slots_flags : column of right table need to output set flag = true
     // if _hash_output_slot_ids is empty, means all column of left/right table need to output.
-    auto init_output_slots_flags = [&hash_output_slot_ids](auto& tuple_descs,
-                                                           auto& output_slot_flags) {
+    auto init_output_slots_flags = [&](auto& tuple_descs, auto& output_slot_flags) {
         for (const auto& tuple_desc : tuple_descs) {
             for (const auto& slot_desc : tuple_desc->slots()) {
                 output_slot_flags.emplace_back(
-                        hash_output_slot_ids.empty() ||
-                        std::find(hash_output_slot_ids.begin(), hash_output_slot_ids.end(),
-                                  slot_desc->id()) != hash_output_slot_ids.end());
+                        _hash_output_slot_ids.empty() ||
+                        std::find(_hash_output_slot_ids.begin(), _hash_output_slot_ids.end(),
+                                  slot_desc->id()) != _hash_output_slot_ids.end());
             }
         }
     };

@@ -31,9 +31,6 @@
 #include <gen_cpp/QueryPlanExtra_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/span.h>
-#include <opentelemetry/trace/tracer.h>
 #include <pthread.h>
 #include <stddef.h>
 #include <thrift/Thrift.h>
@@ -58,7 +55,6 @@
 #include "common/utils.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/stream_load_pipe.h"
-#include "opentelemetry/trace/scope.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
@@ -85,7 +81,6 @@
 #include "util/network_util.h"
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
@@ -415,6 +410,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     }
 
     if (!rpc_status.ok()) {
+        LOG_INFO("Going to cancel instance {} since report exec status got rpc failed: {}",
+                 print_id(req.fragment_instance_id), rpc_status.to_string());
         // we need to cancel the execution of this fragment
         static_cast<void>(req.update_fn(rpc_status));
         req.cancel_fn(PPlanFragmentCancelReason::INTERNAL_ERROR, rpc_status.msg());
@@ -425,15 +422,13 @@ static void empty_function(RuntimeState*, Status*) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                                const FinishCallback& cb) {
-    std::string func_name {"PlanFragmentExecutor::_exec_actual"};
 #ifndef BE_TEST
     SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
 #endif
 
-    LOG_INFO(func_name)
-            .tag("query_id", fragment_executor->query_id())
-            .tag("instance_id", fragment_executor->fragment_instance_id())
-            .tag("pthread_id", (uintptr_t)pthread_self());
+    LOG_INFO("Instance {} executing",
+             PrintInstanceStandardInfo(fragment_executor->query_id(),
+                                       fragment_executor->fragment_instance_id()));
 
     Status st = fragment_executor->execute();
     if (!st.ok()) {
@@ -452,8 +447,13 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
     {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_instance_map.erase(fragment_executor->fragment_instance_id());
+
+        LOG_INFO("Instance {} finished",
+                 PrintInstanceStandardInfo(fragment_executor->query_id(),
+                                           fragment_executor->fragment_instance_id()));
         if (all_done && query_ctx) {
             _query_ctx_map.erase(query_ctx->query_id());
+            LOG_INFO("Query {} finished", print_id(query_ctx->query_id()));
         }
     }
 
@@ -560,11 +560,12 @@ void FragmentMgr::remove_pipeline_context(
     f_context->instance_ids(ins_ids);
     bool all_done = q_context->countdown(ins_ids.size());
     for (const auto& ins_id : ins_ids) {
-        VLOG_DEBUG << "remove pipeline context " << print_id(ins_id) << ", all_done:" << all_done;
+        LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
+                 print_id(ins_id), all_done);
         _pipeline_map.erase(ins_id);
     }
     if (all_done) {
-        LOG(INFO) << "remove query context " << print_id(query_id);
+        LOG_INFO("Query {} finished", print_id(query_id));
         _query_ctx_map.erase(query_id);
     }
 }
@@ -665,18 +666,31 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                     LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
                               << " use task group: " << tg->debug_string()
                               << " cpu_hard_limit: " << task_group_info.cpu_hard_limit
-                              << " cpu_share:" << task_group_info.cpu_share;
+                              << " cpu_share:" << task_group_info.cpu_share
+                              << " enable cgroup soft cpu:" << config::enable_cgroup_cpu_soft_limit;
                     if (task_group_info.cpu_hard_limit > 0) {
                         Status ret = _exec_env->task_group_manager()->create_and_get_task_scheduler(
-                                tg_id, tg_name, task_group_info.cpu_hard_limit, _exec_env,
-                                query_ctx.get());
+                                tg_id, tg_name, task_group_info.cpu_hard_limit,
+                                task_group_info.cpu_share, _exec_env, query_ctx.get());
                         if (!ret.ok()) {
                             LOG(INFO) << "workload group init failed "
                                       << ", name=" << tg_name << ", id=" << tg_id
                                       << ", reason=" << ret.to_string();
                         }
                     } else {
-                        query_ctx->set_task_group(tg);
+                        if (!config::enable_cgroup_cpu_soft_limit) {
+                            query_ctx->set_task_group(tg);
+                        } else {
+                            Status ret =
+                                    _exec_env->task_group_manager()->create_and_get_task_scheduler(
+                                            tg_id, tg_name, task_group_info.cpu_hard_limit,
+                                            task_group_info.cpu_share, _exec_env, query_ctx.get());
+                            if (!ret.ok()) {
+                                LOG(INFO) << "workload group cpu soft limit init failed "
+                                          << ", name=" << tg_name << ", id=" << tg_id
+                                          << ", reason=" << ret.to_string();
+                            }
+                        }
                     }
                 }
             } else {
@@ -706,12 +720,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                                        const FinishCallback& cb) {
-    auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
-                                                     : telemetry::get_noop_tracer();
-    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
-    cur_span->SetAttribute("query_id", print_id(params.params.query_id));
-    cur_span->SetAttribute("instance_id", print_id(params.params.fragment_instance_id));
-
     VLOG_ROW << "exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
@@ -771,11 +779,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
         _cv.notify_all();
     }
     auto st = _thread_pool->submit_func(
-            [this, fragment_executor, cb,
-             parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
-                OpentelemetryScope scope {parent_span};
-                _exec_actual(fragment_executor, cb);
-            });
+            [this, fragment_executor, cb] { _exec_actual(fragment_executor, cb); });
     if (!st.ok()) {
         {
             // Remove the exec state added
@@ -795,16 +799,11 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        const FinishCallback& cb) {
-    auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
-                                                     : telemetry::get_noop_tracer();
-    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
-    cur_span->SetAttribute("query_id", print_id(params.query_id));
-
-    VLOG_ROW << "exec_plan_fragment params is "
+    VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
-    VLOG_ROW << "query options is "
+    VLOG_ROW << "query: " << print_id(params.query_id) << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
     std::shared_ptr<QueryContext> query_ctx;
@@ -848,8 +847,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 }
                 query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
             }
-            START_AND_SCOPE_SPAN(tracer, span, "exec_instance");
-            span->SetAttribute("instance_id", print_id(fragment_instance_id));
 
             if (!params.__isset.need_wait_execution_trigger ||
                 !params.need_wait_execution_trigger) {
@@ -885,8 +882,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 }
                 query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
             }
-            START_AND_SCOPE_SPAN(tracer, span, "exec_instance");
-            span->SetAttribute("instance_id", print_id(fragment_instance_id));
 
             int64_t duration_ns = 0;
             if (!params.__isset.need_wait_execution_trigger ||
@@ -1075,6 +1070,7 @@ void FragmentMgr::cancel_worker() {
             }
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
                 if (it->second->is_timeout(now)) {
+                    LOG_INFO("Query {} is timeout", print_id(it->first));
                     it = _query_ctx_map.erase(it);
                 } else {
                     ++it;

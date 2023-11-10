@@ -50,7 +50,8 @@ public:
 private:
     friend class vectorized::NewOlapScanner;
 
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
     Status _process_conjuncts() override;
     bool _is_key_column(const std::string& col_name) override;
@@ -113,6 +114,7 @@ private:
     RuntimeProfile::Counter* _rows_short_circuit_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _rows_vec_cond_input_counter = nullptr;
     RuntimeProfile::Counter* _rows_short_circuit_cond_input_counter = nullptr;
+    RuntimeProfile::Counter* _rows_common_expr_filtered_counter = nullptr;
     RuntimeProfile::Counter* _vec_cond_timer = nullptr;
     RuntimeProfile::Counter* _short_cond_timer = nullptr;
     RuntimeProfile::Counter* _expr_filter_timer = nullptr;
@@ -168,9 +170,6 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
-
-    // number of created olap scanners
-    RuntimeProfile::Counter* _num_scanners = nullptr;
 
     // number of segment filtered by column stat when creating seg iterator
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;

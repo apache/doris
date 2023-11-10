@@ -166,7 +166,7 @@ suite("test_primary_key_partial_update", "p0") {
             assertTrue(exception == null)
             def json = parseJson(result)
             assertEquals("Fail", json.Status)
-            assertTrue(json.Message.contains("[INTERNAL_ERROR]too many filtered rows"))
+            assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
             assertEquals(3, json.NumberTotalRows)
             assertEquals(1, json.NumberLoadedRows)
             assertEquals(2, json.NumberFilteredRows)

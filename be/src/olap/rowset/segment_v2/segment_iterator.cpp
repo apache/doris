@@ -30,7 +30,6 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/consts.h"
@@ -38,7 +37,6 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "io/io_common.h"
-#include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/field.h"
 #include "olap/iterators.h"
@@ -532,8 +530,8 @@ Status SegmentIterator::_apply_bitmap_index() {
 
     std::vector<ColumnPredicate*> remaining_predicates;
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (static_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
-            static_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
+        if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
+            dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
             return true;
         }
 
@@ -691,6 +689,9 @@ bool SegmentIterator::_check_apply_by_bitmap_index(ColumnPredicate* pred) {
 }
 
 bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
+        return false;
+    }
     if (_inverted_index_iterators[pred->column_id()] == nullptr) {
         //this column without inverted index
         return false;
@@ -735,9 +736,6 @@ Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(
 
 Status SegmentIterator::_apply_inverted_index_except_leafnode_of_andnode(
         ColumnPredicate* pred, roaring::Roaring* output_result) {
-    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
-        return Status::OK();
-    }
     RETURN_IF_ERROR(pred->evaluate(*_schema, _inverted_index_iterators[pred->column_id()].get(),
                                    num_rows(), output_result));
     return Status::OK();
@@ -1186,7 +1184,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     std::string index_key;
     // when is_include is false, we shoudle append KEY_NORMAL_MARKER to the
     // encode key. Otherwise, we will get an incorrect upper bound.
-    encode_key_with_padding<RowCursor, true, true>(
+    encode_key_with_padding<RowCursor, true>(
             &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include, true);
     if (index_key < _segment->min_key()) {
         *rowid = 0;
@@ -1648,8 +1646,15 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         }
         for (auto& range : _split_row_ranges) {
             size_t nrows = range.second - range.first;
-
-            RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
+            {
+                _opts.stats->block_first_read_seek_num += 1;
+                if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
+                    SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
+                    RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
+                } else {
+                    RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(range.first));
+                }
+            }
             size_t rows_read = nrows;
             RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
             if (rows_read != nrows) {
@@ -1821,8 +1826,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             auto cid = _schema->column_id(i);
             auto column_desc = _schema->column(cid);
             if (_is_pred_column[cid]) {
-                _current_return_columns[cid] =
-                        Schema::get_predicate_column_ptr(*column_desc, _opts.io_ctx.reader_type);
+                RETURN_IF_CATCH_EXCEPTION(_current_return_columns[cid] =
+                                                  Schema::get_predicate_column_ptr(
+                                                          *column_desc, _opts.io_ctx.reader_type));
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
@@ -2051,7 +2057,9 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts_and_filter_block(
             _common_expr_ctxs_push_down, block, _columns_to_filter, prev_columns, filter));
 
+    const auto origin_size = selected_size;
     selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
+    _opts.stats->rows_common_expr_filtered += (origin_size - selected_size);
     return Status::OK();
 }
 

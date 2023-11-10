@@ -56,7 +56,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
 
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
     auto& mem_used = local_state._shared_state->mem_used;
@@ -160,7 +160,7 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
 template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSinkLocalState<SetDependency>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _build_timer = ADD_TIMER(_profile, "BuildTime");
 

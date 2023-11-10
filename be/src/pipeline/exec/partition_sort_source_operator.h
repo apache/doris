@@ -58,8 +58,7 @@ public:
     PartitionSortSourceLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<PartitionSortDependency>(state, parent),
               _get_sorted_timer(nullptr),
-              _get_next_timer(nullptr),
-              _num_rows_returned(0) {}
+              _get_next_timer(nullptr) {}
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
@@ -67,7 +66,6 @@ private:
     friend class PartitionSortSourceOperatorX;
     RuntimeProfile::Counter* _get_sorted_timer;
     RuntimeProfile::Counter* _get_next_timer;
-    int64_t _num_rows_returned;
     int _sort_idx = 0;
 };
 

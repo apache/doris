@@ -60,6 +60,10 @@ public:
         return TPrimitiveType::INVALID_TYPE;
     }
 
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_NONE;
+    }
+
     Field get_default() const override { return String(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
@@ -83,8 +87,8 @@ public:
     bool have_subtypes() const override { return false; }
 
     bool can_be_inside_low_cardinality() const override { return false; }
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeFixedLengthObjectSerDe>();
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeFixedLengthObjectSerDe>(nesting_level);
     };
 };
 

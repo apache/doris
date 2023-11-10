@@ -253,6 +253,8 @@ struct TQueryOptions {
   88: optional bool enable_decimal256 = false;
 
   89: optional bool enable_local_shuffle = false;
+  // For emergency use, skip missing version when reading rowsets
+  90: optional bool skip_missing_version = false;
 }
 
 
@@ -453,6 +455,12 @@ struct TExecPlanFragmentParams {
   24: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
 
   25: optional i64 wal_id
+
+  // num load stream for each sink backend
+  26: optional i32 load_stream_per_node
+
+  // total num of load streams the downstream backend will see
+  27: optional i32 total_load_streams
 }
 
 struct TExecPlanFragmentParamsList {
@@ -668,6 +676,8 @@ struct TPipelineFragmentParams {
   // scan node id -> scan range params, only for external file scan
   29: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
   30: optional bool group_commit = false;
+  31: optional i32 load_stream_per_node // num load stream for each sink backend
+  32: optional i32 total_load_streams // total num of load streams the downstream backend will see
 }
 
 struct TPipelineFragmentParamsList {

@@ -67,6 +67,10 @@ public:
         return nested_data_type->get_type_as_tprimitive_type();
     }
 
+    doris::FieldType get_storage_field_type() const override {
+        return nested_data_type->get_storage_field_type();
+    }
+
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
@@ -123,8 +127,9 @@ public:
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
     bool is_null_literal() const override { return nested_data_type->is_null_literal(); }
 
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeNullableSerDe>(nested_data_type->get_serde());
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeNullableSerDe>(nested_data_type->get_serde(nesting_level),
+                                                       nesting_level);
     }
 
 private:

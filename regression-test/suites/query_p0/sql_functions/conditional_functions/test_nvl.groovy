@@ -17,4 +17,6 @@
 
 suite("test_nvl") {
     qt_select "select nvl(k6, \"false\") k from test_query_db.test order by k1"
+    sql """set enable_nereids_planner=false;"""
+    qt_select2 "select nvl(123456.134444454,0);"
 }

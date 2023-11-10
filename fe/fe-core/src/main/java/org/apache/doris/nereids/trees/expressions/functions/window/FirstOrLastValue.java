@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.window;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
@@ -30,7 +30,7 @@ import java.util.List;
 
 /** parent class for first_value() and last_value() */
 public abstract class FirstOrLastValue extends WindowFunction
-        implements UnaryExpression, PropagateNullable, ExplicitlyCastableSignature {
+        implements UnaryExpression, AlwaysNullable, ExplicitlyCastableSignature {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.retArgType(0).args(AnyDataType.INSTANCE_WITHOUT_INDEX)

@@ -40,12 +40,12 @@ NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int
                                const TupleId& tuple_id, const std::string& query_string,
                                TOdbcTableType::type table_type, RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
-          _is_init(false),
           _jdbc_eos(false),
           _tuple_id(tuple_id),
           _query_string(query_string),
           _tuple_desc(nullptr),
           _table_type(table_type) {
+    _is_init = false;
     _load_jar_timer = ADD_TIMER(get_parent()->_scanner_profile, "LoadJarTime");
     _init_connector_timer = ADD_TIMER(get_parent()->_scanner_profile, "InitConnectorTime");
     _check_type_timer = ADD_TIMER(get_parent()->_scanner_profile, "CheckTypeTime");
@@ -63,12 +63,12 @@ NewJdbcScanner::NewJdbcScanner(RuntimeState* state,
                                const TupleId& tuple_id, const std::string& query_string,
                                TOdbcTableType::type table_type, RuntimeProfile* profile)
         : VScanner(state, local_state, limit, profile),
-          _is_init(false),
           _jdbc_eos(false),
           _tuple_id(tuple_id),
           _query_string(query_string),
           _tuple_desc(nullptr),
           _table_type(table_type) {
+    _is_init = false;
     _load_jar_timer = ADD_TIMER(local_state->_scanner_profile, "LoadJarTime");
     _init_connector_timer = ADD_TIMER(local_state->_scanner_profile, "InitConnectorTime");
     _check_type_timer = ADD_TIMER(local_state->_scanner_profile, "CheckTypeTime");

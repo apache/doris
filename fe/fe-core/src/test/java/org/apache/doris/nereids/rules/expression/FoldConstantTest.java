@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -577,10 +578,10 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 new IntegerLiteral(1)
         ).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.fromUnixTime(
-                new IntegerLiteral(234179844)
+                new BigIntLiteral(234179844)
         ).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.fromUnixTime(
-                new IntegerLiteral(234179844),
+                new BigIntLiteral(234179844),
                 new VarcharLiteral("%Y-%m-%d")
         ).toSql(), answer[answerIdx++]);
         Assertions.assertEquals(DateTimeExtractAndTransform.unixTimestamp(

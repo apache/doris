@@ -59,113 +59,12 @@ protected:
     }
 };
 
-TEST_F(RadixSortTest, TestUint32Sort) {
-    constexpr size_t num_values = 10000;
-    std::vector<uint32_t> data;
-    // generating random data
-    for (size_t i = 0; i < num_values; ++i) {
-        data.push_back(num_values - i);
-    }
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(data.begin(), data.end(), g);
-    radixSortLSD(data.data(), data.size());
-    for (size_t i = 0; i < num_values; ++i) {
-        data[i] = i + 1;
-    }
-}
-
-TEST_F(RadixSortTest, TestInt32Sort) {
-    constexpr size_t num_values = 10000;
-    std::vector<int32_t> data;
-    // generating random data
-    for (size_t i = 0; i < num_values; ++i) {
-        data.push_back(num_values - i - 5000);
-    }
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(data.begin(), data.end(), g);
-    radixSortLSD(data.data(), data.size());
-    for (size_t i = 0; i < num_values; ++i) {
-        data[i] = i + 1 - 5000;
-    }
-}
-
 bool compare_float_with_epsilon(float a, float b, float E) {
     return std::abs(a - b) < E;
 }
 
-TEST_F(RadixSortTest, TestFloatSort) {
-    constexpr size_t num_values = 10000;
-    std::vector<float> data;
-    // generating random data
-    for (size_t i = 0; i < num_values; ++i) {
-        data.push_back(1.0 * num_values - i - 5000 + 0.1);
-    }
-    float nan = std::numeric_limits<float>::quiet_NaN();
-    float max = std::numeric_limits<float>::max();
-    float min = std::numeric_limits<float>::lowest();
-    float infinity = std::numeric_limits<float>::infinity();
-    data.push_back(nan);
-    data.push_back(max);
-    data.push_back(min);
-    data.push_back(infinity);
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(data.begin(), data.end(), g);
-    radixSortLSD(data.data(), data.size());
-    for (size_t i = 0; i < num_values + 4; ++i) {
-        if (i == 0) {
-            EXPECT_TRUE(compare_float_with_epsilon(data[i], min, 0.0000001));
-        } else if (i == num_values + 1) {
-            EXPECT_TRUE(compare_float_with_epsilon(data[i], max, 0.0000001));
-        } else if (i == num_values + 2) {
-            EXPECT_TRUE(std::isinf(data[i]));
-        } else if (i == num_values + 3) {
-            EXPECT_TRUE(std::isnan(data[i]));
-        } else {
-            EXPECT_TRUE(compare_float_with_epsilon(data[i], 1.0 * i - 5000 + 0.1, 0.0000001));
-        }
-    }
-}
-
 bool compare_double_with_epsilon(double a, double b, double E) {
     return std::abs(a - b) < E;
-}
-
-TEST_F(RadixSortTest, TestDoubleSort) {
-    constexpr size_t num_values = 10000;
-    std::vector<double> data;
-    // generating random data
-    for (size_t i = 0; i < num_values; ++i) {
-        data.push_back(num_values * 1.0 - i - 5000 + 0.1);
-    }
-    double nan = std::numeric_limits<double>::quiet_NaN();
-    double max = std::numeric_limits<double>::max();
-    double min = std::numeric_limits<double>::lowest();
-    double infinity = std::numeric_limits<double>::infinity();
-    data.push_back(nan);
-    data.push_back(max);
-    data.push_back(min);
-    data.push_back(infinity);
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(data.begin(), data.end(), g);
-    radixSortLSD(data.data(), data.size());
-    for (size_t i = 0; i < num_values + 4; ++i) {
-        if (i == 0) {
-            EXPECT_TRUE(compare_double_with_epsilon(data[i], min, 0.0000001));
-        } else if (i == num_values + 1) {
-            EXPECT_TRUE(compare_double_with_epsilon(data[i], max, 0.0000001));
-        } else if (i == num_values + 2) {
-            EXPECT_TRUE(std::isinf(data[i]));
-        } else if (i == num_values + 3) {
-            EXPECT_TRUE(std::isnan(data[i]));
-        } else {
-            double tmp = 1.0 * i - 5000 + 0.1;
-            EXPECT_TRUE(compare_double_with_epsilon(data[i], tmp, 0.0000001));
-        }
-    }
 }
 
 struct TestObject {

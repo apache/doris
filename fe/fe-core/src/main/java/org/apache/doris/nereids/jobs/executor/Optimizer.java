@@ -73,8 +73,6 @@ public class Optimizer {
         // Due to EnsureProjectOnTopJoin, root group can't be Join Group, so DPHyp doesn't change the root group
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        // after DPHyp just keep logical expression
-        cascadesContext.getMemo().removePhysicalExpression();
         cascadesContext.getStatementContext().setOtherJoinReorder(true);
     }
 

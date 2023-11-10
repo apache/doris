@@ -145,10 +145,11 @@ public:
 #endif
             ~LoadStreamStub();
 
-    // open_stream_sink
+    // open_load_stream
     Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
-                const std::vector<PTabletID>& tablets_for_schema, bool enable_profile);
+                const std::vector<PTabletID>& tablets_for_schema, int total_streams,
+                bool enable_profile);
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -161,7 +162,7 @@ public:
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                       int64_t segment_id, SegmentStatistics& segment_stat);
+                       int64_t segment_id, const SegmentStatistics& segment_stat);
 
     // CLOSE_LOAD
     Status close_load(const std::vector<PTabletID>& tablets_to_commit);

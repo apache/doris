@@ -37,6 +37,7 @@ private:
 
     int _channel_id;
     RuntimeProfile::Counter* _get_block_failed_counter = nullptr;
+    RuntimeProfile::Counter* _copy_data_timer = nullptr;
 };
 
 class LocalExchangeSourceOperatorX final : public OperatorX<LocalExchangeSourceLocalState> {

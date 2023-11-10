@@ -23,7 +23,6 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <stddef.h>
 
 #include <algorithm>
@@ -41,7 +40,6 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "util/proto_util.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/sip_hash.h"
 #include "vec/exprs/vexpr.h"
@@ -126,9 +124,7 @@ Status Channel<Parent>::send_current_block(bool eos, Status exec_status) {
 
 template <typename Parent>
 Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
-    if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
-        SCOPED_TIMER(_parent->local_send_timer());
-    }
+    SCOPED_TIMER(_parent->local_send_timer());
     Block block = _serializer.get_block()->to_block();
     _serializer.get_block()->set_muatable_columns(block.clone_empty_columns());
     if (_recvr_is_valid()) {
@@ -157,9 +153,7 @@ Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
 
 template <typename Parent>
 Status Channel<Parent>::send_local_block(Block* block) {
-    if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
-        SCOPED_TIMER(_parent->local_send_timer());
-    }
+    SCOPED_TIMER(_parent->local_send_timer());
     if (_recvr_is_valid()) {
         if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
             COUNTER_UPDATE(_parent->local_bytes_send_counter(), block->bytes());
@@ -176,9 +170,9 @@ Status Channel<Parent>::send_local_block(Block* block) {
 template <typename Parent>
 Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_status) {
     if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
-        SCOPED_TIMER(_parent->brpc_send_timer());
         COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
     }
+    SCOPED_TIMER(_parent->brpc_send_timer());
 
     if (_closure == nullptr) {
         _closure = new RefCountClosure<PTransmitDataResult>();
@@ -466,6 +460,13 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         RETURN_IF_ERROR(_partitioner->prepare(state, _row_desc));
+        if (_part_type == TPartitionType::HASH_PARTITIONED) {
+            _profile->add_info_string("Partitioner",
+                                      fmt::format("XXHashPartitioner({})", _partition_count));
+        } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+            _profile->add_info_string("Partitioner",
+                                      fmt::format("Crc32HashPartitioner({})", _partition_count));
+        }
     }
 
     _bytes_sent_counter = ADD_COUNTER(profile(), "BytesSent", TUnit::BYTES);
@@ -566,15 +567,19 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                         block_holder->get_block()->Clear();
                     }
                     Status status;
+                    block_holder->ref(_channels.size());
                     for (auto channel : _channels) {
                         if (!channel->is_receiver_eof()) {
                             if (channel->is_local()) {
+                                block_holder->unref();
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                status = channel->send_broadcast_block(block_holder, nullptr, eos);
+                                status = channel->send_broadcast_block(block_holder, eos);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
+                        } else {
+                            block_holder->unref();
                         }
                     }
                     cur_block.clear_column_data();
@@ -631,8 +636,10 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         auto rows = block->rows();
-        SCOPED_TIMER(_split_block_hash_compute_timer);
-        RETURN_IF_ERROR(_partitioner->do_partitioning(state, block, _mem_tracker.get()));
+        {
+            SCOPED_TIMER(_split_block_hash_compute_timer);
+            RETURN_IF_ERROR(_partitioner->do_partitioning(state, block, _mem_tracker.get()));
+        }
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(state, _channels, _partition_count,
                                              (uint64_t*)_partitioner->get_channel_ids(), rows,
@@ -729,16 +736,12 @@ Status BlockSerializer<Parent>::next_serialized_block(Block* block, PBlock* dest
         SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         if (rows) {
             if (rows->size() > 0) {
-                if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
-                    SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());
-                }
+                SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());
                 const int* begin = &(*rows)[0];
                 _mutable_block->add_rows(block, begin, begin + rows->size());
             }
         } else if (!block->empty()) {
-            if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
-                SCOPED_TIMER(_parent->merge_block_timer());
-            }
+            SCOPED_TIMER(_parent->merge_block_timer());
             RETURN_IF_ERROR(_mutable_block->merge(*block));
         }
     }

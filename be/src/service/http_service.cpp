@@ -17,6 +17,9 @@
 
 #include "service/http_service.h"
 
+#include <event2/bufferevent.h>
+#include <event2/http.h>
+
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -59,6 +62,30 @@
 #include "util/doris_metrics.h"
 
 namespace doris {
+namespace {
+std::shared_ptr<bufferevent_rate_limit_group> get_rate_limit_group(event_base* event_base) {
+    auto rate_limit = config::download_binlog_rate_limit_kbs;
+    if (rate_limit <= 0) {
+        return nullptr;
+    }
+
+    auto max_value = std::numeric_limits<int32_t>::max() / 1024 * 10;
+    if (rate_limit > max_value) {
+        LOG(WARNING) << "rate limit is too large, set to max value.";
+        rate_limit = max_value;
+    }
+    struct timeval cfg_tick = {0, 100 * 1000}; // 100ms
+    rate_limit = rate_limit / 10 * 1024;       // convert to KB/S
+
+    auto token_bucket = std::unique_ptr<ev_token_bucket_cfg, decltype(&ev_token_bucket_cfg_free)>(
+            ev_token_bucket_cfg_new(rate_limit, rate_limit * 2, rate_limit, rate_limit * 2,
+                                    &cfg_tick),
+            ev_token_bucket_cfg_free);
+    return std::shared_ptr<bufferevent_rate_limit_group>(
+            bufferevent_rate_limit_group_new(event_base, token_bucket.get()),
+            bufferevent_rate_limit_group_free);
+}
+} // namespace
 
 HttpService::HttpService(ExecEnv* env, int port, int num_threads)
         : _env(env),
@@ -71,6 +98,9 @@ HttpService::~HttpService() {
 
 Status HttpService::start() {
     add_default_path_handlers(_web_page_handler.get());
+
+    auto event_base = _ev_http_server->get_event_bases()[0];
+    _rate_limit_group = get_rate_limit_group(event_base.get());
 
     // register load
     StreamLoadAction* streamload_action = _pool.add(new StreamLoadAction(_env));
@@ -93,18 +123,19 @@ Status HttpService::start() {
     for (auto& path : _env->store_paths()) {
         allow_paths.emplace_back(path.path);
     }
-    DownloadAction* download_action = _pool.add(new DownloadAction(_env, allow_paths));
+    DownloadAction* download_action = _pool.add(new DownloadAction(_env, nullptr, allow_paths));
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_download_load", download_action);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/_download_load", download_action);
 
-    DownloadAction* tablet_download_action = _pool.add(new DownloadAction(_env, allow_paths));
+    DownloadAction* tablet_download_action =
+            _pool.add(new DownloadAction(_env, _rate_limit_group, allow_paths));
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_tablet/_download",
                                       tablet_download_action);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/_tablet/_download",
                                       tablet_download_action);
     if (config::enable_single_replica_load) {
         DownloadAction* single_replica_download_action = _pool.add(new DownloadAction(
-                _env, allow_paths, config::single_replica_load_download_num_workers));
+                _env, nullptr, allow_paths, config::single_replica_load_download_num_workers));
         _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_single_replica/_download",
                                           single_replica_download_action);
         _ev_http_server->register_handler(HttpMethod::GET, "/api/_single_replica/_download",
@@ -118,7 +149,8 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_load_error_log",
                                       error_log_download_action);
 
-    DownloadBinlogAction* download_binlog_action = _pool.add(new DownloadBinlogAction(_env));
+    DownloadBinlogAction* download_binlog_action =
+            _pool.add(new DownloadBinlogAction(_env, _rate_limit_group));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/_binlog/_download",
                                       download_binlog_action);
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_binlog/_download",

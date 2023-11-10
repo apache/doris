@@ -25,14 +25,14 @@ ConjunctionQuery::ConjunctionQuery(IndexReader* reader)
         : _reader(reader), _index_version(reader->getIndexVersion()) {}
 
 ConjunctionQuery::~ConjunctionQuery() {
-    for (auto& term : _terms) {
-        if (term) {
-            _CLDELETE(term);
-        }
-    }
     for (auto& term_doc : _term_docs) {
         if (term_doc) {
             _CLDELETE(term_doc);
+        }
+    }
+    for (auto& term : _terms) {
+        if (term) {
+            _CLDELETE(term);
         }
     }
 }

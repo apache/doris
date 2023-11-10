@@ -108,8 +108,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             } else if (i == 0 && dataType.isStringType()) {
                 dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
             } else if (dataType instanceof CharacterType) {
-                // if column is not come from column, we should set varchar length to max
-                if (((CharacterType) dataType).getLen() > 0 && !s.isColumnFromTable()) {
+                // if column is not come from table, we should set varchar length to max
+                if (!s.isColumnFromTable()) {
                     dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
                 }
             }

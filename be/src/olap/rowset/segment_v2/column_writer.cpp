@@ -353,6 +353,13 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             *writer = std::move(writer_local);
             return Status::OK();
         }
+        case FieldType::OLAP_FIELD_TYPE_VARIANT: {
+            // Use ScalarColumnWriter to write it's only root data
+            std::unique_ptr<ColumnWriter> writer_local = std::unique_ptr<ColumnWriter>(
+                    new ScalarColumnWriter(opts, std::move(field), file_writer));
+            *writer = std::move(writer_local);
+            return Status::OK();
+        }
         default:
             return Status::NotSupported("unsupported type for ColumnWriter: {}",
                                         std::to_string(int(field->type())));
@@ -950,21 +957,20 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     size_t element_cnt = size_t((unsigned long)(*data_ptr));
     auto offset_data = *(data_ptr + 1);
     const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
-
+    auto data = *(data_ptr + 2);
+    auto nested_null_map = *(data_ptr + 3);
     if (element_cnt > 0) {
-        auto data = *(data_ptr + 2);
-        auto nested_null_map = *(data_ptr + 3);
         RETURN_IF_ERROR(_item_writer->append(reinterpret_cast<const uint8_t*>(nested_null_map),
                                              reinterpret_cast<const void*>(data), element_cnt));
-        if (_opts.inverted_index) {
-            auto writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
-            // now only support nested type is scala
-            if (writer != nullptr) {
-                //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
-                static_cast<void>(_inverted_index_builder->add_array_values(
-                        _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
-                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
-            }
+    }
+    if (_opts.inverted_index) {
+        auto writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
+        // now only support nested type is scala
+        if (writer != nullptr) {
+            //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
+            RETURN_IF_ERROR(_inverted_index_builder->add_array_values(
+                    _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
+                    reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
         }
     }
 

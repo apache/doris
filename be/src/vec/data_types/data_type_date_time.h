@@ -80,14 +80,16 @@ public:
         return TPrimitiveType::DATETIME;
     }
 
-    bool can_be_inside_nullable() const override { return true; }
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_DATETIME;
+    }
 
     bool equals(const IDataType& rhs) const override;
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
 
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeDateTimeSerDe>();
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeDateTimeSerDe>(nesting_level);
     }
 
     Field get_field(const TExprNode& node) const override {

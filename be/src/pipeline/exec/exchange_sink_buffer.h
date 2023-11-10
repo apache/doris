@@ -76,15 +76,16 @@ public:
     BroadcastPBlockHolder(pipeline::BroadcastDependency* dep) : _ref_count(0), _dep(dep) {}
     ~BroadcastPBlockHolder() noexcept = default;
 
+    void ref(int delta) noexcept { _ref_count._value.fetch_add(delta); }
     void unref() noexcept;
-    void ref() noexcept { _ref_count._value.fetch_add(1); }
+    void ref() noexcept { ref(1); }
 
     bool available() { return _ref_count._value == 0; }
 
     PBlock* get_block() { return &pblock; }
 
 private:
-    AtomicWrapper<uint32_t> _ref_count;
+    AtomicWrapper<int32_t> _ref_count;
     PBlock pblock;
     pipeline::BroadcastDependency* _dep;
 };
@@ -177,7 +178,7 @@ public:
     void register_sink(TUniqueId);
 
     Status add_block(TransmitInfo<Parent>&& request);
-    Status add_block(BroadcastTransmitInfo<Parent>&& request, [[maybe_unused]] bool* sent);
+    Status add_block(BroadcastTransmitInfo<Parent>&& request);
     bool can_write() const;
     bool is_pending_finish();
     void close();
@@ -198,6 +199,7 @@ private:
     phmap::flat_hash_map<InstanceLoId,
                          std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>>
             _instance_to_package_queue;
+    size_t _queue_capacity;
     // store data in broadcast shuffle
     phmap::flat_hash_map<InstanceLoId, std::queue<BroadcastTransmitInfo<Parent>,
                                                   std::list<BroadcastTransmitInfo<Parent>>>>
@@ -236,7 +238,6 @@ private:
 
     std::atomic<int> _total_queue_size = 0;
     static constexpr int QUEUE_CAPACITY_FACTOR = 64;
-    int _queue_capacity = 0;
     std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
     std::shared_ptr<FinishDependency> _finish_dependency = nullptr;
     QueryStatistics* _statistics = nullptr;

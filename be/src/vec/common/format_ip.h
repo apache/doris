@@ -28,7 +28,8 @@
 #include <utility>
 
 constexpr size_t IPV4_BINARY_LENGTH = 4;
-constexpr size_t IPV4_MAX_TEXT_LENGTH = 15;       /// Does not count tail zero byte.
+constexpr size_t IPV4_MAX_TEXT_LENGTH = 15; /// Does not count tail zero byte.
+constexpr size_t IPV6_MAX_TEXT_LENGTH = 39;
 constexpr size_t IPV4_MIN_NUM_VALUE = 0;          //num value of '0.0.0.0'
 constexpr size_t IPV4_MAX_NUM_VALUE = 4294967295; //num value of '255.255.255.255'
 

@@ -28,18 +28,19 @@ import org.apache.doris.scheduler.job.Job;
  * We use Gson to serialize and deserialize JobExecutor. so the implementation of JobExecutor needs to be serializable.
  * You can see @org.apache.doris.persist.gson.GsonUtils.java for details.When you implement JobExecutor,pls make sure
  * you can serialize and deserialize it.
- *
- * @param <T> The result type of the event job execution.
  */
 @FunctionalInterface
-public interface JobExecutor<T> {
+public interface JobExecutor<T, C> {
 
     /**
      * Executes the event job and returns the result.
      * Exceptions will be caught internally, so there is no need to define or throw them separately.
      *
+     * @param job         The event job to execute.
+     * @param dataContext The data context of the event job. if you need to pass parameters to the event job,
+     *                    you can use it.
      * @return The result of the event job execution.
      */
-    ExecutorResult execute(Job job) throws JobException;
+    ExecutorResult<T> execute(Job job, C dataContext) throws JobException;
 }
 

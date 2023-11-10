@@ -294,7 +294,7 @@ public class DatabaseTransactionMgr {
         info.add(TimeUtils.longToTimeString(txnState.getPrepareTime()));
         info.add(TimeUtils.longToTimeString(txnState.getPreCommitTime()));
         info.add(TimeUtils.longToTimeString(txnState.getCommitTime()));
-        info.add(TimeUtils.longToTimeString(txnState.getPublishVersionTime()));
+        info.add(TimeUtils.longToTimeString(txnState.getLastPublishVersionTime()));
         info.add(TimeUtils.longToTimeString(txnState.getFinishTime()));
         info.add(txnState.getReason());
         info.add(String.valueOf(txnState.getErrorReplicas().size()));
@@ -674,6 +674,35 @@ public class DatabaseTransactionMgr {
                     + "] is prepare, not pre-committed.");
         }
 
+        if (transactionState.isPartialUpdate()) {
+            if (is2PC) {
+                Iterator<TableCommitInfo> tableCommitInfoIterator
+                        = transactionState.getIdToTableCommitInfos().values().iterator();
+                while (tableCommitInfoIterator.hasNext()) {
+                    TableCommitInfo tableCommitInfo = tableCommitInfoIterator.next();
+                    long tableId = tableCommitInfo.getTableId();
+                    OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                    if (table != null && table instanceof OlapTable) {
+                        if (!transactionState.checkSchemaCompatibility((OlapTable) table)) {
+                            throw new TransactionCommitFailedException("transaction [" + transactionId
+                                    + "] check schema compatibility failed, partial update can't commit with"
+                                            + " old schema sucessfully .");
+                        }
+                    }
+                }
+            } else {
+                for (Table table : tableList) {
+                    if (table instanceof OlapTable) {
+                        if (!transactionState.checkSchemaCompatibility((OlapTable) table)) {
+                            throw new TransactionCommitFailedException("transaction [" + transactionId
+                                    + "] check schema compatibility failed, partial update can't commit with"
+                                            + " old schema sucessfully .");
+                        }
+                    }
+                }
+            }
+        }
+
         Set<Long> errorReplicaIds = Sets.newHashSet();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         Map<Long, Set<Long>> tableToPartition = new HashMap<>();
@@ -915,10 +944,10 @@ public class DatabaseTransactionMgr {
         Map<Long, PublishVersionTask> publishTasks = transactionState.getPublishVersionTasks();
 
         long now = System.currentTimeMillis();
-        long firstPublishOneSuccTime = transactionState.getFirstPublishOneSuccTime();
+        long firstPublishVersionTime = transactionState.getFirstPublishVersionTime();
         boolean allowPublishOneSucc = false;
-        if (Config.publish_wait_time_second > 0 && firstPublishOneSuccTime > 0
-                && now >= firstPublishOneSuccTime + Config.publish_wait_time_second * 1000L) {
+        if (Config.publish_wait_time_second > 0 && firstPublishVersionTime > 0
+                && now >= firstPublishVersionTime + Config.publish_wait_time_second * 1000L) {
             allowPublishOneSucc = true;
         }
 
@@ -941,7 +970,6 @@ public class DatabaseTransactionMgr {
         tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         PublishResult publishResult = PublishResult.QUORUM_SUCC;
         try {
-            boolean allTabletsLeastOneSucc = true;
             Iterator<TableCommitInfo> tableCommitInfoIterator
                     = transactionState.getIdToTableCommitInfos().values().iterator();
             while (tableCommitInfoIterator.hasNext()) {
@@ -1029,10 +1057,6 @@ public class DatabaseTransactionMgr {
                                 continue;
                             }
 
-                            if (healthReplicaNum == 0) {
-                                allTabletsLeastOneSucc = false;
-                            }
-
                             String writeDetail = getTabletWriteDetail(tabletSuccReplicas, tabletWriteFailedReplicas,
                                     tabletVersionFailedReplicas);
                             if (allowPublishOneSucc && healthReplicaNum > 0) {
@@ -1070,9 +1094,6 @@ public class DatabaseTransactionMgr {
                         }
                     }
                 }
-            }
-            if (allTabletsLeastOneSucc && firstPublishOneSuccTime <= 0) {
-                transactionState.setFirstPublishOneSuccTime(now);
             }
             if (publishResult == PublishResult.FAILED) {
                 return;
@@ -1740,6 +1761,7 @@ public class DatabaseTransactionMgr {
                         tableId, transactionState.getTransactionId(), db.getId());
                 continue;
             }
+            transactionState.addTableIndexes(table);
             for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                 long partitionId = partitionCommitInfo.getPartitionId();
                 long newCommitVersion = partitionCommitInfo.getVersion();

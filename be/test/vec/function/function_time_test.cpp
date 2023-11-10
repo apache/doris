@@ -179,9 +179,10 @@ TEST(VTimestampFunctionsTest, from_unix_test) {
     std::string func_name = "from_unixtime";
     TimezoneUtils::load_timezone_names();
 
-    InputTypeSet input_types = {TypeIndex::Int32};
+    InputTypeSet input_types = {TypeIndex::Int64};
 
-    DataSet data_set = {{{1565080737}, std::string("2019-08-06 16:38:57")}, {{-123}, Null()}};
+    DataSet data_set = {{{int64_t(1565080737)}, std::string("2019-08-06 16:38:57")},
+                        {{int64_t(-123)}, Null()}};
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
@@ -208,7 +209,13 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
 
     InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::String, TypeIndex::String};
 
-    {
+    bool case_sensitive = true;
+    cctz::time_zone tz {};
+    if (TimezoneUtils::find_cctz_time_zone("Asia/SHANGHAI", tz)) {
+        case_sensitive = false;
+    }
+
+    if (case_sensitive) {
         DataSet data_set = {{{std::string {"2019-08-01 02:18:27"}, std::string {"Asia/SHANGHAI"},
                               std::string {"america/Los_angeles"}},
                              Null()}};
@@ -221,14 +228,17 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
                               std::string {"UTC"}},
                              str_to_datetime_v2("2019-07-31 18:18:27", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string {"2019-08-01 02:18:27"}, std::string {"Asia/Shanghai"},
-                              std::string {"Utc"}},
-                             Null()},
-                            {{std::string {"2019-08-01 02:18:27"}, std::string {"Asia/Shanghai"},
                               std::string {"UTC"}},
-                             str_to_datetime_v2("2019-07-31 18:18:27", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string {"2019-08-01 02:18:27"}, std::string {"Asia/SHANGHAI"},
-                              std::string {"america/Los_angeles"}},
-                             Null()}};
+                             str_to_datetime_v2("2019-07-31 18:18:27", "%Y-%m-%d %H:%i:%s.%f")}};
+        if (case_sensitive) {
+            data_set.push_back(Row {{std::string {"2019-08-01 02:18:27"},
+                                     std::string {"Asia/Shanghai"}, std::string {"Utc"}},
+                                    Null()});
+            data_set.push_back(
+                    Row {{std::string {"2019-08-01 02:18:27"}, std::string {"Asia/SHANGHAI"},
+                          std::string {"america/Los_angeles"}},
+                         Null()});
+        }
         static_cast<void>(
                 check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, false));
     }
@@ -1475,40 +1485,82 @@ TEST(VTimestampFunctionsTest, dayname_test) {
 TEST(VTimestampFunctionsTest, datetrunc_test) {
     std::string func_name = "date_trunc";
     {
-        InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::String};
-
+        InputTypeSet input_types = {TypeIndex::DateTime, Consted {TypeIndex::String}};
         DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("second")},
-                             str_to_date_time("2022-10-08 11:44:23")},
-                            {{std::string("2022-10-08 11:44:23"), std::string("minute")},
-                             str_to_date_time("2022-10-08 11:44:00")},
-                            {{std::string("2022-10-08 11:44:23"), std::string("hour")},
-                             str_to_date_time("2022-10-08 11:00:00")},
-                            {{std::string("2022-10-08 11:44:23"), std::string("day")},
-                             str_to_date_time("2022-10-08 00:00:00")},
-                            {{std::string("2022-10-08 11:44:23"), std::string("month")},
-                             str_to_date_time("2022-10-01 00:00:00")},
-                            {{std::string("2022-10-08 11:44:23"), std::string("year")},
+                             str_to_date_time("2022-10-08 11:44:23")}};
+        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::DateTime, Consted {TypeIndex::String}};
+        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("minute")},
+                             str_to_date_time("2022-10-08 11:44:00")}};
+        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::DateTime, Consted {TypeIndex::String}};
+        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("hour")},
+                             str_to_date_time("2022-10-08 11:00:00")}};
+        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::DateTime, Consted {TypeIndex::String}};
+        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("day")},
+                             str_to_date_time("2022-10-08 00:00:00")}};
+        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::DateTime, Consted {TypeIndex::String}};
+        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("month")},
+                             str_to_date_time("2022-10-01 00:00:00")}};
+        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::DateTime, Consted {TypeIndex::String}};
+        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("year")},
                              str_to_date_time("2022-01-01 00:00:00")}};
-
         static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
     }
 
     {
-        InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::String};
-
-        DataSet data_set = {{{std::string("2022-10-08 11:44:23.123"), std::string("second")},
-                             str_to_datetime_v2("2022-10-08 11:44:23.000", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string("2022-10-08 11:44:23"), std::string("minute")},
-                             str_to_datetime_v2("2022-10-08 11:44:00", "%Y-%m-%d %H:%i:%s")},
-                            {{std::string("2022-10-08 11:44:23"), std::string("hour")},
-                             str_to_datetime_v2("2022-10-08 11:00:00", "%Y-%m-%d %H:%i:%s")},
-                            {{std::string("2022-10-08 11:44:23"), std::string("day")},
-                             str_to_datetime_v2("2022-10-08 00:00:00", "%Y-%m-%d %H:%i:%s")},
-                            {{std::string("2022-10-08 11:44:23"), std::string("month")},
-                             str_to_datetime_v2("2022-10-01 00:00:00", "%Y-%m-%d %H:%i:%s")},
-                            {{std::string("2022-10-08 11:44:23"), std::string("year")},
+        InputTypeSet input_types = {TypeIndex::DateTimeV2, Consted {TypeIndex::String}};
+        DataSet data_set = {
+                {{std::string("2022-10-08 11:44:23.123"), std::string("second")},
+                 str_to_datetime_v2("2022-10-08 11:44:23.000", "%Y-%m-%d %H:%i:%s.%f")}};
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::DateTimeV2, Consted {TypeIndex::String}};
+        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("minute")},
+                             str_to_datetime_v2("2022-10-08 11:44:00", "%Y-%m-%d %H:%i:%s")}};
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::DateTimeV2, Consted {TypeIndex::String}};
+        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("hour")},
+                             str_to_datetime_v2("2022-10-08 11:00:00", "%Y-%m-%d %H:%i:%s")}};
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::DateTimeV2, Consted {TypeIndex::String}};
+        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("day")},
+                             str_to_datetime_v2("2022-10-08 00:00:00", "%Y-%m-%d %H:%i:%s")}};
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::DateTimeV2, Consted {TypeIndex::String}};
+        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("month")},
+                             str_to_datetime_v2("2022-10-01 00:00:00", "%Y-%m-%d %H:%i:%s")}};
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {TypeIndex::DateTimeV2, Consted {TypeIndex::String}};
+        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("year")},
                              str_to_datetime_v2("2022-01-01 00:00:00", "%Y-%m-%d %H:%i:%s")}};
-
         static_cast<void>(
                 check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
     }

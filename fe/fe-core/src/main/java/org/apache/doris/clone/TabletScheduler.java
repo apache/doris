@@ -46,6 +46,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.resource.Tag;
@@ -78,6 +79,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
@@ -614,6 +616,15 @@ public class TabletScheduler extends MasterDaemon {
         }
     }
 
+    public void updateDestPathHash(TabletSchedCtx tabletCtx) {
+        // find dest replica
+        Optional<Replica> destReplica = tabletCtx.getReplicas()
+                .stream().filter(replica -> replica.getBackendId() == tabletCtx.getDestBackendId()).findAny();
+        if (destReplica.isPresent() && tabletCtx.getDestPathHash() != -1) {
+            destReplica.get().setPathHash(tabletCtx.getDestPathHash());
+        }
+    }
+
     public void updateDiskBalanceLastSuccTime(long beId, long pathHash) {
         PathSlot pathSlot = backendsWorkingSlots.get(beId);
         if (pathSlot == null) {
@@ -983,6 +994,7 @@ public class TabletScheduler extends MasterDaemon {
             boolean force, LoadStatisticForTag statistic) throws SchedException {
         Replica chosenReplica = null;
         double maxScore = 0;
+        long debugHighBeId = DebugPointUtil.getDebugParamOrDefault("FE.HIGH_LOAD_BE_ID", -1L);
         for (Replica replica : replicas) {
             BackendLoadStatistic beStatistic = statistic.getBackendLoadStatistic(replica.getBackendId());
             if (beStatistic == null) {
@@ -1006,6 +1018,11 @@ public class TabletScheduler extends MasterDaemon {
             if (loadScore > maxScore) {
                 maxScore = loadScore;
                 chosenReplica = replica;
+            }
+
+            if (debugHighBeId > 0 && replica.getBackendId() == debugHighBeId) {
+                chosenReplica = replica;
+                break;
             }
         }
 
@@ -1535,6 +1552,16 @@ public class TabletScheduler extends MasterDaemon {
                     statusPair.second = tabletCtx.getPriority();
                 }
             }
+
+            if (statusPair.first == TabletStatus.NEED_FURTHER_REPAIR) {
+                // replica is just waiting for finishing txns before furtherRepairWatermarkTxnTd,
+                // no need to add it immediately
+                Replica replica = tablet.getReplicaByBackendId(tabletCtx.getDestBackendId());
+                if (replica != null && replica.getVersion() >= partition.getVisibleVersion()
+                        && replica.getLastFailedVersion() < 0) {
+                    return;
+                }
+            }
         } finally {
             tbl.readUnlock();
         }
@@ -1625,6 +1652,7 @@ public class TabletScheduler extends MasterDaemon {
             // if we have a success task, then stat must be refreshed before schedule a new task
             updateDiskBalanceLastSuccTime(tabletCtx.getSrcBackendId(), tabletCtx.getSrcPathHash());
             updateDiskBalanceLastSuccTime(tabletCtx.getDestBackendId(), tabletCtx.getDestPathHash());
+            updateDestPathHash(tabletCtx);
             finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, Status.FINISHED, "finished");
         } else {
             finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,

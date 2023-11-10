@@ -175,6 +175,7 @@ void PipelineXLocalStateBase::clear_origin_block() {
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
                                      vectorized::Block* output_block) const {
     auto local_state = state->get_local_state(operator_id());
+    SCOPED_TIMER(local_state->exec_time_counter());
     SCOPED_TIMER(local_state->_projection_timer);
     using namespace vectorized;
     vectorized::MutableBlock mutable_block =
@@ -228,9 +229,11 @@ void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, SourceStat
         source_state = SourceState::FINISHED;
     }
 
-    _num_rows_returned += block->rows();
-    COUNTER_UPDATE(_blocks_returned_counter, 1);
-    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+    if (auto rows = block->rows()) {
+        _num_rows_returned += rows;
+        COUNTER_UPDATE(_blocks_returned_counter, 1);
+        COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+    }
 }
 
 std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
@@ -303,7 +306,7 @@ PipelineXSinkLocalStateBase::PipelineXSinkLocalStateBase(DataSinkOperatorXBase* 
                                                          RuntimeState* state)
         : _parent(parent),
           _state(state),
-          _finish_dependency(new FinishDependency(parent->operator_id(),
+          _finish_dependency(new FinishDependency(parent->operator_id(), parent->node_id(),
                                                   parent->get_name() + "_FINISH_DEPENDENCY")) {}
 
 PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXBase* parent)
@@ -312,8 +315,11 @@ PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXB
           _peak_memory_usage_counter(nullptr),
           _parent(parent),
           _state(state),
-          _finish_dependency(new FinishDependency(parent->operator_id(),
-                                                  parent->get_name() + "_FINISH_DEPENDENCY")) {}
+          _finish_dependency(new FinishDependency(parent->operator_id(), parent->node_id(),
+                                                  parent->get_name() + "_FINISH_DEPENDENCY")) {
+    _filter_dependency = std::make_shared<RuntimeFilterDependency>(
+            parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY");
+}
 
 template <typename DependencyType>
 Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalStateInfo& info) {
@@ -353,6 +359,7 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
     _projection_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ProjectionTime", 1);
     _open_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "OpenTime", 1);
     _close_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "CloseTime", 1);
+    _exec_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, "ExecTime", 1);
     _mem_tracker = std::make_unique<MemTracker>("PipelineXLocalState:" + _runtime_profile->name());
     _memory_used_counter = ADD_LABEL_COUNTER(_runtime_profile, "MemoryUsage");
     _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
@@ -373,7 +380,6 @@ Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
     if (_rows_returned_counter != nullptr) {
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     }
-    profile()->add_to_span(_span);
     _closed = true;
     return Status::OK();
 }
@@ -402,6 +408,7 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
     _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
     _open_timer = ADD_TIMER_WITH_LEVEL(_profile, "OpenTime", 1);
     _close_timer = ADD_TIMER_WITH_LEVEL(_profile, "CloseTime", 1);
+    _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
     info.parent_profile->add_child(_profile, true, nullptr);
     _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
     return Status::OK();
@@ -443,11 +450,15 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
             local_state._child_source_state != SourceState::FINISHED) {
             return Status::OK();
         }
-        RETURN_IF_ERROR(
-                push(state, local_state._child_block.get(), local_state._child_source_state));
+        {
+            SCOPED_TIMER(local_state.exec_time_counter());
+            RETURN_IF_ERROR(
+                    push(state, local_state._child_block.get(), local_state._child_source_state));
+        }
     }
 
     if (!need_more_input_data(state)) {
+        SCOPED_TIMER(local_state.exec_time_counter());
         SourceState new_state = SourceState::DEPEND_ON_SOURCE;
         RETURN_IF_ERROR(pull(state, block, new_state));
         if (new_state == SourceState::FINISHED) {

@@ -72,7 +72,7 @@ public class Profile {
             executionProfile.update(startTime, isFinished);
         }
         rootProfile.computeTimeInProfile();
-        rootProfile.setPlaner(planner);
+        rootProfile.setFragmentPlanInfo(planner);
         rootProfile.setProfileLevel(profileLevel);
         rootProfile.setIsPipelineX(isPipelineX);
         ProfileManager.getInstance().pushProfile(rootProfile);

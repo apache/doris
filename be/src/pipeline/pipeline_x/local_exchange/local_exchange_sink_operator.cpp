@@ -21,39 +21,44 @@ namespace doris::pipeline {
 
 Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _compute_hash_value_timer = ADD_TIMER(profile(), "ComputeHashValueTime");
     _distribute_timer = ADD_TIMER(profile(), "DistributeDataTime");
     auto& p = _parent->cast<LocalExchangeSinkOperatorX>();
     RETURN_IF_ERROR(p._partitioner->clone(state, _partitioner));
-    _mutable_block.resize(p._num_partitions);
     _shared_state->running_sink_operators++;
     return Status::OK();
 }
 
-Status LocalExchangeSinkLocalState::channel_add_rows(RuntimeState* state,
-                                                     const uint32_t* __restrict channel_ids,
-                                                     vectorized::Block* block,
-                                                     SourceState source_state) {
+Status LocalExchangeSinkLocalState::split_rows(RuntimeState* state,
+                                               const uint32_t* __restrict channel_ids,
+                                               vectorized::Block* block, SourceState source_state) {
     auto& data_queue = _shared_state->data_queue;
-    std::vector<int> channel2rows[data_queue.size()];
-
-    auto rows = block->rows();
-    for (int i = 0; i < rows; i++) {
-        channel2rows[channel_ids[i]].emplace_back(i);
-    }
-    for (size_t i = 0; i < data_queue.size(); i++) {
-        if (_mutable_block[i] == nullptr) {
-            _mutable_block[i] = vectorized::MutableBlock::create_unique(block->clone_empty());
+    const auto num_partitions = data_queue.size();
+    const auto rows = block->rows();
+    auto row_idx = std::make_shared<std::vector<int>>(rows);
+    {
+        _partition_rows_histogram.assign(num_partitions + 1, 0);
+        for (size_t i = 0; i < rows; ++i) {
+            _partition_rows_histogram[channel_ids[i]]++;
+        }
+        for (int32_t i = 1; i <= num_partitions; ++i) {
+            _partition_rows_histogram[i] += _partition_rows_histogram[i - 1];
         }
 
-        const int* begin = channel2rows[i].data();
-        _mutable_block[i]->add_rows(block, begin, begin + channel2rows[i].size());
-        if (_mutable_block[i]->rows() > state->batch_size() ||
-            source_state == SourceState::FINISHED) {
-            data_queue[i].enqueue(_mutable_block[i]->to_block());
-            _mutable_block[i].reset(nullptr);
+        for (int32_t i = rows - 1; i >= 0; --i) {
+            (*row_idx)[_partition_rows_histogram[channel_ids[i]] - 1] = i;
+            _partition_rows_histogram[channel_ids[i]]--;
+        }
+    }
+    auto new_block = vectorized::Block::create_shared(block->clone_empty());
+    new_block->swap(*block);
+    for (size_t i = 0; i < num_partitions; i++) {
+        size_t start = _partition_rows_histogram[i];
+        size_t size = _partition_rows_histogram[i + 1] - start;
+        if (size > 0) {
+            data_queue[i].enqueue({new_block, {row_idx, start, size}});
         }
     }
 
@@ -63,7 +68,7 @@ Status LocalExchangeSinkLocalState::channel_add_rows(RuntimeState* state,
 Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                         SourceState source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     {
         SCOPED_TIMER(local_state._compute_hash_value_timer);
@@ -72,7 +77,7 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     }
     {
         SCOPED_TIMER(local_state._distribute_timer);
-        RETURN_IF_ERROR(local_state.channel_add_rows(
+        RETURN_IF_ERROR(local_state.split_rows(
                 state, (const uint32_t*)local_state._partitioner->get_channel_ids(), in_block,
                 source_state));
     }

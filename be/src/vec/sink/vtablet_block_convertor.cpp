@@ -27,7 +27,6 @@
 #include <unordered_map>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/descriptors.h"
@@ -75,6 +74,7 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
     int filtered_rows = 0;
     {
         SCOPED_RAW_TIMER(&_validate_data_ns);
+        _filter_map.clear();
         _filter_map.resize(rows, 0);
         bool stop_processing = false;
         RETURN_IF_ERROR(_validate_data(state, block.get(), rows, filtered_rows, &stop_processing));

@@ -68,11 +68,13 @@ public:
         return TPrimitiveType::ARRAY;
     }
 
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_ARRAY;
+    }
+
     std::string do_get_name() const override { return "Array(" + nested->get_name() + ")"; }
 
     const char* get_family_name() const override { return "Array"; }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     MutableColumnPtr create_column() const override;
 
@@ -111,8 +113,9 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeArraySerDe>(nested->get_serde());
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeArraySerDe>(nested->get_serde(nesting_level + 1),
+                                                    nesting_level);
     };
 };
 
