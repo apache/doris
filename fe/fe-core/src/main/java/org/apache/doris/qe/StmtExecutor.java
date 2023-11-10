@@ -1813,6 +1813,7 @@ public class StmtExecutor {
         TransactionStatus txnStatus = TransactionStatus.ABORTED;
         String errMsg = "";
         TableType tblType = insertStmt.getTargetTable().getType();
+        boolean isGroupCommit = false;
         if (context.isTxnModel()) {
             if (insertStmt.getQueryStmt() instanceof SelectStmt) {
                 if (((SelectStmt) insertStmt.getQueryStmt()).getTableRefs().size() > 0) {
@@ -1824,6 +1825,7 @@ public class StmtExecutor {
             label = context.getTxnEntry().getLabel();
             txnId = context.getTxnEntry().getTxnConf().getTxnId();
         } else if (insertStmt instanceof NativeInsertStmt && ((NativeInsertStmt) insertStmt).isGroupCommit()) {
+            isGroupCommit = true;
             NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) insertStmt;
             int maxRetry = 3;
             for (int i = 0; i < maxRetry; i++) {
@@ -2012,6 +2014,9 @@ public class StmtExecutor {
         }
         if (!Strings.isNullOrEmpty(errMsg)) {
             sb.append(", 'err':'").append(errMsg).append("'");
+        }
+        if (isGroupCommit) {
+            sb.append(", 'query_id':'").append(DebugUtil.printId(context.queryId)).append("'");
         }
         sb.append("}");
 
