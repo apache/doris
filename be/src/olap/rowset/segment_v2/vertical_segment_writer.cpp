@@ -646,7 +646,8 @@ Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t
 Status VerticalSegmentWriter::write_batch() {
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update &&
-        _opts.write_type == DataWriteType::TYPE_DIRECT) {
+        _opts.write_type == DataWriteType::TYPE_DIRECT &&
+        !_opts.rowset_ctx->is_transient_rowset_writer) {
         for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
             RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid)));
         }
