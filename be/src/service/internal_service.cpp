@@ -107,8 +107,6 @@
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "util/string_util.h"
-#include "util/telemetry/brpc_carrier.h"
-#include "util/telemetry/telemetry.h"
 #include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -303,8 +301,6 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
 void PInternalServiceImpl::_exec_plan_fragment_in_pthread(
         google::protobuf::RpcController* controller, const PExecPlanFragmentRequest* request,
         PExecPlanFragmentResult* response, google::protobuf::Closure* done) {
-    auto span = telemetry::start_rpc_server_span("exec_plan_fragment", controller);
-    auto scope = OpentelemetryScope {span};
     brpc::ClosureGuard closure_guard(done);
     auto st = Status::OK();
     bool compact = request->has_compact() ? request->compact() : false;
@@ -337,13 +333,11 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
     }
 }
 
-void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcController* controller,
+void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcController* /*controller*/,
                                                     const PExecPlanFragmentStartRequest* request,
                                                     PExecPlanFragmentResult* result,
                                                     google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, result, done]() {
-        auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", controller);
-        auto scope = OpentelemetryScope {span};
+    bool ret = _light_work_pool.try_offer([this, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->fragment_mgr()->start_query_execution(request);
         st.to_protobuf(result->mutable_status());
@@ -556,13 +550,11 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
     }
 }
 
-void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController* controller,
+void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController* /*controller*/,
                                                 const PCancelPlanFragmentRequest* request,
                                                 PCancelPlanFragmentResult* result,
                                                 google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, result, done]() {
-        auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", controller);
-        auto scope = OpentelemetryScope {span};
+    bool ret = _light_work_pool.try_offer([this, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId tid;
         tid.__set_hi(request->finst_id().hi());

@@ -121,15 +121,18 @@ public class DropDbTest {
     @Test
     public void testForceDropDb() throws Exception {
         String dropDbSql = "drop database test2 force";
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test2");
-        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
-        Partition partition = table.getAllPartitions().iterator().next();
-        long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         dropDb(dropDbSql);
-        db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test2");
-        List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test2");
         Assert.assertNull(db);
-        Assert.assertTrue(replicaList.isEmpty());
+        // After unify force and non-force drop db, the replicas will be recycled eventually.
+        //
+        // Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test2");
+        // OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
+        // Partition partition = table.getAllPartitions().iterator().next();
+        // long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
+        // ...
+        // List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
+        // Assert.assertTrue(replicaList.isEmpty());
         String recoverDbSql = "recover database test2";
         RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,

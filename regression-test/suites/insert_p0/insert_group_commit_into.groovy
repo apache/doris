@@ -17,7 +17,7 @@
 
 import com.mysql.cj.jdbc.StatementImpl
 
-suite("insert_group_commit_into_duplicate") {
+suite("insert_group_commit_into") {
     def dbName = "regression_test_insert_p0"
     def tableName = "insert_group_commit_into_duplicate"
     def table = dbName + "." + tableName

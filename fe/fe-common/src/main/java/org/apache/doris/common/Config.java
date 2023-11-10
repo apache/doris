@@ -1531,30 +1531,6 @@ public class Config extends ConfigBase {
     public static int auto_check_statistics_in_minutes = 10;
 
     /**
-     * If this configuration is enabled, you should also specify the trace_export_url.
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static boolean enable_tracing = false;
-
-    /**
-     * Current support for exporting traces:
-     *   zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-     *   collector: The collector can be used to receive and process traces and support export to a variety of
-     *     third-party systems.
-     * If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static String trace_exporter = "zipkin";
-
-    /**
-     * The endpoint to export spans to.
-     * export to zipkin like: http://127.0.0.1:9411/api/v2/spans
-     * export to collector like: http://127.0.0.1:4318/v1/traces
-     */
-    @ConfField(mutable = false, masterOnly = false)
-    public static String trace_export_url = "http://127.0.0.1:9411/api/v2/spans";
-
-    /**
      * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
      * Default is true.
      */
@@ -1605,9 +1581,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cpu_hard_limit = false;
-
-    @ConfField(mutable = true)
-    public static boolean disable_shared_scan = false;
 
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min

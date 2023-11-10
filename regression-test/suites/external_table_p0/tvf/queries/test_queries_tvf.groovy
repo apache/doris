@@ -15,36 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+suite("test_queries_tvf","p0,external,tvf,external_docker") {
+    def table_name = "test_queries_tvf"
+    sql """ DROP TABLE IF EXISTS ${table_name} """
+    sql """
+    CREATE TABLE IF NOT EXISTS ${table_name} (
+        `user_id` LARGEINT NOT NULL COMMENT "用户id",
+        `name` STRING COMMENT "用户名称",
+        `age` INT COMMENT "用户年龄",
+        )
+        DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
+    """
 
-#include <string>
+    sql """insert into ${table_name} values (1, 'doris', 10);"""
 
-#include "common/object_pool.h"
-#include "common/status.h"
-#include "vec/data_types/data_type.h"
-#include "vec/exprs/vexpr.h"
+    sql """select * from ${table_name};"""
 
-namespace doris {
-class TExprNode;
-
-namespace vectorized {
-class Block;
-class VExprContext;
-
-class VInfoFunc : public VExpr {
-    ENABLE_FACTORY_CREATOR(VInfoFunc);
-
-public:
-    VInfoFunc(const TExprNode& node);
-    ~VInfoFunc() override = default;
-
-    const std::string& expr_name() const override { return _expr_name; }
-    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
-
-private:
-    const std::string _expr_name = "vinfofunc expr";
-    ColumnPtr _column_ptr;
-};
-} // namespace vectorized
-
-} // namespace doris
+    def res = sql """ select QueryId from queries() where `Sql` like "%${table_name}%"; """
+    logger.info("res = " + res)
+    assertEquals(2, res.size())
+}

@@ -15,34 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.telemetry;
-
-import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.context.Scope;
-
-/**
- * encapsulated {@link Span} and {@link Scope}.
- */
-public class ScopedSpan {
-    private Span span;
-    private Scope scope;
-
-    public ScopedSpan() {
-        span = Telemetry.getNoopSpan();
-        this.scope = span.makeCurrent();
-    }
-
-    public ScopedSpan(Span span) {
-        this.span = span;
-        this.scope = span.makeCurrent();
-    }
-
-    public Span getSpan() {
-        return span;
-    }
-
-    public void endSpan() {
-        scope.close();
-        span.end();
-    }
+suite("test_bit_functions") {
+    sql "SET enable_nereids_planner=false"
+    qt_select 'select bitand(123456, 321.0), bitor(123456, 321.0), bitxor(123456, 321.0), bitnot(321.0);'
 }

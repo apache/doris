@@ -27,8 +27,6 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlProto;
 
-import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.context.Scope;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -186,16 +184,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             case COM_QUERY:
             case COM_STMT_PREPARE:
                 // Process COM_QUERY statement,
-                ctx.initTracer("trace");
-                Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").setNoParent().startSpan();
-                try (Scope scope = rootSpan.makeCurrent()) {
-                    handleQuery(command);
-                } catch (Exception e) {
-                    rootSpan.recordException(e);
-                    throw e;
-                } finally {
-                    rootSpan.end();
-                }
+                handleQuery(command);
                 break;
             case COM_STMT_EXECUTE:
                 handleExecute();

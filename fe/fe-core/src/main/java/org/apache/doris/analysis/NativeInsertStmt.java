@@ -249,8 +249,20 @@ public class NativeInsertStmt extends InsertStmt {
             tblName.setDb(olapTable.getDatabase().getFullName());
             tblName.setTbl(olapTable.getName());
             if (olapTable.getDeleteSignColumn() != null) {
-                List<Column> columns = olapTable.getBaseSchema(false);
+                List<Column> columns = Lists.newArrayList(olapTable.getBaseSchema(false));
+                // The same order as GroupCommitTableValuedFunction#getTableColumns
+                // delete sign col
                 columns.add(olapTable.getDeleteSignColumn());
+                // version col
+                Column versionColumn = olapTable.getFullSchema().stream().filter(Column::isVersionColumn).findFirst()
+                        .orElse(null);
+                if (versionColumn != null) {
+                    columns.add(versionColumn);
+                }
+                // sequence col
+                if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() == null) {
+                    columns.add(olapTable.getSequenceCol());
+                }
                 targetColumnNames = columns.stream().map(c -> c.getName()).collect(Collectors.toList());
             }
         }
@@ -354,7 +366,7 @@ public class NativeInsertStmt extends InsertStmt {
         analyzeTargetTable(analyzer);
         db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
 
-        analyzeGroupCommit();
+        analyzeGroupCommit(analyzer);
         if (isGroupCommit()) {
             return;
         }
@@ -1056,14 +1068,24 @@ public class NativeInsertStmt extends InsertStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        if (isExplain()) {
+        if (isExplain() || isGroupCommit()) {
             return RedirectStatus.NO_FORWARD;
         } else {
             return RedirectStatus.FORWARD_WITH_SYNC;
         }
     }
 
-    private void analyzeGroupCommit() {
+    public void analyzeGroupCommit(Analyzer analyzer) {
+        if (isGroupCommit) {
+            return;
+        }
+        try {
+            tblName.analyze(analyzer);
+            initTargetTable(analyzer);
+        } catch (Throwable e) {
+            LOG.warn("analyze group commit failed", e);
+            return;
+        }
         if (ConnectContext.get().getSessionVariable().enableInsertGroupCommit
                 && targetTable instanceof OlapTable
                 && !ConnectContext.get().isTxnModel()

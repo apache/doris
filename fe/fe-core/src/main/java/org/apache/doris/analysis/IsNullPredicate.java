@@ -160,7 +160,7 @@ public class IsNullPredicate extends Predicate {
         // after outer join
         recursiveResetChildrenResult(!forPushDownPredicatesToView);
         final Expr childValue = getChild(0);
-        if (!(childValue instanceof LiteralExpr)) {
+        if (forPushDownPredicatesToView || !(childValue instanceof LiteralExpr)) {
             return this;
         }
         return childValue instanceof NullLiteral ? new BoolLiteral(!isNotNull) : new BoolLiteral(isNotNull);

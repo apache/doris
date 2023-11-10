@@ -214,6 +214,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PIPELINE_X_ENGINE = "enable_pipeline_x_engine";
 
+    public static final String ENABLE_SHARED_SCAN = "enable_shared_scan";
+
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
 
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
@@ -738,6 +740,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     private boolean enablePipelineXEngine = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            needForward = true)
+    private boolean enableSharedScan = false;
+
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     private boolean enableLocalShuffle = false;
 
@@ -2830,6 +2837,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnablePipelineEngine() {
         return enablePipelineEngine || enablePipelineXEngine;
+    }
+
+    public boolean getEnableSharedScan() {
+        return enableSharedScan;
     }
 
     public boolean getEnablePipelineXEngine() {

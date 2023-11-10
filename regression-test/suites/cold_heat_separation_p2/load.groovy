@@ -14,19 +14,39 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import groovy.json.JsonSlurper
+import org.codehaus.groovy.runtime.IOGroovyMethods
 
-#include "brpc_carrier.h"
+suite("cold_heat_separation", "p2") {
+    try_sql """
+        drop database regression_test_cold_heat_separation_p2 force;
+    """
 
-#include <brpc/http_header.h>
+    try_sql """
+        create database regression_test_cold_heat_separation_p2;
+    """
 
-opentelemetry::nostd::string_view doris::telemetry::RpcServerCarrier::Get(
-        opentelemetry::nostd::string_view key) const noexcept {
-    auto it = cntl_->http_request().GetHeader(key.data());
-    if (it != nullptr) {
-        return it->data();
+    def polices = sql """
+        show storage policy;
+    """
+
+    for (policy in polices) {
+        if (policy[3].equals("STORAGE")) {
+            try_sql """
+                drop storage policy if exists ${policy[0]}
+            """
+        }
     }
-    return "";
-}
 
-void doris::telemetry::RpcServerCarrier::Set(opentelemetry::nostd::string_view key,
-                                             opentelemetry::nostd::string_view value) noexcept {}
+    def resources = sql """
+        show resources;
+    """
+
+    for (resource in resources) {
+        if (resource[1].equals("s3")) {
+            try_sql """
+                drop resource if exists ${resource[0]}
+            """
+        }
+    }
+}
