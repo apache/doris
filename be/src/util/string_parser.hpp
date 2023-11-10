@@ -571,9 +571,9 @@ inline int StringParser::StringParseTraits<__int128>::max_ascii_len() {
 template <PrimitiveType P, typename T>
 T StringParser::string_to_decimal(const char* s, int len, int type_precision, int type_scale,
                                   ParseResult* result) {
-    static_assert(std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
-                          std::is_same_v<T, __int128>,
-                  "Cast string to decimal only support target type int32_t, int64_t or __int128.");
+    static_assert(
+            std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> || std::is_same_v<T, __int128>,
+            "Cast string to decimal only support target type int32_t, int64_t or __int128.");
     // Special cases:
     //   1) '' == Fail, an empty string fails to parse.
     //   2) '   #   ' == #, leading and trailing white space is ignored.
@@ -673,11 +673,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     return 0;
                 }
                 *result = StringParser::PARSE_SUCCESS;
-                if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-                    value *= get_scale_multiplier<__int128>(type_scale - scale);
-                } else {
-                    value *= get_scale_multiplier<T>(type_scale - scale);
-                }
+                value *= get_scale_multiplier<T>(type_scale - scale);
 
                 return is_negative ? T(-value) : T(value);
             }
@@ -810,11 +806,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     }
 
     if (type_scale > scale) {
-        if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-            value *= get_scale_multiplier<__int128>(type_scale - scale);
-        } else {
-            value *= get_scale_multiplier<T>(type_scale - scale);
-        }
+        value *= get_scale_multiplier<T>(type_scale - scale);
     }
 
     return is_negative ? T(-value) : T(value);
