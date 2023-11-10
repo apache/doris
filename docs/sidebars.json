@@ -150,7 +150,9 @@
                     "type": "category",
                     "label": "Data Cache",
                     "items": [
-                        "advanced/cache/partition-cache"
+                        "advanced/cache/partition-cache-manual",
+                        "advanced/cache/query-cache",
+                        "advanced/cache/sql-cache-manual"
                     ]
                 },
                 "advanced/autobucket",
