@@ -343,13 +343,13 @@ vectorized::DataTypePtr Segment::get_data_type_of(const Field& field, bool ignor
             if (ignore_children || node->children.empty()) {
                 return node->data.file_column_type;
             }
-            // it contains children, so treat it as variant
-            return field.is_nullable() ? vectorized::make_nullable(
-                                                 std::make_shared<vectorized::DataTypeObject>())
-                                       : std::make_shared<vectorized::DataTypeObject>();
         }
+        // it contains children or column missing in storage, so treat it as variant
+        return field.is_nullable()
+                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>())
+                       : std::make_shared<vectorized::DataTypeObject>();
     }
-    // TODO support other column types besides variant, unique_id -> type to _file_column_types
+    // TODO support normal column type
     return nullptr;
 }
 Status Segment::_create_column_readers(const SegmentFooterPB& footer) {

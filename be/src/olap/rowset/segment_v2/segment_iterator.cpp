@@ -340,10 +340,12 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     for (int i = 0; i < _schema->columns().size(); ++i) {
         const Field* col = _schema->column(i);
         if (col) {
-            _storage_name_and_type[i] = std::make_pair(
-                    col->name(),
-                    _segment->get_data_type_of(
-                            *col, _opts.io_ctx.reader_type != ReaderType::READER_QUERY));
+            auto storage_type = _segment->get_data_type_of(
+                    *col, _opts.io_ctx.reader_type != ReaderType::READER_QUERY);
+            if (storage_type == nullptr) {
+                storage_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
+            }
+            _storage_name_and_type[i] = std::make_pair(col->name(), storage_type);
         }
     }
     return Status::OK();
