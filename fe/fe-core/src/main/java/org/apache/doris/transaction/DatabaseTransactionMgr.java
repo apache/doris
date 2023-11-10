@@ -1764,6 +1764,7 @@ public class DatabaseTransactionMgr {
                         tableId, transactionState.getTransactionId(), db.getId());
                 continue;
             }
+            transactionState.addTableIndexes(table);
             for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                 long partitionId = partitionCommitInfo.getPartitionId();
                 long newCommitVersion = partitionCommitInfo.getVersion();
