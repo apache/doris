@@ -116,8 +116,6 @@ public:
 private:
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
     Status _create_column_writer(uint32_t cid, const TabletColumn& column);
-    void _handle_delete_sign_col(const vectorized::Block* block, size_t row_pos, size_t num_rows,
-                                 size_t segment_start_pos);
     size_t _calculate_inverted_index_file_size();
     uint64_t _estimated_remaining_size();
     Status _write_ordinal_index();

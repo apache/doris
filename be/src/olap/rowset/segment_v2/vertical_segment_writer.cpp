@@ -380,13 +380,6 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         // mark key with delete sign as deleted.
         bool have_delete_sign =
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
-        if (have_delete_sign && !_tablet_schema->has_sequence_col() && !have_input_seq_column) {
-            // we can directly use delete bitmap to mark the rows with delete sign as deleted
-            // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
-            _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
-                                              DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
-                                             segment_pos);
-        }
 
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
@@ -671,15 +664,6 @@ Status VerticalSegmentWriter::write_batch() {
         }
     }
 
-    if (_opts.write_type == DataWriteType::TYPE_DIRECT && _opts.enable_unique_key_merge_on_write &&
-        !_tablet_schema->has_sequence_col() && _tablet_schema->delete_sign_idx() != -1) {
-        size_t segment_start_pos = 0;
-        for (auto& data : _batched_blocks) {
-            _handle_delete_sign_col(data.block, data.row_pos, data.num_rows, segment_start_pos);
-            segment_start_pos += data.num_rows;
-        }
-    }
-
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
@@ -758,28 +742,6 @@ Status VerticalSegmentWriter::write_batch() {
 
     _batched_blocks.clear();
     return Status::OK();
-}
-
-void VerticalSegmentWriter::_handle_delete_sign_col(const vectorized::Block* block, size_t row_pos,
-                                                    size_t num_rows, size_t segment_start_pos) {
-    const vectorized::ColumnWithTypeAndName& delete_sign_column =
-            block->get_by_position(_tablet_schema->delete_sign_idx());
-    auto& delete_sign_col =
-            reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
-    if (delete_sign_col.size() < row_pos + num_rows) {
-        return;
-    }
-    const vectorized::Int8* delete_sign_column_data = delete_sign_col.get_data().data();
-    for (size_t block_pos = row_pos, seg_pos = segment_start_pos;
-         seg_pos < segment_start_pos + num_rows; block_pos++, seg_pos++) {
-        // we can directly use delete bitmap to mark the rows with delete sign as deleted
-        // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
-        if (delete_sign_column_data[block_pos]) {
-            _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
-                                              DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
-                                             seg_pos);
-        }
-    }
 }
 
 std::string VerticalSegmentWriter::_full_encode_keys(
