@@ -745,8 +745,7 @@ Status VerticalSegmentWriter::write_batch() {
 }
 
 std::string VerticalSegmentWriter::_full_encode_keys(
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
-        bool null_first) {
+        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
     assert(_key_index_size.size() == _num_key_columns);
     assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns);
 
@@ -755,11 +754,7 @@ std::string VerticalSegmentWriter::_full_encode_keys(
     for (const auto& column : key_columns) {
         auto field = column->get_data_at(pos);
         if (UNLIKELY(!field)) {
-            if (null_first) {
-                encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
-            } else {
-                encoded_keys.push_back(KEY_NULL_LAST_MARKER);
-            }
+            encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
             ++cid;
             continue;
         }
@@ -787,8 +782,7 @@ void VerticalSegmentWriter::_encode_seq_column(
 }
 
 std::string VerticalSegmentWriter::_encode_keys(
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
-        bool null_first) {
+        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
     assert(key_columns.size() == _num_short_key_columns);
 
     std::string encoded_keys;
@@ -796,11 +790,7 @@ std::string VerticalSegmentWriter::_encode_keys(
     for (const auto& column : key_columns) {
         auto field = column->get_data_at(pos);
         if (UNLIKELY(!field)) {
-            if (null_first) {
-                encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
-            } else {
-                encoded_keys.push_back(KEY_NULL_LAST_MARKER);
-            }
+            encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
             ++cid;
             continue;
         }
