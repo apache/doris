@@ -37,7 +37,7 @@ public:
             const std::vector<TRuntimeFilterDesc>& runtime_filter_descs)
             : _build_expr_context(build_expr_ctxs), _runtime_filter_descs(runtime_filter_descs) {}
 
-    Status init(RuntimeState* state, int64_t hash_table_size, size_t build_bf_cardinality) {
+    Status init(RuntimeState* state, int64_t hash_table_size) {
         // runtime filter effect strategy
         // 1. we will ignore IN filter when hash_table_size is too big
         // 2. we will ignore BLOOM filter and MinMax filter when hash_table_size
@@ -111,7 +111,7 @@ public:
             }
 
             if (runtime_filter->is_bloomfilter()) {
-                RETURN_IF_ERROR(runtime_filter->init_bloom_filter(build_bf_cardinality));
+                RETURN_IF_ERROR(runtime_filter->init_bloom_filter(hash_table_size));
             }
 
             // Note:

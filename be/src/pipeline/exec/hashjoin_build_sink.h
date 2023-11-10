@@ -100,7 +100,6 @@ protected:
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots = nullptr;
     bool _has_set_need_null_map_for_build = false;
     bool _build_side_ignore_null = false;
-    size_t _build_rf_cardinality = 0;
     std::unordered_set<const vectorized::Block*> _inserted_blocks;
     std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
 
