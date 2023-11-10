@@ -211,7 +211,7 @@ private:
 
     std::unordered_set<int64_t> _opened_partitions;
 
-    std::unordered_map<int64_t, std::vector<PTabletID>> _tablets_for_node;
+    std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
 
     std::unordered_map<int64_t, std::shared_ptr<::doris::stream_load::LoadStreams>>
