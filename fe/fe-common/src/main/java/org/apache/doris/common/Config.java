@@ -2229,4 +2229,18 @@ public class Config extends ConfigBase {
                     + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000."
     })
     public static int max_auto_partition_num = 2000;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Partition rebalance 方式下各个 BE 的 tablet 数最大差值，小于该值时，会诊断为已均衡",
+            "The maximum difference in the number of tablets of each BE in partition rebalance mode. "
+                    + "If it is less than this value, it will be diagnosed as balanced."
+    })
+    public static int diagnose_balance_max_tablet_num_diff = 50;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Partition rebalance 方式下各个 BE 的 tablet 数的最大比率，小于该值时，会诊断为已均衡",
+            "The maximum ratio of the number of tablets in each BE in partition rebalance mode. "
+                    + "If it is less than this value, it will be diagnosed as balanced."
+    })
+    public static double diagnose_balance_max_tablet_num_ratio = 1.1;
 }
