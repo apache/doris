@@ -917,7 +917,7 @@ public class TableRef implements ParseNode, Writable {
             // so unset the on-clause here.
             onClause = null;
         } else if (onClause != null) {
-            onClause.reset();
+            onClause = onClause.reset();
         }
         leftTblRef = null;
         allTableRefIds.clear();

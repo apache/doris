@@ -103,9 +103,9 @@ public class GroupByClause implements ParseNode {
         }
         if (groupingSetList != null) {
             for (List<Expr> s : groupingSetList) {
-                for (Expr e : s) {
-                    if (e != null) {
-                        e.reset();
+                for (int i = 0; i < s.size(); i++) {
+                    if (s.get(i) != null) {
+                        s.set(i, s.get(i).reset());
                     }
                 }
             }

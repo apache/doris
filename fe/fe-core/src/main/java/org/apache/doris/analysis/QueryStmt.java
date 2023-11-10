@@ -797,7 +797,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         super.reset();
         if (orderByElements != null) {
             for (OrderByElement o : orderByElements) {
-                o.getExpr().reset();
+                o.setExpr(o.getExpr().reset());
             }
         }
         limitElement.reset();

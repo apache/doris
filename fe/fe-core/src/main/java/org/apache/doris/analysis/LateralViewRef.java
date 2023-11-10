@@ -209,7 +209,7 @@ public class LateralViewRef extends TableRef {
     @Override
     public void reset() {
         isAnalyzed = false;
-        expr.reset();
+        expr = expr.reset();
         fnExpr = null;
         originSlotRefList = Lists.newArrayList();
         view = null;

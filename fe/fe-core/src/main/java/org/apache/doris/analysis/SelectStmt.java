@@ -215,13 +215,13 @@ public class SelectStmt extends QueryStmt {
         colLabels.clear();
         fromClause.reset();
         if (whereClause != null) {
-            whereClause.reset();
+            whereClause = whereClause.reset();
         }
         if (groupByClause != null) {
             groupByClause.reset();
         }
         if (havingClause != null) {
-            havingClause.reset();
+            havingClause = havingClause.reset();
         }
         havingClauseAfterAnalyzed = null;
         havingPred = null;
@@ -494,7 +494,7 @@ public class SelectStmt extends QueryStmt {
                 try {
                     Expr expr = tableRef.getOnClause();
                     Expr originalExpr = expr.clone().substituteImpl(mvSMap, null, analyzer);
-                    originalExpr.reset();
+                    originalExpr = originalExpr.reset();
                     tableRef.setOnClause(originalExpr);
                 } catch (Exception e) {
                     LOG.warn("", e);
@@ -1872,9 +1872,9 @@ public class SelectStmt extends QueryStmt {
                 }
                 rewriter.rewriteList(oriGroupingExprs, analyzer);
                 // after rewrite, need reset the analyze status for later re-analyze
-                for (Expr expr : oriGroupingExprs) {
-                    if (!(expr instanceof SlotRef)) {
-                        expr.reset();
+                for (int i = 0; i < oriGroupingExprs.size(); i++) {
+                    if (!(originalExpr.get(i) instanceof SlotRef)) {
+                        originalExpr.set(i, originalExpr.get(i).reset());
                     }
                 }
             }
@@ -1897,7 +1897,7 @@ public class SelectStmt extends QueryStmt {
                 orderByElem.setExpr(rewriter.rewrite(orderByElem.getExpr(), analyzer));
                 // after rewrite, need reset the analyze status for later re-analyze
                 if (!(orderByElem.getExpr() instanceof SlotRef)) {
-                    orderByElem.getExpr().reset();
+                    orderByElem.setExpr(orderByElem.getExpr().reset());
                 }
             }
         }

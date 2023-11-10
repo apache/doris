@@ -121,7 +121,7 @@ public class SelectList {
     public void reset() {
         for (SelectListItem item : items) {
             if (!item.isStar()) {
-                item.getExpr().reset();
+                item.setExpr(item.getExpr().reset());
             }
         }
     }
