@@ -194,29 +194,37 @@ public:
         return true;
     }
     uint32_t read_batch_rowids(rowid_t* buf, uint32_t batch_size) override {
-        if (!_riter.has_value || _rowid_left <= 0) {
+        if (!_riter.has_value || _rowid_left == 0) {
             return 0;
         }
 
         if (_rowid_count <= batch_size) {
-            roaring_bitmap_to_uint32_array(_riter.parent, buf);
-            _rowid_left = 0;
-            return _rowid_count;
+            roaring_bitmap_to_uint32_array(_riter.parent,
+                                           buf); // Fill 'buf' with '_rowid_count' elements.
+            uint32_t num_read = _rowid_left;     // Save the number of row IDs read.
+            _rowid_left = 0;                     // No row IDs left after this operation.
+            return num_read;                     // Return the number of row IDs read.
         }
-        uint32_t read_size = batch_size > _rowid_left ? _rowid_left : batch_size;
-        int32_t reverse_idx = read_size - 1;
-        do {
-            buf[reverse_idx--] = _riter.current_value;
+
+        uint32_t read_size = std::min(batch_size, _rowid_left);
+        uint32_t num_read = 0; // Counter for the number of row IDs read.
+
+        // Read row IDs into the buffer in reverse order.
+        while (num_read < read_size && _riter.has_value) {
+            buf[read_size - num_read - 1] = _riter.current_value;
+            num_read++;
+            _rowid_left--; // Decrement the count of remaining row IDs.
             roaring_previous_uint32_iterator(&_riter);
-        } while (reverse_idx >= 0 && _riter.has_value);
-        _rowid_left -= read_size;
-        return read_size;
+        }
+
+        // Return the actual number of row IDs read.
+        return num_read;
     }
 
 private:
     roaring::api::roaring_uint32_iterator_t _riter;
-    size_t _rowid_count;
-    int32_t _rowid_left;
+    uint32_t _rowid_count;
+    uint32_t _rowid_left;
 };
 
 SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr schema)
