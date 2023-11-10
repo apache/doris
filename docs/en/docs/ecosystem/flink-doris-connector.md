@@ -532,7 +532,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
      --sink-conf sink.label-prefix=label \
      --table-conf replication_num=1
 ```
-If the table in the synchronized database contains a non-primary key, `scan.incremental.snapshot.chunk.key-column` must be set, and only one field of non-null type can be selected.
+To synchronize tables without primary keys, you must configure `scan.incremental.snapshot.chunk.key-column` the option, and specify only one non-null field.
 ```shell
 <FLINK_HOME>bin/flink run \
     -Dexecution.checkpointing.interval=10s \
