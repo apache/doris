@@ -130,7 +130,8 @@ public abstract class ScanNode extends PlanNode {
         if (PrimitiveType.typeWithPrecision.contains(dstType) && PrimitiveType.typeWithPrecision.contains(srcType)
                 && !slotDesc.getType().equals(expr.getType())) {
             return expr.castTo(slotDesc.getType());
-        } else if (dstType != srcType) {
+        } else if (dstType != srcType || slotDesc.getType().isAggStateType() && expr.getType().isAggStateType()
+                && !slotDesc.getType().equals(expr.getType())) {
             return expr.castTo(slotDesc.getType());
         } else {
             return expr;
