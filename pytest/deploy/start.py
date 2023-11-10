@@ -181,6 +181,7 @@ def add_auditload_plugin():
               \`time\` datetime not null comment 'Query start time', \
               client_ip varchar(32) comment 'Client IP', \
               user varchar(64) comment 'User name', \
+              catalog varchar(128) comment 'Catalog of this query', \
               db varchar(96) comment 'Database of this query', \
               state varchar(8) comment 'Query result state. EOF, ERR, OK', \
               query_time bigint comment 'Query execution time in millisecond', \

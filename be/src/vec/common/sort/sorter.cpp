@@ -321,7 +321,7 @@ Status FullSorter::append_block(Block* block) {
         for (int i = 0; i < data.size(); ++i) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)))
                     << " type1: " << data[i].type->get_name()
-                    << " type2: " << arrival_data[i].type->get_name();
+                    << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
             //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
             data[i].column->assume_mutable()->insert_range_from(
                     *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz);
@@ -357,7 +357,7 @@ Status FullSorter::_do_sort() {
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
         if (_state->num_rows() < _offset + _limit) {
-            _state->add_sorted_block(desc_block);
+            static_cast<void>(_state->add_sorted_block(desc_block));
             // if it's spilled, sorted_block is not added into sorted block vector,
             // so it's should not be added to _block_priority_queue, since
             // sorted_block will be destroyed when _do_sort is finished
@@ -370,7 +370,7 @@ Status FullSorter::_do_sort() {
                     std::make_unique<MergeSortCursorImpl>(desc_block, _sort_description);
             MergeSortBlockCursor block_cursor(tmp_cursor_impl.get());
             if (!block_cursor.totally_greater(_block_priority_queue.top())) {
-                _state->add_sorted_block(desc_block);
+                static_cast<void>(_state->add_sorted_block(desc_block));
                 if (!_state->is_spilled()) {
                     _block_priority_queue.emplace(_pool->add(new MergeSortCursorImpl(
                             _state->last_sorted_block(), _sort_description)));
@@ -379,7 +379,7 @@ Status FullSorter::_do_sort() {
         }
     } else {
         // dispose normal sort logic
-        _state->add_sorted_block(desc_block);
+        static_cast<void>(_state->add_sorted_block(desc_block));
     }
     if (_state->is_spilled()) {
         std::priority_queue<MergeSortBlockCursor> tmp;

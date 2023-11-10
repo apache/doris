@@ -44,19 +44,19 @@ CumulativeCompaction::~CumulativeCompaction() = default;
 
 Status CumulativeCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
-        return Status::Error<CUMULATIVE_INVALID_PARAMETERS>("_tablet init failed");
+        return Status::Error<CUMULATIVE_INVALID_PARAMETERS, false>("_tablet init failed");
     }
 
     std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>(
-                "The tablet is under cumulative compaction. tablet={}", _tablet->full_name());
+        return Status::Error<TRY_LOCK_FAILED, false>(
+                "The tablet is under cumulative compaction. tablet={}", _tablet->tablet_id());
     }
 
     // 1. calculate cumulative point
     _tablet->calculate_cumulative_point();
     VLOG_CRITICAL << "after calculate, current cumulative point is "
-                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
+                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
 
     // 2. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
@@ -69,15 +69,15 @@ Status CumulativeCompaction::prepare_compact() {
 Status CumulativeCompaction::execute_compact_impl() {
     std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>(
-                "The tablet is under cumulative compaction. tablet={}", _tablet->full_name());
+        return Status::Error<TRY_LOCK_FAILED, false>(
+                "The tablet is under cumulative compaction. tablet={}", _tablet->tablet_id());
     }
 
     // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
     // for compaction may change. In this case, current compaction task should not be executed.
     if (_tablet->get_clone_occurred()) {
         _tablet->set_clone_occurred(false);
-        return Status::Error<CUMULATIVE_CLONE_OCCURRED>("get_clone_occurred failed");
+        return Status::Error<CUMULATIVE_CLONE_OCCURRED, false>("get_clone_occurred failed");
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -93,7 +93,7 @@ Status CumulativeCompaction::execute_compact_impl() {
     _tablet->cumulative_compaction_policy()->update_cumulative_point(
             _tablet.get(), _input_rowsets, _output_rowset, _last_delete_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
-                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
+                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
 
     // 6. add metric to cumulative compaction
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
@@ -117,7 +117,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
         LOG(WARNING) << "There are missed versions among rowsets. "
                      << "prev rowset verison=" << missing_versions[0]
                      << ", next rowset version=" << missing_versions[1]
-                     << ", tablet=" << _tablet->full_name();
+                     << ", tablet=" << _tablet->tablet_id();
     }
 
     size_t compaction_score = 0;

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_cast_to_datetime") {
+suite("test_cast_to_datetime", "nonConcurrent") {
     // cast string of invalid datetime to datetime
     qt_cast_string_to_datetime_invalid0 """ select cast("627492340" as datetime); """
     qt_cast_string_to_datetime_invalid1 """ select cast("" as datetime); """

@@ -24,6 +24,7 @@
 
 #include <ostream>
 
+#include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
@@ -58,10 +59,10 @@ ODBCConnector::ODBCConnector(const ODBCConnectorParam& param)
           _dbc(nullptr),
           _stmt(nullptr) {}
 
-Status ODBCConnector::close() {
+Status ODBCConnector::close(Status) {
     // do not commit transaction, roll back
     if (_is_in_transaction) {
-        abort_trans();
+        RETURN_IF_ERROR(abort_trans());
     }
 
     if (_stmt != nullptr) {
@@ -150,7 +151,7 @@ Status ODBCConnector::open(RuntimeState* state, bool read) {
 
     LOG(INFO) << "connect success:" << _connect_string.substr(0, _connect_string.find("Pwd="));
     _is_open = true;
-    begin_trans();
+    static_cast<void>(begin_trans());
 
     return Status::OK();
 }

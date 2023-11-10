@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("inlineview_with_project") {
+suite("test_duplicate_name_in_view") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """
@@ -57,6 +57,112 @@ suite("inlineview_with_project") {
         exception "Duplicated inline view column alias: 'c0' in inline view: 'tmp'"
 
     }
+
+    test {
+        sql """
+             SELECT *
+                FROM 
+                    (SELECT issue_19611_t1.c0 ,
+                        issue_19611_t1.c0
+                    FROM issue_19611_t1 ) tmp;
+        """
+        exception "Duplicated inline view column alias: 'c0' in inline view: 'tmp'"
+    }
+
+    test {
+        sql """
+             SELECT *
+                FROM 
+                    (SELECT issue_19611_t1.c0 + 1,
+                        issue_19611_t1.c0 + 1
+                    FROM issue_19611_t1 ) tmp;
+        """
+        exception "Duplicated inline view column alias: '(c0 + 1)' in inline view: 'tmp'"
+    }
+
+    test {
+        sql """
+             SELECT *
+                FROM 
+                    (SELECT issue_19611_t1.c0 ,
+                        issue_19611_t0.c0
+                    FROM issue_19611_t1, issue_19611_t0 ) tmp;
+        """
+        exception "Duplicated inline view column alias: 'c0' in inline view: 'tmp'"
+    }
+
+    test {
+        sql """
+             SELECT *
+                FROM 
+                    (SELECT issue_19611_t1.c0 a,
+                        issue_19611_t1.c0 a
+                    FROM issue_19611_t1 ) tmp;
+        """
+        exception "Duplicated inline view column alias: 'a' in inline view: 'tmp'"
+    }
+
+    test {
+        sql """
+             SELECT *
+                FROM 
+                    (SELECT issue_19611_t0.c0 + 1 a,
+                        issue_19611_t1.c0 + 1 a
+                    FROM issue_19611_t1, issue_19611_t0 ) tmp;
+        """
+        exception "Duplicated inline view column alias: 'a' in inline view: 'tmp'"
+    }
+
+    test {
+        sql """
+             SELECT *
+                FROM 
+                    (SELECT '2023-10-07', '2023-10-07'
+                    FROM issue_19611_t1 ) tmp;
+        """
+        exception "Duplicated inline view column alias: ''2023-10-07'' in inline view: 'tmp'"
+    }
+
+    test {
+        sql """
+             SELECT *
+                FROM 
+                    (SELECT '2023-10-07' a, '2023-10-07' a
+                    FROM issue_19611_t1 ) tmp;
+        """
+        exception "Duplicated inline view column alias: 'a' in inline view: 'tmp'"
+    }
+
+    sql """SELECT *
+            FROM 
+                (SELECT issue_19611_t1.c0 + 1,
+                    issue_19611_t0.c0 + 1
+                FROM issue_19611_t1, issue_19611_t0 ) tmp;
+    """
+
+    sql """SELECT *
+            FROM 
+                (SELECT issue_19611_t1.c0 a,
+                    issue_19611_t1.c0 b
+                FROM issue_19611_t1 ) tmp;"""
+
+    sql """SELECT *
+            FROM 
+                (SELECT issue_19611_t1.c0 a,
+                    issue_19611_t1.c0
+                FROM issue_19611_t1 ) tmp;"""
+
+    sql """SELECT *
+            FROM 
+                (SELECT '2023-10-07' a, '2023-10-07' b
+                FROM issue_19611_t1 ) tmp;
+    """
+
+    sql """SELECT *
+            FROM 
+                (SELECT '2023-10-07' a, '2023-10-07'
+                FROM issue_19611_t1 ) tmp;
+    """
 
 
     sql """

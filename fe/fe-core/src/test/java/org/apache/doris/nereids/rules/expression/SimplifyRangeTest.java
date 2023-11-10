@@ -104,6 +104,7 @@ public class SimplifyRangeTest {
         assertRewrite("TA in (1) and TA in (1)", "TA = 1");
         assertRewrite("(TA > 3 and TA < 1) and TB < 5", "FALSE");
         assertRewrite("(TA > 3 and TA < 1) or TB < 5", "TB < 5");
+        assertRewrite("((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1", "((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1");
     }
 
     private void assertRewrite(String expression, String expected) {

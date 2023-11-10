@@ -74,7 +74,7 @@ mvn package -Dmaven.test.skip=true
 --也可以只打hive-udf module
 mvn package -pl hive-udf -am -Dmaven.test.skip=true
 ```
-打包编译完成进入hive-udf目录会有target目录，里面就会有打包完成的hive-udf-jar-with-dependencies.jar包
+打包编译完成进入hive-udf目录会有target目录，里面就会有打包完成的hive-udf.jar包
 
 ```sql
 
@@ -116,5 +116,59 @@ select k1,bitmap_union(uuid) from hive_bitmap_table group by k1
 ###  Hive Bitmap UDF  说明
 
 ## Hive bitmap 导入 doris
+
+<version since="2.0.2">
+
+### 方法一：Catalog （推荐）
+
+</version>
+
+创建 Hive 表指定为 TEXT 格式，此时，对于 Binary 类型，Hive 会以 bash64 编码的字符串形式保存，此时可以通过 Hive Catalog 的形式，直接将位图数据通过 bitmap_from_bash64 函数插入到 Doris 内部。
+
+以下是一个完整的例子：
+
+1. 在 Hive 中创建 Hive 表
+
+```sql
+CREATE TABLE IF NOT EXISTS `test`.`hive_bitmap_table`(
+`k1`   int       COMMENT '',
+`k2`   String    COMMENT '',
+`k3`   String    COMMENT '',
+`uuid` binary    COMMENT 'bitmap'
+) stored as textfile 
+```
+
+2. [在 Doris 中创建 Catalog](../lakehouse/multi-catalog/hive)
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://127.0.0.1:9083'
+);
+```
+
+3. 创建 Doris 内表
+
+```sql
+CREATE TABLE IF NOT EXISTS `test`.`doris_bitmap_table`(
+    `k1`   int                   COMMENT '',
+    `k2`   String                COMMENT '',
+    `k3`   String                COMMENT '',
+    `uuid` BITMAP  BITMAP_UNION  COMMENT 'bitmap'
+)
+AGGREGATE KEY(k1, k2, k3)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+);
+```
+
+4. 从 Hive 插入数据到 Doris 中
+
+```sql
+insert into doris_bitmap_table select k1, k2, k3, bitmap_from_base64(uuid) from hive.test.hive_bitmap_table;
+```
+
+### 方法二：Spark Load
 
  详见: [Spark Load](../data-operate/import/import-way/spark-load-manual.md) -> 基本操作  -> 创建导入 (示例3：上游数据源是hive binary类型情况)

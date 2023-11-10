@@ -26,7 +26,6 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "olap/compaction.h"
@@ -63,7 +62,7 @@ Status ColdDataCompaction::execute_compact_impl() {
     int64_t permits = get_compaction_permits();
     std::shared_lock cooldown_conf_rlock(_tablet->get_cooldown_conf_lock());
     if (_tablet->cooldown_conf_unlocked().first != _tablet->replica_id()) {
-        return Status::Aborted("this replica is not cooldown replica");
+        return Status::Aborted<false>("this replica is not cooldown replica");
     }
     RETURN_IF_ERROR(do_compaction(permits));
     _state = CompactionState::SUCCESS;
@@ -91,7 +90,6 @@ Status ColdDataCompaction::modify_rowsets(const Merger::Statistics* stats) {
         // TODO(plat1ko): process primary key
         _tablet->tablet_meta()->set_cooldown_meta_id(cooldown_meta_id);
     }
-    Tablet::erase_pending_remote_rowset(_output_rowset->rowset_id().to_string());
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         _tablet->save_meta();

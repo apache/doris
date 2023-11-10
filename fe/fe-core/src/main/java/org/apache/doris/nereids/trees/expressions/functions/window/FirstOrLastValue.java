@@ -19,28 +19,22 @@ package org.apache.doris.nereids.trees.expressions.functions.window;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.IdenticalSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 
 /** parent class for first_value() and last_value() */
 public abstract class FirstOrLastValue extends WindowFunction
-        implements UnaryExpression, PropagateNullable, IdenticalSignature, RequireTrivialTypes {
+        implements UnaryExpression, AlwaysNullable, ExplicitlyCastableSignature {
 
-    static {
-        List<FunctionSignature> signatures = Lists.newArrayList();
-        trivialTypes.forEach(t ->
-                signatures.add(FunctionSignature.ret(t).args(t))
-        );
-        SIGNATURES = ImmutableList.copyOf(signatures);
-    }
-
-    private static final List<FunctionSignature> SIGNATURES;
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.retArgType(0).args(AnyDataType.INSTANCE_WITHOUT_INDEX)
+    );
 
     public FirstOrLastValue(String name, Expression child) {
         super(name, child);

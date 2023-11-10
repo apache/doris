@@ -18,9 +18,13 @@
 package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.scheduler.constants.JobCategory;
+import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.ExecutorResult;
 import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.job.JobTask;
+import org.apache.doris.scheduler.manager.JobTaskManager;
 import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 
@@ -55,25 +59,30 @@ public class TaskDisruptorTest {
     @BeforeEach
     public void init() {
         taskDisruptor = new TaskDisruptor(timerJobManager, transientTaskManager);
+        taskDisruptor.start();
     }
 
     @Test
     void testPublishEventAndConsumer() {
         Job job = new Job("test", 6000L, null,
                 null, new TestExecutor());
+        JobTask jobTask = new JobTask(job.getJobId(), 1L, System.currentTimeMillis());
+        JobTaskManager.addPrepareTask(jobTask);
+        job.setJobCategory(JobCategory.COMMON);
         new Expectations() {{
                 timerJobManager.getJob(anyLong);
                 result = job;
             }};
         taskDisruptor.tryPublish(job.getJobId(), 1L);
-        Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> testEventExecuteFlag);
+        Awaitility.await().atMost(3, TimeUnit.SECONDS).until(() -> testEventExecuteFlag);
         Assertions.assertTrue(testEventExecuteFlag);
     }
 
 
-    class TestExecutor implements JobExecutor<Boolean> {
+    class TestExecutor implements JobExecutor<Boolean, String> {
+
         @Override
-        public ExecutorResult execute(Job job) {
+        public ExecutorResult<Boolean> execute(Job job, String dataContext) throws JobException {
             testEventExecuteFlag = true;
             return new ExecutorResult(true, true, null, "null");
         }

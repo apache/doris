@@ -95,8 +95,6 @@ public:
 
     StringRef get_data_at(size_t) const override { return data->get_data_at(0); }
 
-    TypeIndex get_data_type() const override { return data->get_data_type(); }
-
     UInt64 get64(size_t) const override { return data->get64(0); }
 
     UInt64 get_uint(size_t) const override { return data->get_uint(0); }
@@ -163,15 +161,14 @@ public:
         }
     }
 
-    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override {
         get_data_column_ptr()->update_crc_with_value(start, end, hash, nullptr);
     }
 
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                     const uint8_t* null_map,
-                                     size_t max_row_byte_size) const override {
-        data->serialize_vec_with_null_map(keys, num_rows, null_map, max_row_byte_size);
+                                     const uint8_t* null_map) const override {
+        data->serialize_vec_with_null_map(keys, num_rows, null_map);
     }
 
     void update_hash_with_value(size_t, SipHash& hash) const override {
@@ -182,8 +179,9 @@ public:
                                   const uint8_t* __restrict null_data) const override;
 
     // (TODO.Amory) here may not use column_const update hash, and PrimitiveType is not used.
-    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
-                                const uint8_t* __restrict null_data) const override;
+    void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
+                                uint32_t offset = 0,
+                                const uint8_t* __restrict null_data = nullptr) const override;
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
@@ -227,8 +225,6 @@ public:
                                  const IColumn::Selector& selector) const override {
         LOG(FATAL) << "append_data_by_selector is not supported in ColumnConst!";
     }
-
-    void get_extremes(Field& min, Field& max) const override { data->get_extremes(min, max); }
 
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
 

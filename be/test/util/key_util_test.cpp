@@ -52,7 +52,7 @@ TEST_F(KeyUtilTest, encode) {
     // test encoding with padding
     {
         RowCursor row;
-        row.init(tablet_schema, 2);
+        static_cast<void>(row.init(tablet_schema, 2));
 
         {
             // test padding

@@ -45,6 +45,10 @@ class Recorder {
         return failureCounter.get()
     }
 
+    public int getFatalNum() {
+        return fatalScriptList.size()
+    }
+
     void onSuccess(SuiteInfo suiteInfo) {
         successList.add(suiteInfo)
     }

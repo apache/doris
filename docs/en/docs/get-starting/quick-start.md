@@ -143,6 +143,7 @@ mysql> show frontends\G;
          HttpPort: 8030
         QueryPort: 9030
           RpcPort: 9020
+ArrowFlightSqlPort: 9040
              Role: FOLLOWER
          IsMaster: true
         ClusterId: 1685821635

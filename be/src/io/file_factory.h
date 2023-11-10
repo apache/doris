@@ -85,7 +85,7 @@ public:
 
     // Create FileReader for stream load pipe
     static Status create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader,
-                                     RuntimeState* runtime_state);
+                                     RuntimeState* runtime_state, bool need_schema);
 
     static Status create_hdfs_reader(const THdfsParams& hdfs_params, const io::FileDescription& fd,
                                      const io::FileReaderOptions& reader_options,

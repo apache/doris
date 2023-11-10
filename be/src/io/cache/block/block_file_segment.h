@@ -138,6 +138,10 @@ public:
 
     std::string get_path_in_local_cache() const;
 
+    bool change_cache_type(CacheType new_type);
+
+    Status change_cache_type_self(CacheType new_type);
+
     State state_unlock(std::lock_guard<std::mutex>&) const;
 
     FileBlock& operator=(const FileBlock&) = delete;

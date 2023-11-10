@@ -139,7 +139,7 @@ public:
         RETURN_IF_ERROR(bf_writer.init());
         for (auto& bf : _bfs) {
             Slice data(bf->data(), bf->size());
-            bf_writer.add(&data);
+            static_cast<void>(bf_writer.add(&data));
         }
         RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
         return Status::OK();
@@ -220,7 +220,7 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        bf_writer.add(&data);
+        static_cast<void>(bf_writer.add(&data));
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();
@@ -239,7 +239,7 @@ NGramBloomFilterIndexWriterImpl::NGramBloomFilterIndexWriterImpl(
           _bf_size(bf_size),
           _bf_buffer_size(0),
           _token_extractor(gram_size) {
-    BloomFilter::create(NGRAM_BLOOM_FILTER, &_bf, bf_size);
+    static_cast<void>(BloomFilter::create(NGRAM_BLOOM_FILTER, &_bf, bf_size));
 }
 
 void NGramBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
@@ -277,7 +277,7 @@ Status NGramBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        bf_writer.add(&data);
+        static_cast<void>(bf_writer.add(&data));
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();
@@ -315,6 +315,7 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL32)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL64)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL128I)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL256)
 #undef M
     default:
         return Status::NotSupported("unsupported type for bitmap index: {}",

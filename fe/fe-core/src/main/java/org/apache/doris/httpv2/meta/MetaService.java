@@ -49,8 +49,6 @@ import javax.servlet.http.HttpServletResponse;
 public class MetaService extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(MetaService.class);
 
-    private static final int TIMEOUT_SECOND = 10;
-
     private static final String VERSION = "version";
     private static final String HOST = "host";
     private static final String PORT = "port";
@@ -162,7 +160,7 @@ public class MetaService extends RestBaseController {
         String filename = Storage.IMAGE + "." + versionStr;
         File dir = new File(Env.getCurrentEnv().getImageDir());
         try {
-            MetaHelper.getRemoteFile(url, TIMEOUT_SECOND * 1000, MetaHelper.getFile(filename, dir));
+            MetaHelper.getRemoteFile(url, Config.sync_image_timeout_second * 1000, MetaHelper.getFile(filename, dir));
             MetaHelper.complete(filename, dir);
         } catch (FileNotFoundException e) {
             return ResponseEntityBuilder.notFound("file not found.");

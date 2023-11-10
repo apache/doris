@@ -312,22 +312,6 @@ public class ColumnDef {
         }
         FeNameFormat.checkColumnName(name);
 
-        // When string type length is not assigned, it needs to be assigned to 1.
-        if (typeDef.getType().isScalarType()) {
-            final ScalarType targetType = (ScalarType) typeDef.getType();
-            if (targetType.getPrimitiveType().isStringType() && !targetType.isLengthSet()) {
-                if (targetType.getPrimitiveType() == PrimitiveType.VARCHAR) {
-                    // always set varchar length MAX_VARCHAR_LENGTH
-                    targetType.setLength(ScalarType.MAX_VARCHAR_LENGTH);
-                } else if (targetType.getPrimitiveType() == PrimitiveType.STRING) {
-                    // always set text length MAX_STRING_LENGTH
-                    targetType.setLength(ScalarType.MAX_STRING_LENGTH);
-                } else {
-                    targetType.setLength(1);
-                }
-            }
-        }
-
         typeDef.analyze(null);
 
         Type type = typeDef.getType();
@@ -500,6 +484,7 @@ public class ColumnDef {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+            case DECIMAL256:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;

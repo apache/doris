@@ -109,8 +109,9 @@ template <typename Data>
 class AggregateFunctionHLLUnion
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>> {
 public:
-    AggregateFunctionHLLUnion(const DataTypes& argument_types)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>>(argument_types) {}
+    AggregateFunctionHLLUnion(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>>(argument_types_) {
+    }
 
     String get_name() const override { return Data::name(); }
 

@@ -33,16 +33,31 @@ import java.util.Objects;
  */
 public class Cast extends Expression implements UnaryExpression {
 
+    // CAST can be from SQL Query or Type Coercion.
+    private final boolean isExplicitType;
+
     private final DataType targetType;
+
+    public Cast(Expression child, DataType targetType, boolean isExplicitType) {
+        super(ImmutableList.of(child));
+        this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
+        this.isExplicitType = isExplicitType;
+    }
 
     public Cast(Expression child, DataType targetType) {
         super(ImmutableList.of(child));
         this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
+        this.isExplicitType = false;
     }
 
-    private Cast(List<Expression> child, DataType targetType) {
+    private Cast(List<Expression> child, DataType targetType, boolean isExplicitType) {
         super(child);
         this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
+        this.isExplicitType = isExplicitType;
+    }
+
+    public boolean isExplicitType() {
+        return isExplicitType;
     }
 
     @Override
@@ -72,7 +87,7 @@ public class Cast extends Expression implements UnaryExpression {
     @Override
     public Cast withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Cast(children, getDataType());
+        return new Cast(children, targetType, isExplicitType);
     }
 
     @Override

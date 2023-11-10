@@ -30,6 +30,8 @@ suite("ds_rf91") {
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_pipeline_engine=true'
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set expand_runtime_filter_by_inner_join=false'
     String stmt = '''
     explain physical plan
     select  
@@ -80,6 +82,6 @@ order by sum(cr_net_loss) desc;
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.91"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
-    
-     assertEquals("RF5[c_current_addr_sk->[ca_address_sk],RF4[c_current_cdemo_sk->[cd_demo_sk],RF3[hd_demo_sk->[c_current_hdemo_sk],RF2[cr_returning_customer_sk->[c_customer_sk],RF1[d_date_sk->[cr_returned_date_sk],RF0[cc_call_center_sk->[cr_call_center_sk]", getRuntimeFilters(plan))
+
+     assertEquals("RF5[c_current_addr_sk->[ca_address_sk],RF4[cc_call_center_sk->[cr_call_center_sk],RF3[c_customer_sk->[cr_returning_customer_sk],RF2[d_date_sk->[cr_returned_date_sk],RF1[hd_demo_sk->[c_current_hdemo_sk],RF0[cd_demo_sk->[c_current_cdemo_sk]", getRuntimeFilters(plan))
 }

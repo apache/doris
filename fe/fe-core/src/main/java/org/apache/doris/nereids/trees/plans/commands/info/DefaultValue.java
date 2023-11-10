@@ -19,10 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.util.TimeUtils;
-
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 
 /**
  * default value of a column.
@@ -106,29 +102,6 @@ public class DefaultValue {
      * get string value of a default value expression.
      */
     public String getValue() {
-        if (isCurrentTimeStamp()) {
-            return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ');
-        } else if (isCurrentTimeStampWithPrecision()) {
-            long precision = getCurrentTimeStampPrecision();
-            String format = "yyyy-MM-dd HH:mm:ss";
-            if (precision == 0) {
-                return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ');
-            } else if (precision == 1) {
-                format = "yyyy-MM-dd HH:mm:ss.S";
-            } else if (precision == 2) {
-                format = "yyyy-MM-dd HH:mm:ss.SS";
-            } else if (precision == 3) {
-                format = "yyyy-MM-dd HH:mm:ss.SSS";
-            } else if (precision == 4) {
-                format = "yyyy-MM-dd HH:mm:ss.SSSS";
-            } else if (precision == 5) {
-                format = "yyyy-MM-dd HH:mm:ss.SSSSS";
-            } else if (precision == 6) {
-                format = "yyyy-MM-dd HH:mm:ss.SSSSSS";
-            }
-            return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
-                    .format(DateTimeFormatter.ofPattern(format));
-        }
         return value;
     }
 

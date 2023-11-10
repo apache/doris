@@ -71,6 +71,6 @@ suite("test_agg_state") {
 
     test {
         sql "select avg_state(1) from d_table;"
-        exception "[NOT_IMPLEMENTED_ERROR]"
+        exception "write_column_to_pb with type ColumnFixedLengthObject"
     }
 }

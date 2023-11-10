@@ -24,6 +24,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
+import org.apache.doris.qe.SessionVariable;
 
 import java.util.List;
 
@@ -58,7 +59,8 @@ public interface ImplicitlyCastableSignature extends ComputeSignature {
                     return false;
                 }
             }
-            if (Type.isImplicitlyCastable(realType.toCatalogDataType(), signatureType.toCatalogDataType(), true)) {
+            if (Type.isImplicitlyCastable(realType.toCatalogDataType(), signatureType.toCatalogDataType(), true,
+                    SessionVariable.getEnableDecimal256())) {
                 return true;
             }
         } catch (Throwable t) {

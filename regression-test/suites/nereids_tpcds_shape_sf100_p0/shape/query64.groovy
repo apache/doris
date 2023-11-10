@@ -152,6 +152,6 @@ suite("query64") {
 
     '''
 
-//    qt_ds_shape_64 'explain shape plan ' + ds64
+   qt_ds_shape_64 'explain shape plan ' + ds64
 
 }

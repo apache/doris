@@ -30,7 +30,7 @@ import java.time.temporal.ChronoUnit;
 
 /**
  * executable function:
- * date_add/sub, years/months/days/hours/minutes/seconds_add/sub, datediff
+ * date_add/sub, years/months/week/days/hours/minutes/seconds_add/sub, datediff
  */
 public class DateTimeArithmetic {
     /**
@@ -123,6 +123,29 @@ public class DateTimeArithmetic {
     @ExecFunction(name = "months_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression monthsAdd(DateTimeV2Literal date, IntegerLiteral month) {
         return date.plusMonths(month.getValue());
+    }
+
+    /**
+     * datetime arithmetic function weeks-add.
+     */
+    @ExecFunction(name = "weeks_add", argTypes = {"DATE", "INT"}, returnType = "DATE")
+    public static Expression weeksAdd(DateLiteral date, IntegerLiteral weeks) {
+        return date.plusWeeks(weeks.getValue());
+    }
+
+    @ExecFunction(name = "weeks_add", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    public static Expression weeksAdd(DateTimeLiteral date, IntegerLiteral weeks) {
+        return date.plusWeeks(weeks.getValue());
+    }
+
+    @ExecFunction(name = "weeks_add", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    public static Expression weeksAdd(DateV2Literal date, IntegerLiteral weeks) {
+        return date.plusWeeks(weeks.getValue());
+    }
+
+    @ExecFunction(name = "weeks_add", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    public static Expression weeksAdd(DateTimeV2Literal date, IntegerLiteral weeks) {
+        return date.plusWeeks(weeks.getValue());
     }
 
     /**
@@ -239,6 +262,29 @@ public class DateTimeArithmetic {
     @ExecFunction(name = "months_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
     public static Expression monthsSub(DateTimeV2Literal date, IntegerLiteral month) {
         return monthsAdd(date, new IntegerLiteral(-month.getValue()));
+    }
+
+    /**
+     * datetime arithmetic function weeks-sub.
+     */
+    @ExecFunction(name = "weeks_sub", argTypes = {"DATE", "INT"}, returnType = "DATE")
+    public static Expression weeksSub(DateLiteral date, IntegerLiteral weeks) {
+        return date.plusWeeks(-weeks.getValue());
+    }
+
+    @ExecFunction(name = "weeks_sub", argTypes = {"DATETIME", "INT"}, returnType = "DATETIME")
+    public static Expression weeksSub(DateTimeLiteral date, IntegerLiteral weeks) {
+        return date.plusWeeks(-weeks.getValue());
+    }
+
+    @ExecFunction(name = "weeks_sub", argTypes = {"DATEV2", "INT"}, returnType = "DATEV2")
+    public static Expression weeksSub(DateV2Literal date, IntegerLiteral weeks) {
+        return date.plusWeeks(-weeks.getValue());
+    }
+
+    @ExecFunction(name = "weeks_sub", argTypes = {"DATETIMEV2", "INT"}, returnType = "DATETIMEV2")
+    public static Expression weeksSub(DateTimeV2Literal date, IntegerLiteral weeks) {
+        return date.plusWeeks(-weeks.getValue());
     }
 
     /**

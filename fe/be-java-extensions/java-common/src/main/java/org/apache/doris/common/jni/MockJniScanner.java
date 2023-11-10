@@ -42,6 +42,10 @@ public class MockJniScanner extends JniScanner {
         private int i;
         private int j;
 
+        public MockColumnValue(int i, int j) {
+            set(i, j);
+        }
+
         public MockColumnValue() {
         }
 
@@ -132,17 +136,40 @@ public class MockJniScanner extends JniScanner {
 
         @Override
         public void unpackArray(List<ColumnValue> values) {
-
+            for (int m = 1; m < i; ++m) {
+                if (m % 3 == 0) {
+                    values.add(null);
+                } else {
+                    values.add(new MockColumnValue(i, j + m));
+                }
+            }
         }
 
         @Override
         public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
-
+            for (int m = 0; m < i; ++m) {
+                values.add(new MockColumnValue(i + m, j));
+            }
+            for (int m = 0; m < i; ++m) {
+                if (m % 3 == 0) {
+                    values.add(null);
+                } else {
+                    values.add(new MockColumnValue(i, j + m));
+                }
+            }
         }
 
         @Override
         public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
-
+            structFieldIndex.clear();
+            structFieldIndex.add(0);
+            structFieldIndex.add(1);
+            if ((i + j) % 4 == 0) {
+                values.add(null);
+            } else {
+                values.add(new MockColumnValue(i, j));
+            }
+            values.add(new MockColumnValue(i, j + 3));
         }
     }
 

@@ -161,9 +161,10 @@ void ColumnString::insert_indices_from(const IColumn& src, const int* indices_be
     }
 }
 
-void ColumnString::update_crcs_with_value(std::vector<uint64_t>& hashes, doris::PrimitiveType type,
+void ColumnString::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
+                                          uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {
-    auto s = hashes.size();
+    auto s = rows;
     DCHECK(s == size());
 
     if (null_data == nullptr) {
@@ -204,6 +205,19 @@ size_t ColumnString::filter(const Filter& filter) {
     }
 
     return filter_arrays_impl<UInt8, Offset>(chars, offsets, filter);
+}
+
+Status ColumnString::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    auto* col = static_cast<ColumnString*>(col_ptr);
+    Chars& res_chars = col->chars;
+    Offsets& res_offsets = col->offsets;
+    Filter filter;
+    filter.resize_fill(offsets.size(), 0);
+    for (size_t i = 0; i < sel_size; i++) {
+        filter[sel[i]] = 1;
+    }
+    filter_arrays_impl<UInt8, Offset>(chars, offsets, res_chars, res_offsets, filter, sel_size);
+    return Status::OK();
 }
 
 ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {
@@ -310,8 +324,7 @@ void ColumnString::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
 }
 
 void ColumnString::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                               const uint8_t* null_map,
-                                               size_t max_row_byte_size) const {
+                                               const uint8_t* null_map) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
             uint32_t offset(offset_at(i));
@@ -505,42 +518,10 @@ void ColumnString::resize(size_t n) {
     }
 }
 
-void ColumnString::get_extremes(Field& min, Field& max) const {
-    min = String();
-    max = String();
-
-    size_t col_size = size();
-
-    if (col_size == 0) {
-        return;
-    }
-
-    size_t min_idx = 0;
-    size_t max_idx = 0;
-
-    less<true> less_op(*this);
-
-    for (size_t i = 1; i < col_size; ++i) {
-        if (less_op(i, min_idx)) {
-            min_idx = i;
-        } else if (less_op(max_idx, i)) {
-            max_idx = i;
-        }
-    }
-
-    get(min_idx, min);
-    get(max_idx, max);
-}
-
 void ColumnString::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                                IColumn::Permutation& perms, EqualRange& range,
                                bool last_column) const {
     sorter->sort_column(static_cast<const ColumnString&>(*this), flags, perms, range, last_column);
-}
-
-void ColumnString::protect() {
-    get_chars().protect();
-    get_offsets().protect();
 }
 
 void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,

@@ -60,8 +60,9 @@ Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer
     if (-1 == fd) {
         return Status::IOError("failed to open {}: {}", file.native(), errno_to_str());
     }
+    bool sync_data = opts != nullptr ? opts->sync_file_data : true;
     *writer = std::make_unique<LocalFileWriter>(
-            file, fd, std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
+            file, fd, std::static_pointer_cast<LocalFileSystem>(shared_from_this()), sync_data);
     return Status::OK();
 }
 
@@ -197,7 +198,7 @@ Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<F
         files->push_back(std::move(file_info));
     }
     if (ec) {
-        return Status::IOError("failed to list {}: {}", dir.native(), errcode_to_str(ec));
+        return Status::IOError<false>("failed to list {}: {}", dir.native(), errcode_to_str(ec));
     }
     return Status::OK();
 }

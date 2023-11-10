@@ -22,6 +22,10 @@ suite("test_map_column_delete") {
 
     sql """ CREATE TABLE IF NOT EXISTS ${tableName} (id INT NULL, m_map MAP<INT, VARCHAR(30)> NULL) ENGINE=OLAP DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 4 PROPERTIES ( "replication_allocation" = "tag.location.default: 1","in_memory" = "false","storage_format" = "V2") """
     sql """ insert into ${tableName} values(1, {1:'a', 2:"doris"}),(2,{}),(3,NULL),(4,NULL),(5,NULL) """
-    sql """ DELETE FROM ${tableName} WHERE m_map is NULL """
+    test {
+        sql """ DELETE FROM ${tableName} WHERE m_map is NULL """
+        exception("java.sql.SQLException: errCode = 2, detailMessage = errCode = 2, detailMessage = Can not apply delete condition to column type: MAP<INT,VARCHAR(30)>")
+    }
+    sql """ DELETE FROM ${tableName} WHERE id = 1; """
     qt_sql """ SELECT * FROM ${tableName} order by id """
 }

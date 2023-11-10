@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.planner.PlanNodeId;
 
 /**
  * relation id
@@ -45,5 +46,9 @@ public class ObjectId extends Id<ObjectId> {
     @Override
     public String toString() {
         return "ObjectId#" + id;
+    }
+
+    public PlanNodeId toPlanNodeId() {
+        return new PlanNodeId(id);
     }
 }

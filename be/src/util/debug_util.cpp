@@ -128,9 +128,9 @@ std::string PrintFrontendInfo(const TFrontendInfo& fe_info) {
     return ss.str();
 }
 
-std::string PrintInstanceStandardInfo(const TUniqueId& qid, const int fid, const TUniqueId& iid) {
+std::string PrintInstanceStandardInfo(const TUniqueId& qid, const TUniqueId& iid) {
     std::stringstream ss;
-    ss << print_id(iid) << '|' << fid << '|' << print_id(qid);
+    ss << print_id(iid) << '|' << print_id(qid);
     return ss.str();
 }
 

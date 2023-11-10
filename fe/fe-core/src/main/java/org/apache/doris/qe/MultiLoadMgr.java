@@ -54,6 +54,7 @@ import org.apache.logging.log4j.Logger;
 import org.awaitility.Awaitility;
 
 import java.io.StringReader;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -61,6 +62,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 // Class used to record state of multi-load operation
 public class MultiLoadMgr {
@@ -104,11 +106,11 @@ public class MultiLoadMgr {
 
     // Add one load job
     private void load(String fullDbName, String label,
-                     String subLabel, String table,
-                     List<Pair<String, Long>> files,
-                     TNetworkAddress fileAddr,
-                     Map<String, String> properties,
-                     long timestamp) throws DdlException {
+            String subLabel, String table,
+            List<Pair<String, Long>> files,
+            TNetworkAddress fileAddr,
+            Map<String, String> properties,
+            long timestamp) throws DdlException {
         LabelName multiLabel = new LabelName(fullDbName, label);
         lock.writeLock().lock();
         try {
@@ -250,9 +252,9 @@ public class MultiLoadMgr {
         }
 
         public void addFile(String subLabel, String table, List<Pair<String, Long>> files,
-                            TNetworkAddress fileAddr,
-                            Map<String, String> properties,
-                            long timestamp) throws DdlException {
+                TNetworkAddress fileAddr,
+                Map<String, String> properties,
+                long timestamp) throws DdlException {
 
             if (isSubLabelUsed(subLabel, timestamp)) {
                 // sub label is used and this is a retry request.
@@ -334,7 +336,6 @@ public class MultiLoadMgr {
             return backendId;
         }
 
-
         public LoadStmt toLoadStmt() throws DdlException {
             LabelName commitLabel = multiLabel;
 
@@ -380,8 +381,8 @@ public class MultiLoadMgr {
         private Set<Long> timestamps = Sets.newHashSet();
 
         public TableLoadDesc(String tbl, String label, List<Pair<String, Long>> files,
-                             TNetworkAddress address, Map<String, String> properties,
-                             long timestamp) {
+                TNetworkAddress address, Map<String, String> properties,
+                long timestamp) {
             this.tbl = tbl;
             this.filesByLabel = Maps.newLinkedHashMap();
 
@@ -414,7 +415,6 @@ public class MultiLoadMgr {
         public void addTimestamp(long timestamp) {
             timestamps.add(timestamp);
         }
-
 
         public Long getBackendId() {
             return backendId;
@@ -463,13 +463,16 @@ public class MultiLoadMgr {
                     }
                 }
                 if (properties.get(LoadStmt.KEY_IN_PARAM_PARTITIONS) != null) {
-                    String[] partNames = properties.get(LoadStmt.KEY_IN_PARAM_PARTITIONS)
-                            .trim().split("\\s*,\\s*");
-                    partitionNames = new PartitionNames(false, Lists.newArrayList(partNames));
+                    String[] splitPartNames = properties.get(LoadStmt.KEY_IN_PARAM_PARTITIONS).trim().split(",");
+                    List<String> partNames = Arrays.stream(splitPartNames).map(String::trim)
+                            .collect(Collectors.toList());
+                    partitionNames = new PartitionNames(false, partNames);
                 } else if (properties.get(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS) != null) {
-                    String[] partNames = properties.get(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS)
-                            .trim().split("\\s*,\\s*");
-                    partitionNames = new PartitionNames(true, Lists.newArrayList(partNames));
+                    String[] splitTempPartNames = properties.get(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS).trim()
+                            .split(",");
+                    List<String> tempPartNames = Arrays.stream(splitTempPartNames).map(String::trim)
+                            .collect(Collectors.toList());
+                    partitionNames = new PartitionNames(true, tempPartNames);
                 }
                 if (properties.get(LoadStmt.KEY_IN_PARAM_MERGE_TYPE) != null) {
                     mergeType = LoadTask.MergeType.valueOf(properties.get(LoadStmt.KEY_IN_PARAM_MERGE_TYPE));
@@ -486,7 +489,7 @@ public class MultiLoadMgr {
                     jsonPaths = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_JSONPATHS, "");
                     jsonRoot = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_JSONROOT, "");
                     fuzzyParse = Boolean.valueOf(
-                        properties.getOrDefault(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE, "false"));
+                            properties.getOrDefault(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE, "false"));
                 }
             }
             DataDescription dataDescription = new DataDescription(tbl, partitionNames, files, null, columnSeparator,

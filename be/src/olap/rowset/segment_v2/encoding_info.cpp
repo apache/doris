@@ -284,6 +284,10 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PREFIX_ENCODING, true>();
 
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, DICT_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PREFIX_ENCODING, true>();
+
     _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, RLE>();
     _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>();
     _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING>();
@@ -320,6 +324,16 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, BIT_SHUFFLE>();
     _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, BIT_SHUFFLE, true>();
+
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL256, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE, true>();
+
+    _add_map<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE>();
+
+    _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE, true>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
 

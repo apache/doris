@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -60,7 +61,6 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import javax.annotation.Nullable;
 
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan
@@ -77,6 +77,8 @@ public class PlanReceiver implements AbstractReceiver {
 
     HyperGraph hyperGraph;
     final Set<Slot> finalOutputs;
+    long startTime = System.currentTimeMillis();
+    long timeLimit = ConnectContext.get().getSessionVariable().joinReorderTimeLimit;
 
     public PlanReceiver(JobContext jobContext, int limit, HyperGraph hyperGraph, Set<Slot> outputs) {
         this.jobContext = jobContext;
@@ -105,7 +107,7 @@ public class PlanReceiver implements AbstractReceiver {
         processMissedEdges(left, right, edges);
 
         emitCount += 1;
-        if (emitCount > limit) {
+        if (emitCount > limit || System.currentTimeMillis() - startTime > timeLimit) {
             return false;
         }
 
@@ -118,7 +120,7 @@ public class PlanReceiver implements AbstractReceiver {
         List<Expression> hashConjuncts = new ArrayList<>();
         List<Expression> otherConjuncts = new ArrayList<>();
 
-        JoinType joinType = extractJoinTypeAndConjuncts(edges, hashConjuncts, otherConjuncts);
+        JoinType joinType = Edge.extractJoinTypeAndConjuncts(edges, hashConjuncts, otherConjuncts);
         if (joinType == null) {
             return true;
         }
@@ -237,21 +239,6 @@ public class PlanReceiver implements AbstractReceiver {
         return plans;
     }
 
-    private @Nullable JoinType extractJoinTypeAndConjuncts(List<Edge> edges, List<Expression> hashConjuncts,
-            List<Expression> otherConjuncts) {
-        JoinType joinType = null;
-        for (Edge edge : edges) {
-            if (edge.getJoinType() != joinType && joinType != null) {
-                return null;
-            }
-            Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
-            joinType = edge.getJoinType();
-            hashConjuncts.addAll(edge.getHashJoinConjuncts());
-            otherConjuncts.addAll(edge.getOtherJoinConjuncts());
-        }
-        return joinType;
-    }
-
     private boolean extractIsMarkJoin(List<Edge> edges) {
         boolean isMarkJoin = false;
         JoinType joinType = null;
@@ -288,6 +275,7 @@ public class PlanReceiver implements AbstractReceiver {
         usdEdges.clear();
         complexProjectMap.clear();
         complexProjectMap.putAll(hyperGraph.getComplexProject());
+        startTime = System.currentTimeMillis();
     }
 
     @Override

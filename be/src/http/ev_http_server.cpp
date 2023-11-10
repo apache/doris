@@ -84,7 +84,17 @@ static int on_connection(struct evhttp_request* req, void* param) {
 EvHttpServer::EvHttpServer(int port, int num_workers)
         : _port(port), _num_workers(num_workers), _real_port(0) {
     _host = BackendOptions::get_service_bind_address();
+
+    evthread_use_pthreads();
     DCHECK_GT(_num_workers, 0);
+    _event_bases.resize(_num_workers);
+    for (int i = 0; i < _num_workers; ++i) {
+        std::shared_ptr<event_base> base(event_base_new(),
+                                         [](event_base* base) { event_base_free(base); });
+        CHECK(base != nullptr) << "Couldn't create an event_base.";
+        std::lock_guard lock(_event_bases_lock);
+        _event_bases[i] = base;
+    }
 }
 
 EvHttpServer::EvHttpServer(const std::string& host, int port, int num_workers)
@@ -103,38 +113,32 @@ void EvHttpServer::start() {
     // bind to
     auto s = _bind();
     CHECK(s.ok()) << s.to_string();
-    ThreadPoolBuilder("EvHttpServer")
-            .set_min_threads(_num_workers)
-            .set_max_threads(_num_workers)
-            .build(&_workers);
-
-    evthread_use_pthreads();
-    _event_bases.resize(_num_workers);
+    static_cast<void>(ThreadPoolBuilder("EvHttpServer")
+                              .set_min_threads(_num_workers)
+                              .set_max_threads(_num_workers)
+                              .build(&_workers));
     for (int i = 0; i < _num_workers; ++i) {
-        CHECK(_workers->submit_func([this, i]() {
-                          std::shared_ptr<event_base> base(event_base_new(), [](event_base* base) {
-                              event_base_free(base);
-                          });
-                          CHECK(base != nullptr) << "Couldn't create an event_base.";
-                          {
-                              std::lock_guard<std::mutex> lock(_event_bases_lock);
-                              _event_bases[i] = base;
-                          }
+        auto status = _workers->submit_func([this, i]() {
+            std::shared_ptr<event_base> base;
+            {
+                std::lock_guard lock(_event_bases_lock);
+                base = _event_bases[i];
+            }
 
-                          /* Create a new evhttp object to handle requests. */
-                          std::shared_ptr<evhttp> http(evhttp_new(base.get()),
-                                                       [](evhttp* http) { evhttp_free(http); });
-                          CHECK(http != nullptr) << "Couldn't create an evhttp.";
+            /* Create a new evhttp object to handle requests. */
+            std::shared_ptr<evhttp> http(evhttp_new(base.get()),
+                                         [](evhttp* http) { evhttp_free(http); });
+            CHECK(http != nullptr) << "Couldn't create an evhttp.";
 
-                          auto res = evhttp_accept_socket(http.get(), _server_fd);
-                          CHECK(res >= 0) << "evhttp accept socket failed, res=" << res;
+            auto res = evhttp_accept_socket(http.get(), _server_fd);
+            CHECK(res >= 0) << "evhttp accept socket failed, res=" << res;
 
-                          evhttp_set_newreqcb(http.get(), on_connection, this);
-                          evhttp_set_gencb(http.get(), on_request, this);
+            evhttp_set_newreqcb(http.get(), on_connection, this);
+            evhttp_set_gencb(http.get(), on_request, this);
 
-                          event_base_dispatch(base.get());
-                      })
-                      .ok());
+            event_base_dispatch(base.get());
+        });
+        CHECK(status.ok());
     }
 }
 

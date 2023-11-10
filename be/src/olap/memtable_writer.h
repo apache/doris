@@ -33,6 +33,7 @@
 #include "olap/delta_writer_context.h"
 #include "olap/memtable.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
@@ -67,6 +68,7 @@ public:
     ~MemTableWriter();
 
     Status init(std::shared_ptr<RowsetWriter> rowset_writer, TabletSchemaSPtr tablet_schema,
+                std::shared_ptr<PartialUpdateInfo> partial_update_info,
                 bool unique_key_mow = false);
 
     Status write(const vectorized::Block* block, const std::vector<int>& row_idxs,
@@ -141,6 +143,8 @@ private:
     int64_t _segment_num = 0;
 
     MonotonicStopWatch _lock_watch;
+
+    std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 };
 
 } // namespace doris

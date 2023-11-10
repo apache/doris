@@ -38,7 +38,7 @@ public:
 
     virtual Status init(RuntimeState* state) = 0;
 
-    virtual Status close() = 0;
+    virtual Status close(Status s = Status::OK()) = 0;
 
     [[nodiscard]] virtual int64_t get_written_rows() const { return _written_rows; }
 

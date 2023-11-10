@@ -1,0 +1,149 @@
+{
+  "test" : {
+    "mappings" : {
+      "_default_" : {
+        "dynamic_templates" : [
+          {
+            "message_field" : {
+              "path_match" : "message",
+              "match_mapping_type" : "string",
+              "mapping" : {
+                "norms" : false,
+                "type" : "text"
+              }
+            }
+          },
+          {
+            "string_fields" : {
+              "match" : "*",
+              "match_mapping_type" : "string",
+              "mapping" : {
+                "fields" : {
+                  "keyword" : {
+                    "ignore_above" : 256,
+                    "type" : "keyword"
+                  }
+                },
+                "norms" : false,
+                "type" : "text"
+              }
+            }
+          }
+        ],
+        "properties" : {
+          "@timestamp" : {
+            "type" : "date"
+          },
+          "@version" : {
+            "type" : "keyword"
+          },
+          "geoip" : {
+            "dynamic" : "true",
+            "properties" : {
+              "ip" : {
+                "type" : "ip"
+              },
+              "latitude" : {
+                "type" : "half_float"
+              },
+              "location" : {
+                "type" : "geo_point"
+              },
+              "longitude" : {
+                "type" : "half_float"
+              }
+            }
+          }
+        }
+      },
+      "doc" : {
+        "dynamic_templates" : [
+          {
+            "message_field" : {
+              "path_match" : "message",
+              "match_mapping_type" : "string",
+              "mapping" : {
+                "norms" : false,
+                "type" : "text"
+              }
+            }
+          },
+          {
+            "string_fields" : {
+              "match" : "*",
+              "match_mapping_type" : "string",
+              "mapping" : {
+                "fields" : {
+                  "keyword" : {
+                    "ignore_above" : 256,
+                    "type" : "keyword"
+                  }
+                },
+                "norms" : false,
+                "type" : "text"
+              }
+            }
+          }
+        ],
+        "properties" : {
+          "@timestamp" : {
+            "type" : "date"
+          },
+          "@version" : {
+            "type" : "keyword"
+          },
+          "act" : {
+            "type" : "text",
+            "norms" : false,
+            "fields" : {
+              "keyword" : {
+                "type" : "keyword",
+                "ignore_above" : 256
+              }
+            }
+          },
+          "app" : {
+            "type" : "text",
+            "norms" : false,
+            "fields" : {
+              "keyword" : {
+                "type" : "keyword",
+                "ignore_above" : 256
+              }
+            }
+          },
+          "tags" : {
+            "type" : "text",
+            "norms" : false,
+            "fields" : {
+              "keyword" : {
+                "type" : "keyword",
+                "ignore_above" : 256
+              }
+            }
+          },
+          "type" : {
+            "type" : "text",
+            "norms" : false,
+            "fields" : {
+              "keyword" : {
+                "type" : "keyword",
+                "ignore_above" : 256
+              }
+            }
+          },
+          "uid" : {
+            "type" : "text",
+            "norms" : false,
+            "fields" : {
+              "keyword" : {
+                "type" : "keyword",
+                "ignore_above" : 256
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

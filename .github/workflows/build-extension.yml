@@ -100,6 +100,7 @@ jobs:
         run: |
           git clone https://github.com/apache/doris-website.git website
           cd website
+          echo "[\"current\"]" > versions.json 
           mkdir -p docs
           cp -R ../docs/en/docs/* docs/
           cp -R ../docs/sidebars.json sidebars.json

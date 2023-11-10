@@ -125,8 +125,8 @@ public interface LoadTaskInfo {
         return false;
     }
 
-    default boolean isIgnoreMode() {
-        return false;
+    default int getStreamPerNode() {
+        return 20;
     }
 
     class ImportColumnDescs {

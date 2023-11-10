@@ -90,7 +90,7 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
             if (_data_type->is_nullable()) {
                 return Status::InternalError("State function's return type must be not nullable");
             }
-            if (_data_type->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+            if (_data_type->get_type_as_type_descriptor().type != PrimitiveType::TYPE_AGG_STATE) {
                 return Status::InternalError(
                         "State function's return type must be agg_state but get {}",
                         _data_type->get_family_name());
@@ -121,8 +121,13 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
 
 Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
                               FunctionContext::FunctionStateScope scope) {
-    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    for (int i = 0; i < _children.size(); ++i) {
+        RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    }
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+    }
     return Status::OK();
 }
 

@@ -59,6 +59,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -142,7 +143,6 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
         // bind function
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
-        String functionName = unboundFunction.getName();
         List<Object> arguments = unboundFunction.isDistinct()
                 ? ImmutableList.builder()
                 .add(unboundFunction.isDistinct())
@@ -150,22 +150,24 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 .build()
                 : (List) unboundFunction.getArguments();
 
-        // we will change arithmetic function like add(), subtract(), bitnot() to the corresponding objects rather than
-        // BoundFunction.
-        ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
-        if (functionBinder.isBinaryArithmetic(unboundFunction.getName())) {
-            return functionBinder.bindBinaryArithmetic(unboundFunction.getName(), unboundFunction.children())
-                    .accept(this, context);
+        if (StringUtils.isEmpty(unboundFunction.getDbName())) {
+            // we will change arithmetic function like add(), subtract(), bitnot()
+            // to the corresponding objects rather than BoundFunction.
+            ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
+            if (functionBinder.isBinaryArithmetic(unboundFunction.getName())) {
+                return functionBinder.bindBinaryArithmetic(unboundFunction.getName(), unboundFunction.children())
+                        .accept(this, context);
+            }
         }
 
-        FunctionBuilder builder = functionRegistry.findFunctionBuilder(unboundFunction.getDbName(),
-                functionName, arguments);
-        BoundFunction boundFunction = builder.build(functionName, arguments);
+        String functionName = unboundFunction.getName();
+        FunctionBuilder builder = functionRegistry.findFunctionBuilder(
+                unboundFunction.getDbName(), functionName, arguments);
         if (builder instanceof AliasUdfBuilder) {
             // we do type coercion in build function in alias function, so it's ok to return directly.
-            return boundFunction;
+            return builder.build(functionName, arguments);
         } else {
-            return TypeCoercionUtils.processBoundFunction(boundFunction);
+            return TypeCoercionUtils.processBoundFunction((BoundFunction) builder.build(functionName, arguments));
         }
     }
 
@@ -315,9 +317,11 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         Expression left = match.left().accept(this, context);
         Expression right = match.right().accept(this, context);
         // check child type
-        if (!left.getDataType().isStringLikeType()) {
+        if (!left.getDataType().isStringLikeType()
+                && !(left.getDataType() instanceof ArrayType
+                && ((ArrayType) left.getDataType()).getItemType().isStringLikeType())) {
             throw new AnalysisException(String.format(
-                    "left operand '%s' part of predicate " + "'%s' should return type 'STRING' but "
+                    "left operand '%s' part of predicate " + "'%s' should return type 'STRING' or 'ARRAY<STRING>' but "
                             + "returns type '%s'.",
                     left.toSql(), match.toSql(), left.getDataType()));
         }
@@ -335,7 +339,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = (Cast) super.visitCast(cast, context);
         // NOTICE: just for compatibility with legacy planner.
-        if (cast.child().getDataType() instanceof ArrayType || cast.getDataType() instanceof ArrayType) {
+        if (cast.child().getDataType().isComplexType() || cast.getDataType().isComplexType()) {
             TypeCoercionUtils.checkCanCastTo(cast.child().getDataType(), cast.getDataType());
         }
         return cast;

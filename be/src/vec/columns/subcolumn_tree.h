@@ -31,16 +31,15 @@ template <typename NodeData>
 class SubcolumnsTree {
 public:
     struct Node {
-        enum Kind {
-            TUPLE,
-            NESTED,
-            SCALAR,
-        };
+        enum Kind { TUPLE, NESTED, SCALAR };
 
         explicit Node(Kind kind_) : kind(kind_) {}
         Node(Kind kind_, const NodeData& data_) : kind(kind_), data(data_) {}
         Node(Kind kind_, const NodeData& data_, const PathInData& path_)
                 : kind(kind_), data(data_), path(path_) {}
+        Node(Kind kind_, NodeData&& data_) : kind(kind_), data(std::move(data_)) {}
+        Node(Kind kind_, NodeData&& data_, const PathInData& path_)
+                : kind(kind_), data(std::move(data_)), path(path_) {}
 
         Kind kind = TUPLE;
         const Node* parent = nullptr;
@@ -53,6 +52,20 @@ public:
 
         bool is_nested() const { return kind == NESTED; }
         bool is_scalar() const { return kind == SCALAR; }
+        bool is_scalar_without_children() const { return kind == SCALAR && children.empty(); }
+
+        // Only modify data and kind
+        void modify(std::shared_ptr<Node>&& other) {
+            data = std::move(other->data);
+            kind = other->kind;
+            path = other->path;
+        }
+
+        // modify data and kind
+        void modify_to_scalar(NodeData&& other_data) {
+            data = std::move(other_data);
+            kind = Kind::SCALAR;
+        }
 
         void add_child(std::string_view key, std::shared_ptr<Node> next_node) {
             next_node->parent = this;
@@ -79,9 +92,29 @@ public:
         });
     }
 
+    bool add(const PathInData& path, NodeData&& leaf_data) {
+        return add(path, [&](NodeKind kind, bool exists) -> NodePtr {
+            if (exists) {
+                return nullptr;
+            }
+
+            if (kind == Node::SCALAR) {
+                return std::make_shared<Node>(kind, std::move(leaf_data), path);
+            }
+
+            return std::make_shared<Node>(kind);
+        });
+    }
+
     /// Callback for creation of node. Receives kind of node and
     /// flag, which is true if node already exists.
     using NodeCreator = std::function<NodePtr(NodeKind, bool)>;
+
+    // create root as SCALAR node
+    void create_root(const NodeData& leaf_data) {
+        root = std::make_shared<Node>(Node::SCALAR, leaf_data);
+        leaves.push_back(root);
+    }
 
     bool add(const PathInData& path, const NodeCreator& node_creator) {
         const auto& parts = path.get_parts();
@@ -96,8 +129,6 @@ public:
 
         Node* current_node = root.get();
         for (size_t i = 0; i < parts.size() - 1; ++i) {
-            // assert(current_node->kind != Node::SCALAR);
-
             auto it = current_node->children.find(
                     StringRef {parts[i].key.data(), parts[i].key.size()});
             if (it != current_node->children.end()) {
@@ -118,7 +149,11 @@ public:
         auto it = current_node->children.find(
                 StringRef {parts.back().key.data(), parts.back().key.size()});
         if (it != current_node->children.end()) {
-            return false;
+            // Modify this node to Node::SCALAR
+            auto new_node = node_creator(Node::SCALAR, false);
+            it->get_second()->modify(std::move(new_node));
+            leaves.push_back(it->get_second());
+            return true;
         }
 
         auto next_node = node_creator(Node::SCALAR, false);
@@ -183,6 +218,19 @@ public:
 
     const Nodes& get_leaves() const { return leaves; }
     const Node* get_root() const { return root.get(); }
+    Node* get_mutable_root() { return root.get(); }
+
+    static void get_leaves_of_node(const Node* node, std::vector<const Node*>& nodes,
+                                   vectorized::PathsInData& paths) {
+        if (node->is_scalar()) {
+            nodes.push_back(node);
+            paths.push_back(node->path);
+        }
+        for (auto it = node->children.begin(); it != node->children.end(); ++it) {
+            auto child = it->get_second();
+            get_leaves_of_node(child.get(), nodes, paths);
+        }
+    }
 
     using iterator = typename Nodes::iterator;
     using const_iterator = typename Nodes::const_iterator;

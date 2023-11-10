@@ -55,11 +55,11 @@ public:
     void cancel(const std::string& reason) override;
 
     // register <instance id, pipe> pair
-    Status putPipe(const TUniqueId& fragment_instance_id, std::shared_ptr<io::StreamLoadPipe> pipe);
+    Status put_pipe(const TUniqueId& pipe_id, std::shared_ptr<io::StreamLoadPipe> pipe);
 
-    std::shared_ptr<io::StreamLoadPipe> getPipe(const TUniqueId& fragment_instance_id);
+    std::shared_ptr<io::StreamLoadPipe> get_pipe(const TUniqueId& pipe_id);
 
-    void removePipe(const TUniqueId& fragment_instance_id);
+    void remove_pipe(const TUniqueId& pipe_id);
 
 private:
     // parse table name from data

@@ -29,17 +29,17 @@ public class MarkJoinSlotReference extends SlotReference implements SlotNotFromC
     final boolean existsHasAgg;
 
     public MarkJoinSlotReference(String name) {
-        super(name, BooleanType.INSTANCE, false);
+        super(name, BooleanType.INSTANCE, true);
         this.existsHasAgg = false;
     }
 
     public MarkJoinSlotReference(String name, boolean existsHasAgg) {
-        super(name, BooleanType.INSTANCE, false);
+        super(name, BooleanType.INSTANCE, true);
         this.existsHasAgg = existsHasAgg;
     }
 
     public MarkJoinSlotReference(ExprId exprId, String name, boolean existsHasAgg) {
-        super(exprId, name, BooleanType.INSTANCE, false, ImmutableList.of());
+        super(exprId, name, BooleanType.INSTANCE, true, ImmutableList.of());
         this.existsHasAgg = existsHasAgg;
     }
 

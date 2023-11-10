@@ -138,7 +138,8 @@ private:
             }
         } else if constexpr (std::is_same_v<ColumnType, ColumnDecimal32> ||
                              std::is_same_v<ColumnType, ColumnDecimal64> ||
-                             std::is_same_v<ColumnType, ColumnDecimal128I>) {
+                             std::is_same_v<ColumnType, ColumnDecimal128I> ||
+                             std::is_same_v<ColumnType, ColumnDecimal256>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 using type = std::decay_t<decltype(result_raw_data[0].value)>;
                 result_raw_data[i] =
@@ -243,7 +244,8 @@ private:
             }
         } else if constexpr (std::is_same_v<ColumnType, ColumnDecimal32> ||
                              std::is_same_v<ColumnType, ColumnDecimal64> ||
-                             std::is_same_v<ColumnType, ColumnDecimal128I>) {
+                             std::is_same_v<ColumnType, ColumnDecimal128I> ||
+                             std::is_same_v<ColumnType, ColumnDecimal256>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 using type = std::decay_t<decltype(first_raw_data[0].value)>;
                 res_data[i] |= (!res_data[i] *

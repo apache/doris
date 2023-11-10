@@ -410,11 +410,11 @@ TEST_F(RemoteFileSystemTest, TestHdfsFileSystem) {
 
 TEST_F(RemoteFileSystemTest, TestS3FileSystem) {
     std::unique_ptr<ThreadPool> _pool;
-    ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+    ThreadPoolBuilder("S3FileUploadThreadPool")
             .set_min_threads(5)
             .set_max_threads(10)
             .build(&_pool);
-    ExecEnv::GetInstance()->_buffered_reader_prefetch_thread_pool = std::move(_pool);
+    ExecEnv::GetInstance()->_s3_file_upload_thread_pool = std::move(_pool);
     S3Conf s3_conf;
     S3URI s3_uri(s3_location);
     CHECK_STATUS_OK(s3_uri.parse());

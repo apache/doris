@@ -126,7 +126,7 @@ Records: 1  Deleted: 0  Skipped: 0  Warnings: 0
 ### 异常结果
 如果执行出现异常, 会在客户端中出现如下异常显示
 ```text
-ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]too many filtered rows with load id b612907c-ccf4-4ac2-82fe-107ece655f0f
+ERROR 1105 (HY000): errCode = 2, detailMessage = [DATA_QUALITY_ERROR]too many filtered rows with load id b612907c-ccf4-4ac2-82fe-107ece655f0f
 ```
 
 当遇到这类异常错误, 可以找到其中的`loadId`, 可以通过`show load warnings`命令在客户端中展示详细的异常信息.

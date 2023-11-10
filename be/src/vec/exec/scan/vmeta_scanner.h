@@ -55,6 +55,10 @@ public:
                  const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
                  TUserIdentity user_identity);
 
+    VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t tuple_id,
+                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
+                 TUserIdentity user_identity);
+
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
@@ -77,6 +81,8 @@ private:
                                                    TFetchSchemaTableDataRequest* request);
     Status _build_catalogs_metadata_request(const TMetaScanRange& meta_scan_range,
                                             TFetchSchemaTableDataRequest* request);
+    Status _build_queries_metadata_request(const TMetaScanRange& meta_scan_range,
+                                           TFetchSchemaTableDataRequest* request);
     bool _meta_eos;
     TupleId _tuple_id;
     TUserIdentity _user_identity;

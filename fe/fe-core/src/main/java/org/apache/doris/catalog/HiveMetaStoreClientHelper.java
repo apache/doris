@@ -35,6 +35,7 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.RemoteFiles;
@@ -925,6 +926,24 @@ public class HiveMetaStoreClientHelper {
             }
         }
         return ugi;
+    }
+
+    public static <T> T ugiDoAs(long catalogId, PrivilegedExceptionAction<T> action) {
+        return ugiDoAs(((ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId)).getConfiguration(),
+                action);
+    }
+
+    public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
+        UserGroupInformation ugi = getUserGroupInformation(conf);
+        try {
+            if (ugi != null) {
+                return ugi.doAs(action);
+            } else {
+                return action.run();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e.getCause());
+        }
     }
 
     public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {

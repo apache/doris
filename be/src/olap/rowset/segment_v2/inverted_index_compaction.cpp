@@ -80,7 +80,7 @@ Status compact_column(int32_t index_id, int src_segment_num, int dest_segment_nu
     }
 
     // delete temporary index_writer_path
-    fs->delete_directory(index_writer_path.c_str());
+    static_cast<void>(fs->delete_directory(index_writer_path.c_str()));
     return Status::OK();
 }
 } // namespace segment_v2

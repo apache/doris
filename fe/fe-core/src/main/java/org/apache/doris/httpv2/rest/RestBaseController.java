@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
@@ -200,7 +201,8 @@ public class RestBaseController extends BaseController {
         String uri = request.getRequestURI();
         String query = request.getQueryString();
         query = query == null ? "" : query;
-        String newUrl = "https://" + serverName + ":" + Config.https_port + uri + "?" + query;
+        String newUrl = "https://" + NetUtils.getHostPortInAccessibleFormat(serverName, Config.https_port) + uri + "?"
+                + query;
         LOG.info("redirect to new url: {}", newUrl);
         RedirectView redirectView = new RedirectView(newUrl);
         redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);

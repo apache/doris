@@ -93,21 +93,35 @@ public class DateTimeLiteral extends DateLiteral {
         this.day = day;
     }
 
+    public boolean isMidnight() {
+        return hour == 0 && minute == 0 && second == 0 && microSecond == 0;
+    }
+
     /**
      * determine scale by datetime string
      */
     public static int determineScale(String s) {
-        TemporalAccessor dateTime = parse(s);
-        int microSecond = DateUtils.getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND);
-
-        if (microSecond == 0) {
+        if (!s.contains("-") && !s.contains(":")) {
             return 0;
         }
-
-        int scale = 6;
-        while (microSecond % 10 == 0) {
+        s = normalize(s);
+        if (s.length() <= 19 || s.charAt(19) != '.') {
+            return 0;
+        }
+        // from index 19 find the index of first char which is not digit
+        int scale = 0;
+        for (int i = 20; i < s.length(); i++) {
+            if (!Character.isDigit(s.charAt(i))) {
+                break;
+            }
+            scale++;
+        }
+        // trim the tailing zero
+        for (int i = 19 + scale; i >= 19; i--) {
+            if (s.charAt(i) != '0') {
+                break;
+            }
             scale--;
-            microSecond /= 10;
         }
         return scale;
     }
@@ -167,7 +181,7 @@ public class DateTimeLiteral extends DateLiteral {
 
     @Override
     public String toSql() {
-        return toString();
+        return String.format("'%s'", toString());
     }
 
     @Override
@@ -193,6 +207,11 @@ public class DateTimeLiteral extends DateLiteral {
     public Expression plusMonths(long months) {
         return fromJavaDateType(
                 DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusMonths(months));
+    }
+
+    public Expression plusWeeks(long weeks) {
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER, getStringValue()).plusWeeks(weeks));
     }
 
     public Expression plusDays(long days) {

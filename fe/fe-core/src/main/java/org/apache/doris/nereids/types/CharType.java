@@ -52,11 +52,6 @@ public class CharType extends CharacterType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
-        return other instanceof CharType;
-    }
-
-    @Override
     public String simpleString() {
         return "char";
     }

@@ -58,7 +58,7 @@ import java.util.stream.Collectors;
 //      EXPORT TABLE table_name [PARTITION (name1[, ...])]
 //          TO 'export_target_path'
 //          [PROPERTIES("key"="value")]
-//          BY BROKER 'broker_name' [( $broker_attrs)]
+//          WITH BROKER 'broker_name' [( $broker_attrs)]
 @Getter
 public class ExportStmt extends StatementBase {
     public static final String PARALLELISM = "parallelism";
@@ -67,18 +67,17 @@ public class ExportStmt extends StatementBase {
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_PARALLELISM = "1";
+    private static final Integer DEFAULT_TIMEOUT = 7200;
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(LABEL)
             .add(PARALLELISM)
-            .add(LoadStmt.EXEC_MEM_LIMIT)
-            .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
-            .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
             .add(PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR)
             .add(PropertyAnalyzer.PROPERTIES_LINE_DELIMITER)
+            .add(PropertyAnalyzer.PROPERTIES_TIMEOUT)
             .add("format")
             .build();
 
@@ -99,6 +98,8 @@ public class ExportStmt extends StatementBase {
     private String label;
 
     private Integer parallelism;
+
+    private Integer timeout;
 
     private String maxFileSize;
     private String deleteExistingFiles;
@@ -121,6 +122,7 @@ public class ExportStmt extends StatementBase {
         this.brokerDesc = brokerDesc;
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
+        this.timeout = DEFAULT_TIMEOUT;
 
         Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
                 ConnectContext.get().getSessionVariable());
@@ -235,8 +237,10 @@ public class ExportStmt extends StatementBase {
         // set sessions
         exportJob.setQualifiedUser(this.qualifiedUser);
         exportJob.setUserIdentity(this.userIdentity);
-        exportJob.setSessionVariables(this.sessionVariables);
-        exportJob.setTimeoutSecond(this.sessionVariables.getQueryTimeoutS());
+        SessionVariable clonedSessionVariable = VariableMgr.cloneSessionVariable(Optional.ofNullable(
+                ConnectContext.get().getSessionVariable()).orElse(VariableMgr.getDefaultSessionVariable()));
+        exportJob.setSessionVariables(clonedSessionVariable);
+        exportJob.setTimeoutSecond(this.timeout);
 
         exportJob.setOrigStmt(this.getOrigStmt());
     }
@@ -324,6 +328,15 @@ public class ExportStmt extends StatementBase {
             this.parallelism = Integer.parseInt(parallelismString);
         } catch (NumberFormatException e) {
             throw new UserException("The value of parallelism is invalid!");
+        }
+
+        // timeout
+        String timeoutString = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_TIMEOUT,
+                String.valueOf(DEFAULT_TIMEOUT));
+        try {
+            this.timeout = Integer.parseInt(timeoutString);
+        } catch (NumberFormatException e) {
+            throw new UserException("The value of timeout is invalid!");
         }
 
         // max_file_size

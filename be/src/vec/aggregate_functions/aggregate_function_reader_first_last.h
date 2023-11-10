@@ -23,6 +23,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -195,9 +196,9 @@ template <typename Data>
 class ReaderFunctionData final
         : public IAggregateFunctionDataHelper<Data, ReaderFunctionData<Data>> {
 public:
-    ReaderFunctionData(const DataTypes& argument_types)
-            : IAggregateFunctionDataHelper<Data, ReaderFunctionData<Data>>(argument_types),
-              _argument_type(argument_types[0]) {}
+    ReaderFunctionData(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, ReaderFunctionData<Data>>(argument_types_),
+              _argument_type(argument_types_[0]) {}
 
     String get_name() const override { return Data::name(); }
 

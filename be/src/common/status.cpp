@@ -39,7 +39,7 @@ TStatus Status::to_thrift() const {
 void Status::to_protobuf(PStatus* s) const {
     s->clear_error_msgs();
     s->set_status_code((int)_code);
-    if (!ok() && _err_msg) {
+    if (!ok()) {
         s->add_error_msgs(fmt::format("({})[{}]{}", BackendOptions::get_localhost(),
                                       code_as_string(), _err_msg ? _err_msg->_msg : ""));
     }

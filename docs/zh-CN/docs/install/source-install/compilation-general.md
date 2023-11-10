@@ -60,8 +60,10 @@ under the License.
 | apache/doris:build-env-for-1.1.0| | 1.1.0 |
 | apache/doris:build-env-for-1.2| | 1.1.x, 1.2.x |
 | apache/doris:build-env-for-1.2-no-avx2| | 1.1.x, 1.2.x |
-| apache/doris:build-env-ldb-toolchain-latest | | trunk |
-| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | trunk |
+| apache/doris:build-env-for-2.0| | 2.0.x |
+| apache/doris:build-env-for-2.0-no-avx2| | 2.0.x |
+| apache/doris:build-env-ldb-toolchain-latest | | master |
+| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | mater |
 
 **注意**：
 

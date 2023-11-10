@@ -585,7 +585,7 @@ void test_v_read_default_value(string value, void* result) {
                     EXPECT_EQ(sr.size, sizeof(vectorized::Int64));
 
                     auto x = unaligned_load<vectorized::Int64>(sr.data);
-                    auto value = binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>(x);
+                    auto value = binary_cast<vectorized::Int64, VecDateTimeValue>(x);
                     char buf[64] = {};
                     value.to_string(buf);
                     int ret = strcmp(buf, (char*)result);

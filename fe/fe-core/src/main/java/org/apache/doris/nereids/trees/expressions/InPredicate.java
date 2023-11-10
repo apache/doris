@@ -90,7 +90,7 @@ public class InPredicate extends Expression {
     @Override
     public String toSql() {
         return compareExpr.toSql() + " IN " + options.stream()
-            .map(Expression::toSql)
+            .map(Expression::toSql).sorted()
             .collect(Collectors.joining(", ", "(", ")"));
     }
 

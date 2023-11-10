@@ -17,33 +17,22 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
 /**
  * Statement for alter the catalog name.
  */
-public class AlterCatalogNameStmt extends DdlStmt {
-    private final String catalogName;
+public class AlterCatalogNameStmt extends AlterCatalogStmt {
     private final String newCatalogName;
 
     public AlterCatalogNameStmt(String catalogName, String newCatalogName) {
-        this.catalogName = catalogName;
+        super(catalogName);
         this.newCatalogName = newCatalogName;
-    }
-
-    public String getCatalogName() {
-        return catalogName;
     }
 
     public String getNewCatalogName() {
@@ -53,17 +42,6 @@ public class AlterCatalogNameStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        Util.checkCatalogAllRules(catalogName);
-
-        if (catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            throw new AnalysisException("Internal catalog can't be alter.");
-        }
-
-        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
-                ConnectContext.get(), catalogName, PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
-                    analyzer.getQualifiedUser(), catalogName);
-        }
 
         if (Strings.isNullOrEmpty(newCatalogName)) {
             throw new AnalysisException("New catalog name is not set");

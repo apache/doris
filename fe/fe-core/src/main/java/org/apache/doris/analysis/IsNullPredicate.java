@@ -155,10 +155,12 @@ public class IsNullPredicate extends Predicate {
      * fix issue 6390
      */
     @Override
-    public Expr getResultValue(boolean inView) throws AnalysisException {
-        recursiveResetChildrenResult(inView);
+    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
+        // Don't push down predicate to view for is null predicate because the value can contain null
+        // after outer join
+        recursiveResetChildrenResult(!forPushDownPredicatesToView);
         final Expr childValue = getChild(0);
-        if (!(childValue instanceof LiteralExpr)) {
+        if (forPushDownPredicatesToView || !(childValue instanceof LiteralExpr)) {
             return this;
         }
         return childValue instanceof NullLiteral ? new BoolLiteral(!isNotNull) : new BoolLiteral(isNotNull);

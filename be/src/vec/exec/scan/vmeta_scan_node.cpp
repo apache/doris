@@ -52,7 +52,8 @@ Status VMetaScanNode::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-void VMetaScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+void VMetaScanNode::set_scan_ranges(RuntimeState* state,
+                                    const std::vector<TScanRangeParams>& scan_ranges) {
     _scan_ranges = scan_ranges;
 }
 

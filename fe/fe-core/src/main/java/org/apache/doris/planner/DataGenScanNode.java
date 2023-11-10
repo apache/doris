@@ -107,4 +107,14 @@ public class DataGenScanNode extends ExternalScanNode {
     public boolean needToCheckColumnPriv() {
         return false;
     }
+
+    // Currently DataGenScanNode is only used by DataGenTableValuedFunction, which is
+    // inherited by NumbersTableValuedFunction.
+    // NumbersTableValuedFunction is not a complete implementation for now, since its
+    // function signature do not support us to split total numbers, so it can not be executed
+    // by multi-processes or multi-threads. So we assign instance number to 1.
+    @Override
+    public int getNumInstances() {
+        return 1;
+    }
 }

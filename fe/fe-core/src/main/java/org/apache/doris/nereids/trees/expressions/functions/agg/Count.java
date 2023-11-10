@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
@@ -66,7 +65,7 @@ public class Count extends AggregateFunction
 
     public boolean isCountStar() {
         return isStar
-                || children.size() == 0
+                || children.isEmpty()
                 || (children.size() == 1 && child(0) instanceof Literal);
     }
 
@@ -82,8 +81,9 @@ public class Count extends AggregateFunction
     public void checkLegalityAfterRewrite() {
         // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
         for (Expression argument : getArguments()) {
-            if (argument.getDataType().isOnlyMetricType()) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            if (distinct && (argument.getDataType().isComplexType()
+                    || argument.getDataType().isObjectType() || argument.getDataType().isJsonType())) {
+                throw new AnalysisException("COUNT DISTINCT could not process type " + this.toSql());
             }
         }
     }

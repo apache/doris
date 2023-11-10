@@ -240,6 +240,7 @@ import java.net.URI;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.security.PrivilegedExceptionAction;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -502,7 +503,7 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
     if (metastoreUris.length <= 1) {
       return;
     }
-    Random rng = new Random();
+    Random rng = new SecureRandom();
     int index = rng.nextInt(metastoreUris.length - 1) + 1;
     URI tmp = metastoreUris[0];
     metastoreUris[0] = metastoreUris[index];

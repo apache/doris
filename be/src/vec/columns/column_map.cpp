@@ -28,6 +28,7 @@
 #include <memory>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/common/arena.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/common/unaligned.h"
@@ -281,7 +282,7 @@ void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& has
     }
 }
 
-void ColumnMap::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnMap::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                       const uint8_t* __restrict null_data) const {
     auto& offsets = get_offsets();
     if (null_data) {
@@ -327,9 +328,9 @@ void ColumnMap::update_hashes_with_value(uint64_t* hashes, const uint8_t* null_d
     }
 }
 
-void ColumnMap::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
-                                       const uint8_t* __restrict null_data) const {
-    auto s = hash.size();
+void ColumnMap::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                       uint32_t offset, const uint8_t* __restrict null_data) const {
+    auto s = rows;
     DCHECK(s == size());
 
     if (null_data) {
@@ -404,40 +405,6 @@ size_t ColumnMap::filter(const Filter& filter) {
     return get_offsets().size();
 }
 
-Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-    auto to = reinterpret_cast<vectorized::ColumnMap*>(col_ptr);
-
-    auto& to_offsets = to->get_offsets();
-
-    size_t element_size = 0;
-    size_t max_offset = 0;
-    for (size_t i = 0; i < sel_size; ++i) {
-        element_size += size_at(sel[i]);
-        max_offset = std::max(max_offset, offset_at(sel[i]));
-    }
-    if (max_offset > std::numeric_limits<uint16_t>::max()) {
-        return Status::Corruption("map elements too large than uint16_t::max");
-    }
-
-    to_offsets.reserve(to_offsets.size() + sel_size);
-    auto nested_sel = std::make_unique<uint16_t[]>(element_size);
-    size_t nested_sel_size = 0;
-    for (size_t i = 0; i < sel_size; ++i) {
-        auto row_off = offset_at(sel[i]);
-        auto row_size = size_at(sel[i]);
-        to_offsets.push_back(to_offsets.back() + row_size);
-        for (auto j = 0; j < row_size; ++j) {
-            nested_sel[nested_sel_size++] = row_off + j;
-        }
-    }
-
-    if (nested_sel_size > 0) {
-        keys_column->filter_by_selector(nested_sel.get(), nested_sel_size, &to->get_keys());
-        values_column->filter_by_selector(nested_sel.get(), nested_sel_size, &to->get_values());
-    }
-    return Status::OK();
-}
-
 ColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const {
     // Make a temp column array
     auto k_arr =
@@ -476,6 +443,27 @@ void ColumnMap::replicate(const uint32_t* indexs, size_t target_size, IColumn& c
             ->replicate(indexs, target_size, res.values_column->assume_mutable_ref());
 }
 
+MutableColumnPtr ColumnMap::get_shrinked_column() {
+    MutableColumns new_columns(2);
+
+    if (keys_column->is_column_string() || keys_column->is_column_array() ||
+        keys_column->is_column_map() || keys_column->is_column_struct()) {
+        new_columns[0] = keys_column->get_shrinked_column();
+    } else {
+        new_columns[0] = keys_column->get_ptr();
+    }
+
+    if (values_column->is_column_string() || values_column->is_column_array() ||
+        values_column->is_column_map() || values_column->is_column_struct()) {
+        new_columns[1] = values_column->get_shrinked_column();
+    } else {
+        new_columns[1] = values_column->get_ptr();
+    }
+
+    return ColumnMap::create(new_columns[0]->assume_mutable(), new_columns[1]->assume_mutable(),
+                             offsets_column->assume_mutable());
+}
+
 void ColumnMap::reserve(size_t n) {
     get_offsets().reserve(n);
     keys_column->reserve(n);
@@ -483,9 +471,8 @@ void ColumnMap::reserve(size_t n) {
 }
 
 void ColumnMap::resize(size_t n) {
-    get_offsets().resize(n);
-    keys_column->resize(n);
-    values_column->resize(n);
+    auto last_off = get_offsets().back();
+    get_offsets().resize_fill(n, last_off);
 }
 
 size_t ColumnMap::byte_size() const {
@@ -496,12 +483,6 @@ size_t ColumnMap::byte_size() const {
 size_t ColumnMap::allocated_bytes() const {
     return keys_column->allocated_bytes() + values_column->allocated_bytes() +
            get_offsets().allocated_bytes();
-}
-
-void ColumnMap::protect() {
-    offsets_column->protect();
-    keys_column->protect();
-    values_column->protect();
 }
 
 } // namespace doris::vectorized

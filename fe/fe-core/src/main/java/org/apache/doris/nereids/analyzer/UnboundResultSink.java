@@ -52,7 +52,7 @@ public class UnboundResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "UnboundResultSink only accepts one child");
-        return new UnboundResultSink<>(groupExpression, Optional.of(getLogicalProperties()), children.get(0));
+        return new UnboundResultSink<>(groupExpression, Optional.empty(), children.get(0));
     }
 
     @Override

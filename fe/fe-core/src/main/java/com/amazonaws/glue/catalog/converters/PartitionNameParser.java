@@ -30,12 +30,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class PartitionNameParser {
 
-  private static final Pattern PARTITION_NAME_VALUE_PATTERN = Pattern.compile("([^/]+)=([^/]+)");
+  private static final String PARTITION_DELIMITER = "=";
   private static final String PARTITION_NAME_DELIMITER = "/";
 
   private static final char STORE_AS_NUMBER = 'n';
@@ -117,11 +115,10 @@ public class PartitionNameParser {
   private static AbstractMap.SimpleEntry getPartitionColumnValuePair(String partition) {
     String column = null;
     String value = null;
-    Matcher partitionMatcher = PARTITION_NAME_VALUE_PATTERN.matcher(partition);
-
-    if (partitionMatcher.matches()) {
-      column = unescapePathName(partitionMatcher.group(1));
-      value = unescapePathName(partitionMatcher.group(2));
+    String[] splitPartition = partition.split(PARTITION_DELIMITER);
+    if (splitPartition.length == 2) {
+      column = unescapePathName(splitPartition[0]);
+      value = unescapePathName(splitPartition[1]);
     } else {
       throw new InvalidPartitionNameException(partition);
     }

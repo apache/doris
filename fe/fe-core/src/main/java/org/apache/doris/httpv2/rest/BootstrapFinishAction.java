@@ -40,6 +40,7 @@ import javax.servlet.http.HttpServletResponse;
  *   "data": {
  *     "queryPort": 9030,
  *     "rpcPort": 9020,
+ *     "arrowFlightSqlPort": 9040,
  *     "maxReplayedJournal": 17287
  *    },
  *   "count": 0
@@ -53,6 +54,7 @@ public class BootstrapFinishAction extends RestBaseController {
 
     public static final String REPLAYED_JOURNAL_ID = "replayedJournalId";
     public static final String QUERY_PORT = "queryPort";
+    public static final String ARROW_FLIGHT_SQL_PORT = "arrowFlightSqlPort";
     public static final String RPC_PORT = "rpcPort";
     public static final String VERSION = "version";
 
@@ -91,6 +93,7 @@ public class BootstrapFinishAction extends RestBaseController {
                 result.setReplayedJournalId(replayedJournalId);
                 result.setQueryPort(Config.query_port);
                 result.setRpcPort(Config.rpc_port);
+                result.setArrowFlightSqlPort(Config.arrow_flight_sql_port);
                 result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
             }
 
@@ -107,6 +110,7 @@ public class BootstrapFinishAction extends RestBaseController {
         private long replayedJournalId = 0;
         private int queryPort = 0;
         private int rpcPort = 0;
+        private int arrowFlightSqlPort = 0;
         private String version = "";
 
         public BootstrapResult() {
@@ -125,8 +129,16 @@ public class BootstrapFinishAction extends RestBaseController {
             this.queryPort = queryPort;
         }
 
+        public void setArrowFlightSqlPort(int arrowFlightSqlPort) {
+            this.arrowFlightSqlPort = arrowFlightSqlPort;
+        }
+
         public int getQueryPort() {
             return queryPort;
+        }
+
+        public int getArrowFlightSqlPort() {
+            return arrowFlightSqlPort;
         }
 
         public void setRpcPort(int rpcPort) {

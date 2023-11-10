@@ -26,6 +26,7 @@ import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredica
 import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
+import org.apache.doris.nereids.rules.expression.rules.TopnToMax;
 
 import com.google.common.collect.ImmutableList;
 
@@ -44,7 +45,8 @@ public class ExpressionOptimization extends ExpressionRewrite {
             SimplifyRange.INSTANCE,
             OrToIn.INSTANCE,
             ArrayContainToArrayOverlap.INSTANCE,
-            CaseWhenToIf.INSTANCE
+            CaseWhenToIf.INSTANCE,
+            TopnToMax.INSTANCE
     );
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);
 

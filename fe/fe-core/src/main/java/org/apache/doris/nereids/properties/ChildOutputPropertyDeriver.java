@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -89,8 +90,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         this.childrenOutputProperties = Objects.requireNonNull(childrenOutputProperties);
     }
 
-    public PhysicalProperties getOutputProperties(GroupExpression groupExpression) {
-        return groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
+    public PhysicalProperties getOutputProperties(ConnectContext connectContext, GroupExpression groupExpression) {
+        return groupExpression.getPlan().accept(this, new PlanContext(connectContext, groupExpression));
     }
 
     @Override

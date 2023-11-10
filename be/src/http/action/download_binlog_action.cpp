@@ -21,8 +21,10 @@
 #include <fmt/ranges.h>
 
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -96,7 +98,7 @@ void handle_get_binlog_info(HttpRequest* req) {
 }
 
 /// handle get segment file, need tablet_id, rowset_id && index
-void handle_get_segment_file(HttpRequest* req) {
+void handle_get_segment_file(HttpRequest* req, bufferevent_rate_limit_group* rate_limit_group) {
     // Step 1: get download file path
     std::string segment_file_path;
     try {
@@ -125,7 +127,7 @@ void handle_get_segment_file(HttpRequest* req) {
         LOG(WARNING) << "file not exist, file path: " << segment_file_path;
         return;
     }
-    do_file_response(segment_file_path, req);
+    do_file_response(segment_file_path, req, rate_limit_group);
 }
 
 void handle_get_rowset_meta(HttpRequest* req) {
@@ -149,7 +151,9 @@ void handle_get_rowset_meta(HttpRequest* req) {
 
 } // namespace
 
-DownloadBinlogAction::DownloadBinlogAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
+DownloadBinlogAction::DownloadBinlogAction(
+        ExecEnv* exec_env, std::shared_ptr<bufferevent_rate_limit_group> rate_limit_group)
+        : _exec_env(exec_env), _rate_limit_group(std::move(rate_limit_group)) {}
 
 void DownloadBinlogAction::handle(HttpRequest* req) {
     VLOG_CRITICAL << "accept one download binlog request " << req->debug_string();
@@ -178,7 +182,7 @@ void DownloadBinlogAction::handle(HttpRequest* req) {
     if (method == "get_binlog_info") {
         handle_get_binlog_info(req);
     } else if (method == "get_segment_file") {
-        handle_get_segment_file(req);
+        handle_get_segment_file(req, _rate_limit_group.get());
     } else if (method == "get_rowset_meta") {
         handle_get_rowset_meta(req);
     } else {

@@ -125,8 +125,7 @@ suite('complex_insert') {
         ) unique key (id, id1)
         distributed by hash(id, id1) buckets 13
         properties(
-            'replication_num'='1',
-            "function_column.sequence_col" = "c4"
+            'replication_num'='1'
         );
     '''
 

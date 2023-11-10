@@ -143,14 +143,17 @@ public:
         _remaining = TOTAL_BUFFER_SIZE;
         if (_profile != nullptr) {
             const char* random_profile = "MergedSmallIO";
-            ADD_TIMER(_profile, random_profile);
-            _copy_time = ADD_CHILD_TIMER(_profile, "CopyTime", random_profile);
-            _read_time = ADD_CHILD_TIMER(_profile, "ReadTime", random_profile);
-            _request_io = ADD_CHILD_COUNTER(_profile, "RequestIO", TUnit::UNIT, random_profile);
-            _merged_io = ADD_CHILD_COUNTER(_profile, "MergedIO", TUnit::UNIT, random_profile);
-            _request_bytes =
-                    ADD_CHILD_COUNTER(_profile, "RequestBytes", TUnit::BYTES, random_profile);
-            _read_bytes = ADD_CHILD_COUNTER(_profile, "MergedBytes", TUnit::BYTES, random_profile);
+            ADD_TIMER_WITH_LEVEL(_profile, random_profile, 1);
+            _copy_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "CopyTime", random_profile, 1);
+            _read_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ReadTime", random_profile, 1);
+            _request_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestIO", TUnit::UNIT,
+                                                       random_profile, 1);
+            _merged_io = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedIO", TUnit::UNIT,
+                                                      random_profile, 1);
+            _request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestBytes", TUnit::BYTES,
+                                                          random_profile, 1);
+            _read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedBytes", TUnit::BYTES,
+                                                       random_profile, 1);
         }
     }
 
@@ -161,7 +164,7 @@ public:
         for (char* box : _boxes) {
             delete[] box;
         }
-        close();
+        static_cast<void>(close());
     }
 
     Status close() override {

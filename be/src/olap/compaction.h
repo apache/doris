@@ -29,6 +29,7 @@
 #include "olap/merger.h"
 #include "olap/olap_common.h"
 #include "olap/rowid_conversion.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
@@ -99,6 +100,7 @@ protected:
 
 private:
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
+    void _load_segment_to_cache();
 
 protected:
     // the root tracker for this compaction
@@ -114,6 +116,7 @@ protected:
     int64_t _input_index_size;
 
     RowsetSharedPtr _output_rowset;
+    PendingRowsetGuard _pending_rs_guard;
     std::unique_ptr<RowsetWriter> _output_rs_writer;
 
     enum CompactionState { INITED = 0, SUCCESS = 1 };

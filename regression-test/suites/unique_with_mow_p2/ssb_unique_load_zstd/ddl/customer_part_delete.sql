@@ -1,1 +1,1 @@
-delete  from  customer where c_custkey > 1500 ;
+delete  from  customer where c_custkey > 1500000 ;

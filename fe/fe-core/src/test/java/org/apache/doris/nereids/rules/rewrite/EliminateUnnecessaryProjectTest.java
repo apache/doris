@@ -61,7 +61,7 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)
                 .customRewrite(new EliminateUnnecessaryProject())
-                .matchesFromRoot(logicalFilter(logicalProject()));
+                .matchesFromRoot(logicalFilter(logicalOlapScan()));
     }
 
     @Test
@@ -76,14 +76,14 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
     }
 
     @Test
-    void testNotEliminateTopProjectWhenOutputNotEquals() {
+    void testEliminateTopProjectWhenOutputNotEquals() {
         LogicalPlan necessaryProject = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
                 .project(ImmutableList.of(1, 0))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), necessaryProject)
                 .customRewrite(new EliminateUnnecessaryProject())
-                .matchesFromRoot(logicalProject());
+                .notMatchesFromRoot(logicalProject());
     }
 
     @Test

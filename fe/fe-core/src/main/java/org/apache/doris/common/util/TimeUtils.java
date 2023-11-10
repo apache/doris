@@ -29,6 +29,7 @@ import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,7 +45,9 @@ import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.Date;
+import java.util.Map;
 import java.util.TimeZone;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -53,9 +56,7 @@ public class TimeUtils {
     public static final String UTC_TIME_ZONE = "Europe/London"; // This is just a Country to represent UTC offset +00:00
     public static final String DEFAULT_TIME_ZONE = "Asia/Shanghai";
     public static final ZoneId TIME_ZONE;
-    // set CST to +08:00 instead of America/Chicago
-    public static final ImmutableMap<String, String> timeZoneAliasMap = ImmutableMap.of(
-            "CST", DEFAULT_TIME_ZONE, "PRC", DEFAULT_TIME_ZONE, "UTC", UTC_TIME_ZONE);
+    public static final ImmutableMap<String, String> timeZoneAliasMap;
     // NOTICE: Date formats are not synchronized.
     // it must be used as synchronized externally.
     public static final DateTimeFormatter DATE_FORMAT;
@@ -86,6 +87,17 @@ public class TimeUtils {
 
     static {
         TIME_ZONE = ZoneId.of("UTC+8");
+
+        Map<String, String> timeZoneMap = Maps.newHashMap();
+        timeZoneMap.putAll(ZoneId.SHORT_IDS);
+
+        // set CST to +08:00 instead of America/Chicago
+        timeZoneMap.put("CST", DEFAULT_TIME_ZONE);
+        timeZoneMap.put("PRC", DEFAULT_TIME_ZONE);
+        timeZoneMap.put("UTC", UTC_TIME_ZONE);
+        timeZoneMap.put("GMT", UTC_TIME_ZONE);
+
+        timeZoneAliasMap = ImmutableMap.copyOf(timeZoneMap);
 
         DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         DATE_FORMAT.withZone(TIME_ZONE);
@@ -253,22 +265,31 @@ public class TimeUtils {
 
     // Check if the time zone_value is valid
     public static String checkTimeZoneValidAndStandardize(String value) throws DdlException {
+        Function<String, String> standardizeValue = s -> {
+            boolean positive = s.charAt(0) != '-';
+            String[] parts = s.replaceAll("[+-]", "").split(":");
+            return (positive ? "+" : "-") + String.format("%02d:%02d",
+                    Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+        };
+
         try {
             if (value == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, "null");
             }
             // match offset type, such as +08:00, -07:00
             Matcher matcher = TIMEZONE_OFFSET_FORMAT_REG.matcher(value);
-            // it supports offset and region timezone type, "CST" use here is compatibility purposes.
+            // it supports offset and region timezone type, and short zone ids
             boolean match = matcher.matches();
-            if (!value.contains("/") && !value.equals("CST") && !match) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
+            if (!value.contains("/") && !timeZoneAliasMap.containsKey(value) && !match) {
+                if ((value.startsWith("GMT") || value.startsWith("UTC"))
+                        && TIMEZONE_OFFSET_FORMAT_REG.matcher(value.substring(3)).matches()) {
+                    value = value.substring(0, 3) + standardizeValue.apply(value.substring(3));
+                } else {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
+                }
             }
             if (match) {
-                boolean positive = value.charAt(0) != '-';
-                value = (positive ? "+" : "-") + String.format("%02d:%02d",
-                        Integer.parseInt(value.replaceAll("[+-]", "").split(":")[0]),
-                        Integer.parseInt(value.replaceAll("[+-]", "").split(":")[1]));
+                value = standardizeValue.apply(value);
 
                 // timezone offsets around the world extended from -12:00 to +14:00
                 int tz = Integer.parseInt(value.substring(1, 3)) * 100 + Integer.parseInt(value.substring(4, 6));

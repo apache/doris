@@ -157,6 +157,8 @@ suite("test_build_index", "inverted_index"){
     // ADD INDEX
     sql """ ALTER TABLE ${tableName} ADD INDEX idx_comment (`comment`) USING INVERTED PROPERTIES("parser" = "english") """
 
+    wait_for_latest_op_on_table_finish(tableName, timeout)
+
     // BUILD INDEX and expect state is RUNNING
     sql """ BUILD INDEX idx_comment ON ${tableName} """
     def state = wait_for_last_build_index_on_table_running(tableName, timeout)

@@ -92,6 +92,6 @@ public class WorkloadGroupTest {
         BaseProcResult result = new BaseProcResult();
         group1.getProcNodeData(result);
         List<List<String>> rows = result.getRows();
-        Assert.assertEquals(5, rows.size());
+        Assert.assertEquals(1, rows.size());
     }
 }

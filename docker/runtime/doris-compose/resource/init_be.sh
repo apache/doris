@@ -28,6 +28,11 @@ add_backend() {
             sleep 1
             continue
         fi
+        lsof -i:$BE_HEARTBEAT_PORT
+        if [ $? -ne 0 ]; then
+            sleep 1
+            continue
+        fi
 
         output=`mysql -P $FE_QUERY_PORT -h $MASTER_FE_IP -u root --execute "ALTER SYSTEM ADD BACKEND '$MY_IP:$BE_HEARTBEAT_PORT';" 2>&1`
         res=$?
@@ -42,7 +47,7 @@ add_backend() {
 
 main() {
     if [ ! -f $REGISTER_FILE ]; then
-        add_backend
+        add_backend &
     fi
     bash $DORIS_HOME/bin/start_be.sh
 }

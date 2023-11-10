@@ -31,6 +31,7 @@
 
 #include "arrow/record_batch.h"
 #include "arrow/type_fwd.h"
+#include "pipeline/exec/result_sink_operator.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/thrift_util.h"
@@ -100,7 +101,7 @@ BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size)
           _packet_num(0) {}
 
 BufferControlBlock::~BufferControlBlock() {
-    cancel();
+    static_cast<void>(cancel());
 }
 
 Status BufferControlBlock::init() {
@@ -143,7 +144,6 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
             _fe_result_batch_queue.push_back(std::move(result));
         }
         _buffer_rows += num_rows;
-        _data_arrival.notify_one();
     } else {
         auto ctx = _waiting_rpc.front();
         _waiting_rpc.pop_front();
@@ -272,6 +272,64 @@ Status BufferControlBlock::cancel() {
     }
     _waiting_rpc.clear();
     return Status::OK();
+}
+
+Status PipBufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) {
+    RETURN_IF_ERROR(BufferControlBlock::add_batch(result));
+    if (_buffer_dependency && _buffer_rows >= _buffer_limit) {
+        _buffer_dependency->block_writing();
+    }
+    return Status::OK();
+}
+
+Status PipBufferControlBlock::add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result) {
+    RETURN_IF_ERROR(BufferControlBlock::add_arrow_batch(result));
+    if (_buffer_dependency && _buffer_rows >= _buffer_limit) {
+        _buffer_dependency->block_writing();
+    }
+    return Status::OK();
+}
+
+void PipBufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
+    BufferControlBlock::get_batch(ctx);
+    if (_buffer_dependency && _buffer_rows < _buffer_limit) {
+        _buffer_dependency->set_ready_for_write();
+    }
+}
+
+Status PipBufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) {
+    RETURN_IF_ERROR(BufferControlBlock::get_arrow_batch(result));
+    if (_buffer_dependency && _buffer_rows < _buffer_limit) {
+        _buffer_dependency->set_ready_for_write();
+    }
+    return Status::OK();
+}
+
+Status PipBufferControlBlock::cancel() {
+    RETURN_IF_ERROR(BufferControlBlock::cancel());
+    if (_cancel_dependency) {
+        _cancel_dependency->set_ready_for_write();
+    }
+
+    return Status::OK();
+}
+
+void PipBufferControlBlock::set_dependency(
+        std::shared_ptr<pipeline::ResultBufferDependency> buffer_dependency,
+        std::shared_ptr<pipeline::ResultQueueDependency> queue_dependency,
+        std::shared_ptr<pipeline::CancelDependency> cancel_dependency) {
+    _buffer_dependency = buffer_dependency;
+    _queue_dependency = queue_dependency;
+    _cancel_dependency = cancel_dependency;
+}
+
+void PipBufferControlBlock::_update_batch_queue_empty() {
+    _batch_queue_empty = _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
+    if (_queue_dependency && _batch_queue_empty) {
+        _queue_dependency->set_ready_for_write();
+    } else if (_queue_dependency) {
+        _queue_dependency->block_writing();
+    }
 }
 
 } // namespace doris

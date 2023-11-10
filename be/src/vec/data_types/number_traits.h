@@ -26,6 +26,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+#include "vec/core/wide_integer.h"
 
 namespace doris::vectorized {
 
@@ -76,6 +77,10 @@ struct Construct<false, false, 16> {
     using Type = Int128;
 };
 template <>
+struct Construct<false, false, 32> {
+    using Type = wide::Int256;
+};
+template <>
 struct Construct<false, true, 1> {
     using Type = Float32;
 };
@@ -110,6 +115,10 @@ struct Construct<true, false, 8> {
 template <>
 struct Construct<true, false, 16> {
     using Type = Int128;
+};
+template <>
+struct Construct<true, false, 32> {
+    using Type = wide::Int256;
 };
 template <>
 struct Construct<true, true, 1> {

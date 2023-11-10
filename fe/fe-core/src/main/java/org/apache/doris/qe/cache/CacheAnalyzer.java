@@ -38,6 +38,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -369,6 +370,7 @@ public class CacheAnalyzer {
         if (now == 0) {
             now = nowtime();
         }
+
         if (enableSqlCache()
                 && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
             if (LOG.isDebugEnabled()) {
@@ -376,7 +378,7 @@ public class CacheAnalyzer {
                         Config.cache_last_version_interval_second * 1000);
             }
             cache = new SqlCache(this.queryId, ((LogicalPlanAdapter) parsedStmt).getStatementContext()
-                        .getOriginStatement().originStmt);
+                    .getOriginStatement().originStmt);
             ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
             return CacheMode.Sql;
@@ -423,7 +425,7 @@ public class CacheAnalyzer {
         return tblTimeList;
     }
 
-    public InternalService.PFetchCacheResult getCacheData() {
+    public InternalService.PFetchCacheResult getCacheData() throws UserException {
         if (parsedStmt instanceof LogicalPlanAdapter) {
             cacheMode = innerCheckCacheModeForNereids(0);
         } else if (parsedStmt instanceof SelectStmt) {
@@ -605,7 +607,7 @@ public class CacheAnalyzer {
         CacheTable cacheTable = new CacheTable();
         cacheTable.table = node.getTargetTable();
         cacheTable.partitionNum = node.getReadPartitionNum();
-        cacheTable.latestTime = cacheTable.table.getLastUpdateTime();
+        cacheTable.latestTime = cacheTable.table.getUpdateTime();
         return cacheTable;
     }
 
@@ -665,3 +667,4 @@ public class CacheAnalyzer {
         cache.updateCache();
     }
 }
+

@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.resource.workloadgroup.QueryQueue;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
@@ -40,8 +42,15 @@ public class WorkloadGroupsTableValuedFunction extends MetadataTableValuedFuncti
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)),
             new Column("Name", ScalarType.createStringType()),
-            new Column("Item", ScalarType.createStringType()),
-            new Column("Value", ScalarType.createStringType()));
+            new Column(WorkloadGroup.CPU_SHARE, ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column(WorkloadGroup.MEMORY_LIMIT, ScalarType.createStringType()),
+            new Column(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, ScalarType.createStringType()),
+            new Column(WorkloadGroup.MAX_CONCURRENCY, ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column(WorkloadGroup.MAX_QUEUE_SIZE, ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column(WorkloadGroup.QUEUE_TIMEOUT, ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column(WorkloadGroup.CPU_HARD_LIMIT, ScalarType.createStringType()),
+            new Column(QueryQueue.RUNNING_QUERY_NUM, ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column(QueryQueue.WAITING_QUERY_NUM, ScalarType.createType(PrimitiveType.BIGINT)));
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 

@@ -25,7 +25,6 @@
 #include <string>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/bitmap_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -141,7 +140,10 @@ struct AggregateFunctionBitmapData {
 
     void read(BufferReadable& buf) { DataTypeBitMap::deserialize_as_stream(value, buf); }
 
-    void reset() { is_first = true; }
+    void reset() {
+        is_first = true;
+        value.reset(); // it's better to call reset function by self firstly.
+    }
 
     BitmapValue& get() { return value; }
 };

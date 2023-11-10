@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
@@ -32,9 +33,11 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import javax.annotation.concurrent.ThreadSafe;
@@ -75,26 +78,40 @@ public class FunctionRegistry {
         return findFunctionBuilder(null, name, ImmutableList.of(argument));
     }
 
+    public Optional<List<FunctionBuilder>> tryGetBuiltinBuilders(String name) {
+        List<FunctionBuilder> builders = name2InternalBuiltinBuilders.get(name);
+        return name2InternalBuiltinBuilders.get(name) == null
+                ? Optional.empty()
+                : Optional.of(ImmutableList.copyOf(builders));
+    }
+
     // currently we only find function by name and arity and args' types.
     public FunctionBuilder findFunctionBuilder(String dbName, String name, List<?> arguments) {
+        List<FunctionBuilder> functionBuilders = null;
         int arity = arguments.size();
-        List<FunctionBuilder> functionBuilders = name2InternalBuiltinBuilders.get(name.toLowerCase());
-        if (CollectionUtils.isEmpty(functionBuilders) && AggStateFunctionBuilder.isAggStateCombinator(name)) {
-            String nestedName = AggStateFunctionBuilder.getNestedName(name);
-            String combinatorSuffix = AggStateFunctionBuilder.getCombinatorSuffix(name);
+        String qualifiedName = StringUtils.isEmpty(dbName) ? name : dbName + "." + name;
 
-            functionBuilders = name2InternalBuiltinBuilders.get(nestedName.toLowerCase());
-
-            if (functionBuilders != null) {
-                functionBuilders = functionBuilders.stream().map(builder -> {
-                    return new AggStateFunctionBuilder(combinatorSuffix, builder);
-                }).filter(functionBuilder -> functionBuilder.canApply(arguments)).collect(Collectors.toList());
+        if (StringUtils.isEmpty(dbName)) {
+            // search internal function only if dbName is empty
+            functionBuilders = name2InternalBuiltinBuilders.get(name.toLowerCase());
+            if (CollectionUtils.isEmpty(functionBuilders) && AggStateFunctionBuilder.isAggStateCombinator(name)) {
+                String nestedName = AggStateFunctionBuilder.getNestedName(name);
+                String combinatorSuffix = AggStateFunctionBuilder.getCombinatorSuffix(name);
+                functionBuilders = name2InternalBuiltinBuilders.get(nestedName.toLowerCase());
+                if (functionBuilders != null) {
+                    functionBuilders = functionBuilders.stream()
+                            .map(builder -> new AggStateFunctionBuilder(combinatorSuffix, builder))
+                            .filter(functionBuilder -> functionBuilder.canApply(arguments))
+                            .collect(Collectors.toList());
+                }
             }
         }
-        if (functionBuilders == null || functionBuilders.isEmpty()) {
+
+        // search udf
+        if (CollectionUtils.isEmpty(functionBuilders)) {
             functionBuilders = findUdfBuilder(dbName, name);
             if (functionBuilders == null || functionBuilders.isEmpty()) {
-                throw new AnalysisException("Can not found function '" + name + "'");
+                throw new AnalysisException("Can not found function '" + qualifiedName + "'");
             }
         }
 
@@ -104,15 +121,15 @@ public class FunctionRegistry {
                 .collect(Collectors.toList());
         if (candidateBuilders.isEmpty()) {
             String candidateHints = getCandidateHint(name, functionBuilders);
-            throw new AnalysisException("Can not found function '" + name
+            throw new AnalysisException("Can not found function '" + qualifiedName
                     + "' which has " + arity + " arity. Candidate functions are: " + candidateHints);
         }
-
         if (candidateBuilders.size() > 1) {
             String candidateHints = getCandidateHint(name, candidateBuilders);
             // NereidsPlanner not supported override function by the same arity, should we support it?
-            throw new AnalysisException("Function '" + name + "' is ambiguous: " + candidateHints);
+            throw new AnalysisException("Function '" + qualifiedName + "' is ambiguous: " + candidateHints);
         }
+
         return candidateBuilders.get(0);
     }
 
@@ -124,7 +141,8 @@ public class FunctionRegistry {
         if (ConnectContext.get() != null) {
             dbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(),
                     dbName == null ? ConnectContext.get().getDatabase() : dbName);
-            if (dbName == null) {
+            if (dbName == null || !Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
                 scopes = ImmutableList.of(GLOBAL_FUNCTION);
             } else {
                 scopes = ImmutableList.of(dbName, GLOBAL_FUNCTION);
@@ -136,6 +154,7 @@ public class FunctionRegistry {
                 List<FunctionBuilder> candidate = name2UdfBuilders.getOrDefault(scope, ImmutableMap.of())
                         .get(name.toLowerCase());
                 if (candidate != null && !candidate.isEmpty()) {
+                    FunctionUtil.checkEnableJavaUdfForNereids();
                     return candidate;
                 }
             }

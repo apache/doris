@@ -33,7 +33,7 @@
 namespace doris {
 
 // forehead declare class, because jni function init in DorisServer.
-class DorisServer;
+
 class RuntimeState;
 class ObjectPool;
 class TUserIdentity;
@@ -42,8 +42,17 @@ namespace vectorized {
 class Block;
 }
 
-// scanner parameter from frontend
-struct SchemaScannerParam {
+struct SchemaScannerCommonParam {
+    SchemaScannerCommonParam()
+            : db(nullptr),
+              table(nullptr),
+              wild(nullptr),
+              user(nullptr),
+              user_ip(nullptr),
+              current_user_ident(nullptr),
+              ip(nullptr),
+              port(0),
+              catalog(nullptr) {}
     const std::string* db;
     const std::string* table;
     const std::string* wild;
@@ -54,18 +63,14 @@ struct SchemaScannerParam {
     int32_t port;                            // frontend thrift port
     int64_t thread_id;
     const std::string* catalog;
+};
+
+// scanner parameter from frontend
+struct SchemaScannerParam {
+    std::shared_ptr<SchemaScannerCommonParam> common_param;
     std::unique_ptr<RuntimeProfile> profile;
 
-    SchemaScannerParam()
-            : db(nullptr),
-              table(nullptr),
-              wild(nullptr),
-              user(nullptr),
-              user_ip(nullptr),
-              current_user_ident(nullptr),
-              ip(nullptr),
-              port(0),
-              catalog(nullptr) {}
+    SchemaScannerParam() : common_param(new SchemaScannerCommonParam()) {}
 };
 
 // virtual scanner for all schema table
@@ -96,8 +101,6 @@ public:
     static std::unique_ptr<SchemaScanner> create(TSchemaTableType::type type);
     TSchemaTableType::type type() const { return _schema_table_type; }
 
-    static void set_doris_server(DorisServer* doris_server) { _s_doris_server = doris_server; }
-
 protected:
     Status fill_dest_column_for_range(vectorized::Block* block, size_t pos,
                                       const std::vector<void*>& datas);
@@ -107,8 +110,6 @@ protected:
     SchemaScannerParam* _param;
     // schema table's column desc
     std::vector<ColumnDesc> _columns;
-
-    static DorisServer* _s_doris_server;
 
     TSchemaTableType::type _schema_table_type;
 

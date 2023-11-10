@@ -142,7 +142,7 @@ public class MapType extends Type {
 
     @Override
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
-                                       boolean useSpecializedType) throws TypeException {
+                                       boolean useSpecializedType, boolean enableDecimal256) throws TypeException {
         MapType specificMapType = null;
         if (specificType instanceof MapType) {
             specificMapType = (MapType) specificType;
@@ -154,13 +154,13 @@ public class MapType extends Type {
         if (keyType.hasTemplateType()) {
             newKeyType = keyType.specializeTemplateType(
                 specificMapType != null ? specificMapType.keyType : specificType,
-                specializedTypeMap, useSpecializedType);
+                specializedTypeMap, useSpecializedType, enableDecimal256);
         }
         Type newValueType = valueType;
         if (valueType.hasTemplateType()) {
             newValueType = valueType.specializeTemplateType(
                 specificMapType != null ? specificMapType.valueType : specificType,
-                specializedTypeMap, useSpecializedType);
+                specializedTypeMap, useSpecializedType, enableDecimal256);
         }
 
         Type newMapType = new MapType(newKeyType, newValueType);
@@ -174,7 +174,8 @@ public class MapType extends Type {
 
     @Override
     public String toString() {
-        return  toSql(0).toUpperCase();
+        return String.format("MAP<%s,%s>",
+                keyType.toString(), valueType.toString());
     }
 
     @Override
@@ -191,8 +192,27 @@ public class MapType extends Type {
     }
 
     public static boolean canCastTo(MapType type, MapType targetType) {
-        return Type.canCastTo(type.getKeyType(), targetType.getKeyType())
-            && Type.canCastTo(type.getValueType(), targetType.getValueType());
+        return (targetType.getKeyType().isStringType() && type.getKeyType().isStringType()
+            || Type.canCastTo(type.getKeyType(), targetType.getKeyType()))
+            && (Type.canCastTo(type.getValueType(), targetType.getValueType())
+            || targetType.getValueType().isStringType() && type.getValueType().isStringType());
+    }
+
+    public static Type getAssignmentCompatibleType(MapType t1, MapType t2, boolean strict, boolean enableDecimal256) {
+        Type keyCompatibleType = Type.getAssignmentCompatibleType(t1.getKeyType(), t2.getKeyType(), strict,
+                enableDecimal256);
+        if (keyCompatibleType.isInvalid()) {
+            return ScalarType.INVALID;
+        }
+        Type valCompatibleType = Type.getAssignmentCompatibleType(t1.getValueType(), t2.getValueType(), strict,
+                enableDecimal256);
+        if (valCompatibleType.isInvalid()) {
+            return ScalarType.INVALID;
+        }
+
+        return new MapType(keyCompatibleType, valCompatibleType,
+            t1.getIsKeyContainsNull() || t2.getIsKeyContainsNull(),
+            t1.getIsValueContainsNull() || t2.getIsValueContainsNull());
     }
 
     @Override

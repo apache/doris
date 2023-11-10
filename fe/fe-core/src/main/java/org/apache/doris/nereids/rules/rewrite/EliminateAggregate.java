@@ -41,8 +41,8 @@ public class EliminateAggregate extends OneRewriteRuleFactory {
             if (!onlyHasSlots(outerAgg.getOutputExpressions())) {
                 return outerAgg;
             }
-            List<NamedExpression> prunedInnerAggOutput = Project.findProject(outerAgg.getOutputSet(),
-                    innerAgg.getOutputExpressions());
+            List<NamedExpression> prunedInnerAggOutput = (List<NamedExpression>) Project.findProject(
+                    outerAgg.getOutputSet(), innerAgg.getOutputExpressions());
             return innerAgg.withAggOutput(prunedInnerAggOutput);
         }).toRule(RuleType.ELIMINATE_AGGREGATE);
     }

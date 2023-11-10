@@ -62,17 +62,13 @@ public class MetricsTest {
         MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd("test_user").increase(1L);
         MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd("test_user").increase(1L);
         MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("test_user").update(10L);
-        StringBuilder sb = new StringBuilder();
         MetricVisitor visitor = new PrometheusMetricVisitor();
-        List<Metric> metrics = MetricRepo.DORIS_METRIC_REGISTER.getMetrics();
-        for (Metric metric : metrics) {
-            visitor.visit(sb, MetricVisitor.FE_PREFIX, metric);
-        }
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
         SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
         for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
-            visitor.visitHistogram(sb, MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+            visitor.visitHistogram(MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
         }
-        String metricResult = sb.toString();
+        String metricResult = visitor.finish();
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_total counter"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_total{user=\"test_user\"} 1"));
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_err counter"));

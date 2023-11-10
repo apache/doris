@@ -48,7 +48,6 @@ Status get_remote_file_system(int64_t storage_policy_id,
         return Status::InternalError("could not find resource, resouce_id={}",
                                      storage_policy->resource_id);
     }
-    DCHECK(atol((*fs)->id().c_str()) == storage_policy->resource_id);
     DCHECK((*fs)->type() != io::FileSystemType::LOCAL);
     return Status::OK();
 }

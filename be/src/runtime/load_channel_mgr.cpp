@@ -168,7 +168,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
     // this case will be handled in load channel's add batch method.
     Status st = channel->add_batch(request, response);
     if (UNLIKELY(!st.ok())) {
-        channel->cancel();
+        static_cast<void>(channel->cancel());
         return st;
     }
 
@@ -204,7 +204,7 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
     }
 
     if (cancelled_channel != nullptr) {
-        cancelled_channel->cancel();
+        static_cast<void>(cancelled_channel->cancel());
         LOG(INFO) << "load channel has been cancelled: " << load_id;
     }
 
@@ -217,7 +217,7 @@ Status LoadChannelMgr::_start_bg_worker() {
             [this]() {
                 while (!_stop_background_threads_latch.wait_for(
                         std::chrono::seconds(START_BG_INTERVAL))) {
-                    _start_load_channels_clean();
+                    static_cast<void>(_start_load_channels_clean());
                 }
             },
             &_load_channels_clean_thread));
@@ -252,7 +252,7 @@ Status LoadChannelMgr::_start_load_channels_clean() {
     // otherwise some object may be invalid before trying to visit it.
     // eg: MemTracker in load channel
     for (auto& channel : need_delete_channels) {
-        channel->cancel();
+        static_cast<void>(channel->cancel());
         LOG(INFO) << "load channel has been safely deleted: " << channel->load_id()
                   << ", timeout(s): " << channel->timeout();
     }

@@ -75,7 +75,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 

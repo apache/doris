@@ -19,10 +19,12 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * HyperGraph Node.
@@ -82,5 +84,9 @@ public class Node {
 
     public Group getGroup() {
         return group;
+    }
+
+    public Set<Slot> getOutput() {
+        return group.getLogicalExpression().getPlan().getOutputSet();
     }
 }

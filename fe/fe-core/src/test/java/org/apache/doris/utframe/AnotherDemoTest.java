@@ -52,12 +52,14 @@ public class AnotherDemoTest {
     private static int fe_http_port;
     private static int fe_rpc_port;
     private static int fe_query_port;
+    private static int fe_arrow_flight_sql_port;
     private static int fe_edit_log_port;
 
     private static int be_heartbeat_port;
     private static int be_thrift_port;
     private static int be_brpc_port;
     private static int be_http_port;
+    private static int be_arrow_flight_sql_port;
 
     // use a unique dir so that it won't be conflict with other unit test which
     // may also start a Mocked Frontend
@@ -81,12 +83,14 @@ public class AnotherDemoTest {
         fe_http_port = UtFrameUtils.findValidPort();
         fe_rpc_port = UtFrameUtils.findValidPort();
         fe_query_port = UtFrameUtils.findValidPort();
+        fe_arrow_flight_sql_port = UtFrameUtils.findValidPort();
         fe_edit_log_port = UtFrameUtils.findValidPort();
 
         be_heartbeat_port = UtFrameUtils.findValidPort();
         be_thrift_port = UtFrameUtils.findValidPort();
         be_brpc_port = UtFrameUtils.findValidPort();
         be_http_port = UtFrameUtils.findValidPort();
+        be_arrow_flight_sql_port = UtFrameUtils.findValidPort();
     }
 
     @Test

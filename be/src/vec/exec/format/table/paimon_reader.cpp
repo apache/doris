@@ -52,6 +52,11 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     params["paimon_split"] = range.table_format_params.paimon_params.paimon_split;
     params["paimon_column_names"] = range.table_format_params.paimon_params.paimon_column_names;
     params["paimon_predicate"] = range.table_format_params.paimon_params.paimon_predicate;
+    params["ctl_id"] = std::to_string(range.table_format_params.paimon_params.ctl_id);
+    params["db_id"] = std::to_string(range.table_format_params.paimon_params.db_id);
+    params["tbl_id"] = std::to_string(range.table_format_params.paimon_params.tbl_id);
+    params["last_update_time"] =
+            std::to_string(range.table_format_params.paimon_params.last_update_time);
 
     // Used to create paimon option
     for (auto& kv : range.table_format_params.paimon_params.paimon_options) {

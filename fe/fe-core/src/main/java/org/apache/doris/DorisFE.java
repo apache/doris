@@ -25,7 +25,6 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.HttpServer;
@@ -40,8 +39,8 @@ import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
-import io.grpc.netty.shaded.io.netty.util.internal.logging.InternalLoggerFactory;
-import io.grpc.netty.shaded.io.netty.util.internal.logging.Log4JLoggerFactory;
+import io.netty.util.internal.logging.InternalLoggerFactory;
+import io.netty.util.internal.logging.Log4JLoggerFactory;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
@@ -54,8 +53,10 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.lang.management.ManagementFactory;
+import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
+import java.nio.file.StandardOpenOption;
 
 public class DorisFE {
     private static final Logger LOG = LogManager.getLogger(DorisFE.class);
@@ -66,6 +67,13 @@ public class DorisFE {
 
     public static final String DORIS_HOME_DIR = System.getenv("DORIS_HOME");
     public static final String PID_DIR = System.getenv("PID_DIR");
+
+
+    private static String LOCK_FILE_PATH;
+
+    private static final String LOCK_FILE_NAME = "process.lock";
+    private static FileChannel processLockFileChannel;
+    private static FileLock processFileLock;
 
     public static void main(String[] args) {
         StartupOptions options = new StartupOptions();
@@ -92,6 +100,11 @@ public class DorisFE {
         CommandLineOptions cmdLineOpts = parseArgs(args);
 
         try {
+            if (cmdLineOpts.isVersion()) {
+                printVersion();
+                System.exit(0);
+            }
+
             // pid file
             if (!createAndLockPidFile(pidDir + "/fe.pid")) {
                 throw new IOException("pid file is already locked.");
@@ -103,7 +116,13 @@ public class DorisFE {
             // Must init custom config after init config, separately.
             // Because the path of custom config file is defined in fe.conf
             config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
-
+            LOCK_FILE_PATH = Config.meta_dir + "/" + LOCK_FILE_NAME;
+            try {
+                tryLockProcess();
+            } catch (Exception e) {
+                LOG.error("start doris failed.", e);
+                System.exit(-1);
+            }
             LdapConfig ldapConfig = new LdapConfig();
             if (new File(dorisHomeDir + "/conf/ldap.conf").exists()) {
                 ldapConfig.init(dorisHomeDir + "/conf/ldap.conf");
@@ -148,8 +167,6 @@ public class DorisFE {
             Env.getCurrentEnv().initialize(args);
             Env.getCurrentEnv().waitForReady();
 
-            Telemetry.initOpenTelemetry();
-
             // init and start:
             // 1. HttpServer for HTTP Server
             // 2. FeServer for Thrift Server
@@ -178,7 +195,8 @@ public class DorisFE {
             }
 
             if (options.enableQeService) {
-                QeService qeService = new QeService(Config.query_port, ExecuteEnv.getInstance().getScheduler());
+                QeService qeService = new QeService(Config.query_port, Config.arrow_flight_sql_port,
+                                                    ExecuteEnv.getInstance().getScheduler());
                 qeService.start();
             }
 
@@ -215,6 +233,11 @@ public class DorisFE {
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.rpc_port,
                 "Rpc port", NetUtils.RPC_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.rpc_port + " already in use");
+        }
+        if (Config.arrow_flight_sql_port != -1
+                && !NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.arrow_flight_sql_port,
+                "Arrow Flight SQL port", NetUtils.ARROW_FLIGHT_SQL_SUGGESTION)) {
+            throw new IOException("port " + Config.arrow_flight_sql_port + " already in use");
         }
     }
 
@@ -350,13 +373,17 @@ public class DorisFE {
         return new CommandLineOptions(false, null, null, "");
     }
 
+    private static void printVersion() {
+        System.out.println("Build version: " + Version.DORIS_BUILD_VERSION);
+        System.out.println("Build time: " + Version.DORIS_BUILD_TIME);
+        System.out.println("Build info: " + Version.DORIS_BUILD_INFO);
+        System.out.println("Build hash: " + Version.DORIS_BUILD_HASH);
+        System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
+    }
+
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {
         if (cmdLineOpts.isVersion()) {
-            System.out.println("Build version: " + Version.DORIS_BUILD_VERSION);
-            System.out.println("Build time: " + Version.DORIS_BUILD_TIME);
-            System.out.println("Build info: " + Version.DORIS_BUILD_INFO);
-            System.out.println("Build hash: " + Version.DORIS_BUILD_HASH);
-            System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
+            printVersion();
             System.exit(0);
         } else if (cmdLineOpts.runBdbTools()) {
             BDBTool bdbTool = new BDBTool(Env.getCurrentEnv().getBdbDir(), cmdLineOpts.getBdbToolOpts());
@@ -409,6 +436,50 @@ public class DorisFE {
         } catch (IOException e) {
             throw e;
         }
+    }
+
+    /**
+     * When user starts multiple FE processes at the same time and uses one metadata directory,
+     * the metadata directory will be damaged. Therefore, we will bind the process by creating a file lock to ensure
+     * that only one FE process can occupy a metadata directory, and other processes will fail to start.
+     */
+    private static void tryLockProcess() {
+        try {
+            processLockFileChannel = FileChannel.open(new File(LOCK_FILE_PATH).toPath(), StandardOpenOption.WRITE,
+                    StandardOpenOption.CREATE);
+            processFileLock = processLockFileChannel.tryLock();
+            if (processFileLock != null) {
+                // we need bind the lock file with the process
+                Runtime.getRuntime().addShutdownHook(new Thread(DorisFE::releaseFileLockAndCloseFileChannel));
+                return;
+            }
+            releaseFileLockAndCloseFileChannel();
+        } catch (IOException e) {
+            releaseFileLockAndCloseFileChannel();
+            throw new RuntimeException("Try to lock process failed", e);
+        }
+        throw new RuntimeException("FE process has been started，please do not start multiple FE processes at the"
+                + "same time");
+    }
+
+
+    private static void releaseFileLockAndCloseFileChannel() {
+
+        if (processFileLock != null && processFileLock.isValid()) {
+            try {
+                processFileLock.release();
+            } catch (IOException ioException) {
+                LOG.warn("release process lock file failed", ioException);
+            }
+        }
+        if (processLockFileChannel != null && processLockFileChannel.isOpen()) {
+            try {
+                processLockFileChannel.close();
+            } catch (IOException ignored) {
+                LOG.warn("release process lock file failed", ignored);
+            }
+        }
+
     }
 
     public static class StartupOptions {

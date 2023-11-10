@@ -37,6 +37,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Pushdown Alias (inside must be Slot) through Join.
@@ -112,9 +113,11 @@ public class PushdownAliasThroughJoin extends OneRewriteRuleFactory {
     }
 
     private List<NamedExpression> createNewOutput(List<Slot> oldOutput,
-            Map<Expression, List<NamedExpression>> aliasMap) {
-        List<NamedExpression> output = oldOutput.stream()
-                .flatMap(slot -> aliasMap.getOrDefault(slot, Collections.singletonList(slot)).stream())
+                                                  Map<Expression, List<NamedExpression>> aliasMap) {
+        // we should keep all original outputs and add new alias in the output list
+        // because the upper node may require both col#1 and col#1 as colAlias#2
+        List<NamedExpression> output = Stream.concat(oldOutput.stream(), oldOutput.stream()
+                        .flatMap(slot -> aliasMap.getOrDefault(slot, Collections.emptyList()).stream()))
                 .collect(Collectors.toList());
         return output;
     }

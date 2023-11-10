@@ -123,6 +123,7 @@ public abstract class DataType {
                 dataType = SmallIntType.INSTANCE;
                 break;
             case "int":
+            case "integer":
                 dataType = IntegerType.INSTANCE;
                 break;
             case "bigint":
@@ -258,6 +259,12 @@ public abstract class DataType {
             case "jsonb":
                 dataType = JsonType.INSTANCE;
                 break;
+            case "ipv4":
+                dataType = IPv4Type.INSTANCE;
+                break;
+            case "ipv6":
+                dataType = IPv6Type.INSTANCE;
+                break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
@@ -332,7 +339,7 @@ public abstract class DataType {
             ScalarType scalarType = (ScalarType) type;
             int precision = scalarType.getScalarPrecision();
             int scale = scalarType.getScalarScale();
-            return DecimalV3Type.createDecimalV3Type(precision, scale);
+            return DecimalV3Type.createDecimalV3TypeNoCheck(precision, scale);
         } else if (type.isDecimalV2()) {
             ScalarType scalarType = (ScalarType) type;
             int precision = scalarType.getScalarPrecision();
@@ -343,7 +350,7 @@ public abstract class DataType {
         } else if (type.isStructType()) {
             List<StructField> structFields = ((org.apache.doris.catalog.StructType) (type)).getFields().stream()
                     .map(cf -> new StructField(cf.getName(), fromCatalogType(cf.getType()),
-                            cf.getContainsNull(), cf.getComment()))
+                            cf.getContainsNull(), cf.getComment() == null ? "" : cf.getComment()))
                     .collect(ImmutableList.toImmutableList());
             return new StructType(structFields);
         } else if (type.isMapType()) {
@@ -357,6 +364,10 @@ public abstract class DataType {
             List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
                     .collect(Collectors.toList());
             return new AggStateType(catalogType.getFunctionName(), types, catalogType.getSubTypeNullables());
+        } else if (type.isIPv4()) {
+            return IPv4Type.INSTANCE;
+        } else if (type.isIPv6()) {
+            return IPv6Type.INSTANCE;
         } else {
             return UnsupportedType.INSTANCE;
         }
@@ -539,6 +550,14 @@ public abstract class DataType {
 
     public boolean isDateTimeV2Type() {
         return this instanceof DateTimeV2Type;
+    }
+
+    public boolean isIPv4Type() {
+        return this instanceof IPv4Type;
+    }
+
+    public boolean isIPv6Type() {
+        return this instanceof IPv6Type;
     }
 
     public boolean isBitmapType() {

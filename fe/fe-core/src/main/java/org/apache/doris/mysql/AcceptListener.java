@@ -22,6 +22,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.MysqlConnectProcessor;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -81,7 +82,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                             context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser()));
                     context.setUserInsertTimeout(
                             context.getEnv().getAuth().getInsertTimeout(context.getQualifiedUser()));
-                    ConnectProcessor processor = new ConnectProcessor(context);
+                    ConnectProcessor processor = new MysqlConnectProcessor(context);
                     context.startAcceptQuery(processor);
                 } catch (AfterConnectedException e) {
                     // do not need to print log for this kind of exception.

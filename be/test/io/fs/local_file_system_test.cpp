@@ -111,8 +111,8 @@ TEST_F(LocalFileSystemTest, TestRemove) {
     EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/abc/def/zxc").ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/abc/123").ok());
 
-    save_string_file("./file_test/s1", "123");
-    save_string_file("./file_test/123/s2", "123");
+    static_cast<void>(save_string_file("./file_test/s1", "123"));
+    static_cast<void>(save_string_file("./file_test/123/s2", "123"));
 
     EXPECT_TRUE(check_exists("./file_test"));
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory("./file_test").ok());
@@ -120,7 +120,7 @@ TEST_F(LocalFileSystemTest, TestRemove) {
 
     // remove
     EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/abc/123").ok());
-    save_string_file("./file_test/abc/123/s2", "123");
+    static_cast<void>(save_string_file("./file_test/abc/123/s2", "123"));
 
     EXPECT_TRUE(check_exists("./file_test/abc/123/s2"));
     EXPECT_TRUE(io::global_local_filesystem()->delete_file("./file_test/abc/123/s2").ok());
@@ -136,8 +136,8 @@ TEST_F(LocalFileSystemTest, TestRemove) {
     // remove paths
     EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/123/456/789").ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/abc/def/zxc").ok());
-    save_string_file("./file_test/s1", "123");
-    save_string_file("./file_test/s2", "123");
+    static_cast<void>(save_string_file("./file_test/s1", "123"));
+    static_cast<void>(save_string_file("./file_test/s2", "123"));
 
     std::vector<std::string> ps;
     ps.push_back("./file_test/123/456/789");
@@ -172,7 +172,7 @@ TEST_F(LocalFileSystemTest, TestRemove) {
 TEST_F(LocalFileSystemTest, TestCreateDir) {
     // normal
     std::string path = "./file_test/123/456/789";
-    io::global_local_filesystem()->delete_directory("./file_test");
+    static_cast<void>(io::global_local_filesystem()->delete_directory("./file_test"));
     EXPECT_FALSE(check_exists(path));
 
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
@@ -312,7 +312,7 @@ TEST_F(LocalFileSystemTest, TestRename) {
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
     EXPECT_TRUE(io::global_local_filesystem()->rename_dir(path, new_path).ok());
 
-    save_string_file("./file_rename2/f1", "just test1");
+    static_cast<void>(save_string_file("./file_rename2/f1", "just test1"));
     EXPECT_TRUE(
             io::global_local_filesystem()->rename("./file_rename2/f1", "./file_rename2/f2").ok());
 
@@ -333,7 +333,7 @@ TEST_F(LocalFileSystemTest, TestLink) {
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
 
     // link file
-    save_string_file("./file_link/f2", "just test2");
+    static_cast<void>(save_string_file("./file_link/f2", "just test2"));
     EXPECT_TRUE(
             io::global_local_filesystem()->link_file("./file_link/f2", "./file_link/f2-1").ok());
     std::vector<std::string> dirs;
@@ -352,7 +352,7 @@ TEST_F(LocalFileSystemTest, TestMD5) {
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
 
     // link fir
-    save_string_file("./file_md5/f1", "just test1");
+    static_cast<void>(save_string_file("./file_md5/f1", "just test1"));
     std::string md5;
     EXPECT_TRUE(io::global_local_filesystem()->md5sum("./file_md5/f1", &md5).ok());
     EXPECT_EQ("56947c63232fef1c65e4c3f4d1c69a9c", md5);
@@ -369,11 +369,11 @@ TEST_F(LocalFileSystemTest, TestCopyAndBatchDelete) {
     EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_copy/4").ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_copy/5").ok());
 
-    save_string_file("./file_copy/f1", "just test1");
-    save_string_file("./file_copy/f2", "just test2");
-    save_string_file("./file_copy/f3", "just test3");
-    save_string_file("./file_copy/1/f4", "just test3");
-    save_string_file("./file_copy/2/f5", "just test3");
+    static_cast<void>(save_string_file("./file_copy/f1", "just test1"));
+    static_cast<void>(save_string_file("./file_copy/f2", "just test2"));
+    static_cast<void>(save_string_file("./file_copy/f3", "just test3"));
+    static_cast<void>(save_string_file("./file_copy/1/f4", "just test3"));
+    static_cast<void>(save_string_file("./file_copy/2/f5", "just test3"));
 
     // copy
     std::string dest_path = "./file_copy_dest/";
@@ -427,11 +427,11 @@ TEST_F(LocalFileSystemTest, TestIterate) {
 
     EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_iterate/d1").ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_iterate/d2").ok());
-    save_string_file("./file_iterate/f1", "just test1");
-    save_string_file("./file_iterate/f2", "just test2");
-    save_string_file("./file_iterate/f3", "just test3");
-    save_string_file("./file_iterate/d1/f4", "just test4");
-    save_string_file("./file_iterate/d2/f5", "just test5");
+    static_cast<void>(save_string_file("./file_iterate/f1", "just test1"));
+    static_cast<void>(save_string_file("./file_iterate/f2", "just test2"));
+    static_cast<void>(save_string_file("./file_iterate/f3", "just test3"));
+    static_cast<void>(save_string_file("./file_iterate/d1/f4", "just test4"));
+    static_cast<void>(save_string_file("./file_iterate/d2/f5", "just test5"));
 
     int64_t file_count = 0;
     int64_t dir_count = 0;
@@ -484,9 +484,9 @@ TEST_F(LocalFileSystemTest, TestListDirsFiles) {
     EXPECT_EQ(5, dirs.size());
     EXPECT_EQ(0, files.size());
 
-    save_string_file("./file_test/f1", "just test");
-    save_string_file("./file_test/f2", "just test");
-    save_string_file("./file_test/f3", "just test");
+    static_cast<void>(save_string_file("./file_test/f1", "just test"));
+    static_cast<void>(save_string_file("./file_test/f2", "just test"));
+    static_cast<void>(save_string_file("./file_test/f3", "just test"));
 
     dirs.clear();
     files.clear();
@@ -624,9 +624,9 @@ TEST_F(LocalFileSystemTest, TestGlob) {
                         ->create_directory("./be/ut_build_ASAN/test/file_path/3")
                         .ok());
 
-    save_string_file("./be/ut_build_ASAN/test/file_path/1/f1.txt", "just test");
-    save_string_file("./be/ut_build_ASAN/test/file_path/1/f2.txt", "just test");
-    save_string_file("./be/ut_build_ASAN/test/file_path/f3.txt", "just test");
+    static_cast<void>(save_string_file("./be/ut_build_ASAN/test/file_path/1/f1.txt", "just test"));
+    static_cast<void>(save_string_file("./be/ut_build_ASAN/test/file_path/1/f2.txt", "just test"));
+    static_cast<void>(save_string_file("./be/ut_build_ASAN/test/file_path/f3.txt", "just test"));
 
     std::vector<io::FileInfo> files;
     EXPECT_FALSE(io::global_local_filesystem()->safe_glob("./../*.txt", &files).ok());

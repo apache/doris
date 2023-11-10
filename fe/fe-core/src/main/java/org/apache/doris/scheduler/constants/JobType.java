@@ -29,5 +29,10 @@ public enum JobType {
     /**
      * JOB_TYPE_STREAMING is used to identify the streaming job.
      */
-    STREAMING
+    STREAMING,
+
+    /**
+     * The job will be executed manually and need to be triggered by the user.
+     */
+    MANUAL
 }

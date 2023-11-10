@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
+#include "olap/olap_common.h"
 #include "olap/olap_meta.h"
 
 using ::testing::_;

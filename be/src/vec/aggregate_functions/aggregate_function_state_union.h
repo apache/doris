@@ -25,21 +25,21 @@ const static std::string AGG_UNION_SUFFIX = "_union";
 
 class AggregateStateUnion : public IAggregateFunctionHelper<AggregateStateUnion> {
 public:
-    AggregateStateUnion(AggregateFunctionPtr function, const DataTypes& argument_types,
+    AggregateStateUnion(AggregateFunctionPtr function, const DataTypes& argument_types_,
                         const DataTypePtr& return_type)
-            : IAggregateFunctionHelper(argument_types),
+            : IAggregateFunctionHelper(argument_types_),
               _function(function),
               _return_type(return_type) {}
     ~AggregateStateUnion() override = default;
 
     static AggregateFunctionPtr create(AggregateFunctionPtr function,
-                                       const DataTypes& argument_types,
+                                       const DataTypes& argument_types_,
                                        const DataTypePtr& return_type) {
-        CHECK(argument_types.size() == 1);
+        CHECK(argument_types_.size() == 1);
         if (function == nullptr) {
             return nullptr;
         }
-        return std::make_shared<AggregateStateUnion>(function, argument_types, return_type);
+        return std::make_shared<AggregateStateUnion>(function, argument_types_, return_type);
     }
 
     void set_version(const int version_) override {

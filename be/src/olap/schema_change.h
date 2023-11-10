@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "olap/column_mapping.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_writer.h"
@@ -107,11 +108,7 @@ public:
                            TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
                            TabletSchemaSPtr base_tablet_schema) {
         if (rowset_reader->rowset()->empty() || rowset_reader->rowset()->num_rows() == 0) {
-            RETURN_WITH_WARN_IF_ERROR(
-                    rowset_writer->flush(), Status::Error<ErrorCode::INVALID_ARGUMENT>(""),
-                    fmt::format("create empty version for schema change failed. version= {}-{}",
-                                rowset_writer->version().first, rowset_writer->version().second));
-
+            RETURN_IF_ERROR(rowset_writer->flush());
             return Status::OK();
         }
 
@@ -204,10 +201,11 @@ private:
     Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
                           TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) override;
 
-    Status _internal_sorting(const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
-                             const Version& temp_delta_versions, int64_t newest_write_timestamp,
-                             TabletSharedPtr new_tablet, RowsetTypePB new_rowset_type,
-                             SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset);
+    Result<std::pair<RowsetSharedPtr, PendingRowsetGuard>> _internal_sorting(
+            const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
+            const Version& temp_delta_versions, int64_t newest_write_timestamp,
+            TabletSharedPtr new_tablet, RowsetTypePB new_rowset_type,
+            SegmentsOverlapPB segments_overlap);
 
     Status _external_sorting(std::vector<RowsetSharedPtr>& src_rowsets, RowsetWriter* rowset_writer,
                              TabletSharedPtr new_tablet);

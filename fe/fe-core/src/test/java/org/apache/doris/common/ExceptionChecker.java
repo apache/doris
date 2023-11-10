@@ -34,6 +34,7 @@ public class ExceptionChecker {
         try {
             runnable.run();
         } catch (Throwable e) {
+            e.printStackTrace();
             throw new AssertionFailedError(e.getMessage());
         }
     }

@@ -60,10 +60,6 @@ public class DeleteInfo implements Writable, GsonPostProcessable {
     @SerializedName(value = "partitionName")
     private String partitionName;
 
-    public DeleteInfo() {
-        this.deleteConditions = Lists.newArrayList();
-    }
-
     public DeleteInfo(long dbId, long tableId, String tableName, List<String> deleteConditions) {
         this.dbId = dbId;
         this.tableId = tableId;

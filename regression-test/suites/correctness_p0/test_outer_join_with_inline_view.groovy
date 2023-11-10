@@ -158,4 +158,27 @@ suite("test_outer_join_with_inline_view") {
         group by
             aa.org_code;
     """
+
+    sql """set enable_nereids_planner=false;"""
+    sql """drop table if exists tableau_trans_wide_day_month_year;"""
+    sql """CREATE TABLE
+            `tableau_trans_wide_day_month_year` (
+                `business_type` varchar(200) NULL 
+            ) ENGINE = OLAP 
+            DUPLICATE KEY(`business_type`) 
+            DISTRIBUTED BY HASH(`business_type`) BUCKETS 15 
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+    sql """INSERT INTO `tableau_trans_wide_day_month_year` VALUES (NULL);"""
+    qt_select_with_outerjoin_nullable """ SELECT '2023-10-07' a
+                                            FROM 
+                                                (SELECT t.business_type
+                                                FROM tableau_trans_wide_day_month_year t ) a full
+                                            JOIN 
+                                                (SELECT t.business_type
+                                                FROM tableau_trans_wide_day_month_year t
+                                                WHERE false ) c
+                                                ON nvl(a.business_type,'0')=nvl(c.business_type,'0'); """
+    sql """drop table if exists tableau_trans_wide_day_month_year;"""
 }

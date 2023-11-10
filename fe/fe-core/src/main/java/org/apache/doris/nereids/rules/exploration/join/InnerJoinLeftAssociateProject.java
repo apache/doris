@@ -88,10 +88,9 @@ public class InnerJoinLeftAssociateProject extends OneExplorationRuleFactory {
 
                     LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(
                             newTopHashConjuncts, newTopOtherConjuncts, left, right);
-                    InnerJoinLeftAssociate.setNewBottomJoinReorder(newBottomJoin, bottomJoin);
-                    InnerJoinLeftAssociate.setNewTopJoinReorder(newTopJoin, topJoin);
+                    newTopJoin.getJoinReorderContext().setHasLeftAssociate(true);
 
                     return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
-                }).toRule(RuleType.LOGICAL_INNER_JOIN_LEFT_ASSOCIATIVE);
+                }).toRule(RuleType.LOGICAL_INNER_JOIN_LEFT_ASSOCIATIVE_PROJECT);
     }
 }

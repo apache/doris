@@ -71,14 +71,14 @@ uint32_t timestamp_from_date_v2(const std::string& date_str) {
     if (nullptr != res) {
         value = ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
     } else {
-        value = doris::vectorized::MIN_DATE_V2;
+        value = MIN_DATE_V2;
     }
 
     return value;
 }
 
 uint64_t timestamp_from_datetime_v2(const std::string& date_str) {
-    doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> val;
+    DateV2Value<DateTimeV2ValueType> val;
     std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
     val.from_date_format_str(date_format.data(), date_format.size(), date_str.data(),
                              date_str.size());

@@ -56,28 +56,6 @@ struct ParsedData {
     std::vector<bool> _string_nulls;
     char tmp_buf[128] = {0};
 
-    void reset(ExplodeJsonArrayType type) {
-        switch (type) {
-        case ExplodeJsonArrayType::INT:
-            _data.clear();
-            _backup_int.clear();
-            break;
-        case ExplodeJsonArrayType::DOUBLE:
-            _data.clear();
-            _backup_double.clear();
-            break;
-        case ExplodeJsonArrayType::JSON:
-        case ExplodeJsonArrayType::STRING:
-            _data_string.clear();
-            _backup_string.clear();
-            _string_nulls.clear();
-            break;
-        default:
-            CHECK(false) << type;
-            break;
-        }
-    }
-
     void* get_value(ExplodeJsonArrayType type, int64_t offset, bool real = false) {
         switch (type) {
         case ExplodeJsonArrayType::INT:

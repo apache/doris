@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "common/utils.h"
 #include "http/http_channel.h"
+#include "http/http_common.h"
 #include "http/http_headers.h"
 #include "http/http_method.h"
 #include "http/http_request.h"
@@ -72,7 +73,12 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
     auto& token = req.header("token");
-    if (token.empty()) {
+    auto& auth_code = req.header(HTTP_AUTH_CODE);
+    if (!token.empty()) {
+        auth->token = token;
+    } else if (!auth_code.empty()) {
+        auth->auth_code = std::stoll(auth_code);
+    } else {
         std::string full_user;
         if (!parse_basic_auth(req, &full_user, &auth->passwd)) {
             return false;
@@ -84,8 +90,6 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
         } else {
             auth->user = full_user;
         }
-    } else {
-        auth->token = token;
     }
 
     // set user ip
@@ -120,7 +124,8 @@ std::string get_content_type(const std::string& file_name) {
     return "";
 }
 
-void do_file_response(const std::string& file_path, HttpRequest* req) {
+void do_file_response(const std::string& file_path, HttpRequest* req,
+                      bufferevent_rate_limit_group* rate_limit_group) {
     if (file_path.find("..") != std::string::npos) {
         LOG(WARNING) << "Not allowed to read relative path: " << file_path;
         HttpChannel::send_error(req, HttpStatus::FORBIDDEN);
@@ -161,7 +166,7 @@ void do_file_response(const std::string& file_path, HttpRequest* req) {
         return;
     }
 
-    HttpChannel::send_file(req, fd, 0, file_size);
+    HttpChannel::send_file(req, fd, 0, file_size, rate_limit_group);
 }
 
 void do_dir_response(const std::string& dir_path, HttpRequest* req) {

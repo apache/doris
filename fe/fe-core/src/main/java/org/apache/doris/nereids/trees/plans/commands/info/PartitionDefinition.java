@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -34,16 +36,30 @@ import java.util.Map;
  */
 public abstract class PartitionDefinition {
     protected List<DataType> partitionTypes;
-    protected Map<String, String> propreties;
+    protected Map<String, String> properties;
+    protected ReplicaAllocation replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
 
     public PartitionDefinition withProperties(Map<String, String> properties) {
-        this.propreties = properties;
+        this.properties = properties;
         return this;
     }
 
     public abstract AllPartitionDesc translateToCatalogStyle();
 
-    public abstract void validate(Map<String, String> properties);
+    /**
+     * Validate the properties.
+     * Derived class can override this method to do more validation.
+     */
+    public void validate(Map<String, String> properties) {
+        try {
+            replicaAllocation = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+            if (replicaAllocation.isNotSet()) {
+                replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
+            }
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
+    }
 
     /**
      * get partition name

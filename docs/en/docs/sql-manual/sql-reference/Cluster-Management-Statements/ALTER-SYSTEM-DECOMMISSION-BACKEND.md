@@ -36,8 +36,16 @@ The node offline operation is used to safely log off the node. The operation is 
 
 grammar:
 
+- Find backend through host and port
+
 ```sql
 ALTER SYSTEM DECOMMISSION BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
+````
+
+- Find backend through backend_id
+
+```sql
+ALTER SYSTEM DECOMMISSION BACKEND "id1","id2"...;
 ````
 
   illustrate:
@@ -53,6 +61,10 @@ ALTER SYSTEM DECOMMISSION BACKEND "host:heartbeat_port"[,"host:heartbeat_port"..
 
     ```sql
     ALTER SYSTEM DECOMMISSION BACKEND "host1:port", "host2:port";
+    ````
+
+    ```sql
+    ALTER SYSTEM DECOMMISSION BACKEND "id1", "id2";
     ````
 
 ### Keywords

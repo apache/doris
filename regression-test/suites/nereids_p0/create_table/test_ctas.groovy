@@ -222,5 +222,56 @@ suite("nereids_test_ctas") {
     """
 
     qt_select """select * from ${table2} order by c1;"""
+
+    try {
+        sql "drop table if exists a"
+        sql "drop table if exists b"
+        sql "drop table if exists c"
+        sql "drop table if exists test_date_v2"
+        sql '''create table a (
+                id int not null,
+                        name varchar(20) not null
+        )
+        distributed by hash(id) buckets 4
+        properties (
+                "replication_num"="1"
+        );
+        '''
+
+        sql '''create table b (
+                id int not null,
+                        age int not null
+        )
+        distributed by hash(id) buckets 4
+        properties (
+                "replication_num"="1"
+        );
+        '''
+
+        sql 'insert into a values(1, \'ww\'), (2, \'zs\');'
+        sql 'insert into b values(1, 22);'
+
+        sql 'set enable_nereids_planner=false'
+
+        sql 'create table c properties("replication_num"="1") as select b.id, a.name, b.age from a left join b on a.id = b.id;'
+
+        String descC = sql 'desc c'
+        assertTrue(descC.contains('Yes'))
+        String descB = sql 'desc b'
+        assertTrue(descB.contains('No'))
+
+        sql '''create table test_date_v2 
+        properties (
+                "replication_num"="1"
+        ) as select to_date('20250829');
+        '''
+        String desc = sql 'desc test_date_v2'
+        assertTrue(desc.contains('Yes'))
+    } finally {
+        sql 'drop table a'
+        sql 'drop table b'
+        sql 'drop table c'
+        sql 'drop table test_date_v2'
+    }
 }
 

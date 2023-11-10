@@ -32,15 +32,16 @@ import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.constants.S3Properties.Env;
 import org.apache.doris.load.loadv2.LoadTask.MergeType;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Injectable;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.io.StringReader;
 import java.util.Collections;
@@ -48,7 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class S3TvfLoadStmtTest {
+public class S3TvfLoadStmtTest extends TestWithFeService {
 
     private static final String ACCESS_KEY_VALUE = "ak";
 
@@ -70,7 +71,7 @@ public class S3TvfLoadStmtTest {
 
     private Set<String> colNames;
 
-    @Before
+    @BeforeAll
     public void setUp() throws AnalysisException {
         FeConstants.runningUnitTest = true;
 
@@ -101,7 +102,7 @@ public class S3TvfLoadStmtTest {
                 Maps.newHashMap(), "comment");
         final SelectStmt selectStmt = (SelectStmt) s3TvfLoadStmt.getQueryStmt();
         final Expr whereClause = Deencapsulation.getField(selectStmt, "whereClause");
-        Assert.assertEquals(whereClause, new CompoundPredicate(CompoundPredicate.Operator.AND, greater, less));
+        Assertions.assertEquals(whereClause, new CompoundPredicate(CompoundPredicate.Operator.AND, greater, less));
     }
 
     @Test
@@ -115,15 +116,15 @@ public class S3TvfLoadStmtTest {
         final TableRef tvfRef = Deencapsulation.invoke(S3TvfLoadStmt.class,
                 "buildTvfRef",
                 dataDescription, brokerDesc);
-        Assert.assertTrue(tvfRef instanceof TableValuedFunctionRef);
+        Assertions.assertTrue(tvfRef instanceof TableValuedFunctionRef);
         final S3TableValuedFunction tableFunction
                 = (S3TableValuedFunction) ((TableValuedFunctionRef) tvfRef).getTableFunction();
         final Map<String, String> locationProperties = tableFunction.getLocationProperties();
-        Assert.assertEquals(locationProperties.get(S3Properties.ENDPOINT), ENDPOINT_VALUE);
-        Assert.assertEquals(locationProperties.get(S3Properties.ACCESS_KEY), ACCESS_KEY_VALUE);
-        Assert.assertEquals(locationProperties.get(S3Properties.SECRET_KEY), SECRET_KEY_VALUE);
-        Assert.assertEquals(locationProperties.get(S3Properties.REGION), REGION_VALUE);
-        Assert.assertEquals(tableFunction.getFilePath(), DATA_URI);
+        Assertions.assertEquals(locationProperties.get(S3Properties.ENDPOINT), ENDPOINT_VALUE);
+        Assertions.assertEquals(locationProperties.get(S3Properties.ACCESS_KEY), ACCESS_KEY_VALUE);
+        Assertions.assertEquals(locationProperties.get(S3Properties.SECRET_KEY), SECRET_KEY_VALUE);
+        Assertions.assertEquals(locationProperties.get(S3Properties.REGION), REGION_VALUE);
+        Assertions.assertEquals(tableFunction.getFilePath(), DATA_URI);
     }
 
     @Injectable
@@ -176,13 +177,13 @@ public class S3TvfLoadStmtTest {
         Deencapsulation.setField(s3TvfLoadStmt, "functionGenTableColNames", Sets.newHashSet("c1", "c2", "c3"));
 
         Deencapsulation.invoke(s3TvfLoadStmt, "rewriteExpr", columnsDescList);
-        Assert.assertEquals(columnsDescList.size(), 5);
+        Assertions.assertEquals(columnsDescList.size(), 5);
         final String orig4 = "((upper(`c1`) + 1) + 1)";
-        Assert.assertEquals(orig4, columnsDescList.get(4).getExpr().toString());
+        Assertions.assertEquals(orig4, columnsDescList.get(4).getExpr().toString());
 
         final List<ImportColumnDesc> filterColumns = Deencapsulation.invoke(s3TvfLoadStmt,
                 "filterColumns", columnsDescList);
-        Assert.assertEquals(filterColumns.size(), 4);
+        Assertions.assertEquals(filterColumns.size(), 4);
     }
 
     private static DataDescription buildDataDesc(Iterable<String> columns, Expr fileFilter, Expr wherePredicate,
@@ -210,11 +211,12 @@ public class S3TvfLoadStmtTest {
     private static List<ImportColumnDesc> getColumnsDescList(String columns) throws Exception {
         String columnsSQL = "COLUMNS (" + columns + ")";
         return ((ImportColumnsStmt) SqlParserUtils.getFirstStmt(
-                new SqlParser(new SqlScanner(new StringReader(columnsSQL))))).getColumns();
+                new org.apache.doris.analysis.SqlParser(
+                        new org.apache.doris.analysis.SqlScanner(new StringReader(columnsSQL))))).getColumns();
     }
 
     private static List<Column> getBaseSchema() {
-        List<Column> columns = com.google.common.collect.Lists.newArrayList();
+        List<Column> columns = Lists.newArrayList();
 
         Column c1 = new Column("c1", PrimitiveType.BIGINT);
         c1.setIsKey(true);

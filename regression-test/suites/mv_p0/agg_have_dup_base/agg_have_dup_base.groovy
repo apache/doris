@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("agg_have_dup_base") {
-
+    sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """

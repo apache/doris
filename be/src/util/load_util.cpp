@@ -67,6 +67,8 @@ void LoadUtil::parse_format(const std::string& format_str, const std::string& co
         *format_type = TFileFormatType::FORMAT_PARQUET;
     } else if (iequal(format_str, "ORC")) {
         *format_type = TFileFormatType::FORMAT_ORC;
+    } else if (iequal(format_str, "WAL")) {
+        *format_type = TFileFormatType::FORMAT_WAL;
     }
     return;
 }
@@ -82,6 +84,7 @@ bool LoadUtil::is_format_support_streaming(TFileFormatType::type format) {
     case TFileFormatType::FORMAT_CSV_LZO:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_JSON:
+    case TFileFormatType::FORMAT_WAL:
         return true;
     default:
         return false;

@@ -27,8 +27,8 @@ import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.json.JSONAlterTableMessage;
 
+import java.security.SecureRandom;
 import java.util.List;
-import java.util.Random;
 
 /**
  * MetastoreEvent for ALTER_TABLE event type
@@ -52,7 +52,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
         this.isView = isView;
         this.tableBefore = null;
         this.tableAfter = null;
-        this.tblNameAfter = isRename ? (tblName + new Random().nextInt(10)) : tblName;
+        this.tblNameAfter = isRename ? (tblName + new SecureRandom().nextInt(10)) : tblName;
     }
 
     private AlterTableEvent(NotificationEvent event, String catalogName) {
@@ -154,7 +154,8 @@ public class AlterTableEvent extends MetastoreTableEvent {
             }
             //The scope of refresh can be narrowed in the future
             Env.getCurrentEnv().getCatalogMgr()
-                    .refreshExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                    .refreshExternalTableFromEvent(tableBefore.getDbName(), tableBefore.getTableName(),
+                                catalogName, eventTime, true);
         } catch (Exception e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);

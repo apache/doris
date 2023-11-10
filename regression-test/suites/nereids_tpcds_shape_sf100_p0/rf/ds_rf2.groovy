@@ -30,6 +30,8 @@ suite("ds_rf2") {
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_pipeline_engine=true'
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set expand_runtime_filter_by_inner_join=false'
     String stmt = '''
     explain physical plan
     with wscs as
@@ -110,5 +112,5 @@ suite("ds_rf2") {
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-     assertEquals("RF0[d_date_sk->[ws_sold_date_sk],RF1[d_date_sk->[cs_sold_date_sk],RF3[d_week_seq->[d_week_seq],RF2[d_week_seq->[d_week_seq]", getRuntimeFilters(plan))
+     assertEquals("RF0[d_date_sk->[ws_sold_date_sk, cs_sold_date_sk],RF2[d_week_seq->[d_week_seq],RF1[d_week_seq->[d_week_seq]", getRuntimeFilters(plan))
 }

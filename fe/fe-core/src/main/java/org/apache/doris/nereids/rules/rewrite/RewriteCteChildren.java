@@ -77,14 +77,14 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
     public Plan visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
             CascadesContext cascadesContext) {
         LogicalPlan outer;
-        if (cascadesContext.getStatementContext().getRewrittenCtePlan().containsKey(null)) {
-            outer = cascadesContext.getStatementContext().getRewrittenCtePlan().get(null);
+        if (cascadesContext.getStatementContext().getRewrittenCteConsumer().containsKey(cteAnchor.getCteId())) {
+            outer = cascadesContext.getStatementContext().getRewrittenCteProducer().get(cteAnchor.getCteId());
         } else {
             CascadesContext outerCascadesCtx = CascadesContext.newSubtreeContext(
                     Optional.empty(), cascadesContext, cteAnchor.child(1),
                     cascadesContext.getCurrentJobContext().getRequiredProperties());
             outer = (LogicalPlan) cteAnchor.child(1).accept(this, outerCascadesCtx);
-            cascadesContext.getStatementContext().getRewrittenCtePlan().put(null, outer);
+            cascadesContext.getStatementContext().getRewrittenCteConsumer().put(cteAnchor.getCteId(), outer);
         }
         boolean reserveAnchor = outer.anyMatch(p -> {
             if (p instanceof LogicalCTEConsumer) {
@@ -104,8 +104,8 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
     public Plan visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer,
             CascadesContext cascadesContext) {
         LogicalPlan child;
-        if (cascadesContext.getStatementContext().getRewrittenCtePlan().containsKey(cteProducer.getCteId())) {
-            child = cascadesContext.getStatementContext().getRewrittenCtePlan().get(cteProducer.getCteId());
+        if (cascadesContext.getStatementContext().getRewrittenCteProducer().containsKey(cteProducer.getCteId())) {
+            child = cascadesContext.getStatementContext().getRewrittenCteProducer().get(cteProducer.getCteId());
         } else {
             child = (LogicalPlan) cteProducer.child();
             child = tryToConstructFilter(cascadesContext, cteProducer.getCteId(), child);
@@ -118,7 +118,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             CascadesContext rewrittenCtx = CascadesContext.newSubtreeContext(
                     Optional.of(cteProducer.getCteId()), cascadesContext, child, PhysicalProperties.ANY);
             child = (LogicalPlan) child.accept(this, rewrittenCtx);
-            cascadesContext.getStatementContext().getRewrittenCtePlan().put(cteProducer.getCteId(), child);
+            cascadesContext.getStatementContext().getRewrittenCteProducer().put(cteProducer.getCteId(), child);
         }
         return cteProducer.withChildren(child);
     }
@@ -145,10 +145,10 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         Set<RelationId> consumerIds = cascadesContext.getCteIdToConsumers().get(cteId).stream()
                 .map(LogicalCTEConsumer::getRelationId)
                 .collect(Collectors.toSet());
-        Set<Set<Expression>> filtersAboveEachConsumer = cascadesContext.getConsumerIdToFilters().entrySet().stream()
+        List<Set<Expression>> filtersAboveEachConsumer = cascadesContext.getConsumerIdToFilters().entrySet().stream()
                 .filter(kv -> consumerIds.contains(kv.getKey()))
                 .map(Entry::getValue)
-                .collect(Collectors.toSet());
+                .collect(Collectors.toList());
         Set<Expression> someone = filtersAboveEachConsumer.stream().findFirst().orElse(null);
         if (someone == null) {
             return child;
@@ -156,11 +156,12 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         int filterSize = cascadesContext.getCteIdToConsumers().get(cteId).size();
         Set<Expression> conjuncts = new HashSet<>();
         for (Expression f : someone) {
-            int matchCount = 1;
+            int matchCount = 0;
             Set<SlotReference> slots = f.collect(e -> e instanceof SlotReference);
             Set<Expression> mightBeJoined = new HashSet<>();
             for (Set<Expression> another : filtersAboveEachConsumer) {
                 if (another.equals(someone)) {
+                    matchCount++;
                     continue;
                 }
                 Set<Expression> matched = new HashSet<>();

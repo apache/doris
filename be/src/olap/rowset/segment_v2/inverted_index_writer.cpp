@@ -22,15 +22,20 @@
 #include <CLucene/util/bkd/bkd_writer.h>
 #include <glog/logging.h>
 
-#include <algorithm>
-#include <cstdint>
 #include <limits>
 #include <memory>
 #include <ostream>
 #include <roaring/roaring.hh>
 #include <vector>
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshadow-field"
+#endif
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #include "common/config.h"
 #include "olap/field.h"
 #include "olap/inverted_index_parser.h"
@@ -44,6 +49,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/collection_value.h"
+#include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 #include "util/string_util.h"
@@ -112,7 +118,8 @@ public:
                 // open index searcher into cache
                 auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
                         _segment_file_name, _index_meta->index_id());
-                InvertedIndexSearcherCache::instance()->insert(_fs, _directory, index_file_name);
+                static_cast<void>(InvertedIndexSearcherCache::instance()->insert(_fs, _directory,
+                                                                                 index_file_name));
             }
         }
     }
@@ -469,6 +476,8 @@ public:
                         InvertedIndexDescriptor::get_temporary_bkd_index_meta_file_name().c_str());
                 index_out = dir->createOutput(
                         InvertedIndexDescriptor::get_temporary_bkd_index_file_name().c_str());
+                DBUG_EXECUTE_IF("InvertedIndexWriter._set_fulltext_data_out_nullptr",
+                                { data_out = nullptr; });
                 if (data_out != nullptr && meta_out != nullptr && index_out != nullptr) {
                     _bkd_writer->meta_finish(meta_out, _bkd_writer->finish(data_out, index_out),
                                              int(field_type));
@@ -484,6 +493,9 @@ public:
                 dir = _index_writer->getDirectory();
                 write_null_bitmap(null_bitmap_out, dir);
                 close();
+                DBUG_EXECUTE_IF("InvertedIndexWriter._throw_clucene_error_in_bkd_writer_close", {
+                    _CLTHROWA(CL_ERR_IO, "debug point: test throw error in bkd index writer");
+                });
             }
         } catch (CLuceneError& e) {
             FINALLY_FINALIZE_OUTPUT(null_bitmap_out)
@@ -620,6 +632,12 @@ Status InvertedIndexColumnWriter::create(const Field* field,
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
         *res = std::make_unique<
                 InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>>(
+                field_name, segment_file_name, dir, fs, index_meta);
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
+        *res = std::make_unique<
+                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL256>>(
                 field_name, segment_file_name, dir, fs, index_meta);
         break;
     }

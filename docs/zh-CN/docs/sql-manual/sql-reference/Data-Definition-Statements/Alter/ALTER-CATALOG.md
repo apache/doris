@@ -60,6 +60,15 @@ ALTER CATALOG catalog_name SET PROPERTIES ('key1' = 'value1' [, 'key' = 'value2'
 - 不可更改数据目录类型，即 `type` 属性
 - 不可更改内置数据目录 `internal` 的属性
 
+3) 修改数据目录注释
+
+```sql
+ALTER CATALOG catalog_name MODIFY COMMENT "new catalog comment";
+```
+
+注意：
+- `internal` 是内置数据目录，不允许修改注释
+
 ### Example
 
 1. 将数据目录 ctlg_hive 重命名为 hive
@@ -72,6 +81,12 @@ ALTER CATALOG ctlg_hive RENAME hive;
 
 ```sql
 ALTER CATALOG hive SET PROPERTIES ('hive.metastore.uris'='thrift://172.21.0.1:9083');
+```
+
+4. 更改名为 hive 数据目录的注释
+
+```sql
+ALTER CATALOG hive MODIFY COMMENT "new catalog comment";
 ```
 
 ### Keywords

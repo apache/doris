@@ -168,6 +168,40 @@ public class StringLiteral extends LiteralExpr {
     }
 
     /**
+     * Convert a string literal to a IPv4 literal
+     *
+     * @return new converted literal (not null)
+     * @throws AnalysisException when entire given string cannot be transformed into a date
+     */
+    public LiteralExpr convertToIPv4() throws AnalysisException {
+        LiteralExpr newLiteral;
+        newLiteral = new IPv4Literal(value);
+        try {
+            newLiteral.checkValueValid();
+        } catch (AnalysisException e) {
+            return NullLiteral.create(newLiteral.getType());
+        }
+        return newLiteral;
+    }
+
+    /**
+     * Convert a string literal to a IPv6 literal
+     *
+     * @return new converted literal (not null)
+     * @throws AnalysisException when entire given string cannot be transformed into a date
+     */
+    public LiteralExpr convertToIPv6() throws AnalysisException {
+        LiteralExpr newLiteral;
+        newLiteral = new IPv6Literal(value);
+        try {
+            newLiteral.checkValueValid();
+        } catch (AnalysisException e) {
+            return NullLiteral.create(newLiteral.getType());
+        }
+        return newLiteral;
+    }
+
+    /**
      * Convert a string literal to a date literal
      *
      * @param targetType is the desired type
@@ -245,6 +279,7 @@ public class StringLiteral extends LiteralExpr {
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
+                case DECIMAL256:
                     try {
                         DecimalLiteral res = new DecimalLiteral(new BigDecimal(value).stripTrailingZeros());
                         res.setType(targetType);
@@ -265,6 +300,10 @@ public class StringLiteral extends LiteralExpr {
             } catch (AnalysisException e) {
                 // pass;
             }
+        } else if (targetType.isIPv4()) {
+            return convertToIPv4();
+        } else if (targetType.isIPv6()) {
+            return convertToIPv6();
         } else if (targetType.equals(type)) {
             return this;
         } else if (targetType.isStringType()) {

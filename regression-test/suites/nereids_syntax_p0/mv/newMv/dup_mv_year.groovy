@@ -46,17 +46,8 @@ suite ("dup_mv_year") {
     }
     order_qt_select_mv "select k1,year(k2) from dup_mv_year order by k1;"
 
-    result = "null"
-    sql "create materialized view k13y as select k1,year(k3) from dup_mv_year;"
-    while (!result.contains("FINISHED")){
-        result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='dup_mv_year' ORDER BY CreateTime DESC LIMIT 1;"
-        result = result.toString()
-        logger.info("result: ${result}")
-        if(result.contains("CANCELLED")){
-            return 
-        }
-        Thread.sleep(1000)
-    }
+    createMV "create materialized view k13y as select k1,year(k3) from dup_mv_year;"
+
     sql "SET experimental_enable_nereids_planner=false"
 
 

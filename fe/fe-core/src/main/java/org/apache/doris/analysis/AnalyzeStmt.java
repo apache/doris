@@ -23,7 +23,7 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 
-import org.quartz.CronExpression;
+import org.apache.logging.log4j.core.util.CronExpression;
 
 import java.util.Map;
 
@@ -96,5 +96,9 @@ public class AnalyzeStmt extends StatementBase {
 
     public boolean forceFull() {
         return analyzeProperties.forceFull();
+    }
+
+    public boolean usingSqlForPartitionColumn() {
+        return analyzeProperties.usingSqlForPartitionColumn();
     }
 }

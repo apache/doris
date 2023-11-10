@@ -118,5 +118,8 @@ suite("bitmap_agg") {
     qt_sql4 """
         select count(`n_nationkey`), bitmap_count(bitmap_agg(`n_nationkey`)) from `test_bitmap_agg_nation` group by `n_regionkey`;
     """
+    qt_sql5 """
+        select count(`n_nationkey`), bitmap_count(bitmap_agg(`n_nationkey`)) from `test_bitmap_agg_nation` group by `N_REGIONKEY` order by 1;
+    """
     sql "DROP TABLE IF EXISTS `test_bitmap_agg_nation`;"
  }

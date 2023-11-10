@@ -18,9 +18,16 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_jsonb_load_and_function", "p0") {
+
+    // TODO: remove it after we add implicit cast check in Nereids
+    sql "set enable_nereids_dml=false"
+
     // define a sql table
     def testTable = "tbl_test_jsonb"
     def dataFile = "test_jsonb.csv"
+
+    sql """ set experimental_enable_nereids_planner = true """
+    sql """ set enable_fallback_to_original_planner = true """
 
     sql "DROP TABLE IF EXISTS ${testTable}"
 
@@ -531,9 +538,35 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.k2', null) FROM ${testTable} ORDER BY id"""
     qt_select """SELECT id, j, JSON_EXTRACT(j, '\$.a1[0].k1', '\$.a1[0].k2', '\$.a1[2]') FROM ${testTable} ORDER BY id"""
 
-    qt_select """SELECT id, j, j->'\$.k1' FROM ${testTable} ORDER BY id"""
-    qt_select """SELECT id, j, j->'\$.[1]' FROM ${testTable} ORDER BY id"""
-    qt_select """SELECT id, j, j->null FROM ${testTable} ORDER BY id"""
-    qt_select """SELECT id, j, j->'\$.a1[0].k2' FROM ${testTable} ORDER BY id"""
-    qt_select """SELECT id, j, j->'\$.a1[0]'->'\$.k1' FROM ${testTable} ORDER BY id"""
+    //json_length
+    qt_sql_json_length """SELECT json_length('1')"""
+    qt_sql_json_length """SELECT json_length('true')"""
+    qt_sql_json_length """SELECT json_length('null')"""
+    qt_sql_json_length """SELECT json_length('"abc"')"""
+    qt_sql_json_length """SELECT json_length('[]')"""
+    qt_sql_json_length """SELECT json_length('[1, 2]')"""
+    qt_sql_json_length """SELECT json_length('[1, {"x": 2}]')"""
+    qt_sql_json_length """SELECT json_length('{"x": 1, "y": [1, 2]}', '\$.y')"""
+    qt_sql_json_length """SELECT json_length('{"k1":"v31","k2":300}')"""
+    qt_sql_json_length """SELECT json_length('{"a.b.c":{"k1.a1":"v31", "k2": 300},"a":"niu"}')"""
+    qt_sql_json_length """SELECT json_length('{"a":{"k1.a1":"v31", "k2": 300},"b":"niu"}','\$.a')"""
+
+    qt_select_length """SELECT id, j, json_length(j) FROM ${testTable} ORDER BY id"""
+    qt_select_length """SELECT id, j, json_length(j, '\$[1]') FROM ${testTable} ORDER BY id"""
+    qt_select_length """SELECT id, j, json_length(j, '\$.k2') FROM ${testTable} ORDER BY id"""
+    qt_select_length """SELECT id, j, json_length(null) FROM ${testTable} ORDER BY id"""
+
+    //json_contains
+    qt_sql_json_contains """SELECT json_contains('[1, 2, {"x": 3}]', '1')"""
+    qt_sql_json_contains """SELECT json_contains('[1, 2, {"x": 3}]', '{"x": 3}')"""
+    qt_sql_json_contains """SELECT json_contains('[1, 2, {"x": 3}]', '3')"""
+    qt_sql_json_contains """SELECT json_contains('[1, 2, [3, 4]]', '2')"""
+    qt_sql_json_contains """SELECT json_contains('[1, 2, [3, 4]]', '2', '\$[2]')"""
+    qt_sql_json_contains """SELECT json_contains('{"k1":"v31","k2":300}', '{"k2":300}')"""
+    qt_sql_json_contains """SELECT json_contains('{"k1":"v31","k2":300}', '{"k2":300,"k1":"v31"}')"""
+
+    qt_select_json_contains """SELECT id, j, json_contains(j, cast('true' as json)) FROM ${testTable} ORDER BY id"""
+    qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k2":300}' as json)) FROM ${testTable} ORDER BY id"""
+    qt_select_json_contains """SELECT id, j, json_contains(j, cast('{"k1":"v41","k2":400}' as json), '\$.a1') FROM ${testTable} ORDER BY id"""
+    qt_select_json_contains """SELECT id, j, json_contains(j, cast('[123,456]' as json)) FROM ${testTable} ORDER BY id"""
 }

@@ -27,15 +27,12 @@ import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.BinaryObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 
 @Description(name = "bitmap_and", value = "a _FUNC_ b - Compute intersection of two or more input bitmaps,"
         + " return the new bitmap")
 public class BitmapAndUDF extends GenericUDF {
-    private static final Logger LOG = LogManager.getLogger(BitmapAndUDF.class);
     private transient BinaryObjectInspector inputOI0;
     private transient BinaryObjectInspector inputOI1;
 
@@ -68,7 +65,6 @@ public class BitmapAndUDF extends GenericUDF {
             bitmapValue0.and(bitmapValue1);
             return BitmapValueUtil.serializeToBytes(bitmapValue1);
         } catch (IOException ioException) {
-            LOG.warn("", ioException);
             throw new RuntimeException(ioException);
         }
     }

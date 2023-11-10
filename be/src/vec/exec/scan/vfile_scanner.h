@@ -30,8 +30,8 @@
 #include "common/global_types.h"
 #include "common/status.h"
 #include "exec/olap_common.h"
-#include "exec/text_converter.h"
 #include "io/io_common.h"
+#include "pipeline/exec/file_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "vec/common/schema_util.h"
@@ -67,6 +67,10 @@ public:
                  const TFileScanRange& scan_range, RuntimeProfile* profile,
                  ShardedKVCache* kv_cache);
 
+    VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
+                 const TFileScanRange& scan_range, RuntimeProfile* profile,
+                 ShardedKVCache* kv_cache);
+
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
@@ -88,7 +92,6 @@ protected:
     Status _cast_src_block(Block* block) { return Status::OK(); }
 
 protected:
-    std::unique_ptr<TextConverter> _text_converter;
     const TFileScanRangeParams* _params;
     const std::vector<TFileRangeDesc>& _ranges;
     int _next_range;
@@ -137,6 +140,7 @@ protected:
     // For load task
     vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
     std::unique_ptr<RowDescriptor> _src_row_desc;
+    std::unique_ptr<RowDescriptor> _dest_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
     // owned by scan node
@@ -172,6 +176,7 @@ private:
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
+    RuntimeProfile::Counter* _has_fully_rf_file_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;
     // single slot filter conjuncts
@@ -202,11 +207,28 @@ private:
     Status _generate_fill_columns();
     Status _handle_dynamic_block(Block* block);
     Status _process_conjuncts_for_dict_filter();
+    Status _process_late_arrival_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
 
     void _reset_counter() {
         _counter.num_rows_unselected = 0;
         _counter.num_rows_filtered = 0;
+    }
+
+    TPushAggOp::type _get_push_down_agg_type() {
+        if (get_parent() != nullptr) {
+            return _parent->get_push_down_agg_type();
+        } else {
+            return _local_state->get_push_down_agg_type();
+        }
+    }
+
+    int64_t _get_push_down_count() {
+        if (get_parent() != nullptr) {
+            return _parent->get_push_down_count();
+        } else {
+            return _local_state->get_push_down_count();
+        }
     }
 };
 } // namespace doris::vectorized

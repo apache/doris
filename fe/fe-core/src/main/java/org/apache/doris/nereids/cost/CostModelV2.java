@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -57,6 +58,12 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
     static double PROBE_COST = 1.2;
     static double CMP_COST = 1.5;
     static double PUSH_DOWN_AGG_COST = 0.1;
+
+    private final SessionVariable sessionVariable;
+
+    CostModelV2(SessionVariable sessionVariable) {
+        this.sessionVariable = sessionVariable;
+    }
 
     public static Cost addChildCost(Plan plan, Cost planCost, Cost childCost, int index) {
         Preconditions.checkArgument(childCost instanceof CostV2 && planCost instanceof CostV2);
@@ -103,7 +110,7 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
 
         double ioCost = stats.computeSize();
 
-        double runCost1 = CostWeight.get().weightSum(0, ioCost, 0) / stats.getBENumber();
+        double runCost1 = CostWeight.get(sessionVariable).weightSum(0, ioCost, 0) / stats.getBENumber();
 
         // Note the stats of this operator is the stats of relation.
         // We need add a plenty for this cost. Maybe changing rowCount of storageLayer is better
@@ -125,7 +132,7 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
         double cpuCost = statistics.getRowCount() * ExprCostModel.calculateExprCost(physicalProject.getProjects());
 
         double startCost = 0;
-        double runCost = CostWeight.get().weightSum(cpuCost, 0, 0) / statistics.getBENumber();
+        double runCost = CostWeight.get(sessionVariable).weightSum(cpuCost, 0, 0) / statistics.getBENumber();
 
         return new CostV2(startCost, runCost, 0);
     }
@@ -185,7 +192,7 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
         }
 
         double startCost = 0;
-        double runCost = CostWeight.get().weightSum(0, 0, netCost) / childStatistics.getBENumber();
+        double runCost = CostWeight.get(sessionVariable).weightSum(0, 0, netCost) / childStatistics.getBENumber();
         return new CostV2(startCost, runCost, 0);
     }
 
@@ -212,8 +219,8 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
         }
         double probeCost = leftStats.getRowCount() * PROBE_COST + stats.getRowCount() * otherExprCost;
 
-        double startCost = CostWeight.get().weightSum(buildTableCost, 0, 0);
-        double runCost = CostWeight.get().weightSum(probeCost, 0, 0) / stats.getBENumber();
+        double startCost = CostWeight.get(sessionVariable).weightSum(buildTableCost, 0, 0);
+        double runCost = CostWeight.get(sessionVariable).weightSum(probeCost, 0, 0) / stats.getBENumber();
         return new CostV2(startCost, runCost, rightStats.computeSize());
     }
 
@@ -232,7 +239,7 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
         }
 
         double startCost = 0;
-        double runCost = CostWeight.get().weightSum(probeCost, 0, 0) / stats.getBENumber();
+        double runCost = CostWeight.get(sessionVariable).weightSum(probeCost, 0, 0) / stats.getBENumber();
         return new CostV2(startCost, runCost, rightStats.computeSize());
     }
 
@@ -257,7 +264,7 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
         double cpuCost = exprCost * statistics.getRowCount();
 
         double startCost = 0;
-        double runCost = CostWeight.get().weightSum(cpuCost, 0, 0) / statistics.getBENumber();
+        double runCost = CostWeight.get(sessionVariable).weightSum(cpuCost, 0, 0) / statistics.getBENumber();
         return new CostV2(startCost, runCost, 0);
     }
 
@@ -274,7 +281,7 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
         double cpuCost = stats.getRowCount() * exprCost;
 
         double startCost = 0;
-        double runCost = CostWeight.get().weightSum(cpuCost, 0, 0) / stats.getBENumber();
+        double runCost = CostWeight.get(sessionVariable).weightSum(cpuCost, 0, 0) / stats.getBENumber();
         return new CostV2(startCost, runCost, 0);
     }
 
@@ -293,7 +300,7 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
             size += childStats.computeSize();
         }
 
-        double startCost = CostWeight.get().weightSum(rowCount * HASH_COST, 0, 0);
+        double startCost = CostWeight.get(sessionVariable).weightSum(rowCount * HASH_COST, 0, 0);
         double runCost = 0;
 
         return new CostV2(startCost, runCost, size);
@@ -307,7 +314,7 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
         double cpuCost = exprCost * stats.getRowCount();
 
         double startCost = 0;
-        double runCost = CostWeight.get().weightSum(cpuCost, 0, 0) / stats.getBENumber();
+        double runCost = CostWeight.get(sessionVariable).weightSum(cpuCost, 0, 0) / stats.getBENumber();
 
         return new CostV2(startCost, runCost, 0);
     }
@@ -316,13 +323,13 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
         //TODO: consider runtimeFilter
         double io = stats.computeSize();
         double startCost = 0;
-        double runCost = CostWeight.get().weightSum(0, io, 0) / stats.getBENumber();
+        double runCost = CostWeight.get(sessionVariable).weightSum(0, io, 0) / stats.getBENumber();
         return new CostV2(startCost, runCost, 0);
     }
 
     private CostV2 calculateAggregate(Statistics stats, Statistics childStats, double exprCost) {
         // Build HashTable
-        double startCost = CostWeight.get()
+        double startCost = CostWeight.get(sessionVariable)
                 .weightSum(HASH_COST * childStats.getRowCount() + exprCost * childStats.getRowCount(), 0, 0);
         double runCost = 0;
         return new CostV2(startCost, runCost, stats.computeSize());

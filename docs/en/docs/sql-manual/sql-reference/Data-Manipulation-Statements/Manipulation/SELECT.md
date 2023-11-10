@@ -77,7 +77,7 @@ SELECT
 
       If you need to return the top N sorted results, you need to use the LIMIT clause; in order to limit memory usage, if the user does not specify the LIMIT clause, the first 65535 sorted results are returned by default.
 
-   9. `Limit n`: limit the number of lines in the output result, `limit m,n` means output n records starting from the mth line.
+   9. `Limit n`: limit the number of lines in the output result, `limit m,n` means output n records starting from the mth line.You should use `order by` before you use `limit m,n`, otherwise the data may be inconsistent each time it is executed.
 
    10. The `Having` clause does not filter the row data in the table, but filters the results produced by the aggregate function.
 

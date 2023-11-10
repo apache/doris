@@ -37,14 +37,14 @@ inline thread_local int enable_thread_catch_bad_alloc = 0;
 class Exception : public std::exception {
 public:
     Exception() : _code(ErrorCode::OK) {}
-    Exception(int code, const std::string_view msg);
+    Exception(int code, const std::string_view& msg);
     // add nested exception as first param, or the template may could not find
     // the correct method for ...args
-    Exception(const Exception& nested, int code, const std::string_view msg);
+    Exception(const Exception& nested, int code, const std::string_view& msg);
 
     // Format message with fmt::format, like the logging functions.
     template <typename... Args>
-    Exception(int code, const std::string_view fmt, Args&&... args)
+    Exception(int code, const std::string_view& fmt, Args&&... args)
             : Exception(code, fmt::format(fmt, std::forward<Args>(args)...)) {}
 
     int code() const { return _code; }
@@ -96,9 +96,8 @@ inline const std::string& Exception::to_string() const {
                 return Status::MemoryLimitExceeded(fmt::format(                                  \
                         "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", \
                         e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));      \
-            } else {                                                                             \
-                return Status::Error<false>(e.code(), e.to_string());                            \
             }                                                                                    \
+            return Status::Error<false>(e.code(), e.to_string());                                \
         }                                                                                        \
     } while (0)
 
@@ -118,8 +117,7 @@ inline const std::string& Exception::to_string() const {
                 return Status::MemoryLimitExceeded(fmt::format(                                  \
                         "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", \
                         e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));      \
-            } else {                                                                             \
-                return Status::Error<false>(e.code(), e.to_string());                            \
             }                                                                                    \
+            return Status::Error<false>(e.code(), e.to_string());                                \
         }                                                                                        \
     } while (0)

@@ -93,7 +93,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const auto& arg1 = block.get_by_position(arguments[0]);
         const auto& arg2 = block.get_by_position(arguments[1]);
         if (!_check_input_type(arg1.type) || !_check_input_type(arg2.type)) {
@@ -140,10 +140,10 @@ public:
 
             dst_null_data[row] = false;
             if (offsets1[row] != offsets2[row]) [[unlikely]] {
-                return Status::RuntimeError(fmt::format(
+                return Status::InvalidArgument(
                         "function {} have different input element sizes of array: {} and {}",
                         get_name(), offsets1[row] - offsets1[row - 1],
-                        offsets2[row] - offsets2[row - 1]));
+                        offsets2[row] - offsets2[row - 1]);
             }
 
             typename DistanceImpl::State st;
@@ -161,6 +161,7 @@ public:
             }
             if (!dst_null_data[row]) {
                 dst_data[row] = DistanceImpl::finalize(st);
+                dst_null_data[row] = std::isnan(dst_data[row]);
             }
         }
 
@@ -170,7 +171,7 @@ public:
     }
 
 private:
-    bool _check_input_type(const DataTypePtr& type) {
+    bool _check_input_type(const DataTypePtr& type) const {
         auto array_type = remove_nullable(type);
         if (!is_array(array_type)) {
             return false;

@@ -55,7 +55,7 @@ public:
     virtual Status abort_trans() = 0;  // should be call after transaction abort
     virtual Status finish_trans() = 0; // should be call after transaction commit
 
-    virtual Status close() = 0;
+    virtual Status close(Status) = 0;
 
     virtual Status exec_stmt_write(vectorized::Block* block,
                                    const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,

@@ -170,6 +170,7 @@ bool dec_less_or_equal(T x, T y, UInt32 x_scale, UInt32 y_scale) {
 DECLARE_DECIMAL_COMPARISON(Decimal32)
 DECLARE_DECIMAL_COMPARISON(Decimal64)
 DECLARE_DECIMAL_COMPARISON(Decimal128)
+DECLARE_DECIMAL_COMPARISON(Decimal256)
 
 template <>
 bool decimal_equal(Decimal128I x, Decimal128I y, UInt32 xs, UInt32 ys) {

@@ -109,6 +109,13 @@ suite("test_external_catalog_hive", "p2,external,hive,external_remote,external_r
         qt_par_fields_in_file_orc5 """ select * from multi_catalog.par_fields_in_file_orc where month = 8 and year = 2022 order by id; """
         qt_par_fields_in_file_parquet5 """ select * from multi_catalog.par_fields_in_file_parquet where month = 8 and year = 2022 order by id; """
 
+        // test unsupported input format query
+        try {
+            sql """ select * from multi_catalog.unsupported_input_format_empty; """
+        } catch (Exception e) {
+            assertTrue(e.getMessage().contains("Unsupported hive input format: com.hadoop.mapred.DeprecatedLzoTextInputFormat"))
+        }
+
         // test remember last used database after switch / rename catalog
         sql """switch ${catalog_name};"""
 

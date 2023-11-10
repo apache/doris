@@ -81,7 +81,7 @@ public class TemplateType extends Type {
 
     @Override
     public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
-                                       boolean useSpecializedType) throws TypeException {
+                                       boolean useSpecializedType, boolean enableDecimal256) throws TypeException {
         if (specificType.hasTemplateType() && !specificType.isNull()) {
             throw new TypeException(specificType + " should not hasTemplateType");
         }
@@ -97,7 +97,7 @@ public class TemplateType extends Type {
         if (specializedType != null
                 && !specificType.equals(specializedType)
                 && !specificType.matchesType(specializedType)
-                && !Type.isImplicitlyCastable(specificType, specializedType, true)
+                && !Type.isImplicitlyCastable(specificType, specializedType, true, enableDecimal256)
                 && !Type.canCastTo(specificType, specializedType)) {
             throw new TypeException(
                 String.format("can not specialize template type %s to %s since it's already specialized as %s",

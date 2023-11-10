@@ -30,6 +30,8 @@ suite("ds_rf48") {
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_pipeline_engine=true'
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set expand_runtime_filter_by_inner_join=false'
     String stmt = '''
     explain physical plan
     select sum (ss_quantity)
@@ -117,5 +119,5 @@ suite("ds_rf48") {
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-     assertEquals("RF3[s_store_sk->[ss_store_sk],RF2[d_date_sk->[ss_sold_date_sk],RF1[cd_demo_sk->[ss_cdemo_sk],RF0[ca_address_sk->[ss_addr_sk]", getRuntimeFilters(plan))
+     assertEquals("RF3[s_store_sk->[ss_store_sk],RF2[d_date_sk->[ss_sold_date_sk],RF1[ca_address_sk->[ss_addr_sk],RF0[cd_demo_sk->[ss_cdemo_sk]", getRuntimeFilters(plan))
 }

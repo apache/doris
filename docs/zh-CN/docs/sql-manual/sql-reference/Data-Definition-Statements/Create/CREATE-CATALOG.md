@@ -37,7 +37,7 @@ CREATE CATALOG
 语法：
 
 ```sql
-CREATE CATALOG [IF NOT EXISTS] catalog_name
+CREATE CATALOG [IF NOT EXISTS] catalog_name [comment]
 	PROPERTIES ("key"="value", ...);
 ```
 
@@ -50,7 +50,7 @@ CREATE CATALOG [IF NOT EXISTS] catalog_name
 1. 新建数据目录 hive
 
 	```sql
-	CREATE CATALOG hive PROPERTIES (
+	CREATE CATALOG hive comment 'hive catalog' PROPERTIES (
 		'type'='hms',
 		'hive.metastore.uris' = 'thrift://127.0.0.1:7004',
 		'dfs.nameservices'='HANN',

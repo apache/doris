@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_json_unique_load_and_function", "p0") {
+
+    // TODO: remove it after we add implicit cast check in Nereids
+    sql "set enable_nereids_dml=false"
+
     // define a sql table
     def testTable = "tbl_test_json_unique"
     def dataFile = "test_json_unique_key.csv"

@@ -174,7 +174,7 @@ public:
     UIntGauge* data_stream_receiver_count;
     UIntGauge* fragment_endpoint_count;
     UIntGauge* active_scan_context_count;
-    UIntGauge* plan_fragment_count;
+    UIntGauge* fragment_instance_count;
     UIntGauge* load_channel_count;
     UIntGauge* result_buffer_block_count;
     UIntGauge* result_block_queue_count;

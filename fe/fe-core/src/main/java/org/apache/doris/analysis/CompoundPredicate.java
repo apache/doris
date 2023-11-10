@@ -230,8 +230,8 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
-    public Expr getResultValue(boolean inView) throws AnalysisException {
-        recursiveResetChildrenResult(inView);
+    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
+        recursiveResetChildrenResult(forPushDownPredicatesToView);
         boolean compoundResult = false;
         if (op == Operator.NOT) {
             final Expr childValue = getChild(0);

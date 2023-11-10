@@ -53,7 +53,7 @@ TEST(VGeoFunctionsTest, function_geo_st_point_test) {
                             {{Null(), (double)5}, Null()},
                             {{(double)5, Null()}, Null()}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 }
 
@@ -70,7 +70,7 @@ TEST(VGeoFunctionsTest, function_geo_st_as_text) {
 
         DataSet data_set = {{{buf}, std::string("POINT (24.7 56.7)")}, {{Null()}, Null()}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 }
 
@@ -87,7 +87,7 @@ TEST(VGeoFunctionsTest, function_geo_st_as_wkt) {
 
         DataSet data_set = {{{buf}, std::string("POINT (24.7 56.7)")}, {{Null()}, Null()}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 }
 
@@ -104,7 +104,7 @@ TEST(VGeoFunctionsTest, function_geo_st_x) {
 
         DataSet data_set = {{{buf}, (double)24.7}, {{Null()}, Null()}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 }
 
@@ -121,7 +121,7 @@ TEST(VGeoFunctionsTest, function_geo_st_y) {
 
         DataSet data_set = {{{buf}, (double)56.7}, {{Null()}, Null()}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 }
 
@@ -142,7 +142,7 @@ TEST(VGeoFunctionsTest, function_geo_st_distance_sphere) {
                 {{Null(), (double)39.939093, (double)116.4274406433, (double)39.9020987219},
                  Null()}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 }
 
@@ -163,7 +163,7 @@ TEST(VGeoFunctionsTest, function_geo_st_angle_sphere) {
                 {{Null(), (double)39.939093, (double)116.4274406433, (double)39.9020987219},
                  Null()}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 }
 
@@ -193,7 +193,7 @@ TEST(VGeoFunctionsTest, function_geo_st_angle) {
                             {{buf1, Null(), buf3}, Null()},
                             {{Null(), buf2, buf3}, Null()}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 }
 
@@ -218,7 +218,7 @@ TEST(VGeoFunctionsTest, function_geo_st_azimuth) {
                             {{buf1, Null()}, Null()},
                             {{Null(), buf2}, Null()}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 }
 
@@ -253,7 +253,7 @@ TEST(VGeoFunctionsTest, function_geo_st_contains) {
                             {{buf1, Null()}, Null()},
                             {{Null(), buf3}, Null()}};
 
-        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 }
 
@@ -272,7 +272,7 @@ TEST(VGeoFunctionsTest, function_geo_st_circle) {
                             {{(double)111, Null(), (double)10000}, Null()},
                             {{(double)111, (double)64, Null()}, Null()}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 }
 
@@ -290,7 +290,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geometryfromtext) {
         shape->encode_to(&buf);
         DataSet data_set = {{{std::string("LINESTRING (1 1, 2 2)")}, buf}, {{Null()}, Null()}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 }
 
@@ -308,7 +308,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geomfromtext) {
         shape->encode_to(&buf);
         DataSet data_set = {{{std::string("LINESTRING (1 1, 2 2)")}, buf}, {{Null()}, Null()}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 }
 
@@ -326,7 +326,7 @@ TEST(VGeoFunctionsTest, function_geo_st_linefromtext) {
         shape->encode_to(&buf);
         DataSet data_set = {{{std::string("LINESTRING (1 1, 2 2)")}, buf}, {{Null()}, Null()}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 }
 
@@ -345,7 +345,7 @@ TEST(VGeoFunctionsTest, function_geo_st_polygon) {
         DataSet data_set = {{{std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))")}, buf},
                             {{Null()}, Null()}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 }
 
@@ -364,7 +364,7 @@ TEST(VGeoFunctionsTest, function_geo_st_polygonfromtext) {
         DataSet data_set = {{{std::string("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))")}, buf},
                             {{Null()}, Null()}};
 
-        check_function<DataTypeString, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
 }
 
@@ -380,7 +380,7 @@ TEST(VGeoFunctionsTest, function_geo_st_area_square_meters) {
         circle.encode_to(&buf);
         DataSet data_set = {{{buf}, (double)3.1415926535897869}, {{Null()}, Null()}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 }
 
@@ -398,7 +398,7 @@ TEST(VGeoFunctionsTest, function_geo_st_area_square_km) {
         shape->encode_to(&buf);
         DataSet data_set = {{{buf}, (double)12364.036567076409}, {{Null()}, Null()}};
 
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 }
 

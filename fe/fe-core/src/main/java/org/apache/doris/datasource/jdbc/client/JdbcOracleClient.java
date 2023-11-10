@@ -94,16 +94,8 @@ public class JdbcOracleClient extends JdbcClient {
         String currentDbName = dbName;
         String currentTableName = tableName;
         if (isLowerCaseTableNames) {
-            currentDbName = lowerDBToRealDB.get(dbName);
-            currentTableName = lowerTableToRealTable.get(tableName);
-            if (currentDbName == null) {
-                getDatabaseNameList();
-                currentDbName  = lowerDBToRealDB.get(dbName);
-            }
-            if (currentTableName == null) {
-                getTablesNameList(dbName);
-                currentTableName = lowerTableToRealTable.get(tableName);
-            }
+            currentDbName = getRealDatabaseName(dbName);
+            currentTableName = getRealTableName(dbName, tableName);
         }
         String finalDbName = currentDbName;
         String finalTableName = currentTableName;

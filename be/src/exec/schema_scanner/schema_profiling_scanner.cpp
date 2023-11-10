@@ -65,24 +65,24 @@ Status SchemaProfilingScanner::start(RuntimeState* state) {
     }
     SCOPED_TIMER(_get_db_timer);
     TGetDbsParams db_params;
-    if (nullptr != _param->db) {
-        db_params.__set_pattern(*(_param->db));
+    if (nullptr != _param->common_param->db) {
+        db_params.__set_pattern(*(_param->common_param->db));
     }
-    if (nullptr != _param->catalog) {
-        db_params.__set_catalog(*(_param->catalog));
+    if (nullptr != _param->common_param->catalog) {
+        db_params.__set_catalog(*(_param->common_param->catalog));
     }
-    if (nullptr != _param->current_user_ident) {
-        db_params.__set_current_user_ident(*(_param->current_user_ident));
+    if (nullptr != _param->common_param->current_user_ident) {
+        db_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
     } else {
-        if (nullptr != _param->user) {
-            db_params.__set_user(*(_param->user));
+        if (nullptr != _param->common_param->user) {
+            db_params.__set_user(*(_param->common_param->user));
         }
-        if (nullptr != _param->user_ip) {
-            db_params.__set_user_ip(*(_param->user_ip));
+        if (nullptr != _param->common_param->user_ip) {
+            db_params.__set_user_ip(*(_param->common_param->user_ip));
         }
     }
 
-    if (nullptr == _param->ip || 0 == _param->port) {
+    if (nullptr == _param->common_param->ip || 0 == _param->common_param->port) {
         return Status::InternalError("IP or port doesn't exists");
     }
     return Status::OK();

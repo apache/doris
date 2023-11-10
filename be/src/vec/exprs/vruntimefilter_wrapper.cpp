@@ -47,13 +47,6 @@ namespace doris::vectorized {
 VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl)
         : VExpr(node), _impl(impl), _always_true(false), _filtered_rows(0), _scan_rows(0) {}
 
-VRuntimeFilterWrapper::VRuntimeFilterWrapper(const VRuntimeFilterWrapper& vexpr)
-        : VExpr(vexpr),
-          _impl(vexpr._impl),
-          _always_true(vexpr._always_true),
-          _filtered_rows(vexpr._filtered_rows.load()),
-          _scan_rows(vexpr._scan_rows.load()) {}
-
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(_impl->prepare(state, desc, context));
@@ -69,10 +62,6 @@ Status VRuntimeFilterWrapper::open(RuntimeState* state, VExprContext* context,
 void VRuntimeFilterWrapper::close(VExprContext* context,
                                   FunctionContext::FunctionStateScope scope) {
     _impl->close(context, scope);
-}
-
-bool VRuntimeFilterWrapper::is_constant() const {
-    return _impl->is_constant();
 }
 
 Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* result_column_id) {

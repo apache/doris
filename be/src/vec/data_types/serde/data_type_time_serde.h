@@ -31,6 +31,9 @@ namespace vectorized {
 class Arena;
 
 class DataTypeTimeSerDe : public DataTypeNumberSerDe<Float64> {
+public:
+    DataTypeTimeSerDe(int nesting_level = 1) : DataTypeNumberSerDe<Float64>(nesting_level) {};
+
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
@@ -43,7 +46,8 @@ private:
 };
 class DataTypeTimeV2SerDe : public DataTypeNumberSerDe<Float64> {
 public:
-    DataTypeTimeV2SerDe(int scale = 0) : scale(scale) {};
+    DataTypeTimeV2SerDe(int scale = 0, int nesting_level = 1)
+            : DataTypeNumberSerDe<Float64>(nesting_level), scale(scale) {};
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,

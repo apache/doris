@@ -65,11 +65,18 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
      *             ▼
      * requestPropertyToChildren
      */
+    private final ConnectContext connectContext;
     private final PhysicalProperties requestPropertyFromParent;
     private List<List<PhysicalProperties>> requestPropertyToChildren;
 
-    public RequestPropertyDeriver(JobContext context) {
+    public RequestPropertyDeriver(ConnectContext connectContext, JobContext context) {
+        this.connectContext = connectContext;
         this.requestPropertyFromParent = context.getRequiredProperties();
+    }
+
+    public RequestPropertyDeriver(ConnectContext connectContext, PhysicalProperties requestPropertyFromParent) {
+        this.connectContext = connectContext;
+        this.requestPropertyFromParent = requestPropertyFromParent;
     }
 
     /**
@@ -77,7 +84,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
      */
     public List<List<PhysicalProperties>> getRequestChildrenPropertyList(GroupExpression groupExpression) {
         requestPropertyToChildren = Lists.newArrayList();
-        groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
+        groupExpression.getPlan().accept(this, new PlanContext(connectContext, groupExpression));
         return requestPropertyToChildren;
     }
 
@@ -106,8 +113,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, PlanContext context) {
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
-                && !ConnectContext.get().getSessionVariable().enableStrictConsistencyDml) {
+        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
             addRequestPropertyToChildren(olapTableSink.getRequirePhysicalProperties());
@@ -161,8 +167,10 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         if (JoinUtils.couldShuffle(hashJoin)) {
             addShuffleJoinRequestProperty(hashJoin);
         }
+
         // for broadcast join
-        if (JoinUtils.couldBroadcast(hashJoin)) {
+        if (JoinUtils.couldBroadcast(hashJoin)
+                && (JoinUtils.checkBroadcastJoinStats(hashJoin) || requestPropertyToChildren.isEmpty())) {
             addBroadcastJoinRequestProperty();
         }
         return null;

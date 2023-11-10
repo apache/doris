@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("sum_devide_count") {
-
+    sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """

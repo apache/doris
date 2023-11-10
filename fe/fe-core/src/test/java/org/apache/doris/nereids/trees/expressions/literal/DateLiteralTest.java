@@ -35,6 +35,10 @@ class DateLiteralTest {
         // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01-1"));
         // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01+01"));
         // Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01+1"));
+        Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01 01:00:00.000000"));
+        Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01 00:01:00.000000"));
+        Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01 00:00:01.000000"));
+        Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("2022-01-01 00:00:00.000001"));
     }
 
     @Test

@@ -353,6 +353,13 @@ bool FunctionBuilderImpl::is_date_or_datetime_or_decimal(
                     func_return_type->is_nullable()
                             ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
                             : func_return_type)) ||
+           (is_date_or_datetime(return_type->is_nullable()
+                                        ? ((DataTypeNullable*)return_type.get())->get_nested_type()
+                                        : return_type) &&
+            is_date_v2_or_datetime_v2(
+                    func_return_type->is_nullable()
+                            ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
+                            : func_return_type)) ||
            (is_decimal(return_type->is_nullable()
                                ? ((DataTypeNullable*)return_type.get())->get_nested_type()
                                : return_type) &&

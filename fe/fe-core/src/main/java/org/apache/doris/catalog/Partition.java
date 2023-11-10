@@ -282,6 +282,14 @@ public class Partition extends MetaObject implements Writable {
         return replicaCount;
     }
 
+    public long getAllReplicaCount() {
+        long replicaCount = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.ALL)) {
+            replicaCount += mIndex.getReplicaCount();
+        }
+        return replicaCount;
+    }
+
     public boolean hasData() {
         // The fe unit test need to check the selected index id without any data.
         // So if set FeConstants.runningUnitTest, we can ensure that the number of partitions is not empty,

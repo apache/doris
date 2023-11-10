@@ -119,6 +119,7 @@ Doris 各个实例直接通过网络进行通讯。以下表格展示了所有�
 | FE | http_port  | 8030 | FE <--> FE，用户 <--> FE |FE 上的 http server 端口 |
 | FE | rpc_port | 9020 | BE --> FE, FE <--> FE | FE 上的 thrift server 端口，每个fe的配置需要保持一致|
 | FE | query_port | 9030 | 用户 <--> FE | FE 上的 mysql server 端口 |
+| FE | arrow_flight_sql_port | 9040 | 用户 <--> FE | FE 上的 Arrow Flight SQL server 端口 |
 | FE | edit\_log_port | 9010 | FE <--> FE | FE 上的 bdbje 之间通信用的端口 |
 | Broker | broker\_ipc_port | 8000 | FE --> Broker, BE --> Broker | Broker 上的 thrift server，用于接收请求 |
 
@@ -279,6 +280,20 @@ Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存
 * 查看 Broker 状态
 
   使用 mysql-client 连接任一已启动的 FE，执行以下命令查看 Broker 状态：`SHOW PROC "/brokers";`
+
+#### FE 和 BE 的启动方式
+
+##### 版本 >=2.0.2
+
+1. 使用 start_xx.sh 启动，该方式会将日志输出至文件，同时不会退出启动脚本进程，通常使用 supervisor 等工具自动拉起时建议采用这种方式。
+2. 使用 start_xx.sh --daemon 启动，FE/BE 将作为一个后台进程在后台运行，并且日志输出将默认写入到指定的日志文件中。 这种启动方式适用于生产环境。
+3. 使用 start_xx.sh --console 启动，该参数用于以控制台模式启动 FE/BE 。当使用 --console 参数启动时，服务器将在当前终端会话中启动，并将日志输出和控制台交互打印到该终端。
+   这种启动方式适用于开发和测试场景.
+##### 版本 < 2.0.2
+
+1. 使用 start_xx.sh --daemon 启动，FE/BE 将作为一个后台进程在后台运行，并且日志输出将默认写入到指定的日志文件中。 这种启动方式适用于生产环境。
+2. 使用 start_xx.sh 启动，该参数用于以控制台模式启动 FE/BE 。当使用 --console 参数启动时，服务器将在当前终端会话中启动，并将日志输出和控制台交互打印到该终端。
+   这种启动方式适用于开发和测试场景.
 
 **注：在生产环境中，所有实例都应使用守护进程启动，以保证进程退出后，会被自动拉起，如 [Supervisor](http://supervisord.org/)。如需使用守护进程启动，在 0.9.0 及之前版本中，需要修改各个 start_xx.sh 脚本，去掉最后的 & 符号**。从 0.10.0 版本开始，直接调用 `sh start_xx.sh` 启动即可。也可参考 [这里](https://www.cnblogs.com/lenmom/p/9973401.html)
 

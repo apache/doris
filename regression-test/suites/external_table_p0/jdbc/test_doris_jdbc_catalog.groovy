@@ -122,6 +122,8 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
         );
     """
     sql """insert into ${base_table} values (true, 1, 1, 1, 1, 1, 1.0, 1.0, 1.0, 1.0, '2021-01-01', '2021-01-01 00:00:00.000', 'a', 'a', '{\"a\": 1}');"""
+    // insert NULL
+    sql """insert into ${base_table} values (null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);"""
     order_qt_base1 """ select * from ${base_table} order by int_col; """
 
     sql """drop table if exists ${arr_table}"""
@@ -152,6 +154,8 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     """
 
     sql """insert into ${arr_table} values (1, array(true), array(1), array(1), array(1), array(1), array(1), array(1.0), array(1.0), array(1.0), array(1.0), array('2021-01-01'), array('2021-01-01 00:00:00.000'), array('a'), array('a'), array('a'));"""
+    // insert NULL
+    sql """insert into ${arr_table} values (2, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);"""
     order_qt_arr1 """ select * from ${arr_table} order by int_col; """
 
 
@@ -167,6 +171,14 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     order_qt_tb2 """ select pin_id, hll_union_agg(user_log_acct) from ${catalog_name}.${internal_db_name}.${hllTable} group by pin_id; """
     order_qt_base2 """ select * from ${catalog_name}.${internal_db_name}.${base_table} order by int_col; """
     order_qt_arr2 """ select * from ${catalog_name}.${internal_db_name}.${arr_table} order by int_col; """
+    sql """ drop table if exists internal.${internal_db_name}.ctas_base; """
+    sql """ drop table if exists internal.${internal_db_name}.ctas_arr; """
+    order_qt_ctas_base """ create table internal.${internal_db_name}.ctas_base PROPERTIES("replication_num" = "1") as select * from ${catalog_name}.${internal_db_name}.${base_table} order by int_col; """
+    order_qt_ctas_arr """ create table internal.${internal_db_name}.ctas_arr PROPERTIES("replication_num" = "1") as select * from ${catalog_name}.${internal_db_name}.${arr_table} order by int_col; """
+    qt_desc_ctas_base """ desc internal.${internal_db_name}.ctas_base; """
+    qt_desc_ctas_arr """ desc internal.${internal_db_name}.ctas_arr; """
+    order_qt_query_ctas_base """ select * from internal.${internal_db_name}.ctas_base order by int_col; """
+    order_qt_query_ctas_arr """ select * from internal.${internal_db_name}.ctas_arr order by int_col; """
 
     //clean
     qt_sql """select current_catalog()"""

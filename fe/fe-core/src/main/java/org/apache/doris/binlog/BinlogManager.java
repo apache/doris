@@ -30,6 +30,7 @@ import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
@@ -290,6 +291,18 @@ public class BinlogManager {
         tableIds.add(info.getTblId());
         long timestamp = -1;
         TBinlogType type = TBinlogType.REPLACE_PARTITIONS;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
+    }
+
+    // add Truncate Table
+    public void addTruncateTable(TruncateTableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTblId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.TRUNCATE_TABLE;
         String data = info.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);

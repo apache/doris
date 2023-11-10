@@ -23,6 +23,7 @@ import org.apache.doris.common.jni.vec.ScanPredicate;
 
 import com.aliyun.odps.Column;
 import com.aliyun.odps.OdpsType;
+import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.data.ArrowRecordReader;
 import com.aliyun.odps.tunnel.TableTunnel;
 import com.aliyun.odps.type.TypeInfo;
@@ -31,6 +32,7 @@ import com.google.common.base.Strings;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
@@ -40,7 +42,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * MaxComputeJ JniScanner. BE will read data from the scanner object.
@@ -49,16 +53,19 @@ public class MaxComputeJniScanner extends JniScanner {
     private static final Logger LOG = Logger.getLogger(MaxComputeJniScanner.class);
     private static final String REGION = "region";
     private static final String PROJECT = "project";
+    private static final String PARTITION_SPEC = "partition_spec";
     private static final String TABLE = "table";
     private static final String ACCESS_KEY = "access_key";
     private static final String SECRET_KEY = "secret_key";
     private static final String START_OFFSET = "start_offset";
     private static final String SPLIT_SIZE = "split_size";
     private static final String PUBLIC_ACCESS = "public_access";
-    private static final Map<String, MaxComputeTableScan> tableScans = new ConcurrentHashMap<>();
+    private final Map<String, MaxComputeTableScan> tableScans = new ConcurrentHashMap<>();
     private final String region;
     private final String project;
     private final String table;
+    private PartitionSpec partitionSpec;
+    private Set<String> partitionColumns;
     private final MaxComputeTableScan curTableScan;
     private MaxComputeColumnValue columnValue;
     private long remainBatchRows = 0;
@@ -76,7 +83,10 @@ public class MaxComputeJniScanner extends JniScanner {
         table = Objects.requireNonNull(params.get(TABLE), "required property '" + TABLE + "'.");
         tableScans.putIfAbsent(tableUniqKey(), newTableScan(params));
         curTableScan = tableScans.get(tableUniqKey());
-
+        String partitionSpec = params.get(PARTITION_SPEC);
+        if (StringUtils.isNotEmpty(partitionSpec)) {
+            this.partitionSpec = new PartitionSpec(partitionSpec);
+        }
         String[] requiredFields = params.get("required_fields").split(",");
         String[] types = params.get("columns_types").split("#");
         ColumnType[] columnTypes = new ColumnType[types.length];
@@ -124,6 +134,7 @@ public class MaxComputeJniScanner extends JniScanner {
         }
         // reorder columns
         List<Column> columnList = curTableScan.getSchema().getColumns();
+        columnList.addAll(curTableScan.getSchema().getPartitionColumns());
         Map<String, Integer> columnRank = new HashMap<>();
         for (int i = 0; i < columnList.size(); i++) {
             columnRank.put(columnList.get(i).getName(), i);
@@ -139,13 +150,23 @@ public class MaxComputeJniScanner extends JniScanner {
             return;
         }
         try {
-            TableTunnel.DownloadSession session = curTableScan.getSession();
+            TableTunnel.DownloadSession session;
+            if (partitionSpec != null) {
+                session = curTableScan.openDownLoadSession(partitionSpec);
+            } else {
+                session = curTableScan.openDownLoadSession();
+            }
             long start = startOffset == -1L ? 0 : startOffset;
             long recordCount = session.getRecordCount();
             totalRows = splitSize > 0 ? Math.min(splitSize, recordCount) : recordCount;
 
             arrowAllocator = new RootAllocator(Long.MAX_VALUE);
-            curReader = session.openArrowRecordReader(start, totalRows, readColumns, arrowAllocator);
+            partitionColumns = session.getSchema().getPartitionColumns().stream()
+                    .map(Column::getName)
+                    .collect(Collectors.toSet());
+            List<Column> maxComputeColumns = new ArrayList<>(readColumns);
+            maxComputeColumns.removeIf(e -> partitionColumns.contains(e.getName()));
+            curReader = session.openArrowRecordReader(start, totalRows, maxComputeColumns, arrowAllocator);
         } catch (Exception e) {
             close();
             throw new IOException(e);
@@ -250,6 +271,16 @@ public class MaxComputeJniScanner extends JniScanner {
                     batchRows = column.getValueCount();
                     for (int j = 0; j < batchRows; j++) {
                         appendData(readColumnsToId.get(column.getName()), columnValue);
+                    }
+                }
+                if (partitionSpec != null) {
+                    for (String partitionColumn : partitionColumns) {
+                        String partitionValue = partitionSpec.get(partitionColumn);
+                        Integer readColumnId = readColumnsToId.get(partitionColumn);
+                        if (readColumnId != null && partitionValue != null) {
+                            MaxComputePartitionValue value = new MaxComputePartitionValue(partitionValue);
+                            appendData(readColumnId, value);
+                        }
                     }
                 }
                 curReadRows += batchRows;

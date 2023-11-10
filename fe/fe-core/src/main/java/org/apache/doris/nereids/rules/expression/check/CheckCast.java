@@ -24,10 +24,12 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import java.util.List;
 
@@ -50,6 +52,15 @@ public class CheckCast extends AbstractExpressionRewriteRule {
     }
 
     private boolean check(DataType originalType, DataType targetType) {
+        if (originalType.isNullType()) {
+            return true;
+        }
+        if (originalType.equals(targetType)) {
+            return true;
+        }
+        if (originalType instanceof CharacterType && !(targetType instanceof PrimitiveType)) {
+            return true;
+        }
         if (originalType instanceof ArrayType && targetType instanceof ArrayType) {
             return check(((ArrayType) originalType).getItemType(), ((ArrayType) targetType).getItemType());
         } else if (originalType instanceof MapType && targetType instanceof MapType) {
@@ -62,12 +73,15 @@ public class CheckCast extends AbstractExpressionRewriteRule {
                 return false;
             }
             for (int i = 0; i < targetFields.size(); i++) {
-                if (!targetFields.get(i).equals(originalFields.get(i))) {
+                if (originalFields.get(i).isNullable() != targetFields.get(i).isNullable()) {
+                    return false;
+                }
+                if (!check(originalFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
                     return false;
                 }
             }
             return true;
-        } else if (originalType instanceof CharacterType && targetType instanceof StructType) {
+        } else if (originalType instanceof JsonType || targetType instanceof JsonType) {
             return true;
         } else {
             return checkPrimitiveType(originalType, targetType);

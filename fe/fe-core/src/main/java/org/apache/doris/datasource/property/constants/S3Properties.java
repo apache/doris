@@ -150,6 +150,8 @@ public class S3Properties extends BaseProperties {
             } else if (entry.getKey().startsWith(MinioProperties.MINIO_PREFIX)) {
                 String s3Key = entry.getKey().replace(MinioProperties.MINIO_PREFIX, S3Properties.S3_PREFIX);
                 s3Properties.put(s3Key, entry.getValue());
+            } else {
+                s3Properties.put(entry.getKey(), entry.getValue());
             }
         }
         return s3Properties;

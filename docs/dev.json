@@ -47,6 +47,10 @@
     "message": "按方式导入",
     "description": "The label for category Import Way in sidebar docs"
   },
+  "sidebar.docs.category.Import Advanced": {
+    "message": "高级导入",
+    "description": "The label for category Import Advanced in sidebar docs"
+  },
   "sidebar.docs.category.Export": {
     "message": "导出",
     "description": "The label for category Export in sidebar docs"

@@ -50,7 +50,7 @@ suite("test_stream_load_move_memtable", "p0") {
         DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
-    
+
     // test strict_mode success
     streamLoad {
         table "${tableName}"
@@ -284,7 +284,7 @@ suite("test_stream_load_move_memtable", "p0") {
       `k4` ARRAY<BIGINT> NULL COMMENT "",
       `k5` ARRAY<CHAR> NULL COMMENT "",
       `k6` ARRAY<VARCHAR(20)> NULL COMMENT "",
-      `k7` ARRAY<DATE> NULL COMMENT "", 
+      `k7` ARRAY<DATE> NULL COMMENT "",
       `k8` ARRAY<DATETIME> NULL COMMENT "",
       `k9` ARRAY<FLOAT> NULL COMMENT "",
       `k10` ARRAY<DOUBLE> NULL COMMENT "",
@@ -851,7 +851,7 @@ suite("test_stream_load_move_memtable", "p0") {
             assertEquals(5, json.NumberUnselectedRows)
         }
     }
-    
+
     sql "sync"
     order_qt_sql1 "select * from ${tableName9} order by k1, k2"
 
@@ -876,7 +876,7 @@ suite("test_stream_load_move_memtable", "p0") {
         DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
-    
+
     sql """create USER common_user1@'%' IDENTIFIED BY '123456'"""
     sql """GRANT LOAD_PRIV ON *.* TO 'common_user1'@'%';"""
 
@@ -886,7 +886,7 @@ suite("test_stream_load_move_memtable", "p0") {
         set 'column_separator', '|'
         set 'columns', 'k1, k2, v1, v2, v3'
         set 'strict_mode', 'true'
-        set 'Authorization', 'Basic  Y29tbW9uX3VzZXI6MTIzNDU2'
+        set 'Authorization', 'Basic  Y29tbW9uX3VzZXIxOjEyMzQ1Ng=='
         set 'memtable_on_sink_node', 'true'
 
         file 'test_auth.csv'
@@ -904,7 +904,7 @@ suite("test_stream_load_move_memtable", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    
+
     sql "sync"
     sql """DROP USER 'common_user1'@'%'"""
 
@@ -947,7 +947,7 @@ suite("test_stream_load_move_memtable", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    
+
     sql "sync"
     def res = sql "select * from ${tableName14}"
     def time = res[0][5].toString().split("T")[0].split("-")

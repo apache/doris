@@ -125,6 +125,10 @@ public class LoadStmt extends DdlStmt {
 
     public static final String KEY_COMMENT = "comment";
 
+    public static final String KEY_ENCLOSE = "enclose";
+
+    public static final String KEY_ESCAPE = "escape";
+
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;

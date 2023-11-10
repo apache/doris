@@ -19,7 +19,6 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 
 #include <functional>
 #include <map>
@@ -29,8 +28,6 @@
 #include <vector>
 
 #include "runtime/runtime_state.h"
-#include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
 
 namespace doris {

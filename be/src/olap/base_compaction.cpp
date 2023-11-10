@@ -44,13 +44,13 @@ BaseCompaction::~BaseCompaction() = default;
 
 Status BaseCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
-        return Status::Error<INVALID_ARGUMENT>("_tablet init failed");
+        return Status::Error<INVALID_ARGUMENT, false>("_tablet init failed");
     }
 
     std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>("another base compaction is running. tablet={}",
-                                              _tablet->full_name());
+        return Status::Error<TRY_LOCK_FAILED, false>(
+                "another base compaction is running. tablet={}", _tablet->tablet_id());
     }
 
     // 1. pick rowsets to compact
@@ -69,15 +69,15 @@ Status BaseCompaction::execute_compact_impl() {
 #endif
     std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>("another base compaction is running. tablet={}",
-                                              _tablet->full_name());
+        return Status::Error<TRY_LOCK_FAILED, false>(
+                "another base compaction is running. tablet={}", _tablet->tablet_id());
     }
 
     // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
     // for compaction may change. In this case, current compaction task should not be executed.
     if (_tablet->get_clone_occurred()) {
         _tablet->set_clone_occurred(false);
-        return Status::Error<BE_CLONE_OCCURRED>("get_clone_occurred failed");
+        return Status::Error<BE_CLONE_OCCURRED, false>("get_clone_occurred failed");
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -164,7 +164,7 @@ Status BaseCompaction::pick_rowsets_to_compact() {
 
     // 1. cumulative rowset must reach base_compaction_num_cumulative_deltas threshold
     if (_input_rowsets.size() > config::base_compaction_min_rowset_num) {
-        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
+        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->tablet_id()
                     << ", num_cumulative_rowsets=" << _input_rowsets.size() - 1
                     << ", base_compaction_num_cumulative_rowsets="
                     << config::base_compaction_min_rowset_num;
@@ -188,7 +188,7 @@ Status BaseCompaction::pick_rowsets_to_compact() {
     double cumulative_base_ratio = static_cast<double>(cumulative_total_size) / base_size;
 
     if (cumulative_base_ratio > min_data_ratio) {
-        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
+        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->tablet_id()
                     << ", cumulative_total_size=" << cumulative_total_size
                     << ", base_size=" << base_size
                     << ", cumulative_base_ratio=" << cumulative_base_ratio
@@ -201,7 +201,7 @@ Status BaseCompaction::pick_rowsets_to_compact() {
     int64_t interval_threshold = 86400;
     int64_t interval_since_last_base_compaction = time(nullptr) - base_creation_time;
     if (interval_since_last_base_compaction > interval_threshold) {
-        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
+        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->tablet_id()
                     << ", interval_since_last_base_compaction="
                     << interval_since_last_base_compaction
                     << ", interval_threshold=" << interval_threshold;
@@ -211,7 +211,7 @@ Status BaseCompaction::pick_rowsets_to_compact() {
     return Status::Error<BE_NO_SUITABLE_VERSION>(
             "don't satisfy the base compaction policy. tablet={}, num_cumulative_rowsets={}, "
             "cumulative_base_ratio={}, interval_since_last_base_compaction={}",
-            _tablet->full_name(), _input_rowsets.size() - 1, cumulative_base_ratio,
+            _tablet->tablet_id(), _input_rowsets.size() - 1, cumulative_base_ratio,
             interval_since_last_base_compaction);
 }
 

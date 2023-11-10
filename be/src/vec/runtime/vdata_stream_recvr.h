@@ -59,7 +59,8 @@ class RuntimeState;
 
 namespace pipeline {
 struct ExchangeDataDependency;
-}
+class LocalExchangeChannelDependency;
+} // namespace pipeline
 
 namespace vectorized {
 class VDataStreamMgr;
@@ -105,9 +106,12 @@ public:
 
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.
-    void remove_sender(int sender_id, int be_number);
+    void remove_sender(int sender_id, int be_number, Status exec_status);
 
-    void cancel_stream();
+    void remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics,
+                       Status exec_status);
+
+    void cancel_stream(Status exec_status);
 
     void close();
 
@@ -121,11 +125,11 @@ public:
 
     bool is_closed() const { return _is_closed; }
 
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency(
+            int sender_id);
+
 private:
-    void update_blocks_memory_usage(int64_t size) {
-        _blocks_memory_usage->add(size);
-        _blocks_memory_usage_current_value = _blocks_memory_usage->current_value();
-    }
+    void update_blocks_memory_usage(int64_t size);
     class PipSenderQueue;
 
     friend struct BlockSupplierSortCursorImpl;
@@ -180,6 +184,10 @@ private:
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
     bool _enable_pipeline;
+    std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
+            _sender_to_local_channel_dependency;
+
+    std::shared_ptr<bool> _mem_available;
 };
 
 class ThreadClosure : public google::protobuf::Closure {
@@ -197,6 +205,11 @@ public:
 
     virtual ~SenderQueue();
 
+    void set_local_channel_dependency(
+            std::shared_ptr<pipeline::LocalExchangeChannelDependency> local_channel_dependency) {
+        _local_channel_dependency = local_channel_dependency;
+    }
+
     virtual bool should_wait();
 
     virtual Status get_batch(Block* next_block, bool* eos);
@@ -208,7 +221,7 @@ public:
 
     void decrement_senders(int sender_id);
 
-    void cancel();
+    void cancel(Status cancel_status);
 
     void close();
 
@@ -228,6 +241,7 @@ protected:
     VDataStreamRecvr* _recvr;
     std::mutex _lock;
     bool _is_cancelled;
+    Status _cancel_status;
     int _num_remaining_senders;
     std::condition_variable _data_arrival_cv;
     std::condition_variable _data_removal_cv;
@@ -242,6 +256,7 @@ protected:
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
 
     std::shared_ptr<pipeline::ExchangeDataDependency> _dependency = nullptr;
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> _local_channel_dependency;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {
@@ -260,5 +275,6 @@ public:
 
     void add_block(Block* block, bool use_move) override;
 };
+
 } // namespace vectorized
 } // namespace doris

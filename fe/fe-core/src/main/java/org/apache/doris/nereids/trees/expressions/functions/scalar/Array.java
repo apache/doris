@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -76,7 +75,9 @@ public class Array extends ScalarFunction
                     .collect(Collectors.partitioningBy(TypeCoercionUtils::hasCharacterType));
             List<DataType> needTypeCoercion = Lists.newArrayList(Sets.newHashSet(partitioned.get(true)));
             if (needTypeCoercion.size() > 1 || !partitioned.get(false).isEmpty()) {
-                needTypeCoercion = Lists.newArrayList(StringType.INSTANCE);
+                needTypeCoercion = needTypeCoercion.stream()
+                        .map(TypeCoercionUtils::replaceCharacterToString)
+                        .collect(Collectors.toList());
             }
             needTypeCoercion.addAll(partitioned.get(false));
             return needTypeCoercion.stream()

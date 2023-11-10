@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -627,9 +628,9 @@ public class BackupJob extends AbstractJob {
                 }
                 long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
-                        brokers.get(0), repo.getRemoteFileSystem().getProperties(),
+                        brokers.get(0),
+                        S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
                         repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
-                LOG.info("yy debug upload location: " + repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
             }
@@ -663,9 +664,10 @@ public class BackupJob extends AbstractJob {
 
     private void saveMetaInfo() {
         String createTimeStr = TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
-        // local job dir: backup/label__createtime/
+        // local job dir: backup/repo__repo_id/label__createtime/
+        // Add repo_id to isolate jobs from different repos.
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
-                                    label + "__" + createTimeStr).normalize();
+                                    "repo__" + repoId, label + "__" + createTimeStr).normalize();
 
         try {
             // 1. create local job dir of this backup job
@@ -1013,3 +1015,4 @@ public class BackupJob extends AbstractJob {
         return sb.toString();
     }
 }
+

@@ -66,6 +66,14 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
         qt_only_partition_col """select count(p1_col), count(p2_col) from orc_all_types;"""
     }
 
+    // decimals
+    def decimals = {
+        qt_decimals1 """select * from orc_decimal_table order by id;"""
+        qt_decimals2 """select * from orc_decimal_table where id = 3 order by id;"""
+        qt_decimals3 """select * from orc_decimal_table where id < 3 order by id;"""
+        qt_decimals4 """select * from orc_decimal_table where id > 3 order by id;"""
+    }
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
@@ -86,6 +94,7 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
             search_in_int()
             search_mix()
             only_partition_col()
+            decimals()
 
             sql """drop catalog if exists ${catalog_name}"""
 
@@ -103,3 +112,4 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
         }
     }
 }
+

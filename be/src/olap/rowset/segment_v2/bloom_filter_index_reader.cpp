@@ -63,7 +63,8 @@ Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal,
     DCHECK(num_to_read == num_read);
     // construct bloom filter
     StringRef value = column->get_data_at(0);
-    BloomFilter::create(_reader->_bloom_filter_index_meta->algorithm(), bf, value.size);
+    static_cast<void>(
+            BloomFilter::create(_reader->_bloom_filter_index_meta->algorithm(), bf, value.size));
     RETURN_IF_ERROR((*bf)->init(value.data, value.size,
                                 _reader->_bloom_filter_index_meta->hash_strategy()));
     return Status::OK();

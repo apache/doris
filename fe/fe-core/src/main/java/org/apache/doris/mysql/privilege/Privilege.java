@@ -30,7 +30,8 @@ public enum Privilege {
     ALTER_PRIV("Alter_priv", 5, "Privilege for alter database or table"),
     CREATE_PRIV("Create_priv", 6, "Privilege for creating database or table"),
     DROP_PRIV("Drop_priv", 7, "Privilege for dropping database or table"),
-    USAGE_PRIV("Usage_priv", 8, "Privilege for using resource or workloadGroup");
+    USAGE_PRIV("Usage_priv", 8, "Privilege for using resource or workloadGroup"),
+    SHOW_VIEW_PRIV("Show_view_priv", 9, "Privilege for show create view");
 
     public static Privilege[] privileges = {
             NODE_PRIV,
@@ -41,7 +42,8 @@ public enum Privilege {
             ALTER_PRIV,
             CREATE_PRIV,
             DROP_PRIV,
-            USAGE_PRIV
+            USAGE_PRIV,
+            SHOW_VIEW_PRIV
     };
 
     // only GRANT_PRIV and USAGE_PRIV can grant on resource
@@ -52,7 +54,8 @@ public enum Privilege {
             LOAD_PRIV,
             ALTER_PRIV,
             CREATE_PRIV,
-            DROP_PRIV
+            DROP_PRIV,
+            SHOW_VIEW_PRIV
     };
 
     // only GRANT_PRIV and USAGE_PRIV can grant on workloadGroup
@@ -63,7 +66,8 @@ public enum Privilege {
             LOAD_PRIV,
             ALTER_PRIV,
             CREATE_PRIV,
-            DROP_PRIV
+            DROP_PRIV,
+            SHOW_VIEW_PRIV
     };
 
     public static Map<Privilege, String> privInDorisToMysql =
@@ -74,6 +78,7 @@ public enum Privilege {
                     .put(CREATE_PRIV, "CREATE")
                     .put(DROP_PRIV, "DROP")
                     .put(USAGE_PRIV, "USAGE")
+                    .put(SHOW_VIEW_PRIV, "SHOW VIEW")
                     .build();
 
     private String name;

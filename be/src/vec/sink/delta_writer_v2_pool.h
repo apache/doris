@@ -54,8 +54,9 @@
 namespace doris {
 
 class DeltaWriterV2;
+class RuntimeProfile;
 
-namespace stream_load {
+namespace vectorized {
 
 class DeltaWriterV2Map {
 public:
@@ -66,10 +67,11 @@ public:
     void grab() { ++_use_cnt; }
 
     // get or create delta writer for the given tablet, memory is managed by DeltaWriterV2Map
-    DeltaWriterV2* get_or_create(int64_t tablet_id, std::function<DeltaWriterV2*()> creator);
+    DeltaWriterV2* get_or_create(int64_t tablet_id,
+                                 std::function<std::unique_ptr<DeltaWriterV2>()> creator);
 
     // close all delta writers in this DeltaWriterV2Map if there is no other users
-    Status close();
+    Status close(RuntimeProfile* profile);
 
     // cancel all delta writers in this DeltaWriterV2Map
     void cancel(Status status);
@@ -107,5 +109,5 @@ private:
     std::unordered_map<UniqueId, std::weak_ptr<DeltaWriterV2Map>> _pool;
 };
 
-} // namespace stream_load
+} // namespace vectorized
 } // namespace doris

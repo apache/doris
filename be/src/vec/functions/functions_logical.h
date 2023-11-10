@@ -120,7 +120,7 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override;
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override;
+                        size_t result, size_t input_rows_count) const override;
 };
 
 template <template <typename> class Impl, typename Name>
@@ -136,7 +136,7 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override;
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override;
+                        size_t result, size_t input_rows_count) const override;
 };
 
 } // namespace FunctionsLogicalDetail

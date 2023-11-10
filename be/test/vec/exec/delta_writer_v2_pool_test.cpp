@@ -20,9 +20,7 @@
 
 #include "olap/delta_writer_v2.h"
 
-namespace doris {
-
-namespace stream_load {
+namespace doris::vectorized {
 
 class DeltaWriterV2PoolTest : public testing::Test {
 public:
@@ -58,24 +56,9 @@ TEST_F(DeltaWriterV2PoolTest, test_map) {
     auto map = pool.get_or_create(load_id);
     EXPECT_EQ(1, pool.size());
     WriteRequest req;
-    auto writer = map->get_or_create(100, [&req]() {
-        RuntimeProfile profile("test");
-        DeltaWriterV2* writer;
-        DeltaWriterV2::open(&req, {}, &writer, &profile);
-        return writer;
-    });
-    auto writer2 = map->get_or_create(101, [&req]() {
-        RuntimeProfile profile("test");
-        DeltaWriterV2* writer;
-        DeltaWriterV2::open(&req, {}, &writer, &profile);
-        return writer;
-    });
-    auto writer3 = map->get_or_create(100, [&req]() {
-        RuntimeProfile profile("test");
-        DeltaWriterV2* writer;
-        DeltaWriterV2::open(&req, {}, &writer, &profile);
-        return writer;
-    });
+    auto writer = map->get_or_create(100, [&req]() { return DeltaWriterV2::open(&req, {}); });
+    auto writer2 = map->get_or_create(101, [&req]() { return DeltaWriterV2::open(&req, {}); });
+    auto writer3 = map->get_or_create(100, [&req]() { return DeltaWriterV2::open(&req, {}); });
     EXPECT_EQ(2, map->size());
     EXPECT_EQ(writer, writer3);
     EXPECT_NE(writer, writer2);
@@ -83,5 +66,4 @@ TEST_F(DeltaWriterV2PoolTest, test_map) {
     EXPECT_EQ(0, pool.size());
 }
 
-} // namespace stream_load
-} // namespace doris
+} // namespace doris::vectorized

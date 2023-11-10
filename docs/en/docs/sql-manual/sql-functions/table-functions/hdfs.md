@@ -51,7 +51,7 @@ hdfs(
 
 Related parameters for accessing hdfs:
 
-- `uri`: (required) hdfs uri.
+- `uri`: (required) hdfs uri. If the uri path does not exist or the files are empty files, hdfs tvf will return an empty result set.
 - `fs.defaultFS`: (required)
 - `hadoop.username`: (required) Can be any string, but cannot be empty.
 - `hadoop.security.authentication`: (optional)

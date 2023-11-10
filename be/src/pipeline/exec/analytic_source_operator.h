@@ -59,8 +59,6 @@ public:
 
     Status output_current_block(vectorized::Block* block);
 
-    void release_mem();
-
     bool init_next_partition(vectorized::BlockRowPos found_partition_end);
 
 private:
@@ -116,8 +114,8 @@ private:
 
 class AnalyticSourceOperatorX final : public OperatorX<AnalyticLocalState> {
 public:
-    AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    Dependency* wait_for_dependency(RuntimeState* state) override;
+    AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                            const DescriptorTbl& descs);
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;

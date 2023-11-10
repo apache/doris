@@ -29,7 +29,6 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "gutil/integral_types.h"
 #include "olap/hll.h"
@@ -90,6 +89,8 @@ Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
     }
     set_output_object_data(state->return_object_data_as_binary());
     _is_dry_run = state->query_options().dry_run_query;
+    _enable_faster_float_convert = state->enable_faster_float_convert();
+
     return Status::OK();
 }
 
@@ -126,6 +127,7 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
     {
         SCOPED_TIMER(_convert_tuple_timer);
         MysqlRowBuffer<is_binary_format> row_buffer;
+        row_buffer.set_faster_float_convert(_enable_faster_float_convert);
         if constexpr (is_binary_format) {
             row_buffer.start_binary_row(_output_vexpr_ctxs.size());
         }
@@ -139,7 +141,23 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         std::vector<Arguments> arguments;
         for (int i = 0; i < _output_vexpr_ctxs.size(); ++i) {
             const auto& [column_ptr, col_const] = unpack_if_const(block.get_by_position(i).column);
-            auto serde = block.get_by_position(i).type->get_serde();
+            int scale = _output_vexpr_ctxs[i]->root()->type().scale;
+            // decimalv2 scale and precision is hard code, so we should get real scale and precision
+            // from expr
+            DataTypeSerDeSPtr serde;
+            if (_output_vexpr_ctxs[i]->root()->type().is_decimal_v2_type()) {
+                if (_output_vexpr_ctxs[i]->root()->is_nullable()) {
+                    auto nested_serde =
+                            std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128>>(scale,
+                                                                                           27);
+                    serde = std::make_shared<DataTypeNullableSerDe>(nested_serde);
+                } else {
+                    serde = std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128>>(scale,
+                                                                                           27);
+                }
+            } else {
+                serde = block.get_by_position(i).type->get_serde();
+            }
             serde->set_return_object_as_string(output_object_data());
             arguments.emplace_back(column_ptr.get(), col_const, serde);
         }
@@ -187,7 +205,7 @@ bool VMysqlResultWriter<is_binary_format>::can_sink() {
 }
 
 template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::close() {
+Status VMysqlResultWriter<is_binary_format>::close(Status) {
     COUNTER_SET(_sent_rows_counter, _written_rows);
     COUNTER_UPDATE(_bytes_sent_counter, _bytes_sent);
     return Status::OK();

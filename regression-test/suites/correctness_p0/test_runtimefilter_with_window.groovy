@@ -16,7 +16,8 @@
  // under the License.
 
 suite("test_runtimefilter_with_window") {
- sql """ set enable_nereids_planner=false"""
+ sql """ set enable_nereids_planner=true"""
+ sql """ set disable_join_reorder=true"""
  sql """ DROP TABLE IF EXISTS `test_runtimefilter_with_window_table1` """
  sql """ DROP TABLE IF EXISTS `test_runtimefilter_with_window_table2` """
  sql """
@@ -82,9 +83,42 @@ suite("test_runtimefilter_with_window") {
                 on      a.channel_param = b.param; """)
         contains "runtime filters"
     }
-    
- sql """ DROP TABLE IF EXISTS `test_runtimefilter_with_window_table1` """
- sql """ DROP TABLE IF EXISTS `test_runtimefilter_with_window_table2` """
 
+ sql """ set enable_nereids_planner=false"""
+ sql """ set disable_join_reorder=true"""
+ sql """ set enable_runtime_filter_prune=false"""
+ log.info("======origin planner1=================")
+ explain {
+        sql("""select  a.phone
+                        ,a.channel_param
+                        ,a.createtime
+                        ,rn
+                        ,if(rn = 1,1,0) as liuzi_status
+                from    (
+                            select a.phone,a.channel_param,a.createtime
+                            ,row_number() over(partition by phone order by createtime asc) as rn
+                            from test_runtimefilter_with_window_table2 a
+                        ) a join    (
+                            select  param
+                            from    test_runtimefilter_with_window_table1
+                        ) b
+                on      a.channel_param = b.param; """)
+        notContains "runtime filters"
+    }
+log.info("======origin planner2=================")
+  explain {
+        sql("""select  a.phone
+                        ,a.channel_param
+                        ,a.createtime
+                from    (
+                            select a.phone,a.channel_param,a.createtime
+                            from test_runtimefilter_with_window_table2 a
+                        ) a join    (
+                            select  param
+                            from    test_runtimefilter_with_window_table1
+                        ) b
+                on      a.channel_param = b.param; """)
+        contains "runtime filters"
+    }
 }
 

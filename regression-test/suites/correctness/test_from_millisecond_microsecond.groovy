@@ -60,12 +60,12 @@ suite("test_from_millisecond_microsecond") {
         microseconds_add(cast(from_unixtime(t/1000000) as datetime(6)), cast((t % 1000000) as int)) as t2 
         from millimicro order by id;
     """ 
-
+    // 32536771199 is max valid timestamp for from_unixtime
     qt_select3 """
         select 
-        FROM_UNIXTIME(2147483647),from_second(2147483647),
-        FROM_UNIXTIME(2147483647 + 1),from_second(2147483647 + 1),
-        FROM_UNIXTIME(21474836470),from_second(21474836470);
+        from_unixtime(32536771199),     from_second(32536771199),
+        from_unixtime(32536771199 + 1), from_second(32536771199 + 1),
+        from_unixtime(21474836470),     from_second(21474836470);
     """ 
 
     qt_select4 """

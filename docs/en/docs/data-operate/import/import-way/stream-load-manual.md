@@ -182,6 +182,14 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
   Stream load import can enable two-stage transaction commit mode: in the stream load process, the data is written and the information is returned to the user. At this time, the data is invisible and the transaction status is `PRECOMMITTED`. After the user manually triggers the commit operation, the data is visible.
 
++ enclose
+  
+  When the csv data field contains row delimiters or column delimiters, to prevent accidental truncation, single-byte characters can be specified as brackets for protection. For example, the column separator is ",", the bracket is "'", and the data is "a,'b,c'", then "b,c" will be parsed as a field.
+
++ escape
+
+  Used to escape characters that appear in a csv field identical to the enclosing characters. For example, if the data is "a,'b,'c'", enclose is "'", and you want "b,'c to be parsed as a field, you need to specify a single-byte escape character, such as "\", and then modify the data to "a,' b,\'c'".
+
   Example：
 
     1. Initiate a stream load pre-commit operation
@@ -209,6 +217,7 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
     2. Trigger the commit operation on the transaction.
     Note 1) requesting to fe and be both works
     Note 2) `{table}` in url can be omit when commit
+  using txn id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
@@ -216,14 +225,31 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
       "msg": "transaction [18036] commit successfully."
   }
   ```
+  using label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] commit successfully."
+  }
+  ```
     3. Trigger an abort operation on a transaction
     Note 1) requesting to fe and be both works
     Note 2) `{table}` in url can be omit when abort
+  using txn id
   ```shell
   curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
   {
       "status": "Success",
       "msg": "transaction [18037] abort successfully."
+  }
+  ```
+  using label
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "label:55c8ffc9-1c40-4d51-b75e-f2265b3602ef" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/{table}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "label [55c8ffc9-1c40-4d51-b75e-f2265b3602ef] abort successfully."
   }
   ```
 

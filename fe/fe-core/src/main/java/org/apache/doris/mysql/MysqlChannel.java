@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 
@@ -99,7 +100,8 @@ public class MysqlChannel {
         this.conn = connection;
         if (connection.getPeerAddress() instanceof InetSocketAddress) {
             InetSocketAddress address = (InetSocketAddress) connection.getPeerAddress();
-            remoteHostPortString = address.getHostString() + ":" + address.getPort();
+            remoteHostPortString = NetUtils
+                    .getHostPortInAccessibleFormat(address.getHostString(), address.getPort());
             remoteIp = address.getAddress().getHostAddress();
         } else {
             // Reach here, what's it?

@@ -382,4 +382,77 @@ suite("test_inlineview_with_project") {
     sql """
         drop table if exists cir2824_table;
     """
+
+    sql """
+        drop table if exists dws_mf_wms_t1;
+    """
+
+    sql """
+        drop table if exists dws_mf_wms_t2;
+    """
+
+    sql """
+        drop table if exists dws_mf_wms_t3;
+    """
+
+    sql """
+        CREATE TABLE `dws_mf_wms_t1` (
+        `id` varchar(20) NOT NULL COMMENT '',
+        `final_weight` double NULL COMMENT ''
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        COMMENT ''
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        CREATE TABLE `dws_mf_wms_t2` (
+        `plate_id` varchar(32) NULL COMMENT '',
+        `entry_time` datetime NULL COMMENT ''
+        ) ENGINE=OLAP
+        UNIQUE KEY(`plate_id`)
+        COMMENT ''
+        DISTRIBUTED BY HASH(`plate_id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        CREATE TABLE `dws_mf_wms_t3` (
+        `material_id` varchar(50) NULL,
+        `out_time` datetime NULL COMMENT ''
+        ) ENGINE=OLAP
+        UNIQUE KEY(`material_id`)
+        COMMENT ' '
+        DISTRIBUTED BY HASH(`material_id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """insert into dws_mf_wms_t1 values( '1', 1.0);"""
+    sql """insert into dws_mf_wms_t2 values( '1', '2020-02-02 22:22:22');"""
+    sql """insert into dws_mf_wms_t3 values( '1', '2020-02-02 22:22:22');"""
+
+    qt_select4 """select cur_final_weight from (
+                    SELECT
+                        round(`t1`.`final_weight` / 1000 , 2) AS `cur_final_weight`,
+                        coalesce(`t5`.`avg_inv_hours`, 0) AS `avg_inv_hours`,
+                        coalesce(`t5`.`max_inv_hours`, 0) AS `max_inv_hours`
+                    FROM
+                        `dws_mf_wms_t1` t1
+                    LEFT OUTER JOIN (
+                        SELECT
+                            round(avg(timestampdiff(SECOND, `t1`.`entry_time`, `t2`.`out_time`)) / 3600.0, 1) AS `avg_inv_hours`,
+                            round(max(timestampdiff(SECOND, `t1`.`entry_time`, `t2`.`out_time`)) / 3600.0, 1) AS `max_inv_hours`
+                        FROM
+                            `dws_mf_wms_t2` t1
+                        LEFT OUTER JOIN `dws_mf_wms_t3` t2 ON
+                            `t1`.`plate_id` = `t2`.`material_id`) t5 ON
+                        1 = 1
+                        )res;"""
 }

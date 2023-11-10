@@ -93,7 +93,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         DCHECK(arguments.size() % 2 == 0)
                 << "function: " << get_name() << ", arguments should not be even number";
 
@@ -146,7 +146,7 @@ public:
     }
 };
 
-template <bool is_key>
+template <bool is_key, bool OldVersion = false>
 class FunctionMapContains : public IFunction {
 public:
     static constexpr auto name = is_key ? "map_contains_key" : "map_contains_value";
@@ -170,11 +170,20 @@ public:
         }
         DCHECK(is_map(datatype)) << "first argument for function: " << name
                                  << " should be DataTypeMap";
-        return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
+
+        if constexpr (OldVersion) {
+            return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
+        } else {
+            if (arguments[0]->is_nullable()) {
+                return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
+            } else {
+                return std::make_shared<DataTypeNumber<UInt8>>();
+            }
+        }
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         // backup original argument 0
         auto orig_arg0 = block.get_by_position(arguments[0]);
         auto left_column =
@@ -269,7 +278,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnMap* map_column = nullptr;

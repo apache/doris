@@ -50,17 +50,18 @@ CREATE CATALOG es PROPERTIES (
 
 ### 参数说明
 
-参数 | 是否必须 | 默认值 | 说明                                                                     
---- | --- | --- |------------------------------------------------------------------------
-`hosts` | 是 | | ES 地址，可以是一个或多个，也可以是 ES 的负载均衡地址                                         |
-`user` | 否 |  空 | ES 用户名                                                                 |
-`password` | 否 | 空 | 对应用户的密码信息                                                              |
-`doc_value_scan` | 否 | true | 是否开启通过 ES/Lucene 列式存储获取查询字段的值                                          |
-`keyword_sniff` | 否 | true | 是否对 ES 中字符串分词类型 text.fields 进行探测，通过 keyword 进行查询。设置为 false 会按照分词后的内容匹配 |
-`nodes_discovery` | 否 | true | 是否开启 ES 节点发现，默认为 true，在网络隔离环境下设置为 false，只连接指定节点                        |
-`ssl` | 否 | false | ES 是否开启 https 访问模式，目前在 fe/be 实现方式为信任所有                                 |
-`mapping_es_id` | 否 | false | 是否映射 ES 索引中的 `_id` 字段                                                  |
-`like_push_down` | 否 | true  | 是否将 like 转化为 wildchard 下推到 ES，会增加 ES cpu 消耗                            |
+| 参数                     | 是否必须 | 默认值   | 说明                                                                     |
+|------------------------|------|-------|------------------------------------------------------------------------|
+| `hosts`                | 是    |       | ES 地址，可以是一个或多个，也可以是 ES 的负载均衡地址                                         |
+| `user`                 | 否    | 空     | ES 用户名                                                                 |
+| `password`             | 否    | 空     | 对应用户的密码信息                                                              |
+| `doc_value_scan`       | 否    | true  | 是否开启通过 ES/Lucene 列式存储获取查询字段的值                                          |
+| `keyword_sniff`        | 否    | true  | 是否对 ES 中字符串分词类型 text.fields 进行探测，通过 keyword 进行查询。设置为 false 会按照分词后的内容匹配 |
+| `nodes_discovery`      | 否    | true  | 是否开启 ES 节点发现，默认为 true，在网络隔离环境下设置为 false，只连接指定节点                        |
+| `ssl`                  | 否    | false | ES 是否开启 https 访问模式，目前在 fe/be 实现方式为信任所有                                 |
+| `mapping_es_id`        | 否    | false | 是否映射 ES 索引中的 `_id` 字段                                                  |
+| `like_push_down`       | 否    | true  | 是否将 like 转化为 wildchard 下推到 ES，会增加 ES cpu 消耗                            |
+| `include_hidden_index` | 否    | false | 是否包含隐藏的索引，默认为false。                                                    |
 
 > 1. 认证方式目前仅支持 Http Basic 认证，并且需要确保该用户有访问: `/_cluster/state/、_nodes/http` 等路径和 index 的读权限; 集群未开启安全认证，用户名和密码不需要设置。
 > 

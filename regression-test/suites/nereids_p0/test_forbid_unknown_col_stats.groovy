@@ -49,5 +49,7 @@ suite("test_forbid_unknown_col_stats") {
         exception "tables with unknown column stats: OlapScanNode{tid=0, tblName=test_forbid_unknown_col_stats_tbl, keyRanges=, preds= limit=-1}"
     }
 
+    sql "select count() from __internal_schema.column_statistics"
+    sql "select count() from information_schema.views"
     
 }

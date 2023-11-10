@@ -25,6 +25,8 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.nereids.util.StandardDateFormat;
 
+import com.google.common.base.Preconditions;
+
 import java.time.LocalDateTime;
 
 /**
@@ -38,6 +40,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     public DateTimeV2Literal(DateTimeV2Type dateType, String s) {
         super(dateType, s);
+        roundMicroSecond(dateType.getScale());
     }
 
     public DateTimeV2Literal(long year, long month, long day, long hour, long minute, long second) {
@@ -48,9 +51,30 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         super(DateTimeV2Type.SYSTEM_DEFAULT, year, month, day, hour, minute, second, microSecond);
     }
 
-    public DateTimeV2Literal(DateTimeV2Type dataType,
+    public DateTimeV2Literal(DateTimeV2Type dateType,
             long year, long month, long day, long hour, long minute, long second, long microSecond) {
-        super(dataType, year, month, day, hour, minute, second, microSecond);
+        super(dateType, year, month, day, hour, minute, second, microSecond);
+        roundMicroSecond(dateType.getScale());
+    }
+
+    private void roundMicroSecond(int scale) {
+        Preconditions.checkArgument(scale >= 0 && scale <= DateTimeV2Type.MAX_SCALE,
+                "invalid datetime v2 scale: %s", scale);
+        double factor = Math.pow(10, 6 - scale);
+
+        this.microSecond = Math.round(this.microSecond / factor) * (int) factor;
+
+        if (this.microSecond >= 1000000) {
+            LocalDateTime localDateTime = DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND,
+                            getStringValue()).plusSeconds(1);
+            this.year = localDateTime.getYear();
+            this.month = localDateTime.getMonthValue();
+            this.day = localDateTime.getDayOfMonth();
+            this.hour = localDateTime.getHour();
+            this.minute = localDateTime.getMinute();
+            this.second = localDateTime.getSecond();
+            this.microSecond -= 1000000;
+        }
     }
 
     @Override
@@ -94,6 +118,13 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return fromJavaDateType(
                 DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
                         .plusMonths(months), getDataType().getScale());
+    }
+
+    @Override
+    public Expression plusWeeks(long weeks) {
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND, getStringValue())
+                        .plusWeeks(weeks), getDataType().getScale());
     }
 
     @Override
@@ -163,11 +194,8 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     public DateTimeV2Literal roundFloor(int newScale) {
-        long newMicroSecond = Double.valueOf(
-                microSecond / (int) (Math.pow(10, 6 - newScale)) * (Math.pow(10, 6 - newScale)))
-                .longValue();
-        return new DateTimeV2Literal(DateTimeV2Type.of(newScale), year, month, day, hour, minute,
-                second, newMicroSecond);
+        // use roundMicroSecond in constructor
+        return new DateTimeV2Literal(DateTimeV2Type.of(newScale), year, month, day, hour, minute, second, microSecond);
     }
 
     public static Expression fromJavaDateType(LocalDateTime dateTime) {

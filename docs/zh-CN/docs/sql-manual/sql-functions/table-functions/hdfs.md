@@ -53,7 +53,7 @@ hdfs(
 **参数说明**
 
 访问hdfs相关参数：
-- `uri`：（必填） 访问hdfs的uri。
+- `uri`：（必填） 访问hdfs的uri。如果uri路径不存在或文件都是空文件，hdfs tvf将返回空集合。
 - `fs.defaultFS`：（必填）
 - `hadoop.username`： （必填）可以是任意字符串，但不能为空
 - `hadoop.security.authentication`：（选填）

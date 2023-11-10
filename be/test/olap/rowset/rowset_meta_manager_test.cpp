@@ -85,8 +85,8 @@ public:
 
     virtual void TearDown() {
         SAFE_DELETE(_meta);
-        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         SAFE_DELETE(k_engine);
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         EXPECT_TRUE(std::filesystem::remove_all("./meta"));
         LOG(INFO) << "TearDown";
     }

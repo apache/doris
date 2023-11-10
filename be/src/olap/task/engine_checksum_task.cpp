@@ -78,7 +78,7 @@ Status EngineChecksumTask::_compute_checksum() {
         std::shared_lock rdlock(tablet->get_header_lock());
         Status acquire_reader_st = tablet->capture_consistent_rowsets(version, &input_rowsets);
         if (!acquire_reader_st.ok()) {
-            LOG(WARNING) << "fail to captute consistent rowsets. tablet=" << tablet->full_name()
+            LOG(WARNING) << "fail to captute consistent rowsets. tablet=" << tablet->tablet_id()
                          << "res=" << acquire_reader_st;
             return acquire_reader_st;
         }

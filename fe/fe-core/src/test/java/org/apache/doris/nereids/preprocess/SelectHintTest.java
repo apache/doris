@@ -30,10 +30,25 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TUniqueId;
 
 import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 public class SelectHintTest {
+
+    @BeforeAll
+    public static void init() {
+        ConnectContext ctx = new ConnectContext();
+        new MockUp<ConnectContext>() {
+            @Mock
+            public ConnectContext get() {
+                return ctx;
+            }
+        };
+    }
+
     @Test
     public void testFallbackToOriginalPlanner() throws Exception {
         String sql = " SELECT /*+ SET_VAR(enable_nereids_planner=\"false\") */ 1";

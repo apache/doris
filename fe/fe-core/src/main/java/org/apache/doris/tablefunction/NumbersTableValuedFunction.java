@@ -41,20 +41,16 @@ import java.util.Map;
 // have a single column number
 
 /**
- * The Implement of table valued function——numbers("number" = "N", "backend_num" = "M").
+ * The Implement of table valued function——numbers("number" = "N").
  */
 public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
     public static final String NAME = "numbers";
     public static final String NUMBER = "number";
-    public static final String BACKEND_NUM = "backend_num";
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(NUMBER)
-            .add(BACKEND_NUM)
             .build();
     // The total numbers will be generated.
     private long totalNumbers;
-    // The total backends will server it.
-    private int tabletsNum;
 
     /**
      * Constructor.
@@ -70,11 +66,6 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
             validParams.put(key.toLowerCase(), params.get(key));
         }
 
-        try {
-            tabletsNum = Integer.parseInt(validParams.getOrDefault(BACKEND_NUM, "1"));
-        } catch (NumberFormatException e) {
-            throw new AnalysisException("can not parse `backend_num` param to natural number");
-        }
         String numberStr = validParams.get(NUMBER);
         if (!Strings.isNullOrEmpty(numberStr)) {
             try {
@@ -90,10 +81,6 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
 
     public long getTotalNumbers() {
         return totalNumbers;
-    }
-
-    public int getTabletsNum() {
-        return tabletsNum;
     }
 
     @Override
@@ -124,17 +111,16 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
         if (backendList.isEmpty()) {
             throw new AnalysisException("No Alive backends");
         }
+
         Collections.shuffle(backendList);
         List<TableValuedFunctionTask> res = Lists.newArrayList();
-        for (int i = 0; i < tabletsNum; ++i) {
-            TScanRange scanRange = new TScanRange();
-            TDataGenScanRange dataGenScanRange = new TDataGenScanRange();
-            TTVFNumbersScanRange tvfNumbersScanRange = new TTVFNumbersScanRange();
-            tvfNumbersScanRange.setTotalNumbers(totalNumbers);
-            dataGenScanRange.setNumbersParams(tvfNumbersScanRange);
-            scanRange.setDataGenScanRange(dataGenScanRange);
-            res.add(new TableValuedFunctionTask(backendList.get(i % backendList.size()), scanRange));
-        }
+        TScanRange scanRange = new TScanRange();
+        TDataGenScanRange dataGenScanRange = new TDataGenScanRange();
+        TTVFNumbersScanRange tvfNumbersScanRange = new TTVFNumbersScanRange();
+        tvfNumbersScanRange.setTotalNumbers(totalNumbers);
+        dataGenScanRange.setNumbersParams(tvfNumbersScanRange);
+        scanRange.setDataGenScanRange(dataGenScanRange);
+        res.add(new TableValuedFunctionTask(backendList.get(0), scanRange));
         return res;
     }
 }
