@@ -409,18 +409,17 @@ private:
             if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                           JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN) {
                 // `(!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)` means not match one build side
-
-                if constexpr (with_other_conjuncts) {
-                    if (!build_idx) {
+                if (!build_idx) {
+                    if constexpr (with_other_conjuncts) {
                         probe_idxs[matched_cnt] = probe_idx;
                         build_idxs[matched_cnt] = 0;
                         matched_cnt++;
-                    }
-                } else {
-                    if (!build_idx && (!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx)) {
-                        probe_idxs[matched_cnt] = probe_idx;
-                        build_idxs[matched_cnt] = 0;
-                        matched_cnt++;
+                    } else {
+                        if (!matched_cnt || probe_idxs[matched_cnt - 1] != probe_idx) {
+                            probe_idxs[matched_cnt] = probe_idx;
+                            build_idxs[matched_cnt] = 0;
+                            matched_cnt++;
+                        }
                     }
                 }
             }

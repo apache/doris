@@ -103,6 +103,7 @@ private:
     bool _ready_probe = false;
     bool _probe_eos = false;
     std::atomic<bool> _probe_inited = false;
+    size_t _last_probe_match;
 
     vectorized::Block _probe_block;
     vectorized::ColumnRawPtrs _probe_columns;

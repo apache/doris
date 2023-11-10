@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
+#include <climits>
 #include <functional>
 #include <map>
 #include <memory>
@@ -73,6 +74,8 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+
+constexpr uint32_t JOIN_BUILD_SIZE_LIMIT = std::numeric_limits<uint32_t>::max();
 
 template Status HashJoinNode::_extract_join_column<true>(
         Block&, COW<IColumn>::mutable_ptr<ColumnVector<unsigned char>>&,
@@ -297,6 +300,7 @@ bool HashJoinNode::need_more_input_data() const {
 void HashJoinNode::prepare_for_next() {
     _probe_index = 0;
     _ready_probe = false;
+    _last_probe_match = size_t(1) + JOIN_BUILD_SIZE_LIMIT;
     _prepare_probe_block();
 }
 
@@ -732,11 +736,11 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                         *(in_block->create_same_struct_block(1, false))));
             }
             RETURN_IF_ERROR(_build_side_mutable_block.merge(*in_block));
-            if (_build_side_mutable_block.rows() > std::numeric_limits<uint32_t>::max()) {
+            if (_build_side_mutable_block.rows() > JOIN_BUILD_SIZE_LIMIT) {
                 return Status::NotSupported(
                         "Hash join do not support build table rows"
                         " over:" +
-                        std::to_string(std::numeric_limits<uint32_t>::max()));
+                        std::to_string(JOIN_BUILD_SIZE_LIMIT));
             }
         }
     }

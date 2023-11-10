@@ -59,7 +59,7 @@ public:
     // test_element/find_element only used on vectorized engine
     template <typename T>
     bool test_element(T element) const {
-        if constexpr (std::is_same_v<T, Slice>) {
+        if constexpr (std::is_same_v<T, StringRef>) {
             return _bloom_filter->find(element);
         } else {
             return _bloom_filter->find(HashUtil::fixed_len_to_uint32(element));
@@ -68,7 +68,7 @@ public:
 
     template <typename T>
     void add_element(T element) {
-        if constexpr (std::is_same_v<T, Slice>) {
+        if constexpr (std::is_same_v<T, StringRef>) {
             _bloom_filter->insert(element);
         } else {
             _bloom_filter->insert(HashUtil::fixed_len_to_uint32(element));

@@ -242,7 +242,6 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         auto* __restrict null_map_data = null_map_column->get_data().data();
         // process equal-conjuncts-matched tuples that are newly generated
         // in this run if there are any.
-        int last_probe_match = -1;
         for (int i = 0; i < row_count; ++i) {
             bool join_hit = _build_indexs[i];
             bool other_hit = filter_column_ptr[i];
@@ -250,12 +249,12 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
             null_map_data[i] = !join_hit || !other_hit;
 
             if (!join_hit) {
-                filter_map[i] = last_probe_match != _probe_indexs[i];
+                filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
             } else {
                 filter_map[i] = other_hit;
             }
             if (filter_map[i]) {
-                last_probe_match = _probe_indexs[i];
+                _parent->_last_probe_match = _probe_indexs[i];
             }
         }
 

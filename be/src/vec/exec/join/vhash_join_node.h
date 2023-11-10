@@ -382,6 +382,7 @@ private:
     uint32_t _build_index = 0;
     bool _ready_probe = false;
     bool _probe_eos = false;
+    size_t _last_probe_match;
 
     bool _build_side_ignore_null = false;
 
