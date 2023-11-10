@@ -120,7 +120,6 @@ public class DiskRebalancer extends Rebalancer {
     @Override
     protected List<TabletSchedCtx> selectAlternativeTabletsForCluster(
             LoadStatisticForTag clusterStat, TStorageMedium medium) {
-        LOG.info("dx test enter selectAlternativeTabletsForCluster");
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
 
         // get classification of backends
@@ -186,17 +185,7 @@ public class DiskRebalancer extends Rebalancer {
             Set<Long> pathHigh = Sets.newHashSet();
             // we only select tablets from available high load path
             beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, medium);
-            LOG.info("dx test select before low={} mid={} high={} medium={}", pathLow, pathMid, pathHigh, medium);
             // check if BE has low and high paths for balance after reclassification
-            pathHigh.add(-2606726262674133323L);
-            pathHigh.add(384536254535458899L);
-            pathHigh.add(528047762753362128L);
-            pathLow.add(1252949013258184268L);
-            pathMid.remove(384536254535458899L);
-            pathMid.remove(528047762753362128L);
-            pathMid.remove(-2606726262674133323L);
-            pathMid.remove(1252949013258184268L);
-            LOG.info("dx test select after low={} mid={} high={} medium={}", pathLow, pathMid, pathHigh, medium);
             if (!checkAndReclassifyPaths(pathLow, pathMid, pathHigh)) {
                 continue;
             }
@@ -284,7 +273,6 @@ public class DiskRebalancer extends Rebalancer {
                     medium, alternativeTablets.size(),
                     alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
         }
-        LOG.info("dx test out selectAlternativeTabletsForCluster, alternativeTablets={}", alternativeTablets);
         return alternativeTablets;
     }
 
@@ -296,7 +284,6 @@ public class DiskRebalancer extends Rebalancer {
      */
     @Override
     public void completeSchedCtx(TabletSchedCtx tabletCtx) throws SchedException {
-        LOG.info("dx test enter completeSchedCtx");
         LoadStatisticForTag clusterStat = statisticMap.get(tabletCtx.getTag());
         if (clusterStat == null) {
             throw new SchedException(Status.UNRECOVERABLE,
@@ -353,18 +340,6 @@ public class DiskRebalancer extends Rebalancer {
         Set<Long> pathMid = Sets.newHashSet();
         Set<Long> pathHigh = Sets.newHashSet();
         beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, tabletCtx.getStorageMedium());
-        LOG.info("dx test complete before low={} mid={} high={} medium={}",
-                pathLow, pathMid, pathHigh, tabletCtx.getStorageMedium());
-        pathHigh.add(-2606726262674133323L);
-        pathHigh.add(384536254535458899L);
-        pathHigh.add(528047762753362128L);
-        pathLow.add(1252949013258184268L);
-        pathMid.remove(384536254535458899L);
-        pathMid.remove(528047762753362128L);
-        pathMid.remove(-2606726262674133323L);
-        pathMid.remove(1252949013258184268L);
-        LOG.info("dx test complete after low={} mid={} high={} medium={}",
-                pathLow, pathMid, pathHigh, tabletCtx.getStorageMedium());
         if (pathHigh.contains(replica.getPathHash())) {
             pathLow.addAll(pathMid);
         } else if (!pathMid.contains(replica.getPathHash())) {
@@ -407,6 +382,5 @@ public class DiskRebalancer extends Rebalancer {
         if (!setDest) {
             throw new SchedException(Status.UNRECOVERABLE, "unable to find low load path");
         }
-        LOG.info("dx test out completeSchedCtx");
     }
 }
