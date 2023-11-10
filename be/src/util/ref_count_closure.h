@@ -85,7 +85,6 @@ public:
 
     //  Will delete itself
     void Run() override {
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         Defer defer {[&]() { delete this; }};
         // If lock failed, it means the callback object is deconstructed, then no need
         // to deal with the callback any more.
