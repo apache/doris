@@ -1559,6 +1559,10 @@ public class Env {
 
         MetricRepo.init();
 
+        if (analysisManager != null) {
+            analysisManager.getStatisticsCache().preHeat();
+        }
+
         // stop mtmv scheduler
         mtmvJobManager.stop();
     }
