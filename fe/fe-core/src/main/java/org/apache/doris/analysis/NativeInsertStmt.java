@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
@@ -248,21 +249,8 @@ public class NativeInsertStmt extends InsertStmt {
             OlapTable olapTable = (OlapTable) table;
             tblName.setDb(olapTable.getDatabase().getFullName());
             tblName.setTbl(olapTable.getName());
-            if (olapTable.getDeleteSignColumn() != null) {
-                List<Column> columns = Lists.newArrayList(olapTable.getBaseSchema(false));
-                // The same order as GroupCommitTableValuedFunction#getTableColumns
-                // delete sign col
-                columns.add(olapTable.getDeleteSignColumn());
-                // version col
-                Column versionColumn = olapTable.getFullSchema().stream().filter(Column::isVersionColumn).findFirst()
-                        .orElse(null);
-                if (versionColumn != null) {
-                    columns.add(versionColumn);
-                }
-                // sequence col
-                if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() == null) {
-                    columns.add(olapTable.getSequenceCol());
-                }
+            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+                List<Column> columns = Lists.newArrayList(olapTable.getBaseSchema(true));
                 targetColumnNames = columns.stream().map(c -> c.getName()).collect(Collectors.toList());
             }
         }
