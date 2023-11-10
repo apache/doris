@@ -703,7 +703,7 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             _stub->tablet_writer_add_block(
                     send_block_closure->cntl_.get(), send_block_closure->request_.get(),
                     send_block_closure->response_.get(), send_block_closure.get());
-            send_block_closure.release()
+            send_block_closure.release();
         }
     }
 
