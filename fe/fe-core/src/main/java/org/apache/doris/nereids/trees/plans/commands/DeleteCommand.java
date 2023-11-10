@@ -103,7 +103,7 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
                 selectLists.add(new UnboundSlot(tableName, targetTable.getSequenceMapCol()));
             } else if (column.isKey()) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
-            } else if ((!isMow && !column.isVisible()) || (!column.isAllowNull() && !column.hasDefaultValue())) {
+            } else if (!isMow && !column.isVisible()) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
             } else {
                 continue;
